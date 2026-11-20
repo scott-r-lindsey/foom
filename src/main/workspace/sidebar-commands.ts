@@ -673,7 +673,7 @@ export async function sidebarCommand(
           entry.repository,
           entry.worktree,
           identity,
-          async (branch, changes, automatic) =>
+          async (branch, changes, automatic, fileCount) =>
             automatic === true ||
             (await this.deps.dialog?.(
               {
@@ -682,7 +682,13 @@ export async function sidebarCommand(
                 accept: changes ? "Discard changes and remove" : "Remove worktree",
                 removal: {
                   group: `review-close-${command.id}`,
-                  item: { id: command.id, branch, path: entry.worktree, changes },
+                  item: {
+                    id: command.id,
+                    branch,
+                    path: entry.worktree,
+                    changes,
+                    ...(fileCount !== undefined ? { fileCount } : {}),
+                  },
                 },
               },
               closeSignal ?? new AbortController().signal,

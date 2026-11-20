@@ -1,14 +1,17 @@
 import type { DataViews, DataViewApi } from "../../../../src/shared/data-views";
 // @vitest-environment jsdom
 import { useState } from "react";
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { renderWithErrors as render } from "../../../fixtures/render-with-errors";
 import { AgentsScopes } from "../../../../src/renderer/preflight/agents-scopes";
 import type { HostRow, HostsAction, HostsState } from "../../../../src/shared/registered-hosts.d";
 import type { Settings, SettingsPatch } from "../../../../src/shared/setup";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
-import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
+import type {
+  HostTerminalAction,
+  SetupSource,
+} from "../../../../src/renderer/preflight/setup-source.d";
 import { installation, report, setupState } from "../../../fixtures/setup";
 
 vi.mock("../../../../src/renderer/preflight/host-terminal", () => ({
@@ -326,6 +329,11 @@ test("reports failed reads and actions without discarding cached cards; pending 
   fireEvent.click(screen.getByRole("button", { name: "Re-check Build" }));
   await screen.findByText("Unable to check agent settings");
   fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+  f.api.mockResolvedValueOnce({ hosts: [], locations: [], preflightSaveFailed: true });
+  fireEvent.click(screen.getByRole("button", { name: "Re-check Build" }));
+  await screen.findByText("Unable to check agent settings");
+  expect(screen.getByRole("region", { name: "Codex" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
   f.api.mockResolvedValueOnce({ hosts: [], locations: [], recipeFailure: "recipe-unavailable" });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await screen.findByText("Recipe unavailable for this host");
@@ -479,6 +487,40 @@ test("a fresh list cannot recreate a removed machine from an older settings snap
   expect(screen.queryByRole("button", { name: "Re-check Build" })).toBeNull();
   expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
 });
+
+test.each([
+  ["install-plugin", "agy", "Antigravity", "Install plugin"],
+  ["sign-in", "codex", "Codex", "Sign in"],
+] as const)(
+  "the %s terminal attaches inside its machine agent card",
+  async (operation, tool, name, action) => {
+    const f = fixture("host:worker");
+    const recipe: HostTerminalAction = { action: "recipe", host: "worker", tool, operation };
+    f.source.installs = {
+      sessions: () => new Map([["worker", "inline"]]),
+      hostActions: () => new Map([["inline", recipe]]),
+      hasSessions: () => true,
+      running: () => Promise.resolve(true),
+      close: () => Promise.resolve(),
+      dispose: () => {},
+    };
+    f.source.hostTerminal = {
+      createView: () => {
+        throw new Error("Mocked terminal");
+      },
+      observe: () => () => {},
+    };
+    render(<f.View />);
+    const card = await screen.findByRole("region", { name });
+    const finish = within(card).getByRole("button", { name: "Finish install inline" });
+    const start = within(card).getByRole("button", { name: action });
+    expect(start).toHaveProperty("disabled", true);
+    fireEvent.click(finish);
+    await waitFor(() => {
+      expect(start).toHaveProperty("disabled", false);
+    });
+  },
+);
 
 test.each([false, true])(
   "selected machine retains its Settings install and refreshes after exit (failure %s)",

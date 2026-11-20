@@ -74,16 +74,8 @@ function CopyPath({ value, pathId }: { value: string; pathId: string }) {
     />
   );
 }
-function Changes({
-  value,
-  omitted = 0,
-  prefix = "change",
-}: {
-  value: string;
-  omitted?: number | undefined;
-  prefix?: string;
-}) {
-  const records = value.split("\0").filter(Boolean);
+function parseChanges(value: string) {
+  const records = value.split("\0");
   const items = [];
   for (let index = 0; index < records.length; index++) {
     const record = records[index];
@@ -110,14 +102,27 @@ function Changes({
       index,
       path: record.slice(3),
       label,
-      old: renamed ? records[++index] : undefined,
+      old: renamed ? records[++index] || undefined : undefined,
     });
   }
+  return items;
+}
+function ChangeList({
+  items,
+  omitted = 0,
+  prefix = "change",
+  fileCount,
+}: {
+  items: ReturnType<typeof parseChanges>;
+  omitted?: number | undefined;
+  prefix?: string | undefined;
+  fileCount?: number | undefined;
+}) {
   return (
-    <Section label="Discarded" count={items.length + omitted}>
+    <Section label="Discarded" count={fileCount ?? items.length + omitted}>
       <ul className="well" aria-label="Uncommitted changes">
         {items.map((item) => (
-          <li className="row change" key={item.path}>
+          <li className="row change" key={`${String(item.index)}:${item.path}`}>
             <span className="chip">{item.label}</span>
             <span className="name">
               <CopyPath value={item.path} pathId={`${prefix}:${String(item.index)}`} />
@@ -130,8 +135,108 @@ function Changes({
           </li>
         ))}
       </ul>
-      {omitted > 0 && <p className="sub">{omitted} more paths</p>}
+      {omitted > 0 && (
+        <p className="sub">
+          {fileCount === undefined
+            ? `${String(omitted)} more paths`
+            : `and ${String(omitted)} more`}
+        </p>
+      )}
     </Section>
+  );
+}
+function Changes({
+  value,
+  omitted,
+  prefix,
+}: {
+  value: string;
+  omitted?: number | undefined;
+  prefix?: string;
+}) {
+  return <ChangeList items={parseChanges(value)} omitted={omitted} prefix={prefix} />;
+}
+
+function visibleInQueue(element: Element | null | undefined): boolean {
+  const viewport = element?.closest(".approval-scroll");
+  if (!element || !viewport) return false;
+  const bounds = viewport.getBoundingClientRect();
+  const content = element.getBoundingClientRect();
+  return (
+    content.height > 0 &&
+    content.top >= bounds.top &&
+    content.bottom <= bounds.bottom &&
+    content.left >= bounds.left &&
+    content.right <= bounds.right
+  );
+}
+
+type RemovalDecision = (event: React.MouseEvent<HTMLButtonElement>, accepted: boolean) => void;
+
+function RemovalActions({
+  id,
+  disabled,
+  accept,
+  decide,
+  discard,
+}: {
+  id: string;
+  disabled: boolean;
+  accept: string;
+  decide: RemovalDecision;
+  discard?: { label: string; summary: React.ReactNode };
+}) {
+  const summaryRef = useRef<HTMLParagraphElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [visible, setVisible] = useState(false);
+  const dirty = discard !== undefined;
+  useLayoutEffect(() => {
+    if (!dirty) return;
+    const summary = summaryRef.current;
+    const button = buttonRef.current;
+    const viewport = button?.closest(".approval-scroll");
+    if (!summary || !button || !viewport) return;
+    const update = () => {
+      setVisible(visibleInQueue(summary) && visibleInQueue(button));
+    };
+    const observer = new IntersectionObserver(update, { root: viewport, threshold: 1 });
+    observer.observe(summary);
+    observer.observe(button);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [dirty]);
+  return (
+    <footer className={dirty ? "approval-discard-actions" : undefined}>
+      {discard && <p ref={summaryRef}>{discard.summary}</p>}
+      <button
+        type="button"
+        disabled={disabled}
+        data-approval-decision={id}
+        onClick={(event) => {
+          decide(event, false);
+        }}
+      >
+        Decline
+      </button>
+      <button
+        type="button"
+        ref={buttonRef}
+        disabled={disabled || (dirty && !visible)}
+        className="confirmation-accept"
+        aria-label={discard ? undefined : `Approve · ${accept}`}
+        data-approval-decision={id}
+        data-approval-discard={discard ? "" : undefined}
+        onClick={(event) => {
+          if (!dirty || (visibleInQueue(summaryRef.current) && visibleInQueue(event.currentTarget)))
+            decide(event, true);
+        }}
+      >
+        {discard?.label ?? "Approve"}
+      </button>
+    </footer>
   );
 }
 function Worktrees({
@@ -194,14 +299,19 @@ function Worktrees({
 export function ConfirmationPage() {
   const [request, setRequest] = useState<DialogRequest | null>(null);
   const [updatedAt, setUpdatedAt] = useState(Date.now);
-  useEffect(
-    () =>
-      window.confirmation.render((value) => {
-        setUpdatedAt(Date.now());
-        setRequest(value);
-      }),
-    [],
-  );
+  useEffect(() => {
+    // The hidden page has no text before its first request. Start loading the
+    // default faces before the presentation guard starts. The card still waits
+    // for the fonts used by the request before reporting its size.
+    void Promise.allSettled([
+      document.fonts.load('400 13px "Geist"'),
+      document.fonts.load('400 12px "Geist Mono"'),
+    ]);
+    return window.confirmation.render((value) => {
+      setUpdatedAt(Date.now());
+      setRequest(value);
+    });
+  }, []);
   return request?.approvals ? (
     <ApprovalQueue request={request} updatedAt={updatedAt} />
   ) : (
@@ -213,11 +323,13 @@ export function ConfirmationCard({
   embedded = false,
   updatedAt = 0,
   canDecide,
+  removal,
 }: {
   request: DialogRequest | null;
   embedded?: boolean;
   updatedAt?: number;
   canDecide?: () => boolean;
+  removal?: { origin: string; repeats: number } | undefined;
 }) {
   const cardRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -387,6 +499,82 @@ export function ConfirmationCard({
       accepted && request.removals ? request.removals.map((item) => item.id) : accepted,
     );
   };
+  const decide = (event: React.MouseEvent<HTMLButtonElement>, accepted: boolean) => {
+    if (event.isTrusted && (canDecide?.() ?? true)) answer(accepted);
+  };
+  const copyPath = (pathId: string) => window.confirmation.copyPath(request.id, pathId);
+  if (removal && request.worktreePath && request.changes !== undefined) {
+    const discardCount = request.discardCount;
+    const changes = request.changes || discardCount ? parseChanges(request.changes) : undefined;
+    const files =
+      discardCount === undefined
+        ? "files"
+        : `${String(discardCount)} ${discardCount === 1 ? "file" : "files"}`;
+    const summary = (
+      <>
+        {changes ? <strong className="approval-discard-warning">Discards {files}</strong> : "Clean"}{" "}
+        · keeps branch · {removal.origin}
+        {request.facts?.map((fact) => (
+          <span key={fact.label}>
+            {" "}
+            · {fact.label} {fact.value}
+          </span>
+        ))}
+        {removal.repeats > 1 && <span> · Repeated {removal.repeats} times · one decision</span>}
+      </>
+    );
+    return (
+      <CopyPathContext value={copyPath}>
+        <section
+          ref={cardRef}
+          className="approval-removal"
+          role="group"
+          aria-labelledby={`confirmation-title-${request.id}`}
+        >
+          <div className="approval-removal-summary">
+            <header className="dlg-head">
+              <h1 id={`confirmation-title-${request.id}`} aria-label={request.worktreePath}>
+                <CopyPath value={request.worktreePath} pathId="worktree" />
+              </h1>
+              {!changes && <p>{summary}</p>}
+            </header>
+            {!changes && (
+              <RemovalActions
+                id={request.id}
+                accept={request.accept}
+                disabled={disabled}
+                decide={decide}
+              />
+            )}
+          </div>
+          {changes && (
+            <div
+              className="approval-file-review"
+              role="region"
+              aria-label="Review files to discard"
+              tabIndex={0}
+            >
+              <ChangeList
+                items={changes}
+                fileCount={discardCount}
+                omitted={request.omittedChanges}
+              />
+            </div>
+          )}
+          {request.detail && <p className="prose">{request.detail}</p>}
+          {changes && (
+            <RemovalActions
+              id={request.id}
+              accept={request.accept}
+              disabled={disabled || !discardCount}
+              decide={decide}
+              discard={{ label: `Discard ${files} and remove`, summary }}
+            />
+          )}
+        </section>
+      </CopyPathContext>
+    );
+  }
   const content = (
     <main
       onKeyDown={(event) => {
@@ -767,7 +955,7 @@ export function ConfirmationCard({
             disabled={(embedded && !request.presented) || plugin?.phase === "running"}
             data-approval-decision={embedded ? request.id : undefined}
             onClick={(event) => {
-              if (event.isTrusted && (canDecide?.() ?? true)) answer(false);
+              decide(event, false);
             }}
           >
             {plugin
@@ -813,7 +1001,7 @@ export function ConfirmationCard({
               aria-label={embedded ? `Approve · ${request.accept}` : undefined}
               data-approval-decision={embedded ? request.id : undefined}
               onClick={(event) => {
-                if (event.isTrusted && (canDecide?.() ?? true)) answer(true);
+                decide(event, true);
               }}
             >
               {running
@@ -833,13 +1021,16 @@ export function ConfirmationCard({
       </section>
     </main>
   );
-  return (
-    <CopyPathContext value={(pathId) => window.confirmation.copyPath(request.id, pathId)}>
-      {content}
-    </CopyPathContext>
-  );
+  return <CopyPathContext value={copyPath}>{content}</CopyPathContext>;
 }
 const noApprovals: readonly ApprovalRow[] = [];
+function isRemoval(row: ApprovalRow): boolean {
+  return (
+    row.kind === "Worktree removal" &&
+    row.request.worktreePath !== undefined &&
+    row.request.changes !== undefined
+  );
+}
 export function ApprovalQueue({
   request,
   updatedAt,
@@ -849,8 +1040,19 @@ export function ApprovalQueue({
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState<readonly string[]>([]);
   const rows = request.approvals ?? noApprovals;
+  // Individual controls re-arm on scroll. Bulk acts from its own stationary control.
+  const clean = new Set(
+    rows
+      .filter(
+        (row) =>
+          isRemoval(row) &&
+          row.request.presented &&
+          row.request.changes === "" &&
+          !row.request.discardCount,
+      )
+      .map((row) => row.request.id),
+  );
   const hideRef = useRef<HTMLButtonElement>(null);
   const [geometry] = useState(() => new ApprovalGeometry());
   const [blocked, setBlocked] = useState<readonly string[]>([]);
@@ -967,29 +1169,11 @@ export function ApprovalQueue({
       window.removeEventListener("blur", clearGesture);
     };
   }, []);
-  const onScreen = useCallback(() => {
-    const viewport = scrollRef.current?.getBoundingClientRect();
-    if (!viewport) return [];
-    return rows
-      .filter((row) => {
-        const item = document.getElementById(`approval-${row.request.id}`)?.getBoundingClientRect();
-        return (
-          row.kind === "Worktree removal" &&
-          row.request.presented &&
-          ready(row.request.id) &&
-          item &&
-          item.top >= viewport.top &&
-          item.bottom <= viewport.bottom
-        );
-      })
-      .map((row) => row.request.id);
-  }, [rows, ready]);
   useEffect(() => {
     const element = rootRef.current;
     const content = scrollRef.current;
     if (!element || !content) return;
     const update = () => {
-      setVisible(onScreen());
       window.confirmation.size({
         width: 750,
         height: Math.min(
@@ -1006,7 +1190,6 @@ export function ApprovalQueue({
     const observer = new ResizeObserver(update);
     observer.observe(element);
     observer.observe(content);
-    content.addEventListener("scroll", update);
     content.addEventListener("toggle", update, true);
     let alive = true;
     void document.fonts.ready.then(() => {
@@ -1015,10 +1198,9 @@ export function ApprovalQueue({
     return () => {
       alive = false;
       observer.disconnect();
-      content.removeEventListener("scroll", update);
       content.removeEventListener("toggle", update, true);
     };
-  }, [onScreen, blocked, slots]);
+  }, [request.theme, slots]);
   return (
     <main
       className="approval-queue"
@@ -1051,19 +1233,15 @@ export function ApprovalQueue({
         </button>
       </header>
       <div className="approval-bulk">
-        <div>
-          <strong>Worktree removals</strong>
-          <p>Only fully visible, ready rows. Other kinds need individual approval.</p>
-        </div>
         <button
           type="button"
           data-approval-decision="bulk"
           // Preserve a held keyboard gesture while a native resize re-arms the guard.
           // Both renderer and main still refuse decisions during this disabled interval.
-          aria-disabled={!visible.length || blocked.includes("bulk")}
+          aria-disabled={!clean.size || blocked.includes("bulk")}
           onPointerDown={(event) => {
             gestureRef.current =
-              event.isTrusted && event.button === 0 && ready("bulk") ? onScreen() : [];
+              event.isTrusted && event.button === 0 && ready("bulk") ? [...clean] : [];
           }}
           onKeyDown={(event) => {
             if (event.key !== "Enter" && event.key !== " ") return;
@@ -1071,7 +1249,7 @@ export function ApprovalQueue({
               event.preventDefault();
               return;
             }
-            gestureRef.current = event.isTrusted && ready("bulk") ? onScreen() : [];
+            gestureRef.current = event.isTrusted && ready("bulk") ? [...clean] : [];
           }}
           onPointerCancel={() => {
             gestureRef.current = [];
@@ -1083,12 +1261,11 @@ export function ApprovalQueue({
             const captured = gestureRef.current;
             gestureRef.current = [];
             if (!event.isTrusted || !ready("bulk")) return;
-            const valid = onScreen();
-            const ids = captured.filter((id) => valid.includes(id));
+            const ids = captured.filter((id) => clean.has(id));
             if (ids.length) window.confirmation.answer(request.id, ids);
           }}
         >
-          Approve all visible removals ({visible.length})
+          Approve all clean removals ({clean.size})
         </button>
       </div>
       <div
@@ -1098,13 +1275,22 @@ export function ApprovalQueue({
         role="region"
         aria-label="Pending approvals"
       >
-        {slots.map(({ id, row, height }) =>
-          row ? (
-            <article className="approval-row" id={`approval-${id}`} key={id}>
-              <div className="approval-origin">
-                <span>{row.origin}</span>
-                <span className="chip">{row.kind}</span>
+        {slots.map(({ id, row, height }) => {
+          if (!row)
+            return (
+              <div className="approval-placeholder" key={id} style={{ height }} role="status">
+                Request ended
               </div>
+            );
+          const removal = isRemoval(row);
+          return (
+            <article className="approval-row" id={`approval-${id}`} key={id}>
+              {!removal && (
+                <div className="approval-origin">
+                  <span>{row.origin}</span>
+                  <span className="chip">{row.kind}</span>
+                </div>
+              )}
               <ConfirmationCard
                 request={{
                   ...row.request,
@@ -1113,21 +1299,20 @@ export function ApprovalQueue({
                 }}
                 embedded
                 canDecide={() => ready(id)}
+                removal={removal ? row : undefined}
               />
-              <p className="approval-status">
-                {!row.request.presented || blocked.includes(id)
-                  ? "Buttons ready shortly"
-                  : row.repeats > 1
-                    ? `Repeated ${String(row.repeats)} times · one decision`
-                    : "Awaiting your decision"}
-              </p>
+              {!removal && (
+                <p className="approval-status">
+                  {!row.request.presented || blocked.includes(id)
+                    ? "Buttons ready shortly"
+                    : row.repeats > 1
+                      ? `Repeated ${String(row.repeats)} times · one decision`
+                      : "Awaiting your decision"}
+                </p>
+              )}
             </article>
-          ) : (
-            <div className="approval-placeholder" key={id} style={{ height }} role="status">
-              Request ended
-            </div>
-          ),
-        )}
+          );
+        })}
       </div>
       <footer>New requests join the end. Hide keeps every request pending.</footer>
     </main>

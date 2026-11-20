@@ -1,6 +1,3 @@
-vi.mock("../../../src/node-common/repository-setup-run", () => ({
-  runRepositorySetup: vi.fn(() => Promise.resolve(0)),
-}));
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { run } from "../../../src/cli/cli";
@@ -67,36 +64,5 @@ it("internal Settings installer rejects missing or unknown selectors without a n
   } finally {
     process.argv = argv;
     process.exitCode = exitCode;
-  }
-});
-
-it("Settings setup helper requires its marker and exact argv", async () => {
-  const { runRepositorySetup } = await import("../../../src/node-common/repository-setup-run");
-  const argv = process.argv;
-  const exitCode = process.exitCode;
-  vi.stubGlobal("FOOM_VERSION", "fixture");
-  const error = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-  try {
-    for (const args of [["--repository-setup"], ["--repository-setup", "{}", "/fixture/prefix"]]) {
-      vi.stubEnv("FOOM_SETTINGS_INSTALL", "");
-      vi.resetModules();
-      process.argv = ["foom", "foom", ...args];
-      await import("../../../src/cli/main");
-      await Promise.resolve();
-      expect(process.exitCode).toBe(2);
-    }
-    vi.stubEnv("FOOM_SETTINGS_INSTALL", "1");
-    vi.resetModules();
-    process.argv = ["foom", "foom", "--repository-setup", "{}", "/fixture/prefix"];
-    await import("../../../src/cli/main");
-    await Promise.resolve();
-    expect(runRepositorySetup).toHaveBeenCalledWith("{}", "/fixture/prefix", process.env);
-    expect(process.exitCode).toBe(0);
-  } finally {
-    error.mockRestore();
-    process.argv = argv;
-    process.exitCode = exitCode;
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
   }
 });

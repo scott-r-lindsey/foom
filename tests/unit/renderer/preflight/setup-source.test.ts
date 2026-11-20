@@ -55,6 +55,12 @@ test("preflight reaches main only through the setup bridge", async () => {
   await expect(source.scanAgents(true)).resolves.toBe("scan");
   await expect(source.repositories()).resolves.toEqual([repository]);
   expect(desktop.saveSetup).toHaveBeenCalledWith({ hooks: false });
+  const digest = "a".repeat(64);
+  await expect(source.save({ interfaceTheme: "user:custom.json" }, digest)).resolves.toBe("saved");
+  expect(desktop.saveSetup).toHaveBeenLastCalledWith(
+    { interfaceTheme: "user:custom.json" },
+    digest,
+  );
   expect(desktop.scanAgents).toHaveBeenCalledWith(true);
   await expect(source.scanAgents(true, "claude")).resolves.toBe("scan");
   expect(desktop.scanAgents).toHaveBeenLastCalledWith(true, "claude");
@@ -165,7 +171,7 @@ test("recipe exit events win over earlier workspace reads", async () => {
   expect(off).toHaveBeenCalledOnce();
 });
 
-test("Settings tracks only its installs, waits for launch and disposes running or exited sessions", async () => {
+test("Settings waits for its own host actions and disposes running or exited sessions", async () => {
   let resolve = (_value: { hosts: []; locations: []; recipeSession: string }) => {};
   const hosts = vi.fn(
     () =>
@@ -198,15 +204,58 @@ test("Settings tracks only its installs, waits for launch and disposes running o
   await installs.close();
   expect(kill).toHaveBeenCalledExactlyOnceWith("install");
   expect(installs.hasSessions()).toBe(false);
-  const signIn = source.hosts({
-    action: "recipe",
+  const trust = {
+    action: "trust-origin",
     host: "cloud",
-    tool: "codex",
-    operation: "sign-in",
+    repository: "/repo",
+    endpoint: { host: "forge.test", protocol: "ssh", port: null },
+  } as const;
+  const trusting = source.hosts(trust);
+  resolve({ hosts: [], locations: [], recipeSession: "trust" });
+  await trusting;
+  expect(installs.sessions().size).toBe(0);
+  expect(installs.hostActions?.().get("trust")).toEqual(trust);
+  await installs.close();
+  expect(installs.hostActions?.().get("trust")).toBeUndefined();
+});
+
+test("origin trust metadata disappears on exit or successful Stop and survives a failed Stop", async () => {
+  let exit = (_id: string, _code: number) => {};
+  const hosts = vi
+    .fn()
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "exits" })
+    .mockResolvedValueOnce({ hosts: [], locations: [], recipeSession: "stopped" });
+  const close = vi
+    .fn((_id: string) => Promise.resolve())
+    .mockRejectedValueOnce(new Error("Stop failed"));
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      hosts,
+      onExit: (listener: typeof exit) => {
+        exit = listener;
+        return () => {};
+      },
+    },
   });
-  resolve({ hosts: [], locations: [], recipeSession: "sign-in" });
-  await signIn;
-  expect(installs.hasSessions()).toBe(false);
+  const source = createSetupSource(undefined, close);
+  const trust = {
+    action: "trust-origin",
+    host: "cloud",
+    repository: "/repo",
+    endpoint: { host: "forge.test", protocol: "ssh", port: null },
+  } as const;
+  if (!source.hosts || !source.hostTerminal?.stop || !source.installs?.hostActions)
+    throw new Error("Missing Settings repair owner");
+  await source.hosts(trust);
+  exit("exits", 1);
+  expect(source.installs.hostActions().has("exits")).toBe(false);
+  await source.hosts(trust);
+  await expect(source.hostTerminal.stop("stopped")).rejects.toThrow("Stop failed");
+  expect(source.installs.hostActions().get("stopped")).toEqual(trust);
+  await source.hostTerminal.stop("stopped");
+  expect(source.installs.hostActions().size).toBe(0);
+  expect(source.installs.sessions().size).toBe(0);
 });
 
 test("Settings close waits for pending installs, refuses a new install while closing and retries failures", async () => {
@@ -386,37 +435,4 @@ test("gh embedded recipes retain sign-in metadata across section changes and sha
   await source.hosts?.({ action: "recipe", host: "cloud", tool: "gh", operation: "sign-in" });
   expect(source.githubSignInSessions?.()).toEqual(new Map([["gh-device", false]]));
   await source.installs?.close();
-});
-
-test("repository setup forwards only explicit actions and opens an ordinary default agent", async () => {
-  const desktop = {
-    setupState: vi.fn<() => Promise<{ settings: { defaultAgent: string | null } }>>(() =>
-      Promise.resolve({ settings: { defaultAgent: "claude" } }),
-    ),
-    sidebarCommand: vi.fn(() => Promise.resolve()),
-    repositorySetup: vi.fn(() => Promise.resolve({ rows: [] })),
-    onRepositorySetupRefused: vi.fn(() => () => {}),
-    onExit: vi.fn(() => () => {}),
-    workspace: vi.fn(() => Promise.resolve({ terminals: [] })),
-    kill: vi.fn(() => Promise.resolve()),
-  };
-  Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
-  const source = createSetupSource();
-  await source.repositorySetup?.({ action: "list" });
-  await source.repositorySetup?.({ action: "run", token: "a".repeat(32) });
-  expect(desktop.repositorySetup).toHaveBeenCalledTimes(2);
-  await source.draftSetupAgent?.("/repo");
-  expect(desktop.sidebarCommand).toHaveBeenCalledExactlyOnceWith({
-    kind: "repository-launch",
-    repository: "/repo",
-    host: null,
-    run: "claude",
-  });
-  desktop.setupState.mockResolvedValueOnce({ settings: { defaultAgent: null } });
-  await expect(source.draftSetupAgent?.("/repo")).rejects.toThrow("Choose a default agent");
-  const off = source.onRepositorySetupRefused?.(vi.fn());
-  off?.();
-  await source.hostTerminal?.stop?.("human-setup");
-  expect(desktop.kill).toHaveBeenCalledWith("human-setup");
-  source.installs?.dispose();
 });

@@ -1,4 +1,3 @@
-import { setupRun, setupAdmission } from "./repository-setup";
 import { hostPressure } from "./host-pressure";
 import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
@@ -41,10 +40,8 @@ function hello(value: object): boolean {
     (!("startupTheme" in value) || value.startupTheme === 1) &&
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("agentSettings" in value) || value.agentSettings === 1) &&
+    (!("codexApprovalCheck" in value) || value.codexApprovalCheck === 1) &&
     (!("hostRowCheck" in value) || value.hostRowCheck === 1) &&
-    (!("repositorySetup" in value) ||
-      (typeof value["repositorySetup"] === "string" &&
-        /^[a-f0-9]{64}$/u.test(value["repositorySetup"]))) &&
     (!("hostCheckConnection" in value) || value.hostCheckConnection === 1) &&
     (!("hostPreflight" in value) || value.hostPreflight === 1) &&
     (!("childPressure" in value) || value.childPressure === 1) &&
@@ -133,7 +130,8 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
       value["call"] > 0 &&
       remoteControlResult(value["result"])
     );
-  if (value["type"] === "agent-open")
+  if (value["type"] === "agent-open") {
+    const { spec, ...open } = value;
     return (
       record(value) &&
       keys(value, [
@@ -148,26 +146,29 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
         "dark",
         "theme",
       ]) &&
-      remoteAgentSpec(value["spec"]) &&
-      remoteRequest({ ...value, type: "open", reattach: false })
+      remoteAgentSpec(spec) &&
+      remoteRequest({ ...open, type: "open", reattach: false })
     );
+  }
   if (value["type"] === "open")
     return (
-      (value["repositorySetup"] === undefined ||
-        (setupRun(value["repositorySetup"]) &&
-          value["human"] === true &&
-          value["reattach"] === false &&
-          value["recipe"] === undefined &&
-          value["trustOrigin"] === undefined &&
-          value["machine"] === undefined &&
-          value["checkout"] === undefined &&
-          value["context"] === undefined)) &&
-      (value["setupAdmission"] === undefined ||
-        (setupAdmission(value["setupAdmission"]) &&
-          value["human"] === true &&
-          value["repositorySetup"] === undefined &&
-          value["recipe"] === undefined &&
-          value["trustOrigin"] === undefined)) &&
+      keys(value, [
+        "type",
+        "id",
+        "request",
+        "cols",
+        "rows",
+        "profile",
+        "context",
+        "dark",
+        "theme",
+        "reattach",
+        "human",
+        "machine",
+        "trustOrigin",
+        "recipe",
+        "checkout",
+      ]) &&
       (value["trustOrigin"] === undefined ||
         (originSshArgs(value["trustOrigin"]) !== undefined &&
           value["human"] === true &&

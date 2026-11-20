@@ -8,6 +8,7 @@ const {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   writeFile,
   rename,
   rm,
@@ -29,8 +30,22 @@ const {
   assertAccessible,
 } = require("./harness.js");
 
-async function captureHosts(app, page, name) {
-  const area = page.locator(".hosts-page:visible, .repository-hosts:visible").first();
+async function selectTheme(page, mode) {
+  await page.evaluate(
+    (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+    mode,
+  );
+  await expect
+    .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+    .toBe(mode === "dark");
+}
+
+async function captureHosts(
+  app,
+  page,
+  name,
+  area = page.locator(".hosts-page:visible, .repository-hosts:visible").first(),
+) {
   if (!(await area.count())) return;
   const original = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   const height = await area.evaluate(
@@ -51,16 +66,10 @@ async function captureHosts(app, page, name) {
   try {
     if (resizeForCapture) await resize({ ...original, height });
     for (const mode of ["light", "dark"]) {
-      await page.evaluate(
-        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
-        mode,
-      );
-      await expect
-        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-        .toBe(mode === "dark");
+      await selectTheme(page, mode);
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1261|1262|1263|1264)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -77,11 +86,20 @@ async function assertHostColumns(card) {
   assert.ok(Math.max(...starts) - Math.min(...starts) < 1, JSON.stringify(starts));
 }
 
+async function settleFixtureSidebar(app) {
+  await app.evaluate(async ({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    await load("./build/main/workspace/workspace.js").settleFixtureSidebar();
+  });
+}
+
 async function hostsFixture(
   context,
   captureEnrollment = false,
   initialScenario = {},
-  { trackSidebar = false } = {},
+  { trackSidebar = false, failFirstChecklistSave = false, setupAgent = false } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "hosts-settings-"));
   removeAfterApps(context, root);
@@ -92,6 +110,37 @@ async function hostsFixture(
   const recipeCalls = path.join(root, "recipes.jsonl");
   const scenario = path.join(root, "scenario.json");
   await writeFile(scenario, JSON.stringify(initialScenario));
+  const setupArguments = path.join(root, "setup-arguments.json");
+  if (setupAgent) {
+    for (const [agent, version, help] of [
+      ["claude", "2.1.285 (Claude Code)", "--settings"],
+      ["codex", "codex-cli 0.155.1", "-c --no-alt-screen"],
+    ]) {
+      await writeFile(
+        path.join(bin, agent),
+        `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args.includes('--version')) process.stdout.write(${JSON.stringify(version + "\n")});
+else if (args.includes('--help')) process.stdout.write(${JSON.stringify(help + "\n")});
+else {
+  fs.writeFileSync(${JSON.stringify(setupArguments)}, JSON.stringify({ agent: ${JSON.stringify(agent)}, args }));
+  process.stdout.write('LOCAL_SETUP_AGENT_READY\\r\\n');
+  let asked = false;
+  const timer = setInterval(() => {
+    const scenario = JSON.parse(fs.readFileSync(${JSON.stringify(scenario)}, 'utf8'));
+    if (scenario.askSetup && !asked) {
+      asked = true;
+      process.stdout.write('\\x1b]2;Action Required | codex\\x07Approval requested\\r\\n');
+    }
+    if (scenario.finishSetup) clearInterval(timer);
+  }, 20);
+}
+`,
+        { mode: 0o700 },
+      );
+    }
+  }
   const overflowInfo = path.join(root, "diagnostic-overflow.json");
   const knownHosts = path.join(root, "known_hosts");
   await writeFile(knownHosts, "");
@@ -136,7 +185,7 @@ async function hostsFixture(
     path.join(bin, "ssh"),
     `#!${process.execPath}
 const assert = require('node:assert/strict');
-const { appendFileSync } = require('node:fs');
+const { appendFileSync, renameSync, writeFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 const clientError = (text) => { const index = args.indexOf('-E'); if (index >= 0) appendFileSync(args[index + 1], text); else process.stderr.write(text); };
 const current = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
@@ -151,8 +200,17 @@ if (args.includes('BatchMode=no')) {
  if(helper.status===0 && helper.stdout==='yes\\n') require('node:fs').writeFileSync(${JSON.stringify(knownHosts)},'fixture-cloud fixture-key\\n');
  process.exit(255);
 }
-if (current.sshFailure === 'changed') { clientError('@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\\nHost key verification failed.\\n'); process.exit(255); }
-if (current.sshFailure && !require('node:fs').readFileSync(${JSON.stringify(knownHosts)},'utf8')) { clientError('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(255); }
+// An active fixture master bypasses a changed key unless the probe disables multiplexing.
+const reusingMaster = current.controlMasterActive && !args.includes('ControlPath=none');
+if (current.sshFailure === 'changed' && !reusingMaster) {
+ const changedKey = () => { clientError('@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\\nHost key verification failed.\\n'); process.exit(255); };
+ if(current.holdChangedKey) {
+  setInterval(() => { if(!JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')).holdChangedKey) changedKey(); },20);
+  return;
+ }
+ changedKey();
+}
+if (current.sshFailure === 'unknown' && !require('node:fs').readFileSync(${JSON.stringify(knownHosts)},'utf8')) { clientError('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(255); }
 if (current.loginRejected) { clientError('user@fixture-cloud: Permission denied (publickey).\\n'); process.exit(255); }
 for (const flag of ['BatchMode=yes','ClearAllForwardings=yes','ForwardAgent=no','ForwardX11=no','ConnectTimeout=10']) assert.ok(args.includes(flag));
 const split = args.indexOf('--'); const host = args[split+1];
@@ -170,13 +228,17 @@ if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')
 if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')) && current.remoteHostKeyExit) { process.stderr.write('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(current.remoteHostKeyExit); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 // Standalone fixed libc preflight has no daemon protocol handshake.
-if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY') && !args.at(-1).includes('FOOM-PROBED')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
+if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY') && !args.at(-1).includes('FOOM-PROBED')) {
+ if (current.libcKeyChanged) { clientError('@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\\nHost key verification failed.\\n'); process.exit(255); }
+ if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); }
+ process.exit(0);
+}
 const checking=args.at(-1).includes('FOOM-PROBED');
 if(checking) for(const option of ['ControlMaster=no','ControlPath=none','ControlPersist=no']) assert.ok(args.includes(option));
 if(checking) process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}+(JSON.stringify(current).includes('musl')?'FOOM-LIBC-UNSUPPORTED':'FOOM-LIBC-OK')+'\\nFOOM-PROBED\\n');
 else process.stdout.write('FOOM-READY\\n');
 let bootstrapPending=checking;
-let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, finishTimer;
+let input=Buffer.alloc(0), terminalOutput='', recipeInput='', recipeEnded=false, trustingOrigin=false, finishTimer;
 const {spawnSync}=require('node:child_process');
 const {selectHostRecipe,recipeDigestInput}=require(${JSON.stringify(path.resolve("build/shared/registered-host-recipes.js"))});
 function frame(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); return Buffer.concat([head,data]); }
@@ -195,15 +257,18 @@ process.stdin.on('data', bytes => {
       const args=originSshArgs(message.trustOrigin);
       assert.ok(args.includes('StrictHostKeyChecking=ask'));
       assert.deepEqual(args.slice(-2),['--','git@forge.test']);
-      terminalOutput='FIXTURE_VERIFY_FINGERPRINT_AND_ANSWER_SSH\\r\\n';
+      trustingOrigin=true;
+      terminalOutput='ED25519 key fingerprint is SHA256:fixture-fingerprint.\\r\\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ';
       send({type:'open-result',id:message.id,request:message.request,state:'live'});continue;
     }
-    const recipe=selectHostRecipe(message.recipe,{distro:'debian',libc:'supported',packageManager:'apt'});
+    const setup=message.recipe.tool==='codex'?{signIn:{debian:['codex','login','--device-auth']}}:undefined;
+    const recipe=selectHostRecipe(message.recipe,{distro:'debian',libc:'supported',packageManager:'apt'},setup);
     assert.equal(message.recipe.digest,require('node:crypto').createHash('sha256').update(recipeDigestInput(recipe)).digest('hex'));
     assert.ok(recipe);
     for (const step of recipe.steps) {
       const child=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(recipeFixture)},...step],{env:{},encoding:'utf8'});
       assert.equal(child.status,0); terminalOutput=child.stdout;
+      if(message.recipe.action==='install-plugin') terminalOutput='foom-host --stage-plugin agy\\r\\nagy plugin install /fixture/staged-plugin\\r\\n';
     }
     const immediate=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
     if(immediate.githubDevice) terminalOutput='! First copy your one-time code: ABCD-1234\\r\\nOpen this URL to continue in your web browser: https://evil.test/\\r\\n';
@@ -228,6 +293,19 @@ process.stdin.on('data', bytes => {
       send({type:'exit',id:message.id,code:143});
     }
     const recipeSettings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'));
+    if(message.type==='write' && trustingOrigin && !recipeEnded) {
+      recipeInput+=message.data;
+      if(recipeInput.endsWith(String.fromCharCode(13))) {
+        recipeEnded=true;
+        assert.equal(recipeInput,'yes'+String.fromCharCode(13));
+        appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message:{type:'origin-answer',answer:'yes'}})+'\\n');
+        // The separate inspect fixture may be reading this file.
+        const nextScenario=${JSON.stringify(scenario)}+'.origin-'+process.pid;
+        writeFileSync(nextScenario,JSON.stringify({...recipeSettings,origin:undefined}));
+        renameSync(nextScenario,${JSON.stringify(scenario)});
+        send({type:'exit',id:message.id,code:1});
+      }
+    }
     if(message.type==='write' && recipeSettings.recipeInteractive && !recipeEnded) {
       recipeInput+=message.data;
       if(recipeInput.includes('fixture-password'+String.fromCharCode(13))) {
@@ -238,7 +316,23 @@ process.stdin.on('data', bytes => {
     }
     if(message.type==='attach') {
       if(!finishTimer) finishTimer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if(next.recipeExit !== undefined && !next.recipeInteractive && !recipeEnded) { recipeEnded=true;clearInterval(finishTimer);send({type:'exit',id:message.id,code:next.recipeExit}); } },20);
-      send({type:'data',id:message.id,view:message.view,token:'fixture-recipe',data:terminalOutput+(recipeSettings.recipeInteractive?'[sudo] password: ':'')});
+      const output = () => send({
+          type: 'data',
+          id: message.id,
+          view: message.view,
+          token: 'fixture-recipe',
+          data: terminalOutput + (recipeSettings.recipeInteractive ? '[sudo] password: ' : ''),
+      });
+      if (trustingOrigin && recipeSettings.deferOriginPrompt) {
+        const promptTimer = setInterval(() => {
+          const next = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)}, 'utf8'));
+          if (recipeEnded || !next.deferOriginPrompt) {
+            clearInterval(promptTimer);
+            if (!recipeEnded) output();
+          }
+        }, 20);
+        promptTimer.unref();
+      } else output();
       if(recipeSettings.recipeExit !== undefined && !recipeSettings.recipeInteractive && !recipeEnded) {recipeEnded=true;send({type:'exit',id:message.id,code:recipeSettings.recipeExit});}
     }
     send({type:'result',id:message.id,request:message.request,lines:terminalOutput.split('\\r\\n'),cols:80,rows:24,title:'Recipe'});
@@ -246,7 +340,7 @@ process.stdin.on('data', bytes => {
   }
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
   if(message.type==='hello' && current.transportFailure) { if(current.transportFailure==='protocol') process.stdout.write(Buffer.from([0,0,0,1,255])); else process.exit(1); continue; }
-  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',hostCheckConnection:settings.oldCheckConnection?undefined:1,agentSettings:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
+  if(message.type==='hello') { const settings=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); send({type:'hello',hostCheckConnection:settings.oldCheckConnection?undefined:1,agentSettings:1,codexApprovalCheck:1,...(settings.compatibleBuild?{build:'b'.repeat(64),compatible:2,startupTheme:1,hostFacts:1,hostPreflight:1,hostRowCheck:1}:{build:host==='version-cloud'?'b'.repeat(64):${JSON.stringify(manifest.sha256)}})}); continue; }
   if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   const scenario=require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8'); const settings=JSON.parse(scenario);
@@ -262,7 +356,7 @@ process.stdin.on('data', bytes => {
   }
   // Successful empty discovery must populate the same cache as a real daemon reply.
   if(result.ok && message.operation==='list-worktrees') result.inventory={own:[],other:0};
-  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
+  if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(!message.codexApprovalCheck) result.facts.agents = result.facts.agents.map(({codexApprovals, ...agent})=>agent); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(message.operation==='inspect' && message.target?.kind==='facts' && settings.factsFailure) result={ok:false,reason:settings.factsFailure};
   if(message.operation==='inspect' && !message.target && settings.inspectFailure) result={ok:false,reason:settings.inspectFailure};
   if(host==='invalid-cloud') result={ok:true,facts:{}};
@@ -276,39 +370,30 @@ process.stdin.on('data', bytes => {
 `,
     { mode: 0o700 },
   );
-  const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
-  if (trackSidebar) {
-    // Observe real work, including reads superseded by a later invalidation.
+  const app = await launchApp(context, {
+    fixture: "repository",
+    env: { PATH: bin },
+    trackSidebarReads: trackSidebar,
+  });
+  if (failFirstChecklistSave) {
     await app.evaluate(({ app }) => {
       const load = process
         .getBuiltinModule("node:module")
         .createRequire(app.getAppPath() + "/package.json");
-      const workspace = load("./build/main/workspace/workspace.js");
-      const original = workspace.Workspace.prototype.sidebarInventory;
-      const pending = new Set();
-      workspace.Workspace.prototype.sidebarInventory = function (...args) {
-        const read = original.apply(this, args);
-        pending.add(read);
-        void read.then(
-          () => pending.delete(read),
-          () => pending.delete(read),
-        );
-        return read;
-      };
-      workspace.settleFixtureSidebar = async () => {
-        while (pending.size) await Promise.allSettled([...pending]);
+      const { SettingsStore } = load("./build/main/setup/settings.js");
+      const update = SettingsStore.prototype.update;
+      SettingsStore.prototype.update = function (patch, canCommit) {
+        if (patch.registeredHosts?.some((host) => host.observation)) {
+          SettingsStore.prototype.update = update;
+          return Promise.reject(new Error("Fixture refused the first checklist write"));
+        }
+        return update.call(this, patch, canCommit);
       };
     });
   }
   const settleSidebar = async () => {
     await page.evaluate(() => window.desktop.sidebarInventory());
-    if (trackSidebar)
-      await app.evaluate(async ({ app }) => {
-        const load = process
-          .getBuiltinModule("node:module")
-          .createRequire(app.getAppPath() + "/package.json");
-        await load("./build/main/workspace/workspace.js").settleFixtureSidebar();
-      });
+    if (trackSidebar) await settleFixtureSidebar(app);
   };
 
   fixtureCleanup(context).apps.push(async () => {
@@ -353,6 +438,18 @@ process.stdin.on('data', bytes => {
       agents: { claude: true, codex: true, agy: false, copilot: false, opencode: false, pi: false },
     }),
   );
+  if (setupAgent) {
+    await page.evaluate(() => window.desktop.saveSetup({ defaultAgent: "codex", hooks: false }));
+    for (const name of ["app", "docs-site", "integration", "release-tools", "ui-library"]) {
+      const directory = path.join(root, name);
+      gitSync(["init", "-q", directory]);
+      gitSync(["remote", "add", "origin", `git@forge.test:team/${name}.git`], { cwd: directory });
+      await app.evaluate(({ dialog }, repository) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+      }, directory);
+      assert.equal((await page.evaluate(() => window.desktop.addRepository())).name, name);
+    }
+  }
   await openSettingsScreen(page);
   const navigation = page.getByRole("navigation", { name: "Settings sections" });
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
@@ -381,7 +478,7 @@ process.stdin.on('data', bytes => {
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(1);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(
-    card.locator(".host-check-row").getByText("Not checked", { exact: true }),
+    card.locator(".host-check-row").getByText("SSH · Not checked", { exact: true }),
   ).toHaveCount(1);
   if (captureEnrollment) await capture("partial-facts");
   return {
@@ -402,8 +499,256 @@ process.stdin.on('data', bytes => {
     cloneReason,
     settleSidebar,
     recipeCalls,
+    setupArguments,
   };
 }
+
+test("Hosts setup agent dialog launches locally, keeps Settings open and rechecks on exit", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, setupArguments, updateScenario, calls } = await hostsFixture(
+    context,
+    false,
+    {},
+    { setupAgent: true },
+  );
+  const action = card.getByRole("button", { name: "Set up with an agent…" });
+  const status = card.locator(".host-summary-row").getByRole("status");
+  await card.getByRole("button", { name: "Collapse fixture-cloud" }).click();
+  await expect(action).toBeVisible();
+  await expect(action).toHaveClass("primary");
+  const dialog = page.getByRole("dialog", { name: "Set up fixture-cloud with an agent" });
+  const picker = dialog.getByRole("combobox", { name: "Agent" });
+  await action.click();
+  await expect(picker).toBeFocused();
+  await expect(picker).toHaveValue("codex");
+  await expect(picker.locator("option")).toHaveText(["Claude Code", "Codex"]);
+  await expect(
+    dialog.getByRole("checkbox", { name: "Record discovered requirements" }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(action).toBeFocused();
+  await action.click();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await action.click();
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeHidden();
+
+  await action.click();
+  const repo = dialog.getByRole("checkbox", { name: "shell-fixture" });
+  const filter = dialog.getByRole("searchbox", { name: "Filter repositories" });
+  const start = dialog.getByRole("button", { name: "Start agent" });
+  await expect(start).toBeDisabled();
+  await filter.fill("no match");
+  await expect(repo).toBeHidden();
+  await filter.fill("shell");
+  await repo.check();
+  await filter.fill("no match");
+  await expect(repo).toBeVisible();
+  await expect(repo).toBeChecked();
+  await expect(dialog.getByRole("checkbox")).toHaveCount(1);
+  await expect(start).toBeEnabled();
+  await filter.press("Enter");
+  await expect(dialog).toBeVisible();
+  await expect(start).toBeEnabled();
+  await expect.poll(() => readFile(setupArguments, "utf8").catch(() => "")).toBe("");
+  await filter.clear();
+  await expect(dialog.getByRole("checkbox")).toHaveCount(6);
+  assert.ok(
+    await dialog
+      .locator(".host-setup-repositories")
+      .evaluate((list) => list.scrollHeight > list.clientHeight),
+  );
+  await picker.focus();
+  await captureHosts(app, page, "1263/setup-dialog", dialog);
+  const checkedAt = () =>
+    page.evaluate(
+      async () =>
+        (await window.desktop.hosts({ action: "progress" })).hosts[0].observation.checkedAt,
+    );
+  const before = await checkedAt();
+  const beforeCalls = await readFile(calls, "utf8");
+  await start.press("Enter");
+  await expect(dialog).toBeHidden();
+  await expect(navigation).toBeVisible();
+  await expect(status).toHaveText("Setting up · Codex");
+  await expect(action).toHaveCount(0);
+  await expect
+    .poll(() => readFile(setupArguments, "utf8").catch(() => ""))
+    .toContain("fixture-cloud");
+  const invocation = JSON.parse(await readFile(setupArguments, "utf8"));
+  assert.equal(invocation.agent, "codex");
+  const [brief] = invocation.args.filter((argument) =>
+    argument.includes("git@forge.test:team/project.git"),
+  );
+  assert.ok(brief.startsWith("Prepare the registered SSH host"));
+  assert.match(brief, /"host":"fixture-cloud","codeFolder":"\/remote\/account\/foom"/u);
+  assert.match(
+    brief,
+    /"repository":"shell-fixture","origin":"git@forge\.test:team\/project\.git"/u,
+  );
+  assert.doesNotMatch(brief, /docs-site|release-tools|ui-library/u);
+  const launchCalls = (await readFile(calls, "utf8")).slice(beforeCalls.length).trim();
+  assert.deepEqual(
+    launchCalls.split("\n").map((line) => JSON.parse(line).message),
+    [{ type: "ssh" }],
+    "Launching the local agent uses one SSH probe without remote management",
+  );
+  const request = async (extra = {}) =>
+    page.evaluate(async (extra) => {
+      const { repositories } = await window.desktop.workspace();
+      return window.desktop.hosts({
+        action: "setup-agent",
+        host: "fixture-cloud",
+        agent: "codex",
+        repositories: [repositories[0].path],
+        ...extra,
+      });
+    }, extra);
+  await assert.rejects(request(), /foom-error:operation-failed/u);
+  await assert.rejects(request({ prompt: "renderer text" }), /foom-error:operation-failed/u);
+  await card.getByRole("button", { name: "Expand fixture-cloud" }).click();
+  const show = card.getByRole("button", { name: "Show agent" });
+  await expect(show).toBeVisible();
+  await captureHosts(app, page, "1263/setup-running", card);
+
+  await show.click();
+  await expect(navigation).toBeHidden();
+  const tile = page
+    .getByRole("group", { name: "Terminal tiles" })
+    .locator('.terminal-tile[data-empty="false"]');
+  await expect(tile).toHaveCount(1);
+  await updateScenario({ askSetup: true });
+  await expect(tile.getByRole("img", { name: "Needs you", exact: true })).toBeVisible();
+  await openSettingsScreen(page);
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(status).toHaveText("Setting up · Codex");
+  await updateScenario({
+    finishSetup: true,
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  });
+  await expect.poll(checkedAt).toBeGreaterThan(before);
+  await expect(card.locator(".host-summary-row").getByText("Ready", { exact: true })).toBeVisible();
+  await expect(action).not.toHaveClass("primary");
+  await expect(navigation).toBeVisible();
+  assert.match((await readFile(calls, "utf8")).slice(beforeCalls.length), /"operation":"inspect"/u);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { terminals } = await window.desktop.workspace();
+        return terminals.find((terminal) => terminal.agent === "codex")?.exited;
+      }),
+    )
+    .toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(navigation).toBeHidden();
+  await expect(
+    page
+      .getByRole("group", { name: "Terminal tiles" })
+      .locator('.terminal-tile[data-empty="false"]'),
+  ).toHaveCount(1);
+
+  await openSettingsScreen(page);
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(card).toBeVisible();
+  const expand = card.getByRole("button", { name: "Expand fixture-cloud" });
+  if (await expand.isVisible()) await expand.click();
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  await updateScenario({ sshFailure: "changed" });
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(action).toBeVisible();
+  await action.click();
+  await repo.check();
+  await start.click();
+  await expect(dialog.getByRole("alert")).toHaveText("Unable to start setup agent");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(action).toHaveCount(0);
+
+  const beforeRestored = (await readFile(calls, "utf8")).length;
+  await updateScenario({ hold: "repository" });
+  await check.click();
+  await expect
+    .poll(async () => (await readFile(calls, "utf8")).slice(beforeRestored))
+    .toMatch(/"operation":"repository".*"phase":"held"/u);
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(action).toHaveCount(0);
+  await updateScenario({});
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(action).toBeVisible();
+
+  await updateScenario({ sshFailure: "changed", controlMasterActive: true });
+  await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(action).toHaveCount(0);
+
+  await updateScenario({});
+  await check.click();
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(action).toBeVisible();
+  const refreshed = await page.evaluate(() =>
+    window.desktop.hosts({ action: "refresh", host: "fixture-cloud" }),
+  );
+  assert.equal(refreshed.hosts[0].result.ok, true);
+
+  await updateScenario({ sshFailure: "unknown" });
+  await assert.rejects(request(), /foom-error:operation-failed/u);
+  await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
+  await expect(ssh.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
+  await expect(action).toHaveCount(0);
+});
+
+test("Hosts repository reloads bypass the SSH master and update the completed SSH row", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario } = await hostsFixture(context);
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const action = card.getByRole("button", { name: "Set up with an agent…" });
+  for (const kind of ["origin", "checkout"]) {
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+    await expect(action).toBeVisible();
+    await updateScenario({ sshFailure: "changed", controlMasterActive: true });
+    const state = await page.evaluate(async (kind) => {
+      const { repositories } = await window.desktop.workspace();
+      return window.desktop.hosts({
+        action: "reload",
+        host: "fixture-cloud",
+        target: { kind, repository: repositories[0].path },
+      });
+    }, kind);
+    assert.deepEqual(state.preflight.ssh, { state: "fail", reason: "host-key-changed" });
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(action).toHaveCount(0);
+    await updateScenario({});
+    await check.click();
+    await expect(check).toBeEnabled();
+  }
+});
+
+test("Hosts reports a key change on the standalone Linux libc probe", {
+  skip: process.platform !== "linux",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario } = await hostsFixture(context);
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await updateScenario({ libcKeyChanged: true });
+  await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Set up with an agent…" })).toHaveCount(0);
+});
 
 test("first-use repository launch exposes each fixed clone failure and Settings has no clone control", {
   skip: process.platform === "win32",
@@ -614,7 +959,7 @@ test("Hosts shows independent inspection and repository check progress", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(progressStatus).toHaveText("Checking Git access · shell-fixture (1 of 1)");
   await expect(card.locator(".host-throbber")).toBeVisible();
-  const originRow = card.locator(".host-check-row").filter({ hasText: "Git access to origin" });
+  const originRow = card.locator(".host-check-row").filter({ hasText: "forge.test" });
   const checkoutRow = card.locator(".host-check-row").filter({ hasText: "Repository checkout" });
   await expect(originRow).toContainText("Checking…");
   await expect(checkoutRow).toHaveCount(0);
@@ -689,7 +1034,7 @@ test("Hosts shows independent inspection and repository check progress", {
   // Release origin, then hold checkout: the step text still advances without animation.
   await updateScenario({ ...checkingOrigin, hold: "repository" });
   await expect(progressStatus).toHaveText("Checking checkout · shell-fixture (1 of 1)");
-  await expect(originRow).toContainText("Pass · Reachable");
+  await expect(originRow).toContainText("SSH ✓");
   await expect(checkoutRow).toHaveCount(0);
   await capture("progress-checkout-reduced");
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -705,7 +1050,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { card, platform, capture, updateScenario } = await hostsFixture(context);
+  const { app, page, card, platform, capture, updateScenario } = await hostsFixture(context);
   await updateScenario({
     facts: {
       tools: [
@@ -716,9 +1061,9 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     origin: "origin-auth",
   });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.getByText("Origin authentication failed", { exact: true })).toBeVisible();
-  await expect(card.getByLabel("Git access fixes")).toBeVisible();
-  await capture("failed-origin-fix-actions");
+  await expect(card.getByText("SSH · key not accepted", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Fix", exact: true })).toHaveCount(0);
+  await captureHosts(app, page, "1261/failure", card);
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
   await card.getByRole("button", { name: "Save", exact: true }).click();
@@ -726,7 +1071,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   await expect(card.getByText("/remote/account/new-code", { exact: true })).toBeVisible();
   // Each fixed no-prompt Git failure is rendered in the host checklist.
   for (const [reason, label] of [
-    ["origin-auth", "Origin authentication failed"],
+    ["origin-auth", "key not accepted"],
     ["origin-host-key", "Origin SSH host key is not trusted"],
     ["origin-unreachable", "Origin unreachable"],
     ["timed-out", "Git operation timed out"],
@@ -740,9 +1085,9 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     await expect(
       card
         .locator(".host-check-row")
-        .filter({ hasText: "Git access to origin" })
+        .filter({ hasText: "forge.test" })
         .locator(".host-status > span:last-child"),
-    ).toHaveText(label);
+    ).toHaveText(`SSH · ${label}`);
   }
   // Available facts do not claim a Keychain or Remote Login diagnosis.
   await updateScenario({
@@ -859,30 +1204,55 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
   await expect(card.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(0);
   await updateScenario({ ...optional, checkout: "clean" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.locator(".host-repository-row")).toContainText("shell-fixture");
-  await capture("hosts-read-only-checkouts");
+  await card.getByText("Host facts", { exact: true }).click();
+  await expect(card.locator(".host-details .host-checkouts li")).toContainText("shell-fixture ·");
+  await capture("1259/ready-host-facts");
   await updateScenario({ ...optional, origin: "origin-host-key" });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await capture("origin-host-key");
   const beforeTrust = (await readFile(calls, "utf8")).trim().split("\n").length;
+  const observation = () =>
+    page.evaluate(
+      async () => (await window.desktop.setupState()).settings.registeredHosts[0].observation,
+    );
+  const checkoutState = async () =>
+    (await observation()).preflight.repositories[0].checkout.checkout.state;
+  const { checkedAt } = await observation();
+  assert.equal(await checkoutState(), "absent");
   await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
-  await expect(page.locator(".terminal-tile[data-kind='shell']").last()).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const id = (await window.desktop.workspace()).terminals.at(-1)?.id;
-        return id ? (await window.desktop.tail(id, 40)).join("\n") : "";
-      }),
-    )
-    .toContain("FIXTURE_VERIFY_FINGERPRINT_AND_ANSWER_SSH");
-  await capture("trust-host-key-tile");
-  await openSettingsScreen(page);
-  await page
-    .getByRole("navigation", { name: "Settings sections" })
-    .getByRole("button", { name: "Hosts", exact: true })
-    .click();
-  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
+  await expectOriginPrompt(terminal);
+  await expect(terminal.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  const stop = page.getByRole("dialog", { name: "Stop the install?", exact: true });
+  await expect(stop).toBeVisible();
+  await stop.getByRole("button", { name: "Keep open", exact: true }).click();
+  await captureHosts(app, page, "1260/origin-trust", card.locator(".host-checks"));
+  const beforeAnswer = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(beforeTrust)
+    .map((line) => JSON.parse(line).message);
+  assert.equal(
+    beforeAnswer.some(({ operation, type }) =>
+      ["origin", "repository", "origin-answer"].includes(operation ?? type),
+    ),
+    false,
+  );
+  await updateScenario({ ...optional, origin: "origin-host-key", checkout: "clean" });
+  await terminal.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("yes");
+  await page.keyboard.press("Enter");
+  await expect(terminal).toHaveCount(0);
+  await expect(card.getByText("SSH ✓", { exact: true })).toBeVisible();
+  await expect(card.getByText(/exit code 1/u)).toHaveCount(0);
+  // Origin success is published before the separate checkout probe finishes.
+  await expect.poll(checkoutState).toBe("clean");
+  assert.equal((await observation()).checkedAt, checkedAt);
   const trustChecks = (await readFile(calls, "utf8"))
     .trim()
     .split("\n")
@@ -892,6 +1262,7 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
     .map(({ message }) => message.operation)
     .filter((operation) => operation !== "list-worktrees");
   assert.deepEqual(trustChecks, ["origin", "repository"]);
+  await captureHosts(app, page, "1260/origin-reachable", card.locator(".host-checks"));
   await updateScenario(ready);
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
@@ -928,13 +1299,52 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { page, card, catalog, compressed, capture, updateScenario } = await hostsFixture(context);
+  const { app, page, card, catalog, compressed, capture, updateScenario } =
+    await hostsFixture(context);
+  await card.getByText("Host facts", { exact: true }).click();
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const refresh = card.getByRole("button", { name: "Refresh facts", exact: true });
+  await expect(check).toBeEnabled();
+  await expect(refresh).toBeEnabled();
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
-  await card.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Hosts } = load("./build/main/setup/hosts.js");
+    const gate = Promise.withResolvers();
+    const prepareView = Hosts.prototype.prepareView;
+    globalThis.releaseFixtureHostsView = () => {
+      Hosts.prototype.prepareView = prepareView;
+      gate.resolve();
+    };
+    Hosts.prototype.prepareView = async function (...args) {
+      await gate.promise;
+      return prepareView.apply(this, args);
+    };
+  });
+  const save = card.getByRole("button", { name: "Save", exact: true });
+  try {
+    await save.click();
+    await expect(save).toHaveCount(0);
+    await expect(
+      card.locator(".host-meta").getByText("/remote/account/foom", { exact: true }),
+    ).toBeVisible();
+    await expect(check).toBeDisabled();
+    await expect(refresh).toBeDisabled();
+  } finally {
+    await app.evaluate(() => globalThis.releaseFixtureHostsView());
+  }
+  // Save can finish before the subscribed card receives the new registered folder.
+  await expect(
+    card.locator(".host-meta").getByText("/remote/account/new-code", { exact: true }),
+  ).toBeVisible();
+  await expect(check).toBeEnabled();
+  await expect(refresh).toBeEnabled();
+  await card.getByText("Host facts", { exact: true }).click();
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
-  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await check.click();
   await expect(card.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
   await capture("missing-folder");
   await updateScenario({});
@@ -972,6 +1382,117 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   await capture("missing-build-support");
   await writeFile(artifactPath, compressed);
   await updateScenario({});
+});
+
+test("Recorded host requirements are inert, editable and clearable in Settings", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, updateScenario } = await hostsFixture(context);
+  await updateScenario({
+    origin: "origin-host-key",
+    facts: {
+      tools: [{ id: "git", state: "ready", signIn: "unknown" }],
+      agents: [
+        { id: "claude", state: "ready" },
+        { id: "codex", state: "ready", signIn: "signed-in", codexApprovals: "may-prompt" },
+      ],
+    },
+  });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  const advisory = card.getByText("Codex may prompt for approval", { exact: true });
+  await expect(advisory).toBeVisible();
+  const gitAccess = card.locator(".host-check-row").filter({ hasText: "forge.test" });
+  await expect(gitAccess).toContainText("SSH · Origin SSH host key is not trusted");
+  await expect(gitAccess.getByRole("button", { name: "Trust host key…" })).toBeEnabled();
+  for (const mode of ["light", "dark"]) {
+    await selectTheme(page, mode);
+    const attentionColor = await advisory.evaluate((element) => {
+      const sample = document.createElement("span");
+      sample.style.color = "var(--attention-ink)";
+      element.append(sample);
+      try {
+        return getComputedStyle(sample).color;
+      } finally {
+        sample.remove();
+      }
+    });
+    await expect(advisory).toHaveCSS("color", attentionColor);
+  }
+
+  // Bind the same main-owned recorder that the setup run uses. This fixture
+  // represents the authenticated endpoint without launching a real agent.
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  const markdown = [
+    "## System packages (Debian/Ubuntu)",
+    "build-essential python3 xvfb libgtk-3-0 libnss3 libgbm1",
+    "",
+    "## Toolchain",
+    "- Node 24 with Corepack",
+    "- Run Electron tests under Xvfb",
+  ].join("\n");
+  await app.evaluate(
+    async ({ app }, { repository, markdown }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { RepositoryRequirementsStore } = load("./build/main/setup/repository-requirements.js");
+      const profile = app.getPath("userData");
+      const saved = JSON.parse(
+        await process
+          .getBuiltinModule("node:fs/promises")
+          .readFile(profile + "/worktrees.json", "utf8"),
+      );
+      const id = saved.registrations.find((entry) => entry.path === repository).id;
+      const store = new RepositoryRequirementsStore(profile, (path) => {
+        if (path !== repository) throw new Error("Unknown fixture repository");
+        return id;
+      });
+      const run = await store.forRun({
+        id: "fixture-run",
+        repositories: [repository],
+        agent: "Codex",
+        host: "fixture-cloud",
+        record: true,
+        signal: new AbortController().signal,
+      });
+      await run.write({ runId: "fixture-run", repository, markdown });
+    },
+    { repository, markdown },
+  );
+
+  await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
+  const requirements = page.locator(".repository-requirements-card");
+  await requirements.locator("summary").click();
+  await expect(requirements.getByText(/Recorded by Codex on fixture-cloud/)).toBeVisible();
+  await expect(requirements.locator("pre")).toHaveText(markdown);
+  await requirements.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = requirements.getByRole("textbox", { name: "Host requirements Markdown" });
+  await expect(editor).toHaveValue(markdown);
+  const edited = markdown + "\n- Use the fixture login shell";
+  await editor.fill(edited);
+  await requirements.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(requirements.getByText(/edited by you/)).toBeVisible();
+  await expect(requirements.locator("pre")).toHaveText(edited);
+  await assertAccessible(page);
+  await captureHosts(app, page, "1264/recorded-requirements", requirements);
+  await requirements.getByRole("button", { name: "Edit", exact: true }).click();
+  await editor.fill('<a href="https://example.invalid">Inert HTML</a>');
+  await requirements.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(requirements.locator("pre")).toHaveText(
+    '<a href="https://example.invalid">Inert HTML</a>',
+  );
+  await expect(requirements.getByRole("link")).toHaveCount(0);
+  await requirements.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(requirements.getByText("No recorded requirements")).toBeVisible();
+  await expect(
+    page.evaluate(
+      (repository) => window.desktop.repositoryRequirements({ action: "read", repository }),
+      repository,
+    ),
+  ).resolves.toBeNull();
 });
 
 test("Repositories lists existing checkouts and opens fixed repair recipes without exposing remote output", {
@@ -1132,7 +1653,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   skip: process.platform === "win32",
   timeout: deadline(30000),
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "hosts-saved-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hosts-saved-")));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   await mkdir(bin);
@@ -1142,6 +1663,35 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     path.join(bin, "ssh"),
     `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(calls)}, 'ssh\\n'); process.exit(1);\n`,
     { mode: 0o700 },
+  );
+  const origins = [
+    "git@GitHub.com:fixtures/one.git",
+    "ssh://git@github.com:443/fixtures/two.git",
+    "https://github.com/fixtures/three.git",
+    "git@gitlab.com:fixtures/four.git",
+    "git@gitlab.com:fixtures/five.git",
+    "https://forge.test/fixtures/six.git",
+  ];
+  const endpoints = [
+    { host: "github.com", protocol: "ssh", port: null },
+    { host: "github.com", protocol: "ssh", port: 443 },
+    { host: "github.com", protocol: "https", port: 443 },
+    { host: "gitlab.com", protocol: "ssh", port: null },
+    { host: "gitlab.com", protocol: "ssh", port: null },
+    { host: "forge.test", protocol: "https", port: 443 },
+  ];
+  const repositories = [];
+  for (const [index, origin] of origins.entries()) {
+    const repository = path.join(root, `project-${index}`);
+    await mkdir(repository);
+    gitSync(["init", "-q", "-b", "main"], { cwd: repository });
+    gitSync(["commit", "--allow-empty", "-qm", "fixture"], { cwd: repository });
+    gitSync(["remote", "add", "origin", origin], { cwd: repository });
+    repositories.push(repository);
+  }
+  await writeFile(
+    path.join(root, "worktrees.json"),
+    JSON.stringify({ version: 1, repositories, managed: [] }),
   );
   const facts = {
     codeFolder: "/remote/code",
@@ -1162,9 +1712,10 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     platform: { state: "pass" },
     artifact: { state: "pass" },
     result,
-    repositories: Array.from({ length: 6 }, (_, index) => ({
-      repository: `/local/project-${index}`,
+    repositories: repositories.map((repository, index) => ({
+      repository,
       origin: { state: "pass" },
+      originEndpoint: endpoints[index],
       checkout: { ...result, checkout: { path: `/remote/project-${index}`, state: "clean" } },
     })),
   };
@@ -1192,15 +1743,38 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
       },
     }),
   );
-  const app = await launchApp(context, {
-    fixture: "empty-board",
-    args: [`--user-data-dir=${root}`],
-    env: { PATH: bin },
+  const retiredSetup = path.join(root, "repository-setup");
+  const retiredState = path.join(retiredSetup, "state.json");
+  await mkdir(retiredSetup, { mode: 0o700 });
+  const retiredContents = JSON.stringify({
+    version: 1,
+    approvals: [
+      {
+        repository: repositories[0],
+        list: { requirements: [{ kind: "toolchain", tool: "node", version: "24.x" }] },
+      },
+    ],
+    rows: [{ state: "needs-setup" }],
   });
-  const page = await boardPage(app);
-  await openSettingsScreen(page);
+  await writeFile(retiredState, retiredContents, { mode: 0o600 });
+  const openSavedBoard = async () => {
+    const app = await launchApp(context, {
+      fixture: "restored",
+      args: [`--user-data-dir=${root}`],
+      env: { PATH: bin },
+      trackSidebarReads: true,
+    });
+    const page = await boardPage(app);
+    // Repository rows render after startup inventory, which can probe saved hosts.
+    await expect(
+      page.locator(".repository-row .tree-label").filter({ hasText: "project-0" }),
+    ).toBeVisible();
+    await openSettingsScreen(page);
+    await settleFixtureSidebar(app);
+    return { app, page, before: await readFile(calls, "utf8") };
+  };
+  const { app, page, before } = await openSavedBoard();
   const navigation = page.getByRole("navigation", { name: "Settings sections" });
-  const before = await readFile(calls, "utf8");
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   const card = page.getByRole("region", { name: "saved-fixture", exact: true });
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
@@ -1222,11 +1796,17 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await expect(card.getByText("Repository · project-0", { exact: true })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
   await assertHostColumns(card);
+  await expect(page.getByRole("region", { name: "Repository setup" })).toHaveCount(0);
+  await captureHosts(app, page, "1262/hosts");
   await capture("expanded");
-  await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
-  await expect(card.locator(".host-repository-row")).toHaveCount(6);
+  const rows = card.locator(".host-check-row").filter({ has: page.locator(".host-git-protocols") });
+  await expect(rows.locator(".host-check-name")).toHaveText(["GitHub", "GitLab", "forge.test"]);
+  await expect(rows.nth(0).locator(".host-git-protocols > span")).toHaveText(["SSH ✓", "HTTPS ✓"]);
+  await expect(rows.nth(1).locator(".host-git-protocols > span")).toHaveText(["SSH ✓"]);
+  await expect(rows.nth(2).locator(".host-git-protocols > span")).toHaveText(["HTTPS ✓"]);
+  await expect(card.getByRole("button", { name: /^Git access/u })).toHaveCount(0);
+  await expect(card.getByText(/^Repository ·/u)).toHaveCount(0);
   await assertHostColumns(card);
-  await capture("repositories");
   for (const width of [900, 640]) {
     await app.evaluate(({ BrowserWindow }, width) => {
       const window = BrowserWindow.getAllWindows().find(
@@ -1237,27 +1817,55 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     }, width);
     await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
     await assertHostColumns(card);
-    await capture(`repositories-${width}`);
-    await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
-    await assertHostColumns(card);
     await capture(`expanded-${width}`);
-    await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   }
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setContentSize(1280, 800),
   );
-  await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   await card.getByText("Host facts", { exact: true }).click();
   await expect(card.getByText("Other profiles or untagged: 2", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-details .host-checkouts li")).toHaveCount(6);
+  await expect(card.getByText("project-0 · /remote/project-0", { exact: true })).toBeVisible();
+  await expect(card.getByText("/remote/project-0", { exact: true })).toHaveCount(1);
   await capture("inventory");
+  await captureHosts(app, page, "1261/ready", card);
   await assertAccessible(page);
   assert.equal(await readFile(calls, "utf8"), before);
   await navigation.getByRole("button", { name: "General", exact: true }).click();
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   assert.equal(await readFile(calls, "utf8"), before);
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  gitSync(["remote", "set-url", "origin", "https://new.example/fixtures/one.git"], {
+    cwd: repositories[0],
+  });
+  for (const [index, project] of [
+    [3, "four"],
+    [4, "five"],
+  ]) {
+    gitSync(["remote", "set-url", "origin", `ssh://git@gitlab.com:22/fixtures/${project}.git`], {
+      cwd: repositories[index],
+    });
+  }
+  const { page: reopened, before: reopenedBaseline } = await openSavedBoard();
+  await reopened
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const reopenedCard = reopened.getByRole("region", { name: "saved-fixture", exact: true });
+  await reopenedCard.getByRole("button", { name: "Expand saved-fixture", exact: true }).click();
+  const changedOrigin = reopenedCard.locator(".host-check-row").filter({ hasText: "new.example" });
+  await expect(changedOrigin.locator(".host-git-protocols > span")).toHaveText([
+    "HTTPS · Not checked",
+  ]);
+  const explicitPort = reopenedCard.locator(".host-check-row").filter({ hasText: "GitLab" });
+  await expect(explicitPort.locator(".host-git-protocols > span")).toHaveText([
+    "SSH · Not checked",
+  ]);
+  assert.equal(await readFile(calls, "utf8"), reopenedBaseline);
+  assert.equal(await readFile(retiredState, "utf8"), retiredContents);
 });
 
 test("Hosts reloads individual rows and actions never trigger full capability checks", {
@@ -1369,6 +1977,43 @@ test("Hosts reloads individual rows and actions never trigger full capability ch
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await captureHosts(app, page, "1061/resource-refresh-failed");
   await assertAccessible(page);
+
+  const failure = "Host daemon needs an update for host facts";
+  const factsPanel = card.locator(".host-details");
+  await updateScenario({ inspectFailure: "facts-unavailable", factsFailure: "facts-unavailable" });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.locator(".host-check-row").getByText(failure, { exact: true })).toBeVisible();
+  await page.evaluate(() => window.desktop.sidebarInventory());
+  const failedCheckTimestamp = await checkedAt();
+  await expect(factsPanel.getByText(failure, { exact: true })).toHaveCount(0);
+  before = (await capabilityCalls()).length;
+  const refresh = factsPanel.getByRole("button", { name: "Refresh facts", exact: true });
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  // Sidebar inventory can finish concurrently. A full check requests agent details.
+  const capabilityRequests = (await capabilityCalls())
+    .slice(before)
+    .filter(({ target, agentDetails }) => target || agentDetails);
+  assert.deepEqual(
+    capabilityRequests.map(({ operation, target }) => ({ operation, target })),
+    [{ operation: "inspect", target: { kind: "facts" } }],
+  );
+  await expect(factsPanel.getByText(failure, { exact: true })).toBeVisible();
+  assert.equal(await checkedAt(), failedCheckTimestamp);
+
+  await updateScenario({ sshFailure: "changed" });
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  await expect(factsPanel.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(factsPanel.getByText(failure, { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toHaveCount(0);
+  assert.equal(await checkedAt(), failedCheckTimestamp);
+
+  await updateScenario({});
+  await refresh.click();
+  await expect(factsPanel.getByText("CPU cores", { exact: true })).toBeVisible();
+  await expect(factsPanel.getByText(failure, { exact: true })).toHaveCount(0);
+  await expect(card.locator(".host-check-row").getByText(failure, { exact: true })).toBeVisible();
 });
 
 test("Hosts preserves a rejected replacement folder and reports unrepresentable row reloads inline", {
@@ -1651,7 +2296,7 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   await captureHosts(app, page, "1062/install-failed");
 });
 
-test("Hosts retains failed Add stderr in a read-only panel", {
+test("Hosts shows Add progress and fixed failures without a check output panel", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
@@ -1660,23 +2305,29 @@ test("Hosts retains failed Add stderr in a read-only panel", {
   const add = page.locator(".host-add");
   await add.getByLabel("SSH host", { exact: true }).fill("offline-cloud");
   await add.getByRole("button", { name: "Add host", exact: true }).click();
-  const output = page
-    .getByRole("region", { name: "offline-cloud", exact: true })
-    .getByRole("region", { name: "Host check output" });
-  await expect(output).toContainText("RAW SSH SECRET");
-  await expect(output.getByRole("status")).toHaveText("Failed");
-  await expect(output.locator("pre")).toHaveText(/RAW SSH SECRET\nFailed · unreachable\n$/u);
-  await captureHosts(app, page, "1062/add-failed");
-  await output.getByRole("button", { name: "Dismiss" }).click();
-  await expect(output).toHaveCount(0);
-  await updateScenario({ hold: "inspect" });
+  const offline = page.getByRole("region", { name: "offline-cloud", exact: true });
+  const ssh = offline
+    .locator(".host-check-row")
+    .filter({ has: page.getByText("SSH", { exact: true }) });
+  await expect(ssh.getByText("Host unreachable", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Host check output" })).toHaveCount(0);
+  await expect(page.getByText("RAW SSH SECRET", { exact: false })).toHaveCount(0);
+  await captureHosts(app, page, "1259/unreachable-host");
+
   await page.getByRole("button", { name: "Add host", exact: true }).click();
-  await add.getByLabel("SSH host", { exact: true }).fill("other-cloud");
+  await add.getByLabel("SSH host", { exact: true }).fill("invalid-cloud");
   await add.getByRole("button", { name: "Add host", exact: true }).click();
-  const live = add.getByRole("region", { name: "Host check output" });
-  await expect(live).toContainText("Daemon ready · Inspecting…");
-  await expect(live.getByRole("status")).toHaveText("Checking…");
-  await captureHosts(app, page, "1062/add-live");
+  const error = add.getByRole("alert");
+  await expect(error).toHaveText("×Invalid host reply");
+  await expect(add.getByRole("region", { name: "Host check output" })).toHaveCount(0);
+  await captureHosts(app, page, "1259/add-rejected");
+
+  await updateScenario({ hold: "inspect" });
+  await add.getByLabel("SSH host", { exact: true }).fill("other-cloud");
+  await expect(error).toHaveCount(0);
+  await add.getByRole("button", { name: "Add host", exact: true }).click();
+  await expect(add.getByRole("status")).toHaveText("Checking host…");
+  await expect(add.getByRole("region", { name: "Host check output" })).toHaveCount(0);
   await updateScenario({});
   await expect(page.getByRole("region", { name: "other-cloud", exact: true })).toBeVisible();
 });
@@ -1748,7 +2399,8 @@ test("Hosts confirms stopping a running install before Settings closes and close
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("region", { name: "Message board", exact: true })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Keep open" }).click();
-  await page.locator(`[data-drag-session="${id}"]`).click();
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(settings).toHaveCount(0);
@@ -1955,6 +2607,275 @@ test("Agents scopes use saved host observations and Global enablement without ch
   assert.ok(app);
 });
 
+async function expectOriginPrompt(terminal) {
+  const screen = terminal.locator(".xterm-screen");
+  await screen.scrollIntoViewIfNeeded();
+  await expect(screen).toBeInViewport();
+  await expect(screen).toContainText("continue connecting");
+}
+
+test("Origin trust accepts input and can stop while a capability check is held", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, updateScenario } = await hostsFixture(context);
+  const failedOrigin = {
+    origin: "origin-host-key",
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  };
+  const messages = async () =>
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const terminal = card.getByRole("region", { name: "Origin host key terminal", exact: true });
+
+  for (const action of ["answer", "stop"]) {
+    await updateScenario(failedOrigin);
+    await check.click();
+    const trust = card.getByRole("button", { name: "Trust host key…", exact: true });
+    await expect(trust).toBeEnabled();
+    await expect(check).toBeEnabled();
+    const deferredPrompt = { ...failedOrigin, deferOriginPrompt: true };
+    await updateScenario(deferredPrompt);
+    await trust.click();
+    await expect(terminal).toHaveAttribute("aria-busy", "false");
+    const id = await page.evaluate(async () => {
+      const snapshot = await window.desktop.workspace();
+      return snapshot.terminals.find((row) => row.recipe && !row.exited)?.id;
+    });
+    assert.ok(id);
+    const offset = (await messages()).length;
+    const during = async () => (await messages()).slice(offset);
+    await updateScenario({ ...deferredPrompt, hold: "inspect" });
+    await check.click();
+    await expect
+      .poll(async () =>
+        (await during()).some(
+          ({ message, phase }) =>
+            phase === "held" && message.operation === "inspect" && message.agentDetails === true,
+        ),
+      )
+      .toBe(true);
+    // Release only the terminal data. The independent inspect reply remains held.
+    await updateScenario({ ...failedOrigin, hold: "inspect" });
+    await expectOriginPrompt(terminal);
+    await expect(check).toBeDisabled();
+    await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "Reload SSH", exact: true })).toBeDisabled();
+    const stop = terminal.getByRole("button", { name: "Stop", exact: true });
+    await expect(stop).toBeEnabled();
+    if (action === "answer") {
+      const input = terminal.locator(".xterm-helper-textarea");
+      await expect(input).toBeEnabled();
+      await input.focus();
+      await expect(input).toBeFocused();
+      await page.keyboard.type("yes");
+      await page.keyboard.press("Enter");
+      await expect
+        .poll(async () =>
+          (await during())
+            .map(({ message }) => message)
+            .find(({ type }) => type === "origin-answer"),
+        )
+        .toEqual({ type: "origin-answer", answer: "yes" });
+    } else {
+      await stop.click();
+      await expect
+        .poll(async () => (await during()).some(({ closed }) => closed === id))
+        .toBe(true);
+    }
+    await expect(check).toBeDisabled();
+    await expect(terminal).toHaveCount(0);
+    await updateScenario(failedOrigin);
+    await expect(check).toBeEnabled();
+  }
+});
+
+test("Origin trust stays off both boards and remains stoppable after host removal", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, navigation, calls, updateScenario } = await hostsFixture(context);
+  await updateScenario({
+    origin: "origin-host-key",
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
+  const terminal = page.getByRole("region", { name: "Origin host key terminal", exact: true });
+  await expectOriginPrompt(terminal);
+  const id = await page.evaluate(async () => {
+    const snapshot = await window.desktop.workspace();
+    return snapshot.terminals.find((row) => row.recipe && !row.exited)?.id;
+  });
+  assert.ok(id);
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  await expect(other.locator(".config-gear")).toBeVisible();
+  const testBoardRoutes = (board) =>
+    board.evaluate(async (id) => {
+      const selected = await window.desktop.windows.select(id).then(
+        () => true,
+        () => false,
+      );
+      const views = await window.desktop.windows.snapshot();
+      return { selected, reserved: views.some((view) => view.id === id) };
+    }, id);
+  await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  await expect(other.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+  assert.deepEqual(await testBoardRoutes(page), { selected: false, reserved: false });
+  assert.deepEqual(await testBoardRoutes(other), { selected: false, reserved: false });
+
+  // Leave Hosts so no terminal is attached. The other board still cannot claim it.
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await expect(terminal).toHaveCount(0);
+  await page.evaluate((id) => window.desktop.detach(id), id);
+  assert.equal(
+    await other.evaluate(
+      (id) =>
+        window.desktop.attach(id).then(
+          () => true,
+          () => false,
+        ),
+      id,
+    ),
+    false,
+  );
+  await other.evaluate(() => window.desktop.hosts({ action: "remove", host: "fixture-cloud" }));
+
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  const removed = page.getByRole("region", { name: "Origin trust · fixture-cloud", exact: true });
+  await expect(removed.getByText("fixture-cloud · Removed", { exact: true })).toBeVisible();
+  await expectOriginPrompt(terminal);
+  const killed = async () =>
+    (await readFile(calls, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .some((line) => JSON.parse(line).closed === id);
+  assert.equal(await killed(), false, "removal sends no kill");
+  await terminal.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(removed).toHaveCount(0);
+  await expect.poll(killed).toBe(true);
+  await navigation.getByRole("button", { name: "General", exact: true }).click();
+  await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  await expect(page.getByText("No hosts", { exact: true })).toBeVisible();
+  await expect(removed).toHaveCount(0);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+});
+
+test("Closing the owner window stops a removed host's origin repair", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  const owner = await app.evaluate(
+    ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).id,
+  );
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  await app.evaluate(({ BrowserWindow }, id) => {
+    const window = BrowserWindow.fromId(id);
+    window.setMinimumSize(1100, 560);
+    window.setContentSize(1100, 560);
+    window.focus();
+  }, owner);
+  await expect
+    .poll(() =>
+      app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isFocused(), owner),
+    )
+    .toBe(true);
+  const failedOrigin = {
+    origin: "origin-host-key",
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  };
+  await updateScenario(failedOrigin);
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  const trust = card.getByRole("button", { name: "Trust host key…", exact: true });
+  await expect(trust).toBeEnabled();
+  const holdFonts = () =>
+    page.evaluate(() => {
+      const load = document.fonts.load;
+      const gate = new Promise((resolve) => {
+        window.releaseOriginFonts = () => {
+          document.fonts.load = load;
+          resolve();
+        };
+      });
+      document.fonts.load = async (...args) => {
+        await gate;
+        return load.apply(document.fonts, args);
+      };
+    });
+  const releaseFonts = () => page.evaluate(() => window.releaseOriginFonts());
+  await holdFonts();
+  await updateScenario({ ...failedOrigin, deferOriginPrompt: true });
+  await trust.click();
+  const terminal = page.getByRole("region", { name: "Origin host key terminal", exact: true });
+  const terminalView = terminal.locator(".host-terminal-view");
+  const terminalScreen = terminal.locator(".xterm-screen");
+  await expect(terminalView).toHaveCount(1);
+  await expect(terminalScreen).toHaveCount(0);
+  // Playwright can scroll the Trust button into view. Establish the starting
+  // position while font readiness still blocks the terminal attachment.
+  await page.locator(".settings-stage").evaluate((stage) => {
+    stage.scrollTop = 0;
+  });
+  await expect(terminalView).not.toBeInViewport();
+  await releaseFonts();
+  await expect(terminalView).toBeInViewport({ ratio: 1 });
+  await updateScenario(failedOrigin);
+  await expect(terminalScreen).toContainText("continue connecting");
+  await expect(terminalView).toBeInViewport({ ratio: 1 });
+  const id = await page.evaluate(
+    async () =>
+      (await window.desktop.workspace()).terminals.find((row) => row.recipe && !row.exited)?.id,
+  );
+  assert.ok(id);
+  // Hold the replacement xterm's first open behind its normal font-readiness
+  // barrier. The SSH prompt is already in the remote terminal's replay.
+  await holdFonts();
+  await card.getByRole("button", { name: "Remove", exact: true }).click();
+  const removed = page.getByRole("region", { name: "Origin trust · fixture-cloud", exact: true });
+  await expect(removed.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+  await expect(removed.locator(".xterm-screen")).toHaveCount(0);
+  await releaseFonts();
+  await expectOriginPrompt(removed);
+
+  const closed = page.waitForEvent("close");
+  await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).close(), owner);
+  await closed;
+  assert.ok(
+    (await readFile(calls, "utf8"))
+      .trim()
+      .split("\n")
+      .some((line) => JSON.parse(line).closed === id),
+  );
+  const snapshot = await other.evaluate(() => window.desktop.workspace());
+  assert.equal(
+    snapshot.terminals.some((row) => row.id === id),
+    false,
+  );
+  assert.equal(other.isClosed(), false);
+});
+
 test("Agents scopes use trusted consent and fixed recipes for host plugin installation", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -1975,7 +2896,12 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
   });
   await card.getByRole("button", { name: "Open", exact: true }).click();
   await page.getByRole("tab", { name: "Global", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Enable Antigravity", exact: true }).check();
+  const enableAntigravity = page.getByRole("checkbox", { name: "Enable Antigravity", exact: true });
+  await enableAntigravity.click();
+  await expect
+    .poll(() => page.evaluate(async () => (await window.desktop.setupState()).settings.agents.agy))
+    .toBe(true);
+  await expect(enableAntigravity).toBeChecked();
   await page.getByRole("tab", { name: "Machines", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Machine", exact: true })
@@ -2023,7 +2949,18 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
       ["agy", "plugin", "install", "{stagedPlugin}"],
     ],
   );
-  await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  const agy = settings.getByRole("region", { name: "Antigravity", exact: true });
+  const terminal = agy.getByRole("region", { name: "Antigravity plugin terminal", exact: true });
+  await expect(terminal.locator(".xterm-screen")).toContainText("agy plugin install");
+  await expect(terminal.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+  await expect(settings).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  await captureHosts(app, page, "1260/plugin-install", agy);
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await expect(terminal).toHaveCount(0);
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await expect(terminal.locator(".xterm-screen")).toContainText("agy plugin install");
   const checkpoint = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   await updateScenario({
     recipeExit: 0,
@@ -2035,37 +2972,65 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
       ],
     },
   });
-  // Row refresh follows the reported PTY exit, rather than recipe creation.
-  await expect
-    .poll(async () =>
-      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
-        (row) => row.recipe && row.exited,
-      ),
-    )
-    .toBe(true);
-  await openSettingsScreen(page);
-  await page
-    .getByRole("navigation", { name: "Settings sections" })
-    .getByRole("button", { name: "Agents", exact: true })
-    .click();
-  await page.getByRole("tab", { name: "Machines", exact: true }).click();
-  await page
-    .getByRole("combobox", { name: "Machine", exact: true })
-    .selectOption("host:fixture-cloud");
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await expect(terminal.locator(".xterm-screen")).toHaveCount(0);
   await expect(page.getByText("Present · use agy to manage", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toHaveCount(0);
-  const inspected = (await readFile(calls, "utf8"))
-    .split("\n")
-    .filter(Boolean)
-    .slice(checkpoint)
-    .map((line) => JSON.parse(line))
-    .filter(({ message }) => message.operation === "inspect");
-  assert.deepEqual(
-    inspected.map(({ message }) => message.target),
-    [
+  await expect
+    .poll(async () =>
+      (await readFile(calls, "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .slice(checkpoint)
+        .map((line) => JSON.parse(line).message)
+        .filter(({ operation }) => operation === "inspect")
+        .map(({ target }) => target),
+    )
+    .toEqual([
       { kind: "tool", tool: "agy" },
       { kind: "sign-in", tool: "agy" },
-    ],
+    ]);
+  await expect(settings).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+});
+
+test("Agents keeps fixed Codex device sign-in in Settings and refreshes sign-in on exit", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const codex = { id: "codex", state: "ready", signIn: "signed-out" };
+  await updateScenario({ facts: { agents: [codex] } });
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("button", { name: "Re-check fixture-cloud", exact: true }).click();
+  const agent = page.getByRole("region", { name: "Codex", exact: true });
+  await agent.getByRole("button", { name: "Sign in", exact: true }).click();
+  const terminal = agent.getByRole("region", { name: "Agent sign-in terminal", exact: true });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  assert.deepEqual(JSON.parse((await readFile(recipeCalls, "utf8")).trim()), [
+    "codex",
+    "login",
+    "--device-auth",
+  ]);
+  await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
+  const checkpoint = (await readFile(calls, "utf8")).trim().split("\n").length;
+  await updateScenario({
+    recipeExit: 0,
+    facts: { agents: [{ ...codex, signIn: "signed-in" }] },
+  });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await expect(terminal.locator(".xterm-screen")).toHaveCount(0);
+  await expect(agent.getByText("Signed in", { exact: true })).toBeVisible();
+  const inspected = (await readFile(calls, "utf8"))
+    .trim()
+    .split("\n")
+    .slice(checkpoint)
+    .map((line) => JSON.parse(line).message)
+    .filter(({ operation }) => operation === "inspect");
+  assert.deepEqual(
+    inspected.map(({ target }) => target),
+    [{ kind: "sign-in", tool: "codex" }],
   );
 });
 
@@ -2341,7 +3306,7 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
     "Code folder",
     "git / gh",
     "Agents",
-    "Git access to origin",
+    "Git access",
     "Checked out repositories",
     "Host facts",
   ]) {
@@ -2349,7 +3314,7 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   }
   await expect(card.locator(".host-repositories, .host-footer, .host-details")).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
-  await expect(card.getByRole("region", { name: "Host check output", exact: true })).toBeVisible();
+  await expect(card.getByRole("region", { name: "Host check output", exact: true })).toHaveCount(0);
   assert.equal(
     (await readFile(calls, "utf8")).trim(),
     "",
@@ -2361,9 +3326,6 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
       (repo) => repo.origin.state === "not-checked",
     ),
   );
-  const waitingOutput = card.getByRole("region", { name: "Host check output", exact: true });
-  await expect(waitingOutput.getByRole("status")).toHaveText("Host key not trusted");
-  await expect(waitingOutput.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
   const screenshots = process.env.FOOM_HOST_KEY_SCREENSHOTS === "1";
   if (screenshots) await capture("1059/round4-untrusted-card");
   const dialog = await confirmationPage(app);
@@ -2371,10 +3333,6 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
     await page.evaluate(
       (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
       mode,
-    );
-    await expect(waitingOutput.getByRole("status")).toHaveCSS(
-      "color",
-      mode === "light" ? "rgb(140, 80, 0)" : "rgb(255, 178, 62)",
     );
     await expect(trust).toHaveCSS(
       "background-color",
@@ -2421,15 +3379,8 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await dialog.getByRole("button", { name: "Trust host key", exact: true }).click();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   assert.equal(await readFile(knownHosts, "utf8"), "fixture-cloud fixture-key\n");
-  await expect(card.getByRole("region", { name: "Host check output", exact: true })).toBeVisible();
-  for (const text of [
-    "Platform",
-    "Remote daemon",
-    "Code folder",
-    "Agents",
-    "Checked out repositories",
-    "Host facts",
-  ]) {
+  await expect(card.getByRole("region", { name: "Host check output", exact: true })).toHaveCount(0);
+  for (const text of ["Platform", "Remote daemon", "Code folder", "Agents", "Host facts"]) {
     await expect(card.getByText(text, { exact: true }).first()).toBeVisible();
   }
   await expect(card.locator(".host-footer")).toBeVisible();
@@ -2439,9 +3390,6 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Host key changed", { exact: true }).first()).toBeVisible();
   const changedStatuses = card.locator(".host-status").filter({ hasText: "Host key changed" });
-  await expect(waitingOutput.getByRole("status")).toHaveText("Failed");
-  await expect(waitingOutput.getByRole("status")).toHaveCSS("color", "rgb(255, 46, 136)");
-  await expect(waitingOutput.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
   await expect(changedStatuses).toHaveCount(1);
   for (const status of await changedStatuses.all()) {
     await expect(status).toHaveClass(/host-fail/u);
@@ -2453,6 +3401,385 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(card.getByText("Login rejected", { exact: true }).first()).toBeVisible();
   await expect(trust).toHaveCount(0);
+});
+
+test("Hosts shows a changed SSH key when saving the checklist fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, capture, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const savedObservation = () =>
+    page.evaluate(
+      async () => (await window.desktop.setupState()).settings.registeredHosts[0].observation,
+    );
+  const saved = await savedObservation();
+  assert.equal(saved.preflight.ssh.state, "pass");
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await updateScenario({ sshFailure: "changed" });
+  try {
+    await chmod(profile, 0o555);
+    await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    assert.deepEqual(await savedObservation(), saved);
+    await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+    await check.click();
+    await expect(check).toBeEnabled();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toHaveCount(0);
+    assert.deepEqual(await savedObservation(), saved);
+  } finally {
+    await chmod(profile, 0o700);
+  }
+  await capture("1259/changed-key-save-failed");
+
+  await card.getByText("Host facts", { exact: true }).click();
+  const facts = card.locator(".host-details");
+  await facts.getByRole("button", { name: "Refresh facts", exact: true }).click();
+  await expect(facts.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  assert.deepEqual(await savedObservation(), saved);
+
+  await updateScenario({});
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+});
+
+test("Hosts orders SSH checks across two open Settings windows", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  await other.locator(".config-gear").click();
+  await other.getByRole("menuitem", { name: /^Settings/u }).click();
+  await expect(other.getByRole("region", { name: "Settings" })).toBeVisible();
+  await other
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const otherCard = other.getByRole("region", { name: "fixture-cloud", exact: true });
+  const check = (hostCard) =>
+    hostCard.getByRole("button", { name: "Check capabilities", exact: true });
+  const ssh = (hostCard) =>
+    hostCard.locator(".host-check-row").filter({
+      has: hostCard.page().getByRole("button", { name: "Reload SSH", exact: true }),
+    });
+  const checkedAt = (hostCard) => hostCard.locator(".host-footer time").getAttribute("datetime");
+  const saveCheck = async (hostCard) => {
+    const previous = await checkedAt(hostCard);
+    await check(hostCard).click();
+    await expect.poll(() => checkedAt(hostCard)).not.toBe(previous);
+    return checkedAt(hostCard);
+  };
+  await saveCheck(card);
+  await card.getByText("Host facts", { exact: true }).click();
+  const panel = card.locator(".host-details");
+  const refresh = panel.getByRole("button", { name: "Refresh facts", exact: true });
+
+  await updateScenario({ sshFailure: "changed" });
+  const changedAt = await saveCheck(otherCard);
+  await expect(ssh(otherCard).getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", changedAt);
+  await refresh.click();
+  await expect(panel.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(ssh(card).getByText("Host key changed", { exact: true })).toBeVisible();
+
+  await updateScenario({});
+  const trustedAt = await saveCheck(otherCard);
+  await expect(ssh(card).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  try {
+    await chmod(profile, 0o555);
+    await updateScenario({ sshFailure: "changed" });
+    await check(card).click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh(card).getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(other.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(ssh(otherCard).getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", trustedAt);
+    await otherCard.getByText("Host facts", { exact: true }).click();
+    const otherFacts = otherCard.locator(".host-details");
+    await otherFacts.getByRole("button", { name: "Refresh facts", exact: true }).click();
+    await expect(otherFacts.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(ssh(otherCard).getByText("Host key changed", { exact: true })).toBeVisible();
+  } finally {
+    await chmod(profile, 0o700);
+  }
+
+  await updateScenario({});
+  const restoredAt = await saveCheck(otherCard);
+  await expect(ssh(otherCard).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-footer time")).toHaveAttribute("datetime", restoredAt);
+  await refresh.click();
+  await expect(panel.getByText("CPU cores", { exact: true })).toBeVisible();
+  await expect(ssh(card).getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+});
+
+test("Hosts reloads the folder row after the first checklist write fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario } = await hostsFixture(
+    context,
+    false,
+    {},
+    {
+      failFirstChecklistSave: true,
+    },
+  );
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  const reload = card.getByRole("button", { name: "Reload Code folder", exact: true });
+  const folder = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload Code folder", exact: true }),
+  });
+  await expect(folder.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
+  await reload.click();
+  await expect(folder.getByText("Code folder does not exist", { exact: true })).toBeVisible();
+  await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-footer time")).toHaveCount(0);
+  const reloadSSH = card.getByRole("button", { name: "Reload SSH", exact: true });
+  await reloadSSH.click();
+  await expect(reloadSSH).toBeEnabled();
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  await expect(card.locator(".host-footer time")).toHaveCount(0);
+});
+
+test("Hosts reopening shows a failed SSH row write without a key classification", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  try {
+    await chmod(profile, 0o555);
+    await app.evaluate(({ app }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const transport = load("./build/main/terminals/remote-transport.js");
+      const manage = transport.remoteManagement;
+      transport.remoteManagement = (...args) =>
+        args[2].target?.kind === "ssh"
+          ? Promise.resolve({ ok: false, reason: "invalid-reply" })
+          : manage(...args);
+    });
+    await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(ssh.getByText("Unable to check", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
+    await openSettingsScreen(page);
+    await page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name: "Hosts", exact: true })
+      .click();
+    await expect(ssh.getByText("Unable to save", { exact: true })).toBeVisible();
+  } finally {
+    await chmod(profile, 0o700);
+  }
+});
+
+test("Hosts fences a trusted retry already inside the profile writer", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const saved = async () =>
+    JSON.parse(await readFile(path.join(profile, "settings.json"), "utf8")).settings
+      .registeredHosts[0].observation;
+  const before = await saved();
+  await updateScenario({ sshFailure: "changed" });
+  await check.click();
+  await expect.poll(async () => (await saved()).preflight.ssh.reason).toBe("host-key-changed");
+  await expect(check).toBeEnabled();
+  const durable = await saved();
+  assert.notEqual(durable.checkedAt, before.checkedAt);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SettingsStore } = load("./build/main/setup/settings.js");
+    const update = SettingsStore.prototype.update;
+    let rowAttempts = 0;
+    SettingsStore.prototype.update = async function (patch, canCommit) {
+      const ssh = patch.registeredHosts?.[0]?.observation?.preflight.ssh;
+      if (ssh?.state === "pass") {
+        if (++rowAttempts === 1) throw new Error("Fixture refused trusted row");
+        await new Promise((resolve) => {
+          globalThis.releaseFixtureTrustedRetry = resolve;
+        });
+      } else if (ssh?.reason === "host-key-changed") {
+        SettingsStore.prototype.update = update;
+        throw new Error("Fixture refused newer changed-key write");
+      }
+      return update.call(this, patch, canCommit);
+    };
+  });
+  await updateScenario({});
+  await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  const warning = page.getByText("Unable to update hosts", { exact: true });
+  await expect(warning).toBeVisible();
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  const retry = page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  try {
+    await expect.poll(() => app.evaluate(() => !!globalThis.releaseFixtureTrustedRetry)).toBe(true);
+    await updateScenario({ sshFailure: "changed" });
+    await check.click();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.releaseFixtureTrustedRetry?.());
+  }
+  await retry;
+  await expect(check).toBeEnabled();
+  await expect(warning).toBeVisible();
+  assert.deepEqual(await saved(), durable);
+});
+
+test("Hosts list cannot save an older SSH retry over a pending changed-key check", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const before = await page.evaluate(async () => {
+    const state = await window.desktop.setupState();
+    return state.settings.registeredHosts[0].observation;
+  });
+  try {
+    await chmod(profile, 0o555);
+    await card.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  } finally {
+    await chmod(profile, 0o700);
+  }
+
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SettingsStore } = load("./build/main/setup/settings.js");
+    const update = SettingsStore.prototype.update;
+    SettingsStore.prototype.update = async function (patch, canCommit) {
+      if (
+        patch.registeredHosts?.some(
+          (host) => host.observation?.preflight.ssh.reason === "host-key-changed",
+        )
+      ) {
+        SettingsStore.prototype.update = update;
+        await new Promise((resolve) => {
+          globalThis.releaseFixtureSshWrite = resolve;
+        });
+      }
+      return update.call(this, patch, canCommit);
+    };
+  });
+  await updateScenario({ sshFailure: "changed" });
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  try {
+    await expect.poll(() => app.evaluate(() => !!globalThis.releaseFixtureSshWrite)).toBe(true);
+    const listed = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.deepEqual(listed.hosts[0].observation, before);
+    assert.deepEqual(listed.hosts[0].checklist.preflight.ssh, {
+      state: "fail",
+      reason: "host-key-changed",
+    });
+    assert.equal(listed.hosts[0].rowFailures, undefined);
+    await expect(card.getByText("Host key changed", { exact: true })).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.releaseFixtureSshWrite?.());
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const state = await window.desktop.setupState();
+        return state.settings.registeredHosts[0].observation.preflight.ssh;
+      }),
+    )
+    .toEqual({ state: "fail", reason: "host-key-changed" });
+});
+
+test("Hosts preload rejects an unversioned live SSH pass", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  await app.evaluate(({ ipcMain }) => {
+    const preflight = {
+      ssh: { state: "pass" },
+      platform: { state: "not-checked" },
+      artifact: { state: "fail", reason: "artifact-unavailable" },
+      result: { ok: false, reason: "artifact-unavailable" },
+      repositories: [],
+    };
+    const state = {
+      hosts: [{ host: "worker", codeFolder: "/code", observation: { checkedAt: 1, preflight } }],
+      locations: [],
+    };
+    ipcMain.removeHandler("setup:hosts");
+    ipcMain.handle("setup:hosts", (_event, input) =>
+      input.action === "preflight" ? { ...state, preflight } : state,
+    );
+  });
+  const listed = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  assert.equal(listed.hosts[0].observation.preflight.ssh.state, "pass");
+  await assert.rejects(
+    () =>
+      page.evaluate(() =>
+        window.desktop.hosts({ action: "preflight", host: "worker", codeFolder: "/code" }),
+      ),
+    /Invalid setup:hosts response/u,
+  );
+});
+
+test("Hosts preserves a changed SSH key warning when a queued trust attempt is refused", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario, knownHosts } = await hostsFixture(context, false, {
+    sshFailure: "unknown",
+  });
+  const reload = card.getByRole("button", { name: "Reload SSH", exact: true });
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const trust = ssh.getByRole("button", { name: "Trust host key…", exact: true });
+  await expect(trust).toBeEnabled();
+  await updateScenario({ sshFailure: "changed", holdChangedKey: true });
+  await reload.click();
+  await expect(ssh.getByText("Checking…", { exact: true })).toBeVisible();
+  await trust.click();
+  await expect(trust).toBeDisabled();
+  await updateScenario({ sshFailure: "changed" });
+
+  await expect(
+    ssh.getByText("Unable to trust host key · trust-not-eligible", { exact: true }),
+  ).toBeVisible();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(trust).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy SSH command", exact: true })).toHaveCount(0);
+  assert.equal(await readFile(knownHosts, "utf8"), "");
 });
 
 test("Hosts keeps an accepted key when the first recheck rejects login and offers the old-client fallback", {
@@ -2941,16 +4268,20 @@ test("Hosts shows a fixed trust failure when askpass refuses an unrecognized pro
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, card, updateScenario, knownHosts } = await hostsFixture(context, false, {
+  const { app, page, card, updateScenario, knownHosts } = await hostsFixture(context, false, {
     sshFailure: "unknown",
   });
   await updateScenario({ sshFailure: "unknown", badPrompt: "Password: FIXTURE_PRIVATE_PROMPT" });
   await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
-  const output = card.getByRole("region", { name: "Host check output", exact: true });
+  const ssh = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByText("SSH", { exact: true }) });
   await expect(
-    output.getByText("Unable to trust host key · askpass-prompt-rejected", { exact: true }),
+    ssh.getByText("Unable to trust host key · askpass-prompt-rejected", { exact: true }),
   ).toBeVisible();
-  await expect(output).not.toContainText("FIXTURE_PRIVATE_PROMPT");
+  await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
+  await expect(card).not.toContainText("FIXTURE_PRIVATE_PROMPT");
+  await captureHosts(app, page, "1259/trust-failed");
   const dialog = await confirmationPage(app);
   await expect(dialog.getByRole("heading", { name: "Trust host key?", exact: true })).toHaveCount(
     0,
@@ -2963,7 +4294,9 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { app, card, knownHosts } = await hostsFixture(context, false, { sshFailure: "unknown" });
+  const { app, page, card, knownHosts } = await hostsFixture(context, false, {
+    sshFailure: "unknown",
+  });
   await app.evaluate(({ BrowserWindow }) => {
     const dialog = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
@@ -2973,11 +4306,13 @@ test("Hosts reports dialog-unavailable when native trust presentation fails", {
     };
   });
   await card.getByRole("button", { name: "Trust host key…", exact: true }).click();
-  const output = card.getByRole("region", { name: "Host check output", exact: true });
+  const ssh = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByText("SSH", { exact: true }) });
   await expect(
-    output.getByText("Unable to trust host key · dialog-unavailable", { exact: true }),
+    ssh.getByText("Unable to trust host key · dialog-unavailable", { exact: true }),
   ).toBeVisible();
-  await expect(output).not.toContainText("Fixture native presentation failure");
+  await expect(card).not.toContainText("Fixture native presentation failure");
   await expect(card.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   assert.equal(await readFile(knownHosts, "utf8"), "");
 });
@@ -3122,9 +4457,9 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
   await expect(unavailable).toHaveClass(/host-neutral/u);
   await expect(card.locator(".host-fail")).toHaveCount(0);
-  await expect(
-    card.locator(".host-check-row").filter({ hasText: "Git access to origin" }),
-  ).toContainText("Not checked");
+  await expect(card.locator(".host-check-row").filter({ hasText: "forge.test" })).toContainText(
+    "Not checked",
+  );
   await capture("1131/sealed-omission");
   await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
   await expect(unavailable).toContainText("Unavailable in this build");
@@ -3410,22 +4745,18 @@ test("Hosts capability checks share one SSH connection and hosts finish independ
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
 });
 
-test("Hosts retains SSH client diagnostics when a check connection fails after discovery", {
+test("Hosts shows a fixed SSH failure when the client disconnects after discovery", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { page, updateScenario } = await hostsFixture(context);
+  const { page, card, updateScenario } = await hostsFixture(context);
   await updateScenario({ lateClientFailure: true });
-  const state = await page.evaluate(() =>
-    window.desktop.hosts({
-      action: "preflight",
-      host: "fixture-cloud",
-      codeFolder: "/remote/account/foom",
-    }),
-  );
-  const { output, ...observations } = state;
-  assert.equal(state.preflight.result.reason, "unreachable");
-  assert.match(output.text, /fixture client connection reset/u);
-  assert.equal(output.failed, true);
-  assert.ok(!JSON.stringify(observations).includes("fixture client connection reset"));
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(
+    card.locator(".host-check-row").getByText("Host unreachable", { exact: true }),
+  ).toBeVisible();
+  await expect(card.getByRole("region", { name: "Host check output" })).toHaveCount(0);
+  const state = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+  assert.equal(state.hosts[0].observation.preflight.result.reason, "unreachable");
+  assert.ok(!JSON.stringify(state).includes("fixture client connection reset"));
 });

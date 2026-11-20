@@ -48,13 +48,19 @@ test("open preview tiles survive failed repository reads through main IPC and re
     relativePath: "saved.md",
     network: false,
   };
+  const standalone: PreviewRecord = {
+    id: "b".repeat(32),
+    worktree: "/outside",
+    relativePath: "report.html",
+    network: false,
+  };
   const attached = attachWorkspace(
     windowMock,
     workspace,
     () => false,
     () => Promise.resolve(false),
     ipc,
-    () => [preview],
+    () => [preview, standalone],
   );
   const handler = handlers.get("workspace:sidebar");
   if (!handler) throw new Error("Missing sidebar IPC");
@@ -76,6 +82,7 @@ test("open preview tiles survive failed repository reads through main IPC and re
     expect(view.getByRole("region", { name: "Tile 1: saved.md" })).toBeTruthy();
     const saved = localStorage.getItem(key);
     expect(saved).toContain(preview.id);
+    expect(view.getByRole("treeitem", { name: /HTML preview: report.html/ })).toBeTruthy();
     vi.mocked(deps.worktrees.listWorktrees).mockRejectedValue(new Error("Repository unavailable"));
     mock.changed?.();
     await settle();
@@ -86,6 +93,7 @@ test("open preview tiles survive failed repository reads through main IPC and re
     expect(view.getByRole("region", { name: "Tile 1: saved.md" })).toBeTruthy();
     expect(source.previews?.getSnapshot()).toEqual([
       expect.objectContaining({ id: preview.id, repository: repo.path }),
+      expect.objectContaining({ id: standalone.id, repository: "" }),
     ]);
     vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
     mock.changed?.();

@@ -1,4 +1,3 @@
-import type { SetupAdmission } from "./repository-setup.d";
 import type { HostPressure } from "./host-pressure.d";
 import type { RemoteReviewSnapshot } from "./remote-agent";
 import type { ReviewOptions, ReviewState } from "./review";
@@ -19,6 +18,7 @@ export interface AgentInstallation {
   readonly version: string | null;
   readonly hooks: boolean;
   readonly attentionSignal?: boolean;
+  readonly initialPrompt?: boolean;
   readonly resume?: boolean;
   readonly resumePaste?: readonly { command: string; selector: string }[];
   readonly restoreControl?: boolean;
@@ -58,8 +58,6 @@ export interface LaunchSelection {
 }
 
 export interface AgentLaunch {
-  readonly repositorySetup?: SetupAdmission;
-  readonly repositoryPath?: readonly string[];
   /** Main-only child admission; human launches omit this capability. */
   readonly pressure?: (value: HostPressure) => void;
   /** Main-only human home launch; grants no repository or orchestration authority. */
@@ -113,7 +111,7 @@ export interface AgentLaunch {
    * child (an ordinary agent naming its parent). Never copied from IPC or the control API.
    */
   readonly control?: { readonly role: "orchestrator" } | { readonly parentId: string };
-  /** Main-validated initial prompt for an orchestrator's child, passed as one argv entry. */
+  /** Main-owned initial prompt for a child or human host setup session, passed as one argv entry. */
   readonly prompt?: string;
   /** Main-only Environment layers (All sessions, then this agent's); never from IPC. */
   readonly environment?: readonly (readonly EnvironmentVariable[])[];

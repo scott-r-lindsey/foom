@@ -46,6 +46,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, optional `root` / `adjacent` (default: configured) → worktree plus `outcome`: `new`, `existing`, `origin` or `open`; launches nothing |
 | `workspace:start` | renderer → main (invoke) | `{ repository, branch, run }` → terminal ID or null on cancellation; the board no longer uses it |
 | `confirmation:scrim` | main → requesting board | boolean visibility only; cosmetic dimming, no dialog content or approval capability |
+| `windows:settings-stopping` | main → affected boards | boolean visibility of recipe stop progress during owner close or confirmed app quit; no terminal capability |
 | `confirmation:render` | main → trusted renderer | validated request ID, content, theme and required boolean `presented`; confirming controls stay disabled until main completes its native presentation attempt; this flag grants no consent |
 | `confirmation:size` | trusted renderer → main | finite positive `{ width, height }` in CSS pixels; exact trusted main frame, URL and pending request required; zoomed and clamped to parent content and display work area |
 | `confirmation:answer` | trusted renderer → main | request ID and boolean for ordinary/single-removal and cleanup answers, or a nonempty unique subset of displayed operation IDs for grouped removals; exact trusted window, main frame, URL and pending ID plus reachability checks required; see [confirmation validation](confirmations.md#confirmations) |
@@ -54,9 +55,10 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows }` → `{ id, attention }` or null on cancellation |
 | `setup:readiness` | renderer → main (invoke) | no arguments → fixed Git/forge readiness and platform enums plus selected repository DNS hostnames; no CLI output or paths |
 | `setup:github-sign-in` | renderer → main (invoke) | requesting window’s gh recipe ID and `read` / `copy` / `open` / `cancel`; main derives a strict device code and opens only the fixed GitHub device URL; returns validated ephemeral state, never clipboard reads |
-| `setup:hosts` | renderer → main (invoke) | one closed host action; main owns registration, approved folders, origin and destination selection; fixed typed host/repository states only; see [Hosts](hosts.md) |
+| `setup:repository-requirements` | renderer → main (invoke) | `window.desktop.repositoryRequirements` sends one closed read, edit or clear request for a registered repository. Edit and clear carry the visible note revision. Preload validates the bounded note or null reply. |
+| `setup:hosts` | renderer → main (invoke) | one closed host action. Main owns registration, approved folders, origin and destination selection. Replies carry typed host/repository states and display-only origin endpoints with host, protocol and port. See [Hosts](hosts.md) |
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
-| `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state |
+| `setup:save` | renderer → main (invoke) | settings patch (known fields only), optional offered custom interface palette digest → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
 | `environment:state` | renderer → main (invoke) | → `{ lists, windows, secrets }`; saved secrets have a null value |
 | `environment:save` | renderer → main (invoke) | exactly `{ scope, previous, name, value, secret }`; a null value keeps a saved secret → state |
@@ -65,6 +67,9 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `environment:import` | renderer → main (invoke) | names from the last read → state |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the app; only its view is window-scoped.
+
+The setup run's requirements writer stays in main, bound to the authenticated
+run. The renderer bridge exposes only the Settings read, edit and clear actions.
 
 ## Preload response validation (#780)
 
@@ -162,8 +167,8 @@ Copying reads no file bytes, clipboard contents, credentials or provider state.
 Main resolves registrations and the last validated location observation without
 SSH or network work, refuses absent observations and unregistered objects, and
 checks that remote checkout paths remain under the registered code folder.
-Checkout paths appear in Settings → Repositories → Locations; Hosts contains
-aliases and code folders.
+Checkout paths appear in Settings → Repositories → Locations and under Host
+facts in Settings → Hosts. The checkout-path copy control is in Locations.
 
 `preview:copy-path` invokes a void capability with one preview ID. The registered
 owning board main frame is checked by the window router. Main resolves the full
@@ -237,7 +242,10 @@ it exposes no reads or query replies. See [terminal policy](terminals.md#osc-52-
 Settings uses `data:subscribe`, `data:snapshot`, `data:ack` and
 `data:unsubscribe` with the closed [phase-B view schemas and limits](data.md#phase-b-channel-over-json-1161).
 All write commands keep their existing domain validation and trusted confirmations.
-`setup:state` takes no arguments and `setup:save` exactly one validated patch.
+`setup:state` takes no arguments. `setup:save` takes a validated patch and, when
+selecting a custom interface palette, the SHA-256 digest of the catalog entry
+shown to the user. Main checks it against the offered palette and the file bytes
+before writing the selection.
 The sandboxed preload reuses its inline response validators; no new runtime
 imports or sandbox-loader exceptions are introduced.
 

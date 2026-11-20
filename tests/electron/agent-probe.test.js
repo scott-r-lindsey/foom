@@ -1,3 +1,4 @@
+const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -39,6 +40,7 @@ test("config probe CLI drives only scratch fixture screens and the user can inte
     `
 const fs = require('node:fs');
 const path = require('node:path');
+const publish = ${publishFixtureRecord.toString()};
 const pluginIndex=process.argv.indexOf('--plugin-dir');
 if(pluginIndex!==-1) {
   const directory=process.argv[pluginIndex+1];
@@ -46,10 +48,10 @@ if(pluginIndex!==-1) {
   const hooks=JSON.parse(fs.readFileSync(path.join(directory,'hooks/hooks.json'),'utf8'));
   const command=hooks.hooks.Stop[0].command;
   if(plugin.name!=='foom-observer' || typeof command!=='string' || command.includes('{observer') || !fs.existsSync(path.join(directory,'lifecycle',process.platform==='win32'?'observer.ps1':'observer.sh'))) throw Error('Invalid generated plugin attachment');
-  fs.writeFileSync(${JSON.stringify(attachment)},JSON.stringify({directory,generatedCommand:true,nestedFile:true,controlUrl:process.env.FOOM_CONTROL_URL,controlToken:process.env.FOOM_CONTROL_TOKEN}));
+  publish(${JSON.stringify(attachment)},JSON.stringify({directory,generatedCommand:true,nestedFile:true,controlUrl:process.env.FOOM_CONTROL_URL,controlToken:process.env.FOOM_CONTROL_TOKEN}));
   process.stdout.write('HOOKS_ATTACHED\\r\\n');
 }
-fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),hookProtocol:process.env.FOOM_HOOK_PROTOCOL,hookChannels:JSON.parse(process.env.FOOM_HOOK_CHANNELS),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
+publish(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),hookProtocol:process.env.FOOM_HOOK_PROTOCOL,hookChannels:JSON.parse(process.env.FOOM_HOOK_CHANNELS),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
 process.stdout.write(Array.from({length:40},(_,i) => 'SCROLLBACK_SECRET_'+i+'\\r\\n').join(''));
 process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b]0;Fixture probe title\\x07Trust this folder? (y/n)');
 let trusted=false;

@@ -6,7 +6,7 @@ const { mkdtemp, mkdir, readFile, writeFile, rm } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { gitSync } = require("../helpers/git.js");
 const { fixtureSea } = require("./fixture-sea.js");
-const { waitForFixtureRecord } = require("./fixture-records.js");
+const { publishFixtureRecord, waitForFixtureRecord } = require("./fixture-records.js");
 const {
   boardPage,
   confirmationPage,
@@ -59,6 +59,7 @@ test("bundled OpenCode cards launch isolated event modules and resume assigned c
     path.join(bin, process.platform === "win32" ? "opencode.exe" : "opencode"),
     `
 const fs=require('node:fs'),path=require('node:path');
+const publish = ${publishFixtureRecord.toString()};
 if(process.argv.includes('--version')){console.log('opencode v2.0.32');process.exit(0);}
 if(process.argv.includes('--help')){console.log('--standalone --session --prompt --auto');process.exit(0);}
 (async()=>{
@@ -75,10 +76,10 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
  const mcp=JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);const server=Object.values(mcp.mcp.servers)[0];let session;
  const call=async(message)=>{const response=await fetch(server.url,{method:'POST',headers:{Authorization:'Bearer '+process.env.FOOM_CONTROL_TOKEN,'Content-Type':'application/json',Accept:'application/json, text/event-stream',...(session?{'Mcp-Session-Id':session,'Mcp-Protocol-Version':'2025-11-25'}:{})},body:JSON.stringify({jsonrpc:'2.0',...message})});session ||= response.headers.get('mcp-session-id');if(response.status===202)return;const body=await response.json();if(body.error)throw Error('MCP refused');return body.result;};
  await call({id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'opencode-fixture',version:'1'}}});await call({method:'notifications/initialized'});const listed=await call({id:2,method:'tools/list'});
- const recordFile=${JSON.stringify(report)};fs.writeFileSync(recordFile+".tmp",JSON.stringify({args,id,configPath:process.env.OPENCODE_CONFIG,plugins:config.plugins,mcp:process.env.OPENCODE_CONFIG_CONTENT,tools:listed.tools.map(tool=>tool.name)}));fs.renameSync(recordFile+".tmp",recordFile);
+ publish(${JSON.stringify(report)},JSON.stringify({args,id,configPath:process.env.OPENCODE_CONFIG,plugins:config.plugins,mcp:process.env.OPENCODE_CONFIG_CONTENT,tools:listed.tools.map(tool=>tool.name)}));
  console.log('OPENCODE_FIXTURE_READY');
  process.on('SIGTERM',()=>{stops.forEach(stop=>stop());process.exit(0);});
-})().catch(error=>{fs.writeFileSync(${JSON.stringify(report + ".error")},String(error));console.error(error);process.exit(1);});
+})().catch(error=>{publish(${JSON.stringify(report + ".error")},String(error));console.error(error);process.exit(1);});
 `,
   );
   const agents = path.join(home, ".foom/config/agents");

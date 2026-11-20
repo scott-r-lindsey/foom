@@ -824,16 +824,22 @@ test("shutdown counts only live PTYs and waits for all exits before disposal", a
   }).toThrow("Unknown terminal ID");
 });
 
-test.each(["linux", "win32"] as const)(
-  "shutdown escalation respects %s signal support",
-  async (platform) => {
+test.each([
+  { platform: "linux", settingsRecipe: false, grace: 1000 },
+  { platform: "linux", settingsRecipe: true, grace: 5000 },
+  { platform: "win32", settingsRecipe: true, grace: 1000 },
+] as const)(
+  "shutdown escalation on $platform gives Settings recipe=$settingsRecipe a $grace ms grace",
+  async ({ platform, settingsRecipe, grace }) => {
     vi.spyOn(process, "platform", "get").mockReturnValue(platform);
     vi.useFakeTimers();
     try {
-      manager.create(spec);
+      manager.create({ ...spec, settingsRecipe });
       pty().kill.mockImplementation(() => {});
       const shutdown = manager.shutdown();
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(grace - 1);
+      expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+      await vi.advanceTimersByTimeAsync(1);
       if (platform === "win32") expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
       else expect(pty().kill).toHaveBeenLastCalledWith("SIGKILL");
       exitPty();
@@ -1161,8 +1167,10 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
   }
 });
 
-test("stopping waits for native exit and retains an owned readable terminal", async () => {
+test("stopping publishes the exit before returning and retains an owned readable terminal", async () => {
   const id = await terminalControl.create(spec);
+  const exited = vi.fn();
+  terminalControl.onExit(exited);
   const index = ptys.length - 1;
   output("preserved screen", index);
   pty(index).kill.mockImplementation(() => {});
@@ -1174,6 +1182,7 @@ test("stopping waits for native exit and retains an owned readable terminal", as
   exitPty(index);
   expect(await stopping).toBeUndefined();
   expect(stopped).toHaveBeenCalledWith(true);
+  expect(exited).toHaveBeenCalledExactlyOnceWith(id, 0);
   expect(await terminalControl.stop(id)).toBe(false);
   expect(await terminalControl.tail(id, 1)).toEqual(["preserved screen"]);
   await terminalControl.stop(id);
@@ -1280,6 +1289,33 @@ test("shutdown flush validates its sender and envelope before stopping native pr
   expect(pty().kill).toHaveBeenCalledOnce();
   send("views-flushed", [[id], 1]);
 });
+test("window close suspends its Settings views and restores only surviving terminal capabilities", async () => {
+  const first = await create();
+  const second = await create();
+  contents.send.mockImplementation(() => {});
+  const owner = contents as unknown as WebContents;
+  const suspended = terminalControl.suspendViews(owner, [first]);
+  const queued = terminalControl.suspendViews(owner, [second]);
+  expect(contents.send).toHaveBeenCalledWith("terminal:availability", [first], false);
+  expect(contents.send).toHaveBeenCalledWith("terminal:flush-views", [first], 1);
+  await expect(invoke("attach", [first])).rejects.toThrow("Session is closing");
+  expect(contents.send).not.toHaveBeenCalledWith("terminal:flush-views", [second], 2);
+  send("views-flushed", [[first], 1]);
+  const resumeFirst = await suspended;
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:flush-views", [second], 2);
+  });
+  send("views-flushed", [[second], 2]);
+  const resumeSecond = await queued;
+  await terminalControl.kill(first);
+  contents.send.mockClear();
+  resumeFirst();
+  resumeSecond();
+  expect(contents.send).toHaveBeenCalledExactlyOnceWith("terminal:availability", [second], true);
+  expect(terminalControl.owns(first)).toBe(false);
+  expect(terminalControl.owns(second)).toBe(true);
+});
+
 test("an unresponsive renderer cannot block native shutdown indefinitely", async () => {
   vi.useFakeTimers();
   try {

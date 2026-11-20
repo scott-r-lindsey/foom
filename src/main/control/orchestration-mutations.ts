@@ -46,7 +46,6 @@ function publicOperation(operation: Operation): Operation {
     detail,
     placement,
     pressure,
-    setupMissing,
   } = operation;
   return {
     operationId,
@@ -60,7 +59,6 @@ function publicOperation(operation: Operation): Operation {
     ...(detail ? { detail } : {}),
     ...(placement ? { placement } : {}),
     ...(pressure ? { pressure } : {}),
-    ...(setupMissing ? { setupMissing } : {}),
   };
 }
 
@@ -561,7 +559,6 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         null,
         undefined,
         error instanceof LaunchFailure ? error.pressure : pressure,
-        error instanceof LaunchFailure ? error.setup?.missing : undefined,
       );
       this.note(parent, this.entry(record, label));
       return record;
@@ -712,7 +709,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           parent.repository,
           tree.path,
           tree.identity,
-          async (branch, changes, automatic = false) => {
+          async (branch, changes, automatic = false, fileCount) => {
             if (abort.signal.aborted) return false;
             if (automatic) {
               outcome.accepted = true;
@@ -750,6 +747,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                     branch: metadataName(branch),
                     path: this.host.worktreeLabel?.(tree.path) ?? tree.path,
                     changes,
+                    ...(fileCount !== undefined ? { fileCount } : {}),
                     ...(pr ? { pullRequest: { number: pr.number, state: pr.state } } : {}),
                   },
                 },
@@ -799,10 +797,6 @@ export class OrchestrationMutations extends OrchestrationAuthority {
               : error instanceof ApplicationError
                 ? (
                     {
-                      "repository-setup-missing": "git_failed",
-                      "repository-setup-changed": "git_failed",
-                      "repository-setup-manual": "git_failed",
-                      "repository-setup-unavailable": "git_failed",
                       "origin-auth": "git_failed",
                       "origin-host-key": "git_failed",
                       "origin-unreachable": "git_failed",
@@ -813,12 +807,14 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                       "worktree-main": "main_checkout",
                       "worktree-prunable": "prunable",
                       "worktree-removal-incomplete": "git_failed",
+                      "preview-file-unreadable": "git_failed",
                       "preview-image-invalid": "git_failed",
                       "operation-failed": "git_failed",
                       "launch-cancel-incomplete": "git_failed",
                       "remote-host-unavailable": "git_failed",
                       "prune-unsafe": "git_failed",
                       "session-has-children": "git_failed",
+                      "theme-selection-changed": "git_failed",
                       "settings-busy": "git_failed",
                       "settings-lock-corrupt": "git_failed",
                       "settings-lock-unsupported": "git_failed",

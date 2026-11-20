@@ -293,7 +293,7 @@ test("background approvals carry main-owned attribution while user actions retai
   );
   expect(mock.message).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      approval: { kind: "Worktree removal", origin: "Foom · background cleanup · no tile · /tree" },
+      approval: { kind: "Worktree removal", origin: "Background cleanup" },
     }),
   );
   await request(

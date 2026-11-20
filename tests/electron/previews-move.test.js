@@ -4,7 +4,7 @@ const path = require("node:path");
 const { writeFile } = require("node:fs/promises");
 const { expect } = require("./test-policy.js");
 const { boardPage, confirmationPage, launchApp } = require("./harness.js");
-const { previewContents, previewViewState, movePreviewTile } = require("./preview-fixture.js");
+const { pollPreviewContents, previewViewState, movePreviewTile } = require("./preview-fixture.js");
 
 async function movedPreviewPixels(app, id) {
   return app.evaluate(async ({ BrowserWindow, desktopCapturer, screen }, id) => {
@@ -87,24 +87,16 @@ for (const kind of ["html", "markdown"]) {
         ).network,
         false,
       );
-      await expect
-        .poll(() =>
-          previewContents(app, id, "document.querySelector('h1')?.textContent", {
-            requireAttached: true,
-          }),
-        )
-        .toBe("Before move");
+      await pollPreviewContents(app, id, "document.querySelector('h1')?.textContent").toBe(
+        "Before move",
+      );
       await expect
         .poll(() => movedPreviewPixels(app, id))
         .toEqual(kind === "html" ? [86, 52, 18] : [10, 4, 5]);
       await writeFile(path.join(root, file), document("After move"));
-      await expect
-        .poll(() =>
-          previewContents(app, id, "document.querySelector('h1')?.textContent", {
-            requireAttached: true,
-          }),
-        )
-        .toBe("After move");
+      await pollPreviewContents(app, id, "document.querySelector('h1')?.textContent").toBe(
+        "After move",
+      );
       await expect
         .poll(() => movedPreviewPixels(app, id))
         .toEqual(kind === "html" ? [86, 52, 18] : [10, 4, 5]);

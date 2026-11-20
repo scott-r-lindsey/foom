@@ -53,15 +53,25 @@ use the same measurement and native geometry checks as other trusted windows.
 
 Every row answer requires its current ID, exact trusted main frame, native focus,
 visibility and complete reachable bounds. Main also enforces a monotonic 900 ms
-per-row delay after presentation; both buttons are disabled until ready. Bulk
-answers contain an explicit ID snapshot of fully visible, ready rows measured in
-the trusted page at a trusted primary pointer-down or initial Enter/Space key-down.
-Release can only narrow this snapshot to IDs still visible and ready; it cannot
-add arrivals or substitute other IDs. Cancellation or focus loss clears the
-gesture, and keyboard repeats cannot replace it. Main refuses empty, duplicate, unknown, unready or
-mixed-kind IDs atomically. Only worktree removals are bulk eligible. Later rows
-cannot enter the captured set. Caller identity/status revalidation still runs
-before execution. Per-row plugin progress keeps the existing fixed-command and
+per-row delay after presentation; both buttons are disabled until ready. For a
+dirty removal, the trusted page requires the consequence summary and the discard
+button to be fully visible in the queue and checks both again on approval. The
+bounded file box is available for inspection. Main counts distinct raw Git paths
+before display decoding and passes the validated count with the displayed snapshot.
+Each row shows a prefix of whole Git status records within 4,096 characters and
+reports how many records were omitted.
+The removal owner compares the byte-exact status again immediately before Git. Bulk
+answers contain an explicit ID snapshot of all pending, ready worktree removal
+rows whose captured Git status is clean, including rows outside the scroll
+viewport (#1293). The trusted page captures the snapshot at a trusted primary
+pointer-down or initial Enter/Space key-down. Release can only narrow it to IDs
+still pending, ready and clean. Cancellation or focus loss clears the gesture,
+and keyboard repeats cannot replace it. Scrolling re-arms moved individual
+buttons without changing eligibility for the stationary bulk button. Main refuses
+empty, duplicate, unknown, unready, mixed-kind or non-clean IDs atomically using
+its own request snapshots. Each removal still rechecks caller identity, checkout
+identity and the approved status, including immediately before Git removal.
+Per-row plugin progress keeps the existing fixed-command and
 receipt lifecycle and cannot accept a second mutation while running. All
 renderer decision handlers, including legacy dialogs, decline/cancel, selected
 removals and keyboard activation, require `event.isTrusted`; synthetic DOM clicks
@@ -118,8 +128,11 @@ child window for each board at creation. Each extra renderer process lives until
 its parent board closes: this trades memory for immediate confirmation even when
 the board has crashed or hung. Do not move its initialization into the renderer or
 lazy-load it on quit. Its background throttling is disabled so a reused request
-can render and report dimensions while the child is still hidden. With no macOS boards, quit opens a board and its trusted
-child before asking for confirmation.
+can render and report dimensions while the child is still hidden. The hidden
+page starts loading Geist and Geist Mono at startup so a first request can
+measure with the default fonts already loaded. It still waits for the fonts
+used by the actual card before reporting its size. With no macOS boards, quit
+opens a board and its trusted child before asking for confirmation.
 A separate in-memory session and `app://confirmation/confirmation.html` origin
 isolate its renderer process from the board. The opaque frameless window contains only
 its raised card, with a native shadow and platform rounding where supported (square

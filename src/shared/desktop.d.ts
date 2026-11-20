@@ -34,6 +34,8 @@ export interface TerminalSpec {
   shellIntegration?: boolean;
   /** Main-only probes supply a complete, inspected login environment. */
   replaceEnvironment?: boolean;
+  /** Fixed Settings recipe can need time after SIGHUP to clean its private files. */
+  settingsRecipe?: boolean;
   command: string;
   args: readonly string[];
   cwd: string;

@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
+import type { WindowIpc } from "../../../../src/main/window/window-ipc";
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { restartedBrewHost } from "./hosts-saved-fixture";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -5,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registeredHosts } from "../../../../src/shared/registered-hosts";
 import type { RemoteInventoryResult, RemoteSessionInfo } from "../../../../src/shared/remote-host";
+import type { probeHostSsh } from "../../../../src/main/terminals/remote-bootstrap";
 import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 
 import {
@@ -17,11 +21,19 @@ import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/sett
 import type { Settings } from "../../../../src/shared/setup";
 import type { HostManagement, HostResult } from "../../../../src/shared/registered-hosts.d";
 const mock = vi.hoisted(() => ({
-  execute: vi.fn(),
+  execute:
+    vi.fn<
+      (
+        file: string,
+        args: readonly string[],
+        options: { cwd: string; signal: AbortSignal },
+      ) => Promise<{ stdout: string }>
+    >(),
   remote: vi.fn<typeof remoteTransport.remoteManagement>(),
   inventory: vi.fn<typeof remoteTransport.remoteInventory>(),
   close: vi.fn(),
 }));
+vi.mock("electron", () => ({ ipcMain: {} }));
 vi.mock("../../../../src/main/agents/agents", () => ({
   loginPath: () => Promise.resolve({ path: "/fixture-login" }),
 }));
@@ -41,10 +53,9 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
       private readonly target: { host: string },
       private readonly version: string,
       private readonly signal: AbortSignal,
-      private readonly output?: (text: string, startLine?: boolean) => void,
     ) {}
     manage(request: HostManagement) {
-      return mock.remote(this.target, this.version, request, this.signal, this.output);
+      return mock.remote(this.target, this.version, request, this.signal);
     }
     inventory(request: Parameters<typeof remoteTransport.remoteInventory>[2]) {
       return mock.inventory(this.target, this.version, request, this.signal);
@@ -54,6 +65,8 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
     }
   },
 }));
+import { Setup } from "../../../../src/main/setup/setup";
+import { attachSetup } from "../../../../src/main/setup/setup-ipc";
 import { Hosts, hostsForStore } from "../../../../src/main/setup/hosts";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 let settings: Settings;
@@ -77,6 +90,7 @@ const facts = {
 let hosts: Hosts;
 let repositories = [{ path: "/local/repo", name: "repo" }];
 const run = vi.fn<(host: string, request: HostManagement) => Promise<HostResult>>();
+const checkSetupSsh = vi.fn<typeof probeHostSsh>();
 beforeEach(() => {
   vi.clearAllMocks();
   settings = {
@@ -86,8 +100,411 @@ beforeEach(() => {
   repositories = [{ path: "/local/repo", name: "repo" }];
   run.mockReset().mockResolvedValue({ ok: true, facts });
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
-  hosts = new Hosts(store, () => repositories, "0.1.0", run);
+  checkSetupSsh.mockReset().mockResolvedValue({ state: "pass" });
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, undefined, undefined, checkSetupSsh);
 });
+
+test("a setup brief uses registered origins and rechecks exactly once even on an immediate exit", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const start = Promise.withResolvers<undefined>();
+  const spawned = Promise.withResolvers<string>();
+  const launch = vi.fn((id: string, agent: string, prompt: string, validate: () => void) => {
+    expect(agent).toBe("codex");
+    expect(prompt).toContain('"host":"worker"');
+    expect(prompt).toContain('"origin":"git@forge.test:me/repo.git"');
+    expect(prompt).not.toContain("/local/repo");
+    validate();
+    spawned.resolve(id);
+    return start.promise;
+  });
+  const starting = hosts.startSetupAgent(input, launch);
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Setup agent unavailable");
+  const id = await spawned.promise;
+  expect(hosts.setupAgentId("worker")).toBeUndefined();
+  expect(run).not.toHaveBeenCalled();
+  const exiting = hosts.setupAgentExited(id, true);
+  start.resolve(undefined);
+  await exiting;
+  await expect(starting).resolves.toBe(id);
+  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+  expect(settings.registeredHosts[0]?.observation?.checkedAt).toBeGreaterThan(0);
+  const calls = run.mock.calls.length;
+  expect(calls).toBeGreaterThan(0);
+  await hosts.setupAgentExited(id, true);
+  expect(run).toHaveBeenCalledTimes(calls);
+});
+
+test("setup refuses stale selections and unsafe origins and releases failed starts", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+  await expect(
+    hosts.startSetupAgent({ ...input, repositories: ["/other"] }, launch),
+  ).rejects.toThrow("Setup agent unavailable");
+  await expect(hosts.startSetupAgent({ ...input, agent: "no-provider" }, launch)).rejects.toThrow(
+    "Setup agent unavailable",
+  );
+  mock.execute.mockResolvedValueOnce({ stdout: "https://secret@forge.test/me/repo.git\n" });
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Origin unavailable");
+  expect(launch).not.toHaveBeenCalled();
+  launch.mockRejectedValueOnce(new Error("Spawn failed"));
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Spawn failed");
+  const id = await hosts.startSetupAgent(input, launch);
+  expect(hosts.setupAgentId("worker")).toBe(id);
+  expect(hosts.state().hosts[0]?.setupAgent).toEqual({ id, name: "Codex" });
+  await hosts.setupAgentExited(id, false);
+  expect(run).not.toHaveBeenCalled();
+});
+
+const changedKey = {
+  ok: false,
+  reason: "host-key-changed",
+  connection: {
+    ssh: { state: "fail", reason: "host-key-changed" },
+    platform: { state: "not-checked" },
+    artifact: { state: "not-checked" },
+  },
+} as const;
+
+test.each([true, false])(
+  "fresh SSH alone authorizes setup despite a saved result and late inventory (fresh passes: %s)",
+  async (connects) => {
+    settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+    const pass = { state: "pass" } as const;
+    const refusal = changedKey.connection.ssh;
+    if (connects) run.mockResolvedValueOnce(changedKey);
+    await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+    expect(settings.registeredHosts[0]?.observation?.preflight.ssh).toEqual(
+      connects ? refusal : pass,
+    );
+
+    const reading = Promise.withResolvers<undefined>();
+    const stale = Promise.withResolvers<HostResult>();
+    run.mockImplementationOnce(() => {
+      reading.resolve(undefined);
+      return stale.promise;
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+    const older = hosts.inventory("worker");
+    now.mockRestore();
+    await reading.promise;
+
+    const probing = Promise.withResolvers<undefined>();
+    const fresh = Promise.withResolvers<Awaited<ReturnType<typeof probeHostSsh>>>();
+    checkSetupSsh.mockImplementationOnce(() => {
+      probing.resolve(undefined);
+      return fresh.promise;
+    });
+    const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+    const starting = hosts.startSetupAgent(
+      { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
+      launch,
+    );
+    await probing.promise;
+    expect(checkSetupSsh).toHaveBeenCalledExactlyOnceWith("worker", expect.any(AbortSignal));
+    expect(launch).not.toHaveBeenCalled();
+
+    // The older attempt finishes while the new launch is waiting for its own SSH result.
+    stale.resolve(connects ? changedKey : { ok: true, facts });
+    await older;
+    const displayed = () => {
+      const row = hosts.state(undefined, true).hosts[0];
+      return row?.checklist?.preflight.ssh ?? row?.observation?.preflight.ssh;
+    };
+    expect(displayed()).toEqual(connects ? refusal : pass);
+    expect(launch).not.toHaveBeenCalled();
+
+    if (connects) {
+      fresh.resolve(pass);
+      await expect(starting).resolves.toBeTypeOf("string");
+      expect(launch).toHaveBeenCalledTimes(1);
+    } else {
+      const rejected = expect(starting).rejects.toThrow("Setup agent unavailable");
+      fresh.resolve(refusal);
+      await rejected;
+      expect(launch).not.toHaveBeenCalled();
+      expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+    }
+    expect(displayed()).toEqual(refusal);
+  },
+);
+
+test("a launch SSH refusal remains visible and retries saving the completed row", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  const checkedAt = settings.registeredHosts[0]?.observation?.checkedAt;
+  checkSetupSsh.mockResolvedValueOnce(changedKey.connection.ssh);
+  store.update.mockRejectedValueOnce(new Error("fixture SSH row write failure"));
+  await expect(
+    hosts.startSetupAgent(
+      { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
+      () => Promise.reject(new Error("unexpected launch")),
+    ),
+  ).rejects.toThrow("Setup agent unavailable");
+  expect(hosts.state(undefined, true).hosts[0]?.checklist).toMatchObject({
+    preflight: { ssh: changedKey.connection.ssh },
+    saveFailed: true,
+  });
+  await hosts.action({ action: "list" });
+  expect(settings.registeredHosts[0]?.observation).toMatchObject({
+    checkedAt,
+    preflight: { ssh: changedKey.connection.ssh },
+  });
+  expect(hosts.state(undefined, true).hosts[0]?.checklist).toBeUndefined();
+  expect(checkSetupSsh).toHaveBeenCalledTimes(1);
+});
+
+test("a restored key reaches the checklist only when the repository checks finish", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  run.mockResolvedValueOnce(changedKey);
+  await hosts.action(input);
+  run.mockResolvedValueOnce({ ok: true, facts });
+  const checkingOrigin = Promise.withResolvers<undefined>();
+  const origin = Promise.withResolvers<HostResult>();
+  run.mockImplementationOnce(() => {
+    checkingOrigin.resolve(undefined);
+    return origin.promise;
+  });
+  const checking = hosts.action(input);
+  await checkingOrigin.promise;
+  const row = hosts.state(undefined, true).hosts[0];
+  expect(row?.checklist?.preflight.ssh ?? row?.observation?.preflight.ssh).toEqual(
+    changedKey.connection.ssh,
+  );
+  origin.resolve({ ok: true, facts });
+  await expect(checking).resolves.toMatchObject({ preflight: { ssh: { state: "pass" } } });
+});
+
+test("destroying the IPC sender cancels setup SSH and prevents agent dispatch", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const probing = Promise.withResolvers<AbortSignal>();
+  const ssh = Promise.withResolvers<Awaited<ReturnType<typeof probeHostSsh>>>();
+  checkSetupSsh.mockImplementationOnce((_host, signal) => {
+    probing.resolve(signal);
+    return ssh.promise;
+  });
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+  const place = vi.fn();
+  const setup = new Setup({
+    store,
+    hosts,
+    apply: () => undefined,
+    launchHostSetupAgent: launch,
+    placeHostSetupAgent: place,
+    worktreeRoot: "/fixture/worktrees",
+    code: {
+      home: "/fixture",
+      pickFolder: () => Promise.resolve(null),
+      worktrees: {
+        listRepositories: () => repositories,
+        addRepository: vi.fn(),
+        removeRepository: vi.fn(),
+      },
+    },
+  });
+  const frame = { url: "app://bundle/index.html" };
+  const contents = Object.assign(new EventEmitter(), { mainFrame: frame });
+  const window = { webContents: contents } as unknown as BrowserWindow;
+  const event = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
+  const handle = vi.fn<WindowIpc["handle"]>();
+  const attachment = attachSetup(window, setup, undefined, { handle, removeHandler: vi.fn() });
+  try {
+    const invoke = handle.mock.calls.find(([channel]) => channel === "setup:hosts")?.[1];
+    if (!invoke) throw new Error("Missing setup host handler");
+    const launching = invoke(event, {
+      action: "setup-agent",
+      host: "worker",
+      agent: "codex",
+      repositories: ["/local/repo"],
+    });
+    const signal = await probing.promise;
+    contents.emit("destroyed");
+    ssh.resolve({ state: "pass" });
+    await expect(launching).rejects.toThrow("Setup agent unavailable");
+    expect(signal.aborted).toBe(true);
+    expect(launch).not.toHaveBeenCalled();
+    expect(place).not.toHaveBeenCalled();
+    expect(hosts.setupAgentId("worker")).toBeUndefined();
+  } finally {
+    attachment.dispose();
+  }
+});
+
+test("setup cancellation during Git origin discovery stops the remaining lookups and releases the slot", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  repositories.push({ path: "/local/second", name: "second" });
+  const window = new AbortController();
+  const reading = Promise.withResolvers<AbortSignal>();
+  const lateOrigin = Promise.withResolvers<{ stdout: string }>();
+  mock.execute.mockImplementationOnce((_git, _args, options: { signal: AbortSignal }) => {
+    reading.resolve(options.signal);
+    return lateOrigin.promise;
+  });
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+  const input = {
+    action: "setup-agent",
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo", "/local/second"],
+  } as const;
+  const starting = hosts.startSetupAgent(input, launch, window.signal);
+  const signal = await reading.promise;
+  window.abort();
+  await expect(starting).rejects.toThrow("Setup agent unavailable");
+  expect(signal.aborted).toBe(true);
+  expect(checkSetupSsh).not.toHaveBeenCalled();
+
+  const replacement = await hosts.startSetupAgent(
+    { ...input, repositories: ["/local/repo"] },
+    launch,
+  );
+  lateOrigin.resolve({ stdout: "git@forge.test:me/late.git\n" });
+  expect(hosts.setupAgentId("worker")).toBe(replacement);
+  expect(launch).toHaveBeenCalledOnce();
+  expect(checkSetupSsh).toHaveBeenCalledOnce();
+  expect(mock.execute.mock.calls.map(([, , options]) => options.cwd)).toEqual([
+    "/local/repo",
+    "/local/repo",
+  ]);
+});
+
+test("closing the setup window releases the reservation while scanAgents is still pending", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const window = new AbortController();
+  const scanning = Promise.withResolvers<undefined>();
+  const scanAgents = Promise.withResolvers<undefined>();
+  const finished = Promise.withResolvers<undefined>();
+  const dispatch = vi.fn();
+  const first: Parameters<Hosts["startSetupAgent"]>[1] = async (id, _agent, _prompt, validate) => {
+    scanning.resolve(undefined);
+    await scanAgents.promise;
+    try {
+      validate();
+      dispatch(id);
+    } finally {
+      finished.resolve(undefined);
+    }
+  };
+  const input = {
+    action: "setup-agent",
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  } as const;
+  const starting = hosts.startSetupAgent(input, first, window.signal);
+  await scanning.promise;
+  window.abort();
+  await expect(starting).rejects.toThrow("Setup agent unavailable");
+
+  const replacement = await hosts.startSetupAgent(input, (id, _agent, _prompt, validate) => {
+    validate(true);
+    dispatch(id);
+    return Promise.resolve();
+  });
+  scanAgents.resolve(undefined);
+  await finished.promise;
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith(replacement);
+  expect(hosts.setupAgentId("worker")).toBe(replacement);
+});
+
+test("a replacement registration can start setup before the removed host's tile exits", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const launch = () => Promise.resolve();
+  const id = await hosts.startSetupAgent(input, launch);
+  await hosts.action({ action: "remove", host: "worker" });
+  await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
+  expect(hosts.setupAgentId("worker")).toBeUndefined();
+  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+  const replacement = await hosts.startSetupAgent(input, launch);
+  expect(replacement).not.toBe(id);
+  run.mockClear();
+  await hosts.setupAgentExited(id, true);
+  expect(run).not.toHaveBeenCalled();
+  expect(hosts.state().hosts[0]?.setupAgent?.id).toBe(replacement);
+  await hosts.setupAgentExited(replacement, true);
+  expect(run).toHaveBeenCalledWith("worker", expect.objectContaining({ agentDetails: true }));
+});
+
+test("setup exit checks the code folder committed by an in-flight change", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const id = await hosts.startSetupAgent(
+    { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
+    () => Promise.resolve(),
+  );
+  const codeFolder = "/home/worker/new-folder";
+  const started = Promise.withResolvers<undefined>();
+  const changeResult = Promise.withResolvers<HostResult>();
+  run.mockImplementationOnce(() => {
+    started.resolve(undefined);
+    return changeResult.promise;
+  });
+  const change = hosts.action({ action: "change-folder", host: "worker", codeFolder });
+  await started.promise;
+  const exiting = hosts.setupAgentExited(id, true);
+  const result = { ok: true, facts: { ...facts, codeFolder } } as const;
+  run.mockResolvedValue(result);
+  changeResult.resolve(result);
+  await Promise.all([change, exiting]);
+  expect(run).toHaveBeenCalledWith(
+    "worker",
+    expect.objectContaining({ operation: "inspect", agentDetails: true, codeFolder }),
+  );
+  expect(settings.registeredHosts[0]?.observation?.preflight.result).toMatchObject({
+    ok: true,
+    facts: { codeFolder },
+  });
+});
+const forgeEndpoint = { host: "forge.test", protocol: "ssh", port: null } as const;
+test("Hosts projects current registered origin endpoints without probing a host", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  repositories = [
+    { path: "/local/ssh", name: "ssh" },
+    { path: "/local/https", name: "https" },
+    { path: "/local/invalid", name: "invalid" },
+    { path: "/local/port", name: "port" },
+    { path: "/local/ip", name: "ip" },
+    { path: "/local/absolute-dns", name: "absolute-dns" },
+  ];
+  mock.execute
+    .mockResolvedValueOnce({ stdout: "ssh://git@GitLab.com:2222/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "https://GitHub.com/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "https://token@forge.test/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "https://forge.test:99999/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "git@192.0.2.42:team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "ssh://git@forge.test.:2222/team/repo.git\n" });
+  await Promise.all([hosts.prepareView(), hosts.prepareView()]);
+  expect(mock.execute).toHaveBeenCalledTimes(repositories.length);
+  const endpoints = [
+    { repository: "/local/ssh", host: "gitlab.com", protocol: "ssh", port: 2222 },
+    { repository: "/local/https", host: "github.com", protocol: "https", port: 443 },
+    { repository: "/local/port", host: "forge.test", protocol: "https", port: 99999 },
+    { repository: "/local/ip", host: "192.0.2.42", protocol: "ssh", port: null },
+    { repository: "/local/absolute-dns", host: "forge.test.", protocol: "ssh", port: 2222 },
+  ];
+  expect(hosts.state().gitOrigins).toEqual(endpoints);
+  repositories = repositories.slice(1);
+  expect(hosts.state().gitOrigins).toEqual(endpoints.slice(1));
+  expect(run).not.toHaveBeenCalled();
+});
+
 test("test does not authorize, add records enrollment, refresh replaces stale facts, removal never kills", async () => {
   expect(await hosts.action({ action: "list" })).toEqual({ hosts: [], locations: [] });
   expect(
@@ -102,7 +519,6 @@ test("test does not authorize, add records enrollment, refresh replaces stale fa
       operation: "inspect",
       agents: run.mock.calls[0]?.[1].agents,
     }),
-    expect.any(Function),
   );
   await expect(
     hosts.action({ action: "add", host: "worker", codeFolder: "~/code" }),
@@ -208,7 +624,6 @@ test("windows share the same serialized registration owner and production transp
     "0.1.0",
     expect.objectContaining({ type: "manage" }),
     expect.any(AbortSignal),
-    expect.any(Function),
   );
   expect(new Hosts(store, () => repositories, "0.1.0").state().hosts).toHaveLength(1);
 });
@@ -550,7 +965,359 @@ test("profile inventories project only counts to Settings and End confirms exact
   expect(confirm).not.toHaveBeenCalled();
   mock.inventory.mockRejectedValue(new Error("private network detail"));
   expect(await hosts.sessions()).toEqual([]);
+  const inventoryCalls = mock.inventory.mock.calls.length;
+  run.mockResolvedValueOnce({ ok: false, reason: "facts-unavailable" });
+  const unavailable = await hosts.action({ action: "refresh", host: "worker" });
+  expect(unavailable.hosts[0]?.factsRefreshFailure).toBe("facts-unavailable");
+  expect(mock.inventory.mock.calls).toHaveLength(inventoryCalls + 1);
+  expect(run.mock.lastCall?.[1].operation).toBe("list-worktrees");
+  run.mockResolvedValueOnce({ ok: false, reason: "host-key-changed" });
+  const changed = await hosts.action({ action: "refresh", host: "worker" });
+  expect(changed.hosts[0]?.factsRefreshFailure).toBe("host-key-changed");
+  expect(mock.inventory.mock.calls).toHaveLength(inventoryCalls + 1);
   await expect(hosts.action({ action: "refresh", host: "worker" })).rejects.toThrow();
+  expect(hosts.state().hosts[0]?.factsRefreshFailure).toBeUndefined();
+});
+
+test("refresh updates both inventories when scoped facts require a daemon update", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const profile = "a".repeat(32);
+  hosts = new Hosts(store, () => [], "0.1.0", run, profile);
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "list-worktrees"
+        ? { ok: true, facts, inventory: { own: [], other: 4 } }
+        : { ok: false, reason: "facts-unavailable" },
+    ),
+  );
+  mock.inventory
+    .mockResolvedValueOnce({ type: "inventory-result", own: [], foreign: [] })
+    .mockResolvedValueOnce({
+      type: "inventory-result",
+      own: [],
+      foreign: [{ id: "foreign", generation: "b".repeat(32), count: 3 }],
+    });
+  await hosts.sessions();
+  expect(hosts.state().hosts[0]?.foreignSessions).toBe(0);
+
+  const refreshed = await hosts.action({ action: "refresh", host: "worker" });
+  expect(refreshed.hosts[0]).toMatchObject({
+    factsRefreshFailure: "facts-unavailable",
+    foreignSessions: 3,
+    foreignWorktrees: 4,
+  });
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual([
+    "inspect",
+    "list-worktrees",
+  ]);
+});
+
+test.each(["preflight", "reload"] as const)(
+  "a failed %s write publishes the actual SSH result and retains the saved observation",
+  async (action) => {
+    settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+    const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+    await hosts.action(check);
+    const saved = settings.registeredHosts[0]?.observation;
+    expect(saved?.preflight.ssh.state).toBe("pass");
+    run.mockResolvedValueOnce({
+      ok: false,
+      reason: "host-key-changed",
+      connection: {
+        ssh: { state: "fail", reason: "host-key-changed" },
+        platform: { state: "not-checked" },
+        artifact: { state: "not-checked" },
+      },
+    });
+    store.update.mockRejectedValueOnce(new Error("fixture settings write failure"));
+
+    const checked = await hosts.action(
+      action === "preflight"
+        ? check
+        : {
+            action: "reload",
+            host: "worker",
+            target: { kind: "ssh" },
+          },
+    );
+    if (action === "preflight") expect(checked.preflightSaveFailed).toBe(true);
+    expect(checked.preflight?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+    expect(checked.preflight?.sshRevision).toBeGreaterThan(saved?.preflight.sshRevision ?? 0);
+    expect(checked.hosts[0]?.observation).toEqual(saved);
+    expect(settings.registeredHosts[0]?.observation).toEqual(saved);
+    expect(hosts.state(undefined, true, true).hosts[0]).toMatchObject({
+      observation: saved,
+      checklist: { preflight: checked.preflight, saveFailed: true },
+    });
+    expect(checked.hosts[0]?.rowFailures).toBeUndefined();
+    const refreshed = await hosts.action({ action: "refresh", host: "worker" });
+    expect(refreshed.hosts[0]?.checklist).toEqual(checked.hosts[0]?.checklist);
+
+    const recovered = await hosts.action({
+      action: "reload",
+      host: "worker",
+      target: { kind: "ssh" },
+    });
+    expect(recovered.preflight?.ssh).toEqual({ state: "pass" });
+    expect(recovered.preflight?.sshRevision).toBeGreaterThan(checked.preflight?.sshRevision ?? 0);
+    expect(recovered.hosts[0]?.observation?.preflight.sshRevision).toBe(
+      recovered.preflight?.sshRevision,
+    );
+    expect(recovered.hosts[0]?.observation?.checkedAt).toBe(saved?.checkedAt);
+    expect(recovered.hosts[0]?.checklist?.saveFailed).toBeUndefined();
+  },
+);
+
+test("list drops an older SSH retry while a newer changed key is being saved", async () => {
+  repositories = [];
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  await hosts.action(check);
+  store.update.mockRejectedValueOnce(new Error("fixture SSH row write failed"));
+  const trusted = await hosts.action({ action: "reload", host: "worker", target: { kind: "ssh" } });
+  expect(trusted.hosts[0]?.checklist?.saveFailed).toBe(true);
+
+  const failed: HostResult = {
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  };
+  run.mockResolvedValueOnce(failed);
+  const writing = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  store.update.mockImplementationOnce(async (patch) => {
+    writing.resolve(undefined);
+    await release.promise;
+    settings = { ...settings, ...patch };
+    return settings;
+  });
+  const checking = hosts.action(check);
+  await writing.promise;
+  const listing = hosts.action({ action: "list" });
+  const waiting = Symbol("waiting on the older retry");
+  const listed = await Promise.race([
+    listing,
+    new Promise<typeof waiting>((resolve) => setImmediate(resolve, waiting)),
+  ]);
+  release.resolve(undefined);
+  const checked = await checking;
+  await listing;
+  if (typeof listed === "symbol") throw new Error("List waited for the obsolete SSH write");
+  expect(listed.hosts[0]?.checklist?.preflight.ssh).toEqual(failed.connection?.ssh);
+  expect(listed.hosts[0]?.rowFailures).toBeUndefined();
+  const reopened = new Hosts(store, () => [], "0.1.0", run);
+  expect((await reopened.action({ action: "list" })).hosts[0]?.observation?.preflight).toEqual(
+    checked.preflight,
+  );
+});
+
+test("an SSH retry already in the profile write queue cannot save after a newer observation", async () => {
+  repositories = [];
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  await hosts.action(check);
+  store.update.mockRejectedValueOnce(new Error("fixture SSH row write failed"));
+  const old = await hosts.action({ action: "reload", host: "worker", target: { kind: "ssh" } });
+  expect(old.hosts[0]?.checklist?.saveFailed).toBe(true);
+  store.update.mockClear();
+
+  const writing = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  store.update.mockImplementationOnce(async (patch) => {
+    writing.resolve(undefined);
+    await release.promise;
+    settings = { ...settings, ...patch };
+    return settings;
+  });
+  const renaming = hosts.action({ action: "rename", host: "worker", nickname: "Build host" });
+  await writing.promise;
+  const listing = hosts.action({ action: "list" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  run.mockResolvedValueOnce({
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  });
+  const checking = hosts.action(check);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const newest = hosts.state().hosts[0]?.checklist?.preflight;
+  release.resolve(undefined);
+  await Promise.all([renaming, listing, checking]);
+
+  expect(newest?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+  expect(
+    store.update.mock.calls.some(
+      ([patch]) =>
+        patch.registeredHosts?.[0]?.observation?.preflight.sshRevision ===
+        old.preflight?.sshRevision,
+    ),
+  ).toBe(false);
+  const reopened = new Hosts(store, () => [], "0.1.0", run);
+  expect(reopened.state(undefined, true).hosts[0]?.observation?.preflight).toEqual(newest);
+});
+
+test("a folder reload updates the unsaved first checklist at the same SSH revision", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  store.update.mockRejectedValueOnce(new Error("fixture first checklist write failed"));
+  const check = await hosts.action({
+    action: "preflight",
+    host: "worker",
+    codeFolder: facts.codeFolder,
+  });
+  run.mockResolvedValueOnce({ ok: false, reason: "folder-missing" });
+  const scoped = await hosts.action({
+    action: "reload",
+    host: "worker",
+    target: { kind: "folder" },
+  });
+  expect(scoped.preflight?.result).toMatchObject({
+    ok: true,
+    facts: { folder: { state: "fail", reason: "folder-missing" } },
+  });
+  expect(scoped.preflight?.sshRevision).toBe(check.preflight?.sshRevision);
+  expect(scoped.hosts[0]?.observation).toBeUndefined();
+  expect(hosts.state(undefined, true).hosts[0]?.checklist).toEqual({
+    preflight: scoped.preflight,
+    saveFailed: true,
+  });
+});
+
+test("a staged trusted retry cannot replace the saved changed key when the newest save fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "host-ssh-commit-"));
+  const persisted = await SettingsStore.open(root);
+  const owner = new Hosts(persisted, () => [], "0.1.0", run);
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  const reload = { action: "reload", host: "worker", target: { kind: "ssh" } } as const;
+  const changed: HostResult = {
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  };
+  const release = Promise.withResolvers<undefined>();
+  try {
+    await persisted.update({ registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] });
+    run.mockResolvedValueOnce(changed);
+    const before = await owner.action(check);
+    const save = persisted.update.bind(persisted);
+    const entered = Promise.withResolvers<undefined>();
+    vi.spyOn(persisted, "update")
+      .mockRejectedValueOnce(new Error("trusted row write failed"))
+      .mockImplementationOnce(async (patch, canCommit) => {
+        entered.resolve(undefined);
+        await release.promise;
+        return save(patch, canCommit);
+      })
+      .mockRejectedValueOnce(new Error("new changed-key write failed"));
+    await owner.action(reload);
+    const retrying = owner.action({ action: "list" });
+    await entered.promise;
+    run.mockResolvedValueOnce(changed);
+    const checking = owner.action(check);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(owner.state().hosts[0]?.checklist?.preflight.ssh).toEqual(changed.connection?.ssh);
+    release.resolve(undefined);
+    await retrying;
+    expect((await checking).hosts[0]?.checklist?.saveFailed).toBe(true);
+    const reopened = await SettingsStore.open(root);
+    expect(reopened.get().registeredHosts?.[0]?.observation).toEqual(before.hosts[0]?.observation);
+  } finally {
+    release.resolve(undefined);
+    owner.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reopening Hosts reports repeated SSH row write failures without an SSH classification", async () => {
+  repositories = [];
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  const before = settings.registeredHosts[0]?.observation;
+  const reload = { action: "reload", host: "worker", target: { kind: "ssh" } } as const;
+  run.mockResolvedValue({ ok: false, reason: "invalid-reply" });
+  store.update.mockRejectedValueOnce(new Error("row write failed"));
+  await expect(hosts.action(reload)).rejects.toThrow("Unable to save host row");
+  store.update.mockRejectedValueOnce(new Error("recheck write failed"));
+  const listed = await hosts.action({ action: "list" });
+  expect(listed.hosts[0]?.observation).toEqual(before);
+  expect(listed.hosts[0]?.rowFailures).toEqual([{ target: reload.target, reason: "save-failed" }]);
+});
+
+test("an SSH-only reload without a durable checklist keeps the save warning", async () => {
+  repositories = [];
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  store.update.mockRejectedValueOnce(new Error("first checklist write failed"));
+  await hosts.action(check);
+  store.update.mockClear();
+  const reload = await hosts.action({ action: "reload", host: "worker", target: { kind: "ssh" } });
+  expect(reload.hosts[0]?.checklist?.saveFailed).toBe(true);
+  expect(reload.hosts[0]?.observation).toBeUndefined();
+  expect(store.update).not.toHaveBeenCalled();
+  const saved = await hosts.action(check);
+  expect(saved.hosts[0]?.checklist?.saveFailed).toBeUndefined();
+  expect(saved.hosts[0]?.observation?.preflight.sshRevision).toBe(saved.preflight?.sshRevision);
+});
+
+test("a full check held on repository work cannot replace a newer SSH observation", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const check = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  await hosts.action(check);
+  store.update.mockRejectedValueOnce(new Error("fixture folder write failed"));
+  await expect(
+    hosts.action({ action: "reload", host: "worker", target: { kind: "folder" } }),
+  ).rejects.toThrow("Unable to save host row");
+  const folderStarted = Promise.withResolvers<undefined>();
+  const folder = Promise.withResolvers<HostResult>();
+  const originStarted = Promise.withResolvers<undefined>();
+  const origin = Promise.withResolvers<HostResult>();
+  run.mockImplementation((_host, request) => {
+    if (request.operation === "inspect" && request.target?.kind === "folder") {
+      folderStarted.resolve(undefined);
+      return folder.promise;
+    }
+    if (request.operation === "origin") {
+      originStarted.resolve(undefined);
+      return origin.promise;
+    }
+    return Promise.resolve({ ok: true, facts });
+  });
+  const listing = hosts.action({ action: "list" });
+  await folderStarted.promise;
+  const checking = hosts.action(check);
+  await originStarted.promise;
+  const priorRow = hosts.state().hosts[0];
+  const trusted = priorRow?.checklist?.preflight ?? priorRow?.observation?.preflight;
+  folder.resolve({
+    ok: false,
+    reason: "host-key-changed",
+    connection: {
+      ssh: { state: "fail", reason: "host-key-changed" },
+      platform: { state: "not-checked" },
+      artifact: { state: "not-checked" },
+    },
+  });
+  const changed = await listing;
+  origin.resolve({ ok: true, facts });
+  const checked = await checking;
+  const newest = changed.hosts[0]?.observation?.preflight;
+  expect(trusted?.ssh.state).toBe("pass");
+  expect(newest?.sshRevision).toBeGreaterThan(trusted?.sshRevision ?? 0);
+  expect(newest?.ssh).toEqual({ state: "fail", reason: "host-key-changed" });
+  expect(checked.preflight?.sshRevision).toBe(newest?.sshRevision);
+  expect(checked.preflight?.ssh).toEqual(newest?.ssh);
+  expect(settings.registeredHosts[0]?.observation?.preflight).toEqual(newest);
 });
 
 test("recovery placements are profile-owned, registered, and bound to the hashed host/path checkout key", async () => {
@@ -1510,33 +2277,66 @@ test("local progress reads bypass the mutation queue and retain completed reposi
   expect((await hosts.action({ action: "progress" })).progress).toBeUndefined();
 });
 
-test("Trust host key re-reads registered origin and launches a human tile with no renderer command", async () => {
+test("Trust host key re-reads registered origin and launches a human terminal with no renderer command", async () => {
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "f".repeat(32));
   await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
-  const launch = vi.fn(async () => {});
-  await hosts.action(
-    { action: "trust-origin", host: "worker", repository: "/local/repo" },
+  const launch = vi.fn((_target: unknown, _finished?: () => void) => Promise.resolve("trust"));
+  const state = await hosts.action(
+    { action: "trust-origin", host: "worker", repository: "/local/repo", endpoint: forgeEndpoint },
     undefined,
     launch,
   );
-  expect(launch).toHaveBeenCalledExactlyOnceWith({
-    host: "worker",
-    profile: "f".repeat(32),
-    human: true,
-    trustOrigin: "git@forge.test:me/repo.git",
-  });
+  expect(state.recipeSession).toBe("trust");
+  expect(launch).toHaveBeenCalledExactlyOnceWith(
+    {
+      host: "worker",
+      profile: "f".repeat(32),
+      human: true,
+      trustOrigin: "git@forge.test:me/repo.git",
+    },
+    expect.any(Function),
+  );
+  run.mockClear();
+  await hosts.action({ action: "list" });
+  expect(run).not.toHaveBeenCalled();
+  launch.mock.calls[0]?.[1]?.();
+  await hosts.action({ action: "list" });
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual(["origin", "repository"]);
   await expect(
     hosts.action(
-      { action: "trust-origin", host: "worker", repository: "/unregistered" },
+      {
+        action: "trust-origin",
+        host: "worker",
+        repository: "/unregistered",
+        endpoint: forgeEndpoint,
+      },
       undefined,
       launch,
     ),
   ).rejects.toThrow("not registered");
+  mock.execute.mockResolvedValue({ stdout: "ssh://git@forge.test:22/me/repo.git" });
+  await expect(
+    hosts.action(
+      {
+        action: "trust-origin",
+        host: "worker",
+        repository: "/local/repo",
+        endpoint: forgeEndpoint,
+      },
+      undefined,
+      launch,
+    ),
+  ).resolves.toMatchObject({ recipeFailure: "recipe-unavailable" });
   mock.execute.mockResolvedValue({ stdout: "https://forge.test/me/repo.git" });
   expect(
     (
       await hosts.action(
-        { action: "trust-origin", host: "worker", repository: "/local/repo" },
+        {
+          action: "trust-origin",
+          host: "worker",
+          repository: "/local/repo",
+          endpoint: forgeEndpoint,
+        },
         undefined,
         launch,
       )
@@ -1585,6 +2385,7 @@ test("saved full checks survive restart as display data, list makes no SSH reads
       codeFolder: facts.codeFolder,
     });
     const observation = checked.hosts[0]?.observation;
+    expect(observation?.preflight.repositories[0]?.originEndpoint).toEqual(forgeEndpoint);
     expect(observation?.checkedAt).toBeGreaterThan(0);
     expect(observation?.foreignSessions).toBe(1);
     expect(mock.inventory).toHaveBeenCalledTimes(1);
@@ -1806,6 +2607,7 @@ test("repository reload and clone preserve all other rows and the full-check tim
   });
   expect(run).toHaveBeenCalledTimes(1);
   expect(run.mock.lastCall?.[1].operation).toBe("origin");
+  expect(origin.preflight?.repositories[0]?.originEndpoint).toEqual(forgeEndpoint);
   expect(origin.preflight?.repositories[0]?.origin).toEqual({
     state: "fail",
     reason: "origin-auth",
@@ -2041,7 +2843,7 @@ test("removed repositories drop queued trust rows without failing list", async (
   await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
   const launch = vi.fn(() => Promise.resolve());
   await hosts.action(
-    { action: "trust-origin", host: "worker", repository: "/local/repo" },
+    { action: "trust-origin", host: "worker", repository: "/local/repo", endpoint: forgeEndpoint },
     undefined,
     launch,
   );
@@ -2430,70 +3232,6 @@ test("a queued registered preflight rechecks registration after removal", async 
   await removal;
   expect(run).not.toHaveBeenCalled();
 });
-
-test("host check output is live, bounded, inert and retained after failure", async () => {
-  let finish: (result: HostResult) => void = () => {};
-  let write: (text: string) => void = () => {};
-  const execute = vi.fn(
-    (_host: string, _request: HostManagement, output?: (text: string) => void) => {
-      write = output ?? (() => {});
-      write("Connecting\n");
-      return new Promise<HostResult>((resolve) => {
-        finish = resolve;
-      });
-    },
-  );
-  hosts = new Hosts(store, () => [], "0.1.0", execute);
-  const pending = hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
-  await vi.waitFor(() => {
-    expect(execute).toHaveBeenCalled();
-  });
-  expect((await hosts.action({ action: "progress" })).output).toMatchObject({
-    host: "worker",
-    running: true,
-    text: "Connecting\n",
-  });
-  write("x".repeat(70000));
-  write("<script>untrusted</script>\nSSH refused\n");
-  finish({ ok: false, reason: "unreachable" });
-  const state = await pending;
-  expect(state.output?.text.length).toBe(65536);
-  expect(state.output).toMatchObject({ running: false, failed: true });
-  expect(state.output?.text).toContain("<script>untrusted</script>");
-  expect((await hosts.action({ action: "progress" })).output).toEqual(state.output);
-  expect((await hosts.action({ action: "dismiss-output" })).output).toBeUndefined();
-});
-
-test.each(["", "\n", "\r\n", "\r"])(
-  "Foom output lines stay separate after SSH chunks ending with %j",
-  async (ending) => {
-    for (const outcome of ["done", "failed", "thrown"] as const) {
-      const execute = vi.fn(
-        (
-          _host: string,
-          _request: HostManagement,
-          output?: (text: string, startLine?: boolean) => void,
-        ): Promise<HostResult> => {
-          output?.("SSH chunk");
-          output?.(ending);
-          output?.("Inspecting…\n", true);
-          output?.("last SSH chunk");
-          output?.(ending);
-          if (outcome === "thrown") throw new Error("fixture connection failed");
-          return Promise.resolve(
-            outcome === "done" ? { ok: true, facts } : { ok: false, reason: "unreachable" },
-          );
-        },
-      );
-      hosts = new Hosts(store, () => [], "0.1.0", execute);
-      const state = await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
-      const lineEnd = ending.endsWith("\n") ? ending : `${ending}\n`;
-      expect(state.output?.text).toBe(
-        `SSH chunk${lineEnd}Inspecting…\nlast SSH chunk${lineEnd}${outcome === "done" ? "Done" : "Failed · unreachable"}\n`,
-      );
-    }
-  },
-);
 
 test("first-use launch and worktree creation share one absent checkout preparation", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
@@ -3028,18 +3766,15 @@ test("checks on the same host serialize while another host can complete", async 
 
 test("a production full check shares its transport with repositories and profile inventories", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
-  mock.remote.mockImplementation(
-    (_target, _version, request: HostManagement, _signal, output?: (text: string) => void) => {
-      output?.("Fixture check\n");
-      return Promise.resolve({
-        ok: true,
-        facts,
-        ...("directory" in request
-          ? { checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" } }
-          : {}),
-      });
-    },
-  );
+  mock.remote.mockImplementation((_target, _version, request: HostManagement) => {
+    return Promise.resolve({
+      ok: true,
+      facts,
+      ...("directory" in request
+        ? { checkout: { path: `${facts.codeFolder}/${request.directory}`, state: "absent" } }
+        : {}),
+    });
+  });
   mock.inventory.mockResolvedValue({ type: "inventory-result", own: [], foreign: [] });
   const owner = new Hosts(store, () => repositories, "0.1.0", undefined, "f".repeat(32));
   const checked = await owner.action({
@@ -3056,7 +3791,6 @@ test("a production full check shares its transport with repositories and profile
   ]);
   expect(mock.inventory).toHaveBeenCalledTimes(1);
   expect(mock.close).toHaveBeenCalledTimes(1);
-  expect(checked.output?.text).toContain("Fixture check");
 });
 
 test("a slow global locations read does not queue another host's capability check", async () => {
@@ -3089,67 +3823,3 @@ test("a slow global locations read does not queue another host's capability chec
     checked.locations.find((entry) => entry.host === "fast"),
   );
 });
-
-test("late SSH output from a completed batch cannot enter the next check's panel", async () => {
-  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
-  const owner = new Hosts(store, () => [], "0.1.0");
-  mock.remote.mockResolvedValueOnce({ ok: true, facts });
-  await owner.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
-  const held = Promise.withResolvers<HostResult>();
-  mock.remote.mockImplementationOnce(() => held.promise);
-  const pending = owner.action({
-    action: "preflight",
-    host: "worker",
-    codeFolder: facts.codeFolder,
-  });
-  await vi.waitFor(() => {
-    expect(mock.remote).toHaveBeenCalledTimes(2);
-  });
-  mock.remote.mock.calls[0]?.[4]?.("stale output");
-  mock.remote.mock.calls[1]?.[4]?.("current output");
-  expect((await owner.action({ action: "progress" })).output?.text).toBe("current output");
-  held.resolve({ ok: true, facts });
-  await pending;
-});
-
-test.each([false, true])(
-  "a failed concurrent check cannot mark another host's output failed (finished=%s)",
-  async (finished) => {
-    settings.registeredHosts = ["first", "second"].map((host) => ({
-      host,
-      codeFolder: facts.codeFolder,
-    }));
-    const first = Promise.withResolvers<HostResult>();
-    const second = Promise.withResolvers<HostResult>();
-    mock.remote.mockImplementation(({ host }) =>
-      host === "first" ? first.promise : second.promise,
-    );
-    const owner = new Hosts(store, () => [], "0.1.0");
-    const check = (host: string) =>
-      owner.action({ action: "preflight", host, codeFolder: facts.codeFolder });
-    const a = check("first");
-    await vi.waitFor(() => {
-      expect(mock.remote).toHaveBeenCalledTimes(1);
-    });
-    const b = check("second");
-    await vi.waitFor(() => {
-      expect(mock.remote).toHaveBeenCalledTimes(2);
-    });
-    mock.remote.mock.calls[1]?.[4]?.("Second host\n");
-    if (finished) {
-      second.resolve({ ok: true, facts });
-      await b;
-    }
-    first.resolve({ ok: false, reason: "unreachable" });
-    await a;
-    mock.remote.mock.calls[0]?.[4]?.("Stale first host\n");
-    const during = (await owner.action({ action: "progress" })).output;
-    expect(during).toMatchObject({ host: "second", failed: false, running: !finished });
-    expect(during?.text).not.toMatch(/Failed|Stale/u);
-    if (!finished) second.resolve({ ok: true, facts });
-    const completed = await b;
-    expect(completed.output).toMatchObject({ host: "second", failed: false, running: false });
-    expect(completed.output?.text).toBe("Second host\nDone\n");
-    owner.dispose();
-  },
-);

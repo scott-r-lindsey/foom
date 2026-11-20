@@ -627,7 +627,7 @@
   color: var(--muted);
   font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
-.host-meta .host-remove {
+.host-meta > button {
   font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) var(--font-interface);
   color: var(--ink);
 }
@@ -637,7 +637,11 @@
   column-gap: 9px;
   padding: 0 20px;
 }
-.host-checks > * {
+.host-controls {
+  display: contents;
+}
+.host-checks > :not(.host-controls),
+.host-checks > .host-controls > * {
   grid-column: 1 / -1;
 }
 .host-check-group {
@@ -647,7 +651,7 @@
   color: var(--muted);
   padding: 16px 0 6px;
 }
-.host-check-group:first-child {
+.host-checks > .host-controls:first-child > .host-check-group:first-child {
   padding-top: 2px;
 }
 .host-check-row {
@@ -696,7 +700,8 @@
 .host-pass {
   color: var(--done-ink);
 }
-.host-need {
+.host-need,
+.host-count.codex-approval-advisory {
   color: var(--attention-ink);
 }
 .host-fail,
@@ -743,16 +748,10 @@
   font-size: calc(11px * var(--type-scale, 1));
   padding: 5px 9px;
 }
-.host-origin-fixes {
-  display: flex;
+.host-git-protocols {
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 14px;
-  padding: 10px 0 12px 25px;
-  border-bottom: 1px solid var(--line);
-  font-size: calc(11px * var(--type-scale, 1));
-}
-.host-origin-fixes span {
-  border-bottom: 1px dotted var(--muted);
+  gap: 4px 14px;
 }
 .host-footer {
   display: flex;
@@ -794,6 +793,15 @@
 .host-facts dd {
   margin: 4px 0 0;
   font-family: var(--font-mono);
+}
+.host-checkouts {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.host-checkouts ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .host-folder-form {
   display: flex;
@@ -954,6 +962,7 @@
 .host-summary-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 12px 16px;
 }
@@ -994,22 +1003,12 @@
   padding: 0;
   min-width: 0;
 }
-.host-body > .host-meta {
+.host-body > .host-controls > .host-meta {
   padding-top: 16px;
 }
 .host-body[hidden] {
   display: none;
 }
-.host-repositories {
-  justify-self: start;
-  margin-top: 16px;
-  font-size: calc(12px * var(--type-scale, 1));
-  color: var(--muted);
-}
-.host-repositories summary {
-  cursor: pointer;
-}
-
 .host-row-reload {
   opacity: 0;
 }

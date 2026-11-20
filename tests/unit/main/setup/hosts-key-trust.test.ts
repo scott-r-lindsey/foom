@@ -76,7 +76,7 @@ test("unknown keys offer trust for registered hosts and accepted new hosts run t
     expect.any(Function),
   );
   expect(settings.registeredHosts?.[0]?.observation?.preflight.result.ok).toBe(true);
-  expect(state.output).toMatchObject({ running: false, failed: false });
+  expect(state.hosts[0]?.hostKeyTrustFailure).toBeUndefined();
   expect(hosts.copyValue({ kind: "copy-host-ssh-command", host: "box" })).toBe("ssh box");
 });
 
@@ -179,6 +179,33 @@ test("an explicit SSH row reload offers trust while preserving the successful fu
   expect(run).not.toHaveBeenCalled();
 });
 
+test("a late healthy inventory cannot override completed SSH trust eligibility", async () => {
+  run.mockResolvedValue(good);
+  await enroll();
+  await hosts.action({ action: "preflight", host: "box", codeFolder: "/code" });
+  const started = Promise.withResolvers<undefined>();
+  const stale = Promise.withResolvers<HostResult>();
+  run.mockImplementationOnce(() => {
+    started.resolve(undefined);
+    return stale.promise;
+  });
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+  const inventory = hosts.inventory("box");
+  now.mockRestore();
+  await started.promise;
+  run.mockResolvedValueOnce(unknownKey);
+  await hosts.action({ action: "reload", host: "box", target: { kind: "ssh" } });
+  stale.resolve(good);
+  await inventory;
+  const row = hosts.state().hosts[0];
+  expect(row?.result?.ok).toBe(true);
+  expect(row?.observation?.preflight.ssh).toEqual(unknownKey.connection?.ssh);
+  expect(row?.hostKeyTrust).toBe("askpass");
+  mock.trust.mockResolvedValueOnce(false);
+  expect((await trust()).hosts[0]?.hostKeyTrustFailure).toBeUndefined();
+  expect(mock.trust).toHaveBeenCalledOnce();
+});
+
 test("a cancelled trust request cannot start another capability read while building its reply", async () => {
   await enroll();
   mock.supported.mockClear();
@@ -241,7 +268,7 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
   },
 );
 
-test("trust failures publish only a fixed reason in the check output panel", async () => {
+test("trust failures publish a fixed reason on the host and clear on recheck", async () => {
   await enroll();
   mock.trust.mockImplementationOnce(
     (
@@ -256,13 +283,17 @@ test("trust failures publish only a fixed reason in the check output panel", asy
     },
   );
   const state = await trust();
-  expect(state.output).toEqual({
-    host: "box",
-    text: "Unable to trust host key · prompt-host-mismatch\n",
-    running: false,
-    failed: true,
-  });
+  expect(state.hosts[0]?.hostKeyTrustFailure).toBe("prompt-host-mismatch");
   expect(state.hosts[0]?.result).toEqual(unknownKey);
+  expect((await hosts.action({ action: "list" })).hosts[0]?.hostKeyTrustFailure).toBe(
+    "prompt-host-mismatch",
+  );
+  const checked = await hosts.action({
+    action: "preflight",
+    host: "box",
+    codeFolder: "/code",
+  });
+  expect(checked.hosts[0]?.hostKeyTrustFailure).toBeUndefined();
 });
 
 test("background inventory cannot replace a waiting SSH trust observation with a local artifact failure", async () => {
@@ -275,7 +306,7 @@ test("background inventory cannot replace a waiting SSH trust observation with a
   expect(mock.trust).toHaveBeenCalledOnce();
 });
 
-test("a delayed trust failure cannot replace a newer host check's output", async () => {
+test("a concurrent check on another host preserves the trust failure", async () => {
   await enroll();
   const ready = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
@@ -301,9 +332,9 @@ test("a delayed trust failure cannot replace a newer host check's output", async
     host: "other",
     codeFolder: "/code",
   });
-  expect(checked.output).toMatchObject({ host: "other", failed: false, running: false });
+  expect(checked.preflight?.result.ok).toBe(true);
   release.resolve(undefined);
-  expect((await pending).output).toEqual(checked.output);
+  expect((await pending).hosts[0]?.hostKeyTrustFailure).toBe("prompt-host-mismatch");
 });
 
 test("subscribed host views prime saved trust and sealed-build display state without remote work", async () => {

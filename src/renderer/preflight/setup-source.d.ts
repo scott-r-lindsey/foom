@@ -1,11 +1,7 @@
-import type {
-  RepositorySetupAction,
-  RepositorySetupState,
-  SetupRefusal,
-} from "../../shared/repository-setup.d";
+import type { RepositoryRequirementsApi } from "../../shared/repository-requirements";
 import type { DataViewApi } from "../../shared/data-views";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
-import type { HostsApi } from "../../shared/registered-hosts.d";
+import type { HostsAction, HostsApi } from "../../shared/registered-hosts.d";
 import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeKind } from "../../shared/theme-file";
 import type { EnvironmentApi } from "../../shared/environment";
@@ -22,15 +18,15 @@ import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
 import type { ConfigStatus } from "../../shared/foom-config";
 
+export type HostTerminalAction = Extract<HostsAction, { action: "recipe" | "trust-origin" }>;
+
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
-  onRepositorySetupRefused?: (callback: (refusal: SetupRefusal | undefined) => void) => () => void;
-  draftSetupAgent?: (repository: string) => Promise<void>;
-  repositorySetup?: (action: RepositorySetupAction) => Promise<RepositorySetupState>;
   views?: DataViewApi;
-  /** Embedded recipes started in this Settings window; other agent sign-in tiles are separate. */
+  /** Embedded recipes started in this Settings window. */
   installs?: {
     sessions(): ReadonlyMap<string, string>;
+    hostActions?(): ReadonlyMap<string, HostTerminalAction>;
     hasSessions(): boolean;
     running(): Promise<boolean>;
     close(): Promise<void>;
@@ -46,6 +42,7 @@ export interface SetupSource {
   githubSignIn?: HostsApi["githubSignIn"];
   copyHost?: HostsApi["copyHost"];
   hosts?: HostsApi["hosts"];
+  repositoryRequirements?: RepositoryRequirementsApi["repositoryRequirements"];
   localAgentInstall?: (
     id?: string,
   ) => Promise<{ available: readonly string[]; recipeSession?: string }>;
@@ -54,7 +51,7 @@ export interface SetupSource {
   listTerminalFonts?(refresh?: boolean): Promise<readonly string[]>;
   openThemesFolder(kind: ThemeKind): Promise<void>;
   state(): Promise<SetupState>;
-  save(patch: SettingsPatch): Promise<SetupState>;
+  save(patch: SettingsPatch, themeDigest?: string): Promise<SetupState>;
   scanAgents(refresh: boolean, agent?: string): Promise<AgentReport>;
   changeAgentSetup?(id: string, action: string): Promise<AgentReport>;
   changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;

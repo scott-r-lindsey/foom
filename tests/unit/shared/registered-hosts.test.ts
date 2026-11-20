@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   originSshArgs,
+  gitOriginEndpoint,
   hostAlias,
   codeFolder,
   registeredHosts,
@@ -8,6 +9,7 @@ import {
   hostManagement,
   hostResult,
   hostsAction,
+  hostKeyUntrusted,
 } from "../../../src/shared/registered-hosts";
 import { remoteRequest, remoteResponse } from "../../../src/shared/remote-host-protocol";
 export const facts = {
@@ -20,6 +22,21 @@ export const facts = {
   memoryAvailable: 4000000,
   agents: [{ id: "claude", state: "ready" as const }],
 };
+
+test("setup accepts only bounded unique repository selectors and registered-host action fields", () => {
+  const action = { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/repo"] };
+  expect(hostsAction(action)).toBe(true);
+  expect(hostsAction({ action: "show-setup-agent", host: "worker", id: "setup-id" })).toBe(true);
+  expect(hostsAction({ action: "show-setup-agent", host: "worker" })).toBe(false);
+  expect(hostsAction({ ...action, prompt: "renderer text" })).toBe(false);
+  expect(hostsAction({ ...action, agent: "shell -c" })).toBe(false);
+  for (const repositories of [null, [], ["/repo", "/repo"], ["/a\nb"], ["/".repeat(4097)], [null]])
+    expect(hostsAction({ ...action, repositories })).toBe(false);
+  expect(hostKeyUntrusted({ state: "fail", reason: "host-key-unknown" })).toBe(true);
+  expect(hostKeyUntrusted({ state: "fail", reason: "host-key-changed" })).toBe(true);
+  expect(hostKeyUntrusted({ state: "fail", reason: "unreachable" })).toBe(false);
+  expect(hostKeyUntrusted({ state: "not-checked" })).toBe(false);
+});
 test("host settings reject options, shell syntax, path traversal and duplicate authorizations", () => {
   for (const host of ["worker", "me@worker.test", "127.0.0.1"]) expect(hostAlias(host)).toBe(true);
   for (const host of [
@@ -122,6 +139,16 @@ test("origin and management boundaries accept only closed operations and credent
   ])
     expect(hostManagement(value)).toBe(false);
 });
+test("Codex approval observations accept only the closed Codex fact", () => {
+  const withAgent = (id: string, codexApprovals: unknown) => ({
+    ok: true,
+    facts: { ...facts, agents: [{ id, state: "ready", codexApprovals }] },
+  });
+  expect(hostResult(withAgent("codex", "may-prompt"))).toBe(true);
+  expect(hostResult(withAgent("codex", "raw config"))).toBe(false);
+  expect(hostResult(withAgent("claude", "may-prompt"))).toBe(false);
+});
+
 test("typed results expose bounded facts and fixed states only", () => {
   const valid = { ok: true, facts };
   expect(hostResult(valid)).toBe(true);
@@ -505,6 +532,30 @@ test("local progress action accepts no host or arbitrary payload", () => {
   expect(hostsAction({ action: "progress", host: "worker" })).toBe(false);
 });
 
+test.each([
+  ["git@192.0.2.42:team/repo.git", "192.0.2.42", null, "git@192.0.2.42"],
+  ["ssh://git@Forge.test.:02222/team/repo.git", "forge.test.", 2222, "git@Forge.test."],
+])(
+  "accepted origin %s has a matching display endpoint and SSH destination",
+  (origin, host, port, destination) => {
+    expect(gitOrigin(origin)).toBe(true);
+    expect(gitOriginEndpoint(origin)).toEqual({ host, protocol: "ssh", port });
+    expect(originSshArgs(origin)?.at(-1)).toBe(destination);
+  },
+);
+
+test("an omitted SSH port and an explicit port 22 identify different endpoints", () => {
+  const implicit = "git@fixture.example:org/repo.git";
+  const implicitUrl = "ssh://git@fixture.example/org/repo.git";
+  const explicit = "ssh://git@fixture.example:22/org/repo.git";
+  const endpoint = { host: "fixture.example", protocol: "ssh" };
+  expect(gitOriginEndpoint(implicit)).toEqual({ ...endpoint, port: null });
+  expect(gitOriginEndpoint(implicitUrl)).toEqual({ ...endpoint, port: null });
+  expect(gitOriginEndpoint(explicit)).toEqual({ ...endpoint, port: 22 });
+  expect(originSshArgs(implicit)).not.toContain("-p");
+  expect(originSshArgs(explicit)?.slice(-4)).toEqual(["-p", "22", "--", "git@fixture.example"]);
+});
+
 test("origin trust selects only SSH targets and preserves explicit ports without a command", () => {
   expect(originSshArgs("git@forge.test:team/repo.git")?.slice(-2)).toEqual([
     "--",
@@ -526,9 +577,12 @@ test("origin trust selects only SSH targets and preserves explicit ports without
     null,
   ])
     expect(originSshArgs(origin)).toBeUndefined();
-  expect(hostsAction({ action: "trust-origin", host: "worker", repository: "/local/repo" })).toBe(
-    true,
-  );
+  const endpoint = { host: "forge.test", protocol: "ssh", port: 22 };
+  const trust = { action: "trust-origin", host: "worker", repository: "/local/repo" };
+  expect(hostsAction({ ...trust, endpoint })).toBe(true);
+  expect(hostsAction({ ...trust, endpoint: { ...endpoint, port: null } })).toBe(true);
+  expect(hostsAction(trust)).toBe(false);
+  expect(hostsAction({ ...trust, endpoint: { ...endpoint, port: "22" } })).toBe(false);
   expect(
     hostsAction({
       action: "trust-origin",
@@ -582,7 +636,11 @@ test("saved host observations accept only bounded display facts and closed check
         ...host,
         observation: {
           checkedAt: 0,
-          preflight: { ...preflight, result: { ok: false, reason: "unreachable" } },
+          preflight: {
+            ...preflight,
+            sshRevision: 2,
+            result: { ok: false, reason: "unreachable" },
+          },
         },
       },
     ]),
@@ -599,6 +657,10 @@ test("saved host observations accept only bounded display facts and closed check
     { ...observation, foreignWorktrees: "0" },
     { ...observation, preflight: null },
     { ...observation, preflight: { ...preflight, raw: "secret" } },
+    ...[-1, 1.5, Number.MAX_SAFE_INTEGER + 1].map((sshRevision) => ({
+      ...observation,
+      preflight: { ...preflight, sshRevision },
+    })),
     ...["ssh", "platform", "artifact"].map((key) => ({
       ...observation,
       preflight: { ...preflight, [key]: { state: "invalid" } },

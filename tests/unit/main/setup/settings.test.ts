@@ -14,7 +14,7 @@ import {
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof Fs>();
-  return { ...actual, link: vi.fn(actual.link) };
+  return { ...actual, link: vi.fn(actual.link), writeFile: vi.fn(actual.writeFile) };
 });
 
 const dirs: string[] = [];
@@ -26,6 +26,158 @@ async function directory(): Promise<string> {
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
+
+test("a profile write can be superseded after its temporary file is staged", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  const before = store.get();
+  const file = path.join(root, "settings.json");
+  const oldContents = await readFile(file, "utf8");
+  const write = (await vi.importActual<typeof Fs>("node:fs/promises")).writeFile;
+  const patch = { registeredHosts: [{ host: "worker", codeFolder: "/code" }] };
+  Object.defineProperty(patch, "registeredHosts", { enumerable: false });
+  let current = true;
+  vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+    await write(...args);
+    current = false;
+  });
+  await expect(store.update(patch, () => current)).resolves.toEqual(before);
+  expect(await readFile(file, "utf8")).toBe(oldContents);
+  expect(await readdir(root)).toEqual(["settings.json"]);
+  await store.update(patch, () => true);
+  expect((await SettingsStore.open(root)).get().registeredHosts).toEqual(patch.registeredHosts);
+});
+
+test("guarded writes reject mixed patches before applying any settings", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  const patch = {
+    registeredHosts: [{ host: "worker", codeFolder: "/code" }],
+    setupComplete: true,
+  };
+  const guard = vi.fn(() => false);
+  // @ts-expect-error Mixed patches cannot use a commit guard.
+  const rejected = store.update(patch, guard);
+  await expect(rejected).rejects.toThrow("A commit guard requires a registeredHosts-only patch");
+  expect(guard).not.toHaveBeenCalled();
+  expect((await SettingsStore.open(root)).get()).toEqual(DEFAULT_SETTINGS);
+  await store.update(patch);
+  expect((await SettingsStore.open(root)).get()).toMatchObject(patch);
+});
+
+test.each(["guarded", "unguarded"] as const)(
+  "%s writes own a deep copy of registered hosts",
+  async (mode) => {
+    const root = await directory();
+    const store = await SettingsStore.open(root);
+    const preflight = {
+      ssh: { state: "pass" as const },
+      sshRevision: 1,
+      platform: { state: "not-checked" as const },
+      artifact: { state: "fail" as const, reason: "artifact-unavailable" as const },
+      result: { ok: false as const, reason: "artifact-unavailable" as const },
+      repositories: [],
+    };
+    const host = { host: "worker", codeFolder: "/code", observation: { checkedAt: 1, preflight } };
+    const patch = { registeredHosts: [host] };
+    const expected = structuredClone(patch.registeredHosts);
+
+    if (mode === "guarded") await store.update(patch, () => true);
+    else await store.update(patch);
+    patch.registeredHosts.pop();
+    host.codeFolder = "/changed";
+    preflight.sshRevision = 2;
+    expect(store.get().registeredHosts).toEqual(expected);
+
+    // Another profile write must not pick up the caller's mutations.
+    await store.update({ setupComplete: true });
+    expect((await SettingsStore.open(root)).get().registeredHosts).toEqual(expected);
+  },
+);
+
+test.each(["update", "attachConfig", "setConfig"] as const)(
+  "%s takes ownership of nested settings before returning",
+  async (method) => {
+    const root = await directory();
+    const store = await SettingsStore.open(root);
+    const sound = structuredClone(DEFAULT_SETTINGS.sound);
+    sound.volume = 0.7;
+    const expected = structuredClone(sound);
+    const values = { sound };
+    const pending =
+      method === "attachConfig"
+        ? store.attachConfig(async () => {}, values, null)
+        : store[method](values);
+    sound.choices.done.file = "changed.ogg";
+    await pending;
+    sound.volume = 0.2;
+    expect(store.get().sound).toEqual(expected);
+
+    await store.update({ setupComplete: true });
+    const reopened = await SettingsStore.open(root);
+    // Attached config values are restored separately by the config service.
+    expect(reopened.get().sound).toEqual(
+      method === "attachConfig" ? DEFAULT_SETTINGS.sound : expected,
+    );
+  },
+);
+
+test("settings snapshots and legacy arguments cannot be changed through returned values", async () => {
+  const root = await directory();
+  let store = await SettingsStore.open(root);
+  const written = await store.update({ agentArguments: { codex: ["--oss"] } });
+  const expected = structuredClone(written);
+  expect(Reflect.set(written.sound.choices.done, "file", "changed.ogg")).toBe(false);
+  expect(Reflect.set(written.agentArguments, "codex", [])).toBe(false);
+  expect(store.get()).toEqual(expected);
+
+  store = await SettingsStore.open(root);
+  const current = store.get();
+  const legacy = store.legacyConfig();
+  expect(legacy).toMatchObject({ sound: expected.sound, agentArguments: { codex: ["--oss"] } });
+  if (!legacy?.agentArguments?.["codex"]) throw new Error("Missing legacy Codex arguments");
+  expect(Reflect.set(current, "setupComplete", true)).toBe(false);
+  expect(Reflect.set(current.sound.choices.done, "file", "changed.ogg")).toBe(false);
+  expect(Reflect.set(legacy, "agentArguments", {})).toBe(false);
+  expect(Reflect.set(legacy.agentArguments, "codex", [])).toBe(false);
+  expect(Reflect.set(legacy.agentArguments["codex"], "0", "--changed")).toBe(false);
+  expect(store.get()).toEqual(expected);
+
+  await store.update({ checkForUpdates: false });
+  expect((await SettingsStore.open(root)).get()).toEqual({ ...expected, checkForUpdates: false });
+});
+
+test.each(["hidden host property", "mutating getter"] as const)(
+  "guarded writes reject a %s before invoking the config writer",
+  async (shape) => {
+    const root = await directory();
+    const store = await SettingsStore.open(root);
+    const writer = vi.fn(() => Promise.resolve());
+    await store.attachConfig(writer, { hooks: true }, null);
+    const before = await readFile(path.join(root, "settings.json"), "utf8");
+    const patch = { registeredHosts: [] };
+    const getter = vi.fn(() => {
+      Object.assign(patch, { hooks: false });
+      return [];
+    });
+    if (shape === "hidden host property") {
+      Object.defineProperty(patch, "registeredHosts", { enumerable: false });
+      Object.assign(patch, { hooks: false });
+    } else {
+      Object.defineProperty(patch, "registeredHosts", { get: getter });
+    }
+
+    const guard = vi.fn(() => false);
+    await expect(store.update(patch, guard)).rejects.toThrow(
+      "A commit guard requires a registeredHosts-only patch",
+    );
+    expect(getter).not.toHaveBeenCalled();
+    expect(guard).not.toHaveBeenCalled();
+    expect(writer).not.toHaveBeenCalled();
+    expect(store.get().hooks).toBe(true);
+    expect(await readFile(path.join(root, "settings.json"), "utf8")).toBe(before);
+  },
+);
 
 test("patches copy only known, well-formed fields", () => {
   expect(
@@ -503,15 +655,14 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   });
   await store.update({ panelColor: "plain" });
   expect(writes).toHaveLength(2);
-  await store.setConfigDigest("b".repeat(64));
-  await store.setConfigDigest("b".repeat(64));
-  expect((await SettingsStore.open(dir)).configDigest()).toBe("b".repeat(64));
-  // The applied settings copy persists for Keep it on after a restart, within the file limit.
   expect(store.configText()).toBeNull();
-  await store.setConfigText('{"kind":"settings"}');
-  await store.setConfigText('{"kind":"settings"}');
-  await store.setConfigText("x".repeat(65537));
-  expect((await SettingsStore.open(dir)).configText()).toBe('{"kind":"settings"}');
+  const text = '{"kind":"settings"}';
+  await store.setConfigBaseline("b".repeat(64), text);
+  await store.setConfigBaseline("b".repeat(64), text);
+  await store.setConfigBaseline("d".repeat(64), "x".repeat(65537));
+  const persisted = await SettingsStore.open(dir);
+  expect(persisted.configDigest()).toBe("b".repeat(64));
+  expect(persisted.configText()).toBe(text);
   store.setConfig({});
   expect(store.get().terminalFontSize).toBe(14);
 });
@@ -580,7 +731,7 @@ test.each([1, 2])(
     );
     const store = await SettingsStore.open(dir);
     expect(store.legacyConfig()?.agentArguments).toEqual(recovered);
-    await store.setConfigDigest("a".repeat(64));
+    await store.setConfigBaseline("a".repeat(64), '{"kind":"settings"}');
     // Baseline persistence during config initialization must not drop the arguments.
     const reopened = await SettingsStore.open(dir);
     expect(reopened.get().agentArguments).toEqual(recovered);

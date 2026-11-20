@@ -10,7 +10,7 @@ import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { machineHostName } from "../../../../src/main/workspace/sidebar-commands";
-import { agents, bound, deps, tree } from "./workspace-fixture";
+import { agents, bound, deps, scan, tree } from "./workspace-fixture";
 
 function configured() {
   const workspace = new Workspace(deps);
@@ -117,6 +117,35 @@ test("local machine launches use the installed CLI and user defaults without cre
       Promise.resolve(true),
     ),
   ).rejects.toThrow();
+});
+
+test("host setup starts a local machine agent with a main-owned, spawn-validated prompt", async () => {
+  const validate = vi.fn();
+  const workspace = configured();
+  await expect(
+    workspace.startHostSetupAgent("setup-id", "claude", "fixed brief", validate),
+  ).rejects.toThrow("Agent cannot receive a setup brief");
+  agents.scan.mockResolvedValue({
+    ...scan,
+    agents: scan.agents.map((agent) => ({ ...agent, initialPrompt: true })),
+  });
+  await workspace.scanAgents(true);
+  agents.launch.mockImplementationOnce((request) => {
+    request.beforeSpawn?.();
+    return Promise.resolve({ id: request.terminalId ?? "", attention: "evaluator" });
+  });
+  await workspace.startHostSetupAgent("setup-id", "claude", "fixed brief", validate);
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      terminalId: "setup-id",
+      prompt: "fixed brief",
+      localOnly: true,
+      humanHome: true,
+    }),
+  );
+  expect(agents.launch.mock.calls[0]?.[0].control).toBeUndefined();
+  expect(validate).toHaveBeenCalledWith(true);
+  expect(workspace.snapshot().terminals[0]?.placement).toEqual({ kind: "local" });
 });
 
 test.each(["shell", "claude"] as const)(

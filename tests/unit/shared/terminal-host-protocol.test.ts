@@ -20,6 +20,9 @@ test("validates every request shape, dimensions, arguments and bounded values", 
   expect(hostRequest({ ...base, type: "attach", view: "view" })).toBe(true);
   expect(hostRequest({ ...base, type: "attach", view: null })).toBe(false);
   expect(hostRequest({ ...base, type: "create", spec })).toBe(true);
+  expect(hostRequest({ ...base, type: "create", spec: { ...spec, settingsRecipe: true } })).toBe(
+    true,
+  );
   for (const bad of [
     null,
     {},
@@ -33,6 +36,7 @@ test("validates every request shape, dimensions, arguments and bounded values", 
     { ...spec, cols: 1 },
     { ...spec, cols: 501 },
     { ...spec, rows: 301 },
+    { ...spec, settingsRecipe: 1 },
   ])
     expect(hostRequest({ ...base, type: "create", spec: bad })).toBe(false);
   for (const data of ["", "hello"])

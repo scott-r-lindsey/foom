@@ -63,7 +63,9 @@ export function AgentsScopes(
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState("");
   const [localRevision, setLocalRevision] = useState(0);
-  const recipeFinished = () => {
+  const [finishedInstall, setFinishedInstall] = useState<string>();
+  const recipeFinished = (id: string) => {
+    setFinishedInstall(id);
     void api?.({ action: "list" }).then(
       (next) => {
         hostsQuery.setData(next);
@@ -108,6 +110,10 @@ export function AgentsScopes(
       for (const action of "action" in request ? [request] : request) {
         const next = await api?.(action);
         if (next) {
+          if (next.preflightSaveFailed) {
+            setError("Unable to check agent settings");
+            return;
+          }
           if (!source?.views && !next.recipeFailure) hostsQuery.setData(next);
           if (next.recipeFailure) setError("Recipe unavailable for this host");
         }
@@ -142,6 +148,32 @@ export function AgentsScopes(
     ? (machineQuery.data?.machine?.hosts[0] ?? hosts.find((host) => `host:${host.host}` === scope))
     : undefined;
   const installId = selected && source?.installs?.sessions().get(selected.host);
+  const installAction = installId ? source?.installs?.hostActions?.().get(installId) : undefined;
+  const inlineAction =
+    installAction?.action === "recipe" &&
+    (installAction.operation === "install-plugin" ||
+      (installAction.operation === "sign-in" && installAction.tool !== "gh"))
+      ? installAction
+      : undefined;
+  const inlineTerminal = inlineAction && installId && source?.hostTerminal && (
+    <HostTerminal
+      key={installId}
+      id={installId}
+      source={source.hostTerminal}
+      finished={recipeFinished}
+      label={
+        inlineAction.operation === "install-plugin"
+          ? "Antigravity plugin terminal"
+          : "Agent sign-in terminal"
+      }
+      activeLabel={
+        inlineAction.operation === "install-plugin"
+          ? `Installing Antigravity plugin · ${hostDisplayName(selected)}`
+          : "Signing in…"
+      }
+      collapseOnExit
+    />
+  );
   const reloadHost = (host: HostRow) => {
     void act({ action: "preflight", host: host.host, codeFolder: host.codeFolder }, host.host);
   };
@@ -447,7 +479,13 @@ export function AgentsScopes(
                                   (recipe?.pluginInstall || offline(selected)) && (
                                     <button
                                       type="button"
-                                      disabled={!hostsReady || busy || offline(selected)}
+                                      disabled={
+                                        !hostsReady ||
+                                        busy ||
+                                        offline(selected) ||
+                                        (inlineAction?.operation === "install-plugin" &&
+                                          finishedInstall !== installId)
+                                      }
                                       onClick={() => {
                                         void act(
                                           {
@@ -466,6 +504,9 @@ export function AgentsScopes(
                               </div>
                             </div>
                           )}
+                          {choice.id === "agy" &&
+                            inlineAction?.operation === "install-plugin" &&
+                            inlineTerminal}
                           {agent?.state === "missing" && recipe?.install && (
                             <button
                               type="button"
@@ -490,7 +531,14 @@ export function AgentsScopes(
                             recipe?.signIn && (
                               <button
                                 type="button"
-                                disabled={!hostsReady || busy || offline(selected)}
+                                disabled={
+                                  !hostsReady ||
+                                  busy ||
+                                  offline(selected) ||
+                                  (inlineAction?.operation === "sign-in" &&
+                                    inlineAction.tool === choice.id &&
+                                    finishedInstall !== installId)
+                                }
                                 onClick={() => {
                                   void act(
                                     {
@@ -506,11 +554,14 @@ export function AgentsScopes(
                                 Sign in
                               </button>
                             )}
+                          {inlineAction?.operation === "sign-in" &&
+                            inlineAction.tool === choice.id &&
+                            inlineTerminal}
                         </section>
                       );
                     })}
                 </div>
-                {installId && source?.hostTerminal && (
+                {installId && !inlineAction && source?.hostTerminal && (
                   <HostTerminal
                     key={installId}
                     id={installId}

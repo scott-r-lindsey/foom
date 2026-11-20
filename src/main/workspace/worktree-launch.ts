@@ -104,12 +104,6 @@ export async function launchAgent(
     if (!hold) throw new Error("This worktree is busy");
     try {
       if (this.enabled[request.agent] !== true) throw new LaunchFailure("agent_disabled");
-      const setupHost = extra.remoteCheckout?.target.host ?? null;
-      let setup = await this.deps.repositorySetup?.admit(
-        setupHost,
-        request.repository,
-        extra.remoteCheckout?.worktree ?? request.worktree,
-      );
       // Scan once so launches don't each probe the login shell.
       if (!extra.remoteCheckout && !remoteAgentTarget(process.argv, request.worktree))
         await this.scanAgents(false);
@@ -143,30 +137,8 @@ export async function launchAgent(
       const result = await this.agents.launch({
         ...request,
         ...extra,
-        ...(setup?.approval
-          ? {
-              repositorySetup: {
-                codeRoot: setup.codeRoot,
-                list: setup.approval.list,
-                catalog: setup.approval.catalog,
-                revision: setup.approval.revision,
-                sources: setup.approval.sources.fingerprint,
-              },
-            }
-          : {}),
-        ...(setup?.paths.length ? { repositoryPath: setup.paths } : {}),
-        prepareSpawn: async () => {
-          await extra.prepareSpawn?.();
-          setup?.validate();
-          setup = await this.deps.repositorySetup?.admit(
-            setupHost,
-            request.repository,
-            extra.remoteCheckout?.worktree ?? request.worktree,
-          );
-        },
         beforeSpawn: () => {
           checkClosing();
-          setup?.validate();
           extra.beforeSpawn?.();
         },
         ...(replacement && !this.launched.get(replacement.id)?.remote ? { localOnly: true } : {}),
@@ -400,7 +372,9 @@ export async function startShell(
         : {}),
       command: localRecipe?.command ?? (remote ? `ssh ${remote.host}` : shellPath()),
       args: localRecipe?.args ?? (process.platform === "win32" ? ["-NoLogo"] : ["-l"]),
-      ...(localRecipe ? { replaceEnvironment: true } : { shellIntegration: true }),
+      ...(localRecipe
+        ? { replaceEnvironment: true, settingsRecipe: true }
+        : { shellIntegration: true }),
       env: { ...environment.env, ...configEnvironment },
       cwd: checkout?.worktree ?? location.worktree,
       cols: 80,
@@ -415,7 +389,7 @@ export async function startShell(
       ...(remote
         ? { remote: true, placement: { kind: "remote" as const, host: remote.host } }
         : {}),
-      ...(remote?.recipe || remote?.repositorySetup || localRecipe ? { recipe: true } : {}),
+      ...(remote?.recipe || remote?.trustOrigin || localRecipe ? { recipe: true } : {}),
       ...(checkout ? { branch: `${checkout.branch} · ${checkout.target.host}` } : {}),
       ...(environment.names.length ? { environment: environment.names } : {}),
       attention: "evaluator",
@@ -447,16 +421,17 @@ export async function startMachine(
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
   confirm?: ConfirmWorkspace,
-  validateLaunch?: () => void,
+  validateLaunch?: (dispatch?: true) => void,
   signal?: AbortSignal,
   heldReservation?: string,
   parentHold?: CheckoutHold,
+  setup?: { id: string; prompt: string },
 ): Promise<string | undefined> {
   let reservation: string | undefined;
   let hold: CheckoutHold | undefined;
   const perform = async (): Promise<string | undefined> => {
-    const ensureOpen = () => {
-      validateLaunch?.();
+    const ensureOpen = (dispatch?: true) => {
+      validateLaunch?.(dispatch);
       if (this.closed) throw new Error("Workspace is closed");
       if (run !== "shell" && this.enabled[run] !== true) throw new LaunchFailure("agent_disabled");
     };
@@ -540,23 +515,6 @@ export async function startMachine(
       if (!installation?.path) throw new LaunchFailure("agent_unavailable");
       command = installation.path;
     }
-    const setupCheckout =
-      remote?.checkout?.path ??
-      (remote?.machine?.repository
-        ? `${remote.machine.codeFolder}/${remote.machine.repository.directory}`
-        : location?.worktree);
-    let setup =
-      run !== "shell" && location && setupCheckout
-        ? await this.deps.repositorySetup?.admit(host, location.repository, setupCheckout)
-        : undefined;
-    if (remote && setup?.approval)
-      remote.setupAdmission = {
-        codeRoot: setup.codeRoot,
-        list: setup.approval.list,
-        revision: setup.approval.revision,
-        catalog: setup.approval.catalog,
-        sources: setup.approval.sources.fingerprint,
-      };
     if (trackedLocation) {
       hold = this.checkoutHolds.acquire(trackedLocation.worktree, parentHold);
       if (!hold) throw new Error("This worktree is busy");
@@ -637,37 +595,27 @@ export async function startMachine(
           repository: homeDirectory,
           worktree: homeDirectory,
           humanHome: true,
-          ...(validateLaunch ? { beforeSpawn: validateLaunch } : {}),
+          ...(setup
+            ? {
+                beforeSpawn: () => {
+                  ensureOpen(true);
+                },
+                prompt: setup.prompt,
+              }
+            : validateLaunch
+              ? { beforeSpawn: validateLaunch }
+              : {}),
           localOnly: true,
           sharedCheckout: true,
           cols: 80,
           rows: 24,
           defaultArguments: args,
           ...(conversation ? { conversationId: conversation } : {}),
-          ...(restoreId ? { terminalId: restoreId } : {}),
+          ...(setup ? { terminalId: setup.id } : restoreId ? { terminalId: restoreId } : {}),
           ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
         });
       }
-      setup?.validate();
-      if (run !== "shell" && location && setupCheckout) {
-        setup = await this.deps.repositorySetup?.admit(host, location.repository, setupCheckout);
-        setup?.validate();
-      }
-      if (remote && setup) {
-        if (setup.approval)
-          remote.setupAdmission = {
-            codeRoot: setup.codeRoot,
-            list: setup.approval.list,
-            revision: setup.approval.revision,
-            catalog: setup.approval.catalog,
-            sources: setup.approval.sources.fingerprint,
-          };
-        remote.beforeOpen = () => {
-          ensureOpen();
-          setup?.validate();
-          validateLaunch?.();
-        };
-      }
+      if (remote) remote.beforeOpen = ensureOpen;
       const id =
         agentResult?.id ??
         (await this.deps.terminals.create({
@@ -678,14 +626,7 @@ export async function startMachine(
           cwd: location?.worktree ?? homeDirectory,
           cols: 80,
           rows: 24,
-          env: setup?.paths.length
-            ? {
-                ...environment.env,
-                PATH: [...setup.paths, environment.env["PATH"] ?? ""].join(
-                  process.platform === "win32" ? ";" : ":",
-                ),
-              }
-            : environment.env,
+          env: environment.env,
           ...(remote ? { remote } : {}),
           ...(run === "shell" ? { shellIntegration: true } : {}),
         }));

@@ -1,4 +1,3 @@
-import type { RepositorySetup } from "../setup/repository-setup";
 import type { WakeInput } from "../../shared/agent-wake";
 import type { CheckoutHold } from "./worktree-reservations";
 import type { ParentIdentity } from "../control/orchestration.d";
@@ -109,10 +108,11 @@ export interface WorkspaceMethods {
     location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
     conversation?: string,
     confirm?: ConfirmWorkspace,
-    validateLaunch?: () => void,
+    validateLaunch?: (dispatch?: true) => void,
     signal?: AbortSignal,
     heldReservation?: string,
     parentHold?: CheckoutHold,
+    setup?: { id: string; prompt: string },
   ): Promise<string | undefined>;
   startHomeShell(
     restoreId?: string,
@@ -211,7 +211,12 @@ export interface WorkspaceMethods {
     repository: string,
     worktree: string,
     branch: string | null,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    confirm: (
+      branch: string,
+      changes: string,
+      automatic?: boolean,
+      fileCount?: number,
+    ) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
@@ -229,7 +234,6 @@ export type Agents = Pick<
   | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
-  repositorySetup?: Pick<RepositorySetup, "admit">;
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
     Partial<
       Pick<

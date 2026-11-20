@@ -1,4 +1,3 @@
-import type { SetupRefusal } from "../shared/repository-setup.d";
 import type { BoardSource } from "./board/board-source.d";
 import { attachTerminalSelectionBuffer } from "./terminal/middle-click";
 import { restoreBoardFocus } from "./board/focus-restore";
@@ -14,7 +13,7 @@ import { Board } from "./board/board-view";
 import { createSampleSource } from "./board/sample-board-source";
 import { createAppSource } from "./board/live-board-source";
 import { Preflight } from "./preflight/preflight-view";
-import { useSettingsExit } from "./preflight/use-settings-exit";
+import { SettingsStoppingDialog, useSettingsExit } from "./preflight/use-settings-exit";
 import { createSetupSource } from "./preflight/setup-source";
 
 function showConfirmationScrim(element: HTMLDivElement | null): void {
@@ -104,8 +103,6 @@ function AppContents({ source }: { source: BoardSource }) {
       proceed?.();
     });
   };
-  const [setupRefusal, setSetupRefusal] = useState<SetupRefusal>();
-  useEffect(() => setup.onRepositorySetupRefused?.(setSetupRefusal), [setup]);
   const [section, setSection] = useState<{ name?: "config" | "hosts"; version: number }>({
     version: 0,
   });
@@ -174,7 +171,6 @@ function AppContents({ source }: { source: BoardSource }) {
       )}
       {board && (
         <Board
-          {...(setupRefusal ? { setupRefusal } : {})}
           source={source}
           soundSetup={setup}
           inactive={preflight}
@@ -191,7 +187,6 @@ function AppContents({ source }: { source: BoardSource }) {
                 source={setup}
                 initial={state}
                 settingsMode
-                {...(section.name === "hosts" && setupRefusal ? { setupRefusal } : {})}
                 {...(section.name ? { initialSection: section.name } : {})}
                 onLaunched={setState}
                 onClose={() => {
@@ -203,6 +198,7 @@ function AppContents({ source }: { source: BoardSource }) {
         />
       )}
       {settingsExit.dialog}
+      <SettingsStoppingDialog />
       {scrim.visible && (
         <div
           className="board-confirmation-scrim"

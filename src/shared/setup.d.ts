@@ -1,8 +1,4 @@
-import type {
-  RepositorySetupAction,
-  RepositorySetupState,
-  SetupRefusal,
-} from "./repository-setup.d";
+import type { RepositoryRequirementsApi } from "./repository-requirements";
 import type { RegisteredHost, HostsApi } from "./registered-hosts.d";
 import type { UpdateState } from "./updates";
 import type { ReadinessReport } from "./readiness";
@@ -126,9 +122,7 @@ export interface SetupState {
   worktreeRoot: string;
 }
 
-export interface SetupApi extends HostsApi {
-  onRepositorySetupRefused(callback: (refusal: SetupRefusal | undefined) => void): () => void;
-  repositorySetup(action: RepositorySetupAction): Promise<RepositorySetupState>;
+export interface SetupApi extends HostsApi, RepositoryRequirementsApi {
   localAgentInstall(id?: string): Promise<{ available: readonly string[]; recipeSession?: string }>;
   restartToUpdate(): Promise<void>;
   checkReadiness(): Promise<ReadinessReport>;
@@ -136,7 +130,7 @@ export interface SetupApi extends HostsApi {
   listThemes(): Promise<ThemeCatalog>;
   openThemesFolder(kind: ThemeKind): Promise<void>;
   setupState(): Promise<SetupState>;
-  saveSetup(patch: SettingsPatch): Promise<SetupState>;
+  saveSetup(patch: SettingsPatch, themeDigest?: string): Promise<SetupState>;
   /** Persisted settings after a save or a main-process zoom shortcut. */
   onSetupChange(callback: (state: SetupState) => void): () => void;
   /** Common code folders under the home folder, such as ~/code, that hold repositories. */

@@ -30,7 +30,7 @@ const setup = {
   githubSignIn: vi.fn(() => "device-state"),
   copyHost: vi.fn(),
   hosts: vi.fn(() => "hosts"),
-  repositorySetup: vi.fn(() => "repository-setup"),
+  repositoryRequirements: vi.fn(() => null),
   restartToUpdate: vi.fn(() => Promise.resolve()),
   readiness: vi.fn(() => "readiness"),
   state: vi.fn(() => ({ settings: { interfaceScale: 100 } })),
@@ -66,8 +66,8 @@ test("every channel rejects untrusted senders", () => {
     "setup:copy-host",
     "setup:github-sign-in",
     "setup:state",
-    "setup:repository-setup",
     "setup:local-agent-install",
+    "setup:repository-requirements",
     "setup:hosts",
     "setup:restart-update",
     "setup:save",
@@ -94,6 +94,9 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
     settings: { interfaceScale: 100 },
   });
   expect(setup.save).toHaveBeenCalledWith({ hooks: false });
+  const digest = "a".repeat(64);
+  await invoke("setup:save", [{ interfaceTheme: "user:custom.json" }, digest]);
+  expect(setup.save).toHaveBeenCalledWith({ interfaceTheme: "user:custom.json" }, digest);
   expect(contents.send).toHaveBeenCalledWith("setup:changed", {
     settings: { interfaceScale: 100 },
   });
@@ -199,6 +202,15 @@ test("host management requires one payload and the trusted setup sender", () => 
   expect(setup.hosts).toHaveBeenCalledWith({ action: "list" });
   expect(() => invoke("setup:hosts")).toThrow();
   expect(() => invoke("setup:hosts", [{}, {}])).toThrow();
+});
+
+test("host requirements accept one request from the trusted Settings document", () => {
+  const channel = "setup:repository-requirements";
+  const request = { action: "read", repository: "/fixture/repo" };
+  expect(invoke(channel, [request])).toBeNull();
+  expect(setup.repositoryRequirements).toHaveBeenCalledExactlyOnceWith(request);
+  for (const args of [[], [request, request]])
+    expect(() => invoke(channel, args)).toThrow("Invalid host requirements request");
 });
 
 test("host copy accepts exactly one validated command and routes no raw text", () => {

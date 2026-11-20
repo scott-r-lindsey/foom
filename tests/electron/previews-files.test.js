@@ -18,6 +18,7 @@ const {
   pickPreviewFile,
   previewStep,
   previewContents,
+  pollPreviewContents,
   previewViewState,
 } = require("./preview-fixture.js");
 
@@ -81,10 +82,9 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     ids.push(preview.id);
     assert.equal(await app.evaluate(() => globalThis.previewPickerOptions.defaultPath), checkout);
     await expect(page.locator(".row-menu")).toHaveCount(0);
-    await expect.poll(async () => (await previewViewState(app, preview.id)).attached).toBe(true);
-    await expect
-      .poll(() => previewContents(app, preview.id, "document.body.innerText"))
-      .toContain(file === "guide.md" ? "Panel Markdown" : "Panel HTML");
+    await pollPreviewContents(app, preview.id, "document.body.innerText").toContain(
+      file === "guide.md" ? "Panel Markdown" : "Panel HTML",
+    );
     assert.equal((await previewViewState(app, preview.id)).focused, false);
   }
   const saved = await page.evaluate(() =>
@@ -95,9 +95,28 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   for (const id of ids) assert.ok(JSON.stringify(saved).includes(id));
   await writeFile(path.join(checkout, ".hidden.html"), "hidden");
   await writeFile(path.join(checkout, "unsupported.txt"), "unsupported");
-  await writeFile(path.join(root, "outside.html"), "outside");
+  const standalone = path.join(root, "stale", "docs");
+  await mkdir(standalone, { recursive: true });
+  await writeFile(path.join(root, "stale", ".git"), "gitdir: missing-metadata\n");
+  const outside = path.join(standalone, "outside.html");
+  await writeFile(outside, "<h1>Outside checkout</h1>");
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+  }, outside);
+  await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: "HTML preview: outside.html" })).toBeVisible();
+  const external = (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+    (preview) => preview.relativePath === "outside.html",
+  );
+  assert.ok(external);
+  assert.equal(external.repository, "");
+  assert.equal(external.worktree, standalone);
+  await pollPreviewContents(app, external.id, "document.body.innerText").toContain(
+    "Outside checkout",
+  );
   for (const file of [
-    path.join(root, "outside.html"),
+    path.join(root, "missing.html"),
     path.join(checkout, ".hidden.html"),
     path.join(checkout, "unsupported.txt"),
   ]) {
@@ -106,8 +125,11 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     }, file);
     await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
     await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
-    await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+    const alert = page.getByRole("alert");
+    await expect(alert).toBeVisible();
+    if (path.basename(file) === "missing.html")
+      await expect(alert).toContainText("Preview file is missing or unreadable.");
+    await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(3);
     await page.getByRole("button", { name: "Dismiss", exact: true }).click();
   }
   await app.evaluate(({ dialog }) => {
@@ -119,20 +141,21 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
   app = await launchApp(context, { ...options, fixture: "restored" });
   page = await boardPage(app);
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
-  for (const id of ids)
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(3);
+  for (const id of [...ids, external.id])
     await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
   await page.getByRole("menuitem", { name: "Delete worktree…", exact: true }).click();
   const removal = await confirmationPage(app);
   await removal.getByRole("button", { name: "Discard 2 changes and remove", exact: true }).click();
-  await expect(page.locator(".preview-row")).toHaveCount(0);
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
+  await expect(page.locator(".preview-row")).toHaveCount(1);
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(1);
+  await expect(page.locator(`[data-preview-id="${external.id}"]`)).toBeVisible();
   await expect
     .poll(
       async () => (await page.evaluate(() => window.desktop.sidebarInventory())).previews.length,
     )
-    .toBe(0);
+    .toBe(1);
   assert.equal(
     await app.evaluate(
       ({ webContents }) =>
@@ -140,7 +163,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
           .getAllWebContents()
           .filter((contents) => contents.getURL().startsWith("foom-preview:")).length,
     ),
-    0,
+    1,
   );
 });
 
@@ -218,9 +241,11 @@ test("Markdown previews render hostile documents safely, follow native theme and
         }),
       mode,
     );
-    await expect
-      .poll(() => read("getComputedStyle(document.documentElement).backgroundColor"))
-      .toBe(background);
+    await pollPreviewContents(
+      app,
+      id,
+      "getComputedStyle(document.documentElement).backgroundColor",
+    ).toBe(background);
   }
   const oldContents = (await previewViewState(app, id)).contentsId;
   await read(`document.querySelector('a[href="sibling.md"]').click()`);
@@ -269,13 +294,7 @@ test("raster image previews validate content, fit, show actual size and preserve
     const id = inventory.previews.find((preview) => preview.relativePath === file)?.id;
     assert.ok(id);
     ids.push(id);
-    await expect
-      .poll(() =>
-        previewContents(app, id, 'document.querySelector("img")?.naturalWidth', {
-          requireAttached: true,
-        }),
-      )
-      .toBe(1600);
+    await pollPreviewContents(app, id, 'document.querySelector("img")?.naturalWidth').toBe(1600);
     const read = (code) => previewContents(app, id, code, { requireAttached: true });
     assert.equal(
       (await page.evaluate((id) => window.desktop.previews.describe(id), id)).kind,
@@ -289,9 +308,11 @@ test("raster image previews validate content, fit, show actual size and preserve
       true,
     );
     await read('document.querySelector("#foom-actual-size").click()');
-    await expect
-      .poll(() => read('document.querySelector("img").getBoundingClientRect().width'))
-      .toBe(1600);
+    await pollPreviewContents(
+      app,
+      id,
+      'document.querySelector("img").getBoundingClientRect().width',
+    ).toBe(1600);
     assert.equal(await read("document.documentElement.scrollWidth > innerWidth"), true);
     await read('document.querySelector("#fit").click()');
   }
@@ -306,16 +327,11 @@ test("raster image previews validate content, fit, show actual size and preserve
       mode,
     );
     for (const imageId of ids) {
-      await expect
-        .poll(() =>
-          previewContents(
-            app,
-            imageId,
-            "getComputedStyle(document.documentElement).backgroundColor",
-            { requireAttached: true },
-          ),
-        )
-        .toBe(background);
+      await pollPreviewContents(
+        app,
+        imageId,
+        "getComputedStyle(document.documentElement).backgroundColor",
+      ).toBe(background);
       await previewContents(
         app,
         imageId,

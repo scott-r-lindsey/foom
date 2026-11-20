@@ -9,6 +9,9 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Settings and setup
 
+The main settings store copies incoming values and exposes immutable snapshots
+of committed settings and legacy migration values.
+
 ### Agent-editable settings format (#206)
 
 `~/.foom/config/settings.json` is a JSON object with `"kind": "settings"` and any
@@ -259,10 +262,7 @@ loading, fixed errors and disposal. Pending sound edits and Environment drafts
 remain local to their editor. Legacy `setup:changed` remains for terminal options,
 interface theme and other consumers awaiting the later migration.
 
-## Repository setup (#1080)
+## Repository setup list retirement (#1262)
 
-Hosts adds Repository setup, including This computer. Repositories exposes the
-same profile-only editor on each registered repository. Review, approval and
-execution are separate actions; approval tokens belong to their requesting board
-and expected active revision. The editor remains available when launch is blocked.
-See [the owning policy](repository-setup.md).
+[#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removed setup-list editing from Hosts and Repositories. Hosts still
+shows machine capabilities, and Repositories shows checkout locations.

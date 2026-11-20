@@ -40,7 +40,9 @@ import type { WorktreeService } from "../workspace/worktrees";
 const probeOptions = { encoding: "utf8", timeout: 5000, maxBuffer: 256 * 1024 } as const;
 
 /** Fixed shell program only: no executable paths, arguments, or agent output interpolated. */
-export async function loginPath(): Promise<{ path: string; warning: string | null }> {
+export async function loginPath(
+  signal?: AbortSignal,
+): Promise<{ path: string; warning: string | null }> {
   const inherited = process.env["PATH"] ?? "";
   if (process.platform === "win32") return { path: inherited, warning: null };
   try {
@@ -51,6 +53,7 @@ export async function loginPath(): Promise<{ path: string; warning: string | nul
       ["-ilc", 'printf "\\000FOOM_PATH\\000%s\\000" "$PATH"'],
       {
         ...probeOptions,
+        ...(signal ? { signal } : {}),
         cwd: homedir(),
       },
     );
@@ -418,7 +421,7 @@ export class AgentService {
         layers: [...(request.environment ?? []), prepared.environment ?? []],
         base: baseEnvironment,
         path: scan.path,
-        pathFirst: [config ?? control?.env["FOOM_CLI_DIRECTORY"], ...(request.repositoryPath ?? [])]
+        pathFirst: [config ?? control?.env["FOOM_CLI_DIRECTORY"]]
           .filter((value): value is string => typeof value === "string" && value.length > 0)
           .join(process.platform === "win32" ? ";" : ":"),
         foom: {

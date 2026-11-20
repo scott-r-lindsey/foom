@@ -1,4 +1,4 @@
-import type { RepositorySetupState, SetupRefusal } from "../shared/repository-setup.d";
+import type { RepositoryRequirements } from "../shared/repository-requirements";
 import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
@@ -10,6 +10,7 @@ import type {
 } from "../shared/message-board";
 import type {
   HostsState,
+  GitOriginEndpoint,
   HostResult,
   HostFacts,
   HostCheckTarget,
@@ -374,6 +375,7 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
     shape({
       id: userThemeId,
       theme: validInterfaceTheme,
+      digest: either(absent, text),
     }),
   ),
   terminal: array(
@@ -507,6 +509,29 @@ const validHostConnection = shape({
   platform: validHostCheck,
   artifact: validHostCheck,
 });
+const requirementsLabel: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length <= 253 &&
+  value.trim().length > 0 &&
+  !/[\p{Cc}\p{Cf}\p{Cs}]/u.test(value);
+const requirementsDate = range(0, 8_640_000_000_000_000, true);
+const validRepositoryRequirements = either(
+  nil,
+  shape({
+    markdown: (value): value is string =>
+      typeof value === "string" &&
+      value.length <= 16384 &&
+      new TextEncoder().encode(value).length <= 16384 &&
+      value.trim().length > 0 &&
+      !/[^\P{Cc}\t\r\n]|[\p{Cf}\p{Cs}]/u.test(value),
+    revision: (value): value is string =>
+      typeof value === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(value),
+    agent: requirementsLabel,
+    host: requirementsLabel,
+    recordedAt: requirementsDate,
+    editedAt: either(absent, requirementsDate),
+  } satisfies Contract<RepositoryRequirements>),
+);
 const hostFactsShape = shape({
   folder: either(absent, validHostCheck),
   codeFolder: hostFolder,
@@ -530,6 +555,7 @@ const hostFactsShape = shape({
           plugin: either(absent, literal("present", "not-installed", "unavailable")),
         }),
       ),
+      codexApprovals: either(absent, literal("may-prompt", "disabled", "unknown")),
       signIn: either(absent, literal("signed-in", "signed-out", "unknown")),
     }),
   ),
@@ -562,7 +588,11 @@ const validHostFacts: Validator<HostFacts> = copying(
     value.load.length === 3 &&
     value.memoryAvailable <= value.memoryTotal &&
     value.agents.length <= 100 &&
-    value.agents.every((agent) => !agent.details || agent.details.capabilities.length <= 4),
+    value.agents.every(
+      (agent) =>
+        (!agent.details || agent.details.capabilities.length <= 4) &&
+        (agent.codexApprovals === undefined || agent.id === "codex"),
+    ),
   (value) => project(hostFactsShape, value),
 );
 const validHostResult: Validator<HostResult> = either(
@@ -581,15 +611,29 @@ const validHostResult: Validator<HostResult> = either(
     ),
   }),
 );
-const validHostPreflight = shape({
+const gitOriginEndpointFields = {
+  host: (value): value is string =>
+    typeof value === "string" && /^[a-z0-9][a-z0-9.-]{0,2047}$/u.test(value),
+  protocol: literal("ssh", "https"),
+  port: either(nil, range(0, 99999, true)),
+} satisfies Contract<GitOriginEndpoint>;
+const optionalGitOriginEndpoint = either(absent, shape(gitOriginEndpointFields));
+const hostPreflightFields = {
   ssh: validHostCheck,
   platform: validHostCheck,
   artifact: validHostCheck,
   result: validHostResult,
   repositories: array(
-    shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
+    shape({
+      repository: text,
+      origin: validHostCheck,
+      originEndpoint: optionalGitOriginEndpoint,
+      checkout: validHostResult,
+    }),
   ),
-});
+};
+const validHostPreflight = shape({ ...hostPreflightFields, sshRevision: either(absent, count) });
+const validLiveHostPreflight = shape({ ...hostPreflightFields, sshRevision: count });
 const validHostObservation = shape({
   lastAgents: either(
     absent,
@@ -611,122 +655,8 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("tool", "sign-in"), tool: hostAgentId }),
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
-function setupArray<T>(check: Validator<T>, limit: number): Validator<T[]> {
-  const inner = array(check);
-  return copying(
-    (value): value is T[] => Array.isArray(value) && value.length <= limit && inner(value),
-    (value) => project(inner, value),
-  );
-}
-const setupText: Validator<string> = (value): value is string =>
-  typeof value === "string" && value.length <= 4096 && !/[\p{Cc}]/u.test(value);
-const setupHash: Validator<string> = (value): value is string =>
-  typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
-const setupPaths = setupArray(setupText, 64);
-const setupMapping = either(literal("unsupported"), setupArray(setupText, 128));
-const setupRequirementBase = { id: setupText, purpose: setupText, sources: setupPaths };
-const setupList = shape({
-  evidence: setupPaths,
-  requirements: setupArray(
-    either(
-      shape({
-        ...setupRequirementBase,
-        kind: literal("package"),
-        packages: shape({
-          debian: setupMapping,
-          rhel: setupMapping,
-          arch: setupMapping,
-          darwin: setupMapping,
-        }),
-      }),
-      shape({
-        ...setupRequirementBase,
-        kind: literal("toolchain"),
-        tool: literal("node", "pnpm"),
-        version: setupText,
-      }),
-    ),
-    128,
-  ),
-});
-const setupSourcesReply = shape({
-  fingerprint: setupHash,
-  files: setupArray(shape({ path: setupText, digest: setupHash }), 64),
-});
-const setupRefusalReply: Validator<SetupRefusal> = shape({
-  repository: setupText,
-  host: either(nil, setupText),
-  missing: setupArray(shape({ id: setupText, version: either(absent, setupText) }), 128),
-});
-const validRepositorySetupState: Validator<RepositorySetupState> = shape({
-  rows: setupArray(
-    shape({
-      repository: setupText,
-      host: either(nil, setupText),
-      state: literal(
-        "no-list",
-        "not-checked",
-        "met",
-        "needs-setup",
-        "review-needed",
-        "unable",
-        "manual",
-      ),
-      revision: count,
-      checkedAt: either(absent, count),
-      noRequirements: either(absent, boolean),
-      missing: setupArray(setupText, 128),
-      changed: setupPaths,
-      sourcesAtLaunch: boolean,
-      token: either(absent, setupText),
-      running: either(absent, setupText),
-      failure: either(absent, literal("save-failed", "check-failed", "superseded")),
-      plan: either(
-        absent,
-        shape({
-          platform: shape({
-            distro: literal("debian", "rhel", "arch", "darwin", "unsupported"),
-            os: literal("linux", "darwin", "win32"),
-            arch: literal("x64", "arm64", "unsupported"),
-            nodeAbi: boolean,
-          }),
-          packages: setupArray(setupText, 16384),
-          toolchains: setupArray(shape({ tool: literal("node", "pnpm"), version: setupText }), 2),
-          steps: setupArray(setupArray(setupText, 16390), 132),
-        }),
-      ),
-    }),
-    4096,
-  ),
-  review: either(
-    absent,
-    shape({
-      token: setupText,
-      repository: setupText,
-      revision: count,
-      list: setupList,
-      previous: either(absent, setupList),
-      catalog: setupHash,
-      sources: setupSourcesReply,
-      changed: setupPaths,
-      unresolved: either(
-        absent,
-        setupArray(
-          shape({
-            ...setupRequirementBase,
-            kind: literal("toolchain"),
-            tool: setupText,
-            version: setupText,
-          }),
-          128,
-        ),
-      ),
-      removed: either(absent, setupArray(setupText, 128)),
-    }),
-  ),
-  recipeSession: either(absent, setupText),
-});
 const validHostsState: Validator<HostsState> = shape({
+  gitOrigins: either(absent, array(shape({ repository: text, ...gitOriginEndpointFields }))),
   progress: either(
     absent,
     array(
@@ -739,30 +669,34 @@ const validHostsState: Validator<HostsState> = shape({
           shape({
             repository: text,
             origin: either(absent, validHostCheck),
+            originEndpoint: optionalGitOriginEndpoint,
             checkout: either(absent, validHostResult),
           }),
         ),
       }),
     ),
   ),
-  preflight: either(absent, validHostPreflight),
+  preflight: either(absent, validLiveHostPreflight),
+  preflightSaveFailed: either(absent, literal(true)),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
-  output: either(
-    absent,
-    shape({
-      host: hostAlias,
-      text: (value): value is string => typeof value === "string" && value.length <= 65536,
-      running: boolean,
-      failed: boolean,
-    }),
-  ),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
+      setupAgent: either(
+        absent,
+        shape({
+          id: (value): value is string => nonempty(value) && value.length <= 200,
+          name: nonempty,
+        }),
+      ),
       host: hostAlias,
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
       observation: either(absent, validHostObservation),
+      checklist: either(
+        absent,
+        shape({ preflight: validLiveHostPreflight, saveFailed: either(absent, literal(true)) }),
+      ),
       rowFailures: either(
         absent,
         array(
@@ -773,6 +707,24 @@ const validHostsState: Validator<HostsState> = shape({
         ),
       ),
       result: either(absent, validHostResult),
+      factsRefreshFailure: either(absent, validHostFailure),
+      hostKeyTrustFailure: either(
+        absent,
+        literal(
+          "trust-not-eligible",
+          "invalid-alias",
+          "ssh-config-failed",
+          "ssh-config-invalid",
+          "socket-path-too-long",
+          "askpass-prompt-rejected",
+          "prompt-host-mismatch",
+          "ssh-exited-without-prompt",
+          "trust-timeout",
+          "ssh-start-failed",
+          "dialog-unavailable",
+          "trust-unavailable",
+        ),
+      ),
       hostKeyTrust: either(absent, literal("askpass", "manual")),
       recipes: either(
         absent,
@@ -880,6 +832,7 @@ const validConfigStatus: Validator<ConfigStatus> = shape({
   pending: either(nil, validConfigPending),
   rejected: array(validConfigRejection),
   error: either(absent, text),
+  notice: either(absent, text),
 } satisfies Contract<ConfigStatus>);
 
 const validRepository: Validator<Repository> = shape({
@@ -1275,6 +1228,7 @@ const validAgentInstallation: Validator<AgentInstallation> = shape({
   version: either(nil, text),
   hooks: boolean,
   attentionSignal: either(absent, boolean),
+  initialPrompt: either(absent, boolean),
   resume: either(absent, boolean),
   resumePaste: either(
     absent,
@@ -1977,6 +1931,15 @@ const desktop: DesktopApi = {
       },
     },
     id: windowArgument("window-id") ?? "main",
+    onSettingsStopping: (callback) => {
+      const listener = (_event: IpcRendererEvent, stopping: unknown) => {
+        if (typeof stopping === "boolean") callback(stopping);
+      };
+      ipcRenderer.on("windows:settings-stopping", listener);
+      return () => {
+        ipcRenderer.removeListener("windows:settings-stopping", listener);
+      };
+    },
     restored: windowArgument("window-restored") === "true",
     number: Number(windowArgument("window-number") ?? 0),
     initialSession: windowArgument("initial-session"),
@@ -2384,24 +2347,9 @@ const desktop: DesktopApi = {
       id,
       action,
     ),
+  repositoryRequirements: (action) =>
+    reply("setup:repository-requirements", validRepositoryRequirements, action),
   hosts: (action) => reply("setup:hosts", validHostsState, action),
-  repositorySetup: (action) => reply("setup:repository-setup", validRepositorySetupState, action),
-  onRepositorySetupRefused(callback) {
-    const listener = (_event: IpcRendererEvent, value: unknown) => {
-      if (value === undefined) {
-        callback(undefined);
-        return;
-      }
-      if (setupRefusalReply(value)) {
-        const projected = project(setupRefusalReply, value);
-        if (setupRefusalReply(projected)) callback(projected);
-      }
-    };
-    ipcRenderer.on("setup:launch-refused", listener);
-    return () => {
-      ipcRenderer.removeListener("setup:launch-refused", listener);
-    };
-  },
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),
   openThemesFolder: (kind) => invokeVoid("theme:open-folder", kind),
@@ -2422,8 +2370,12 @@ const desktop: DesktopApi = {
     if (!validSetupState(clean)) throw new Error("Invalid setup response");
     return clean;
   },
-  saveSetup: async (patch) => {
-    const value: unknown = await ipcRenderer.invoke("setup:save", patch);
+  saveSetup: async (patch, themeDigest) => {
+    const value: unknown = await ipcRenderer.invoke(
+      "setup:save",
+      patch,
+      ...(themeDigest ? [themeDigest] : []),
+    );
     if (!validSetupState(value)) throw new Error("Invalid setup response");
     const clean = project(validSetupState, value);
     if (!validSetupState(clean)) throw new Error("Invalid setup response");

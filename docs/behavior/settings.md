@@ -303,7 +303,9 @@ wait in an amber banner, such as "An agent wants to turn off the needs-you sound
 with **Allow** and **Keep it on** in both the Foom config panel and Settings →
 Foom config. Selecting the dock's Needs you opens that decision, even after the
 config session closes. A decision on either surface clears it everywhere.
-Keep it on restores the file. Config agents read `foom config status --json` after
+Keep it on restores the held fields. If the restored fields and other edits
+would exceed 64 KiB, Foom restores the full approved file and shows that the
+other edits were dropped. Config agents read `foom config status --json` after
 settings edits and tell the human when a write is held; validation alone does not
 mean the settings applied.
 
@@ -333,8 +335,8 @@ See the [channel and privacy policy](../product.md#updates-603).
 
 ## Hosts and repository locations (#757 PR 1)
 
-Ordinary opening of Hosts makes no SSH connections. Returning after an
-Install, Sign in or Trust host key… action refreshes only its affected rows.
+Ordinary opening of Hosts makes no SSH connections. Install, Sign in and
+Trust host key… refresh only their affected rows when the terminal exits.
 Hosts shows the last saved results, including
 session and worktree inventory even when stale, with Last checked and a timestamp,
 or Not checked. Check capabilities refreshes the full checklist and remote
@@ -350,34 +352,39 @@ a pencil and can be renamed even while a check runs; collapsed names expand the 
 
 Add host takes an SSH alias or user@host, an optional nickname, and a code folder (default `~/foom`),
 then runs one full checklist. An incomplete host stays enrolled. Host, Tools,
-Agents, each repository and macOS Power rows retain their independent results;
+Agents, Git access and macOS Power rows retain their independent results;
 unrun checks say Not checked. While checking, a throbber and current step identify
 host inspection, Git access or checkout with the repository name and position.
-Pending repository checks stay visible as Checking… rows; completed observations
-appear as each step finishes. Reduced motion keeps the throbber still while the
-step text continues to update. Check capabilities retries without creating directories.
+Git access shows one row per forge hostname with only the protocols used by
+registered origins. The protocol text shows check progress and results.
+Reduced motion keeps the throbber still while the step text continues to update.
+Check capabilities retries without creating directories.
 Missing folders offer Create, and Change folder selects a replacement. Install
 and Sign in appear only for available recipes. Installs and gh Sign in stay in
-the host card; other agents’ Sign in opens a foreground terminal tile for the
-user’s prompts. Origin SSH host-key failures offer Trust host key…
-in a human-owned tile; the user verifies and accepts the fingerprint. Other Git
-access fixes remain user-run instructions. Ready means the host checks and Git
+the host card. Agent sign-in and Antigravity plugin installation open below
+their rows in the selected machine’s agent card. Origin SSH host-key failures
+offer Trust host key… on the forge row in the host card. The user verifies the
+fingerprint and answers SSH in the embedded terminal. Failed protocol checks show
+a square and the failure reason. Ready means the host checks and Git
 pass with at least one installed agent; optional missing agents, gh sign-in and
-absent checkouts do not affect readiness. Existing checkouts appear in a read-only list.
+absent checkouts do not affect readiness. Host facts lists existing checkouts as
+**repository · path**, one per line.
 Settings has no Clone here control or per-repository clone status.
 Host checks are language neutral and never execute anything from a checkout.
-Preparing a host to build a repository is left to an agent the user runs on that
-host ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
+**Set up with an agent…** starts a local agent that connects to the host over SSH
+and prepares it for the selected repositories. See [host setup](../areas/hosts.md#set-up-with-an-agent-1263).
 Codex hook trust is not inferred from installation or
 sign-in; the first launch may need hook review in Codex's tile.
 
-Remove forgets the host without stopping sessions. Host facts contains daemon
+Remove forgets the host without stopping sessions. A running origin trust
+prompt remains in Hosts under the removed host with its Stop button.
+Host facts contains daemon
 version, live sessions, CPU cores/load average, total/available memory, foreign
 session/worktree counts and Refresh facts. Ready tool/agent checks mean installed
 and probeable; Not found and Unable to check are fixed states. Declared bounded
 status probes report sign-in separately; unknown status never becomes a pass.
 
-Repositories lists existing checkouts under Local and each registered host with copyable paths. Choose repositories opens the local selection controls. Foom clones automatically on first repository launch or worktree creation, using only the registered origin and approved code folder. Each missing checkout gets one clone attempt using the host’s own Git routing, with no automatic transport or authentication fallback. Foom changes no Git credentials or configuration. Failures appear where the action started with a fixed reason. Git access to origin and Trust host key… remain in Hosts. Authentication failures show hints for user-configured HTTPS through gh, a deploy key or ssh-agent wherever the action started; Foom does not act on these hints.
+Repositories lists existing checkouts under Local and each registered host with copyable paths. Choose repositories opens the local selection controls. Foom clones automatically on first repository launch or worktree creation, using only the registered origin and approved code folder. Each missing checkout gets one clone attempt using the host’s own Git routing, with no automatic transport or authentication fallback. Foom changes no Git credentials or configuration. Failures appear where the action started with a fixed reason. Git access and Trust host key… remain in Hosts. Launch and checkout authentication failures show hints for user-configured HTTPS through gh, a deploy key or ssh-agent where the action started. Foom does not act on these hints.
 This profile’s live remote sessions survive hub restarts with screen replay.
 Profile-owned worktrees remain in the sidebar without a session, including after
 the last session closes or a create reply is lost. Recovery launches nothing and
@@ -402,23 +409,27 @@ internal reason codes. Checks blocked by daemon inspection show neutral
 ### Hosts checklist refresh (#1061)
 
 **Check capabilities** checks the whole host; Add performs its first check.
-Accepting a new SSH key may rerun the first check only if the host has never had a successful check. Other Hosts actions never start a full check. Rename is local. Folder actions
+Accepting a new SSH key may rerun the first check only if the host has never had a successful check. A setup agent's exit runs a full check. Rename is local. Folder actions
 refresh the folder from their successful reply and mark affected repositories **Not checked**.
 A failed replacement reports the attempted change and preserves the registered folder's result.
-Clone/Trust origin update that repository. Install stays in Settings in an
-interactive terminal inside the host card. Closing Settings disposes its install
+Clone and Trust origin update that repository. Interactive host actions stay in
+Settings in their embedded terminals. Closing Settings disposes its install
 terminals immediately if they have exited. If an install is running, closing by
 any route shows **Stop the install?** with **Stop** and **Keep open**. Keep open
 is focused by default; Escape keeps Settings and the install open. Stop terminates
 the install and closes Settings, without moving it to the board or sidebar.
-Window close and quit keep their existing confirmation. Other agents’ Sign in retains its foreground tile. gh Sign in stays in Settings: Foom copies the code and opens GitHub’s fixed device page, then the user pastes and authorizes. The panel shows Needs you, the code and browser/clipboard markers, fallback buttons and a Terminal toggle. Install & sign in installs first and stops on failure. A short note discloses possible plain-text token storage without a host keyring. On exit,
+Window close and quit keep their existing confirmation. gh Sign in stays in Settings: Foom copies the code and opens GitHub’s fixed device page, then the user pastes and authorizes. The panel shows Needs you, the code and browser/clipboard markers, fallback buttons and a Terminal toggle. Install & sign in installs first and stops on failure. A short note discloses possible plain-text token storage without a host keyring. On exit,
 Install and Sign in refresh only their affected tool and sign-in rows. The
-terminal header states Done or Failed with its exit code and retains the output
-until dismissed or replaced. Add and checks retain bounded read-only step
-output, including OpenSSH stderr, in the Add section or host card. **Last checked** records full checks only.
-Each checklist row has a reload icon on hover and keyboard focus, with a name
-that identifies the row. Reload shows a spinner only on that row, preserves other
-results and leaves other rows usable. A row that cannot display its result without
+terminal header shows Done or Failed with its exit code. Origin trust, the plugin
+installer and agent sign-in collapse their output on exit. For origin trust, the
+Git access row shows the scoped check result. Tool installs retain
+output until dismissed or replaced. Add host shows progress and enrollment errors
+in the form. The host card shows check progress in its header and fixed failures
+on the affected rows. **Last checked** records full checks only.
+Checklist rows have a reload icon on hover and keyboard focus, with a name
+that identifies the row. Use Check capabilities to refresh a Git access row with
+several origins. Reload shows a spinner only on its row and keeps other
+results and controls available. A row that cannot display its result without
 a full check shows Check capabilities required in that row, with no helper copy. Stale queued
 recipe rows are dropped independently when Hosts reopens. Failed profile writes
 leave saved hosts visible, show Unable to save only in affected rows, and retain
@@ -448,33 +459,30 @@ provider ID or null and applies live.
 
 An unknown SSH key shows **Host key not trusted** and the primary **Trust host key…** action in Hosts.
 While the key is untrusted, the expanded card shows only its host header, address,
-folder and Remove line, check output, and the SSH row with amber text and the
+folder and Remove line, and the SSH row with amber text and the
 steady needs-you halo. Platform, daemon, folder checks, tools, agents, Git access,
 checked out repositories, Last checked/refresh and Host facts are absent, including
 any older dependent failures. Accepting the key restores the full card as the
 normal first check runs. Changed
 keys and other real SSH failures remain magenta. Add and folder-change notices
-use the same marker and tone for that reason. While host-key trust is pending,
-the read-only output panel has an amber **Host key not trusted** header and no
-Dismiss button. Changed keys, rejected login and unreachable hosts retain the
-magenta **Failed** header and Dismiss. Dialog-opening trust actions, including Git
+use the same marker and tone for that reason. Dialog-opening trust actions, including Git
 access and launch-failure guidance, read **Trust host key…**; the dialog's own
 accept button remains **Trust host key**. The card action uses the existing primary
 button style; no new style or status color is introduced.
 The trusted confirmation shows the host, key type and fingerprint. Verify it
 against a trusted source before choosing **Trust host key**. Cancel is focused;
 Cancel, Escape and close decline. OpenSSH saves an accepted key, then Foom reruns
-the first check automatically for a host that has never passed. Check output
-appears in the existing read-only panel. Established hosts require an explicit
-Check capabilities after trust. Declining keeps the needs-you state.
+the first check automatically for a host that has never passed. Progress appears
+in the card header. Established hosts require an explicit Check capabilities
+after trust. Declining keeps the needs-you state.
 
 Changed keys show **Host key changed** with no trust action; repair those manually.
 Authentication failures show **Login rejected**; other failures show **Host
 unreachable**. On unsupported SSH clients or Windows, copy `ssh HOST` and verify
 the key in a terminal. Foom never handles passwords or writes known_hosts itself.
 
-Trust never fails silently: when no confirmation can be shown, the check output
-panel shows **Unable to trust host key** with a fixed reason code. Codes distinguish
+When no confirmation can be shown, the SSH row shows **Unable to trust host key**
+with a fixed reason code. Codes distinguish
 trust-not-eligible, invalid-alias, ssh-config-failed, ssh-config-invalid, socket-path-too-long,
 askpass-prompt-rejected, prompt-host-mismatch, ssh-exited-without-prompt,
 trust-timeout, ssh-start-failed, dialog-unavailable and trust-unavailable.

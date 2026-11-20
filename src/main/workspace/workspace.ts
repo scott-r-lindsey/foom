@@ -1,4 +1,3 @@
-import type { SetupRun } from "../../shared/repository-setup.d";
 import { join } from "node:path";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { homeDirectory } from "./home-shell";
@@ -35,29 +34,6 @@ export class Workspace {
     this.owner = new WorkspaceContext(deps);
     this.orchestration = this.owner.orchestration;
   }
-  async startRepositorySetup(
-    run: SetupRun,
-    prefix: string,
-    validate?: () => void | Promise<void>,
-  ): Promise<string> {
-    const directory = this.owner.deps.config?.cliDirectory;
-    if (!directory) throw new Error("Setup helper unavailable");
-    return this.owner.startShell(
-      { home: true, repository: homeDirectory, worktree: homeDirectory, branch: null },
-      undefined,
-      directory,
-      { FOOM_SETTINGS_INSTALL: "1" },
-      undefined,
-      undefined,
-      validate,
-      undefined,
-      undefined,
-      {
-        command: join(directory, "foom"),
-        args: ["--repository-setup", JSON.stringify(run), prefix],
-      },
-    );
-  }
   async startLocalAgentInstall(id: string): Promise<string> {
     if (!bundledAgentData.some((data) => data.id === id) || this.owner.enabled[id] !== true)
       throw new Error("Installer unavailable");
@@ -79,6 +55,30 @@ export class Workspace {
   }
   async startHostRecipe(target: RemoteTarget): Promise<string> {
     return this.owner.startHomeShell(undefined, target);
+  }
+  async startHostSetupAgent(
+    id: string,
+    agent: string,
+    prompt: string,
+    validate: (dispatch?: true) => void,
+  ): Promise<void> {
+    const { agents } = await this.owner.scanAgents(false);
+    validate();
+    if (!agents.some((entry) => entry.id === agent && entry.path && entry.initialPrompt))
+      throw new Error("Agent cannot receive a setup brief");
+    await this.owner.startMachine(
+      null,
+      agent,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      validate,
+      undefined,
+      undefined,
+      undefined,
+      { id, prompt },
+    );
   }
   async initializeControl(): Promise<void> {
     return this.owner.initializeControl();
@@ -119,6 +119,9 @@ export class Workspace {
   }
   async restore(): Promise<void> {
     return this.owner.restore();
+  }
+  isSettingsTerminal(id: string): boolean {
+    return this.owner.launched.get(id)?.recipe === true;
   }
   ownsSession(id: string): boolean {
     return this.owner.ownsSession(id);

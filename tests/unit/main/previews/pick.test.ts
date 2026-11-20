@@ -9,7 +9,7 @@ const window = { webContents: { send } } as unknown as BrowserWindow;
 test("validates before showing the main-owned picker, revalidating through the host on selection", async () => {
   const root = path.resolve("checkout");
   const validate = vi.fn(async () => {});
-  const host = { open: vi.fn(() => Promise.resolve("preview")) };
+  const host = { openFile: vi.fn(() => Promise.resolve("preview")) };
   show.mockResolvedValue({ canceled: false, filePaths: [path.join(root, "docs", "page.html")] });
   expect(await pickPreviewFile(window, host, validate, root)).toBe("preview");
   expect(validate).toHaveBeenCalledWith(root);
@@ -26,7 +26,7 @@ test("validates before showing the main-owned picker, revalidating through the h
       },
     ],
   });
-  expect(host.open).toHaveBeenCalledWith(root, "docs/page.html");
+  expect(host.openFile).toHaveBeenCalledWith(path.join(root, "docs", "page.html"));
   validate.mockRejectedValueOnce(new Error("Unknown worktree"));
   show.mockClear();
   send.mockClear();
@@ -36,7 +36,7 @@ test("validates before showing the main-owned picker, revalidating through the h
 });
 test("cancel and malformed selections create no preview; host refusals propagate", async () => {
   const root = path.resolve("checkout");
-  const host = { open: vi.fn(() => Promise.resolve("preview")) };
+  const host = { openFile: vi.fn(() => Promise.resolve("preview")) };
   const validate = async () => {};
   show.mockResolvedValue({ canceled: true, filePaths: [] });
   expect(await pickPreviewFile(window, host, validate, root)).toBeNull();
@@ -51,11 +51,11 @@ test("cancel and malformed selections create no preview; host refusals propagate
       "Invalid preview selection",
     );
   }
-  expect(host.open).not.toHaveBeenCalled();
-  host.open.mockRejectedValue(new Error("Preview file unavailable"));
+  expect(host.openFile).not.toHaveBeenCalled();
+  host.openFile.mockRejectedValue(new Error("Preview file unavailable"));
   show.mockResolvedValue({ canceled: false, filePaths: [path.resolve("outside.html")] });
   await expect(pickPreviewFile(window, host, validate, root)).rejects.toThrow(
     "Preview file unavailable",
   );
-  expect(host.open).toHaveBeenCalledWith(root, "../outside.html");
+  expect(host.openFile).toHaveBeenCalledWith(path.resolve("outside.html"));
 });

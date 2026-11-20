@@ -1,8 +1,8 @@
-import { openRepositorySetup } from "../setup/repository-setup-service";
 import { locationId, metadataName } from "../control/metadata";
 import { hostsForStore } from "../setup/hosts";
 import type { BrowserWindow } from "electron";
 import { app, clipboard, Notification, powerMonitor, shell } from "electron";
+import { realpath } from "node:fs/promises";
 import * as path from "node:path";
 import { HookReceiver } from "../agents/hook-receiver";
 import { ProbeNotices } from "../agents/probe-notices";
@@ -22,6 +22,14 @@ export async function initializeWorkspace(
   wiring: ApplicationWiring,
   window: BrowserWindow,
 ): Promise<void> {
+  const hosts = hostsForStore(
+    wiring.settings,
+    wiring.worktrees.listRepositories.bind(wiring.worktrees),
+    app.getVersion(),
+    (dispose) => {
+      app.once("will-quit", dispose);
+    },
+  );
   // Terminal events and state updates only arrive after both objects exist.
   if (!wiring.initialized)
     wiring.terminals = attachTerminal(
@@ -45,7 +53,9 @@ export async function initializeWorkspace(
           wiring.workspace.input(id);
         },
         onRemoved: (id) => {
+          wiring.views.forgetSettings(id);
           wiring.workspace.removed(id);
+          void hosts.setupAgentExited(id, !wiring.quitting);
         },
       },
       (contents, id) => {
@@ -53,6 +63,8 @@ export async function initializeWorkspace(
           (entry) => entry.window.webContents === contents,
         );
         if (!entry) return false;
+        if (wiring.workspace.isSettingsTerminal(id))
+          return wiring.views.ownsSettings(id, entry.window.id);
         const accepted = wiring.views.claim(id, entry.window.id);
         if (accepted) wiring.publishViews();
         return accepted;
@@ -68,6 +80,10 @@ export async function initializeWorkspace(
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {
+    // A process can exit before its creation reply registers workspace ownership.
+    wiring.terminals.onExit((id) => {
+      void hosts.setupAgentExited(id, !wiring.quitting);
+    });
     wiring.audio.setWakeChanged(() => {
       wiring.terminals.recheckWake(true);
     });
@@ -171,29 +187,11 @@ export async function initializeWorkspace(
       };
     }
     const probeNotices = new ProbeNotices(app.getPath("userData"));
-    const repositorySetup = await openRepositorySetup(
-      wiring.settings,
-      app.getPath("userData"),
-      wiring.worktrees,
-      hostsForStore(
-        wiring.settings,
-        wiring.worktrees.listRepositories.bind(wiring.worktrees),
-        app.getVersion(),
-      ),
-    );
     wiring.workspace = new Workspace({
-      repositorySetup,
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
-      hosts: hostsForStore(
-        wiring.settings,
-        wiring.worktrees.listRepositories.bind(wiring.worktrees),
-        app.getVersion(),
-        (dispose) => {
-          app.once("will-quit", dispose);
-        },
-      ),
+      hosts,
       worktrees: wiring.worktrees,
       watcher: new InventoryWatch(
         (repository) => wiring.worktrees.watchPaths(repository),
@@ -278,13 +276,14 @@ export async function initializeWorkspace(
       receiver: () => HookReceiver.listen((signal) => void wiring.workspace.hook(signal)),
       environment: (target) => wiring.environment.layers(target),
       prepareWorktreeRemoval: async (worktree) => {
-        wiring.removingPreviewWorktrees.add(worktree);
+        const canonical = await realpath(worktree);
+        wiring.removingPreviewWorktrees.add(canonical);
         const release = () => {
-          wiring.removingPreviewWorktrees.delete(worktree);
+          wiring.removingPreviewWorktrees.delete(canonical);
         };
         try {
           await Promise.all(
-            [...wiring.previewHosts.values()].map((host) => host.closeWorktree(worktree)),
+            [...wiring.previewHosts.values()].map((host) => host.closeWorktree(canonical)),
           );
           return release;
         } catch (error) {

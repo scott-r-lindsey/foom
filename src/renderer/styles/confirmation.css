@@ -606,8 +606,7 @@ li[data-dirty="true"] > .row > .why svg {
   font-size: 17px;
   margin: 0;
 }
-.approval-head p,
-.approval-bulk p {
+.approval-head p {
   color: var(--muted);
   margin: 4px 0 0;
   font-size: 12px;
@@ -617,11 +616,8 @@ li[data-dirty="true"] > .row > .why svg {
 }
 .approval-bulk {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 12px 22px;
+  justify-content: flex-end;
+  padding: 8px 22px;
   border-bottom: 1px solid var(--line);
 }
 .approval-scroll {
@@ -680,6 +676,56 @@ li[data-dirty="true"] > .row > .why svg {
 .approval-row .dlg-head {
   grid-template-columns: minmax(0, 1fr);
 }
+.approval-removal {
+  display: grid;
+  gap: 10px;
+}
+.approval-removal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.approval-removal .dlg-head {
+  flex: 1 1 15rem;
+  min-width: 0;
+  padding: 0;
+}
+.approval-removal h1 {
+  font: var(--type-strong-weight, 600) calc(13px * var(--type-scale, 1)) / 1.45 var(--font-mono);
+  text-wrap: wrap;
+}
+.approval-removal header p,
+.approval-discard-actions p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(11px * var(--type-scale, 1));
+  overflow-wrap: anywhere;
+}
+.approval-discard-actions p {
+  flex: 1 1 14rem;
+}
+.approval-discard-warning {
+  color: var(--attention-ink);
+  font-weight: var(--type-strong-weight, 600);
+}
+.approval-file-review {
+  min-width: 0;
+  max-block-size: 17rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.approval-file-review:focus-visible {
+  outline: 2px solid var(--state-focus, var(--highlight));
+  outline-offset: 2px;
+}
+.approval-removal footer {
+  margin-left: auto;
+  padding: 0;
+}
+.approval-removal .approval-discard-actions {
+  margin-left: 0;
+}
 .approval-head button,
 .approval-bulk button {
   border: 1px solid var(--line);
@@ -689,6 +735,7 @@ li[data-dirty="true"] > .row > .why svg {
   color: var(--ink);
 }
 .approval-bulk button {
+  min-inline-size: min(100%, 30ch);
   font-variant-numeric: tabular-nums;
   background: var(--ink);
   color: var(--bg);

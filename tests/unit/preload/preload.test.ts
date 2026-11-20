@@ -209,6 +209,8 @@ test("setup requests use their own channels and never read a key back", async ()
     worktreeRoot: "/fixture",
   });
   await api.saveSetup({ hooks: false });
+  const digest = "a".repeat(64);
+  await api.saveSetup({ interfaceTheme: "user:custom.json" }, digest);
   expect(mock.invoke.mock.calls).toEqual([
     ["setup:terminal-fonts", false],
     ["setup:terminal-fonts", true],
@@ -216,6 +218,7 @@ test("setup requests use their own channels and never read a key back", async ()
     ["theme:open-folder", "theme"],
     ["setup:state"],
     ["setup:save", { hooks: false }],
+    ["setup:save", { interfaceTheme: "user:custom.json" }, digest],
   ]);
   expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
 });
@@ -604,7 +607,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
 
 test("window capabilities forward IDs and validate view and audio notifications", async () => {
   const api = (await bridge()).windows;
-  if (!api?.audio) throw new Error("Missing window capabilities");
+  if (!api?.audio || !api.onSettingsStopping) throw new Error("Missing window capabilities");
   mock.invoke.mockResolvedValue([]);
   await api.sync(["a"]);
   mock.invoke.mockResolvedValueOnce(true);
@@ -623,12 +626,14 @@ test("window capabilities forward IDs and validate view and audio notifications"
   const changed = vi.fn(),
     removed = vi.fn(),
     audio = vi.fn(),
+    stopping = vi.fn(),
     refuse = vi.fn();
   const offs = [
     api.onChanged(changed),
     api.onRemoved(removed),
     api.audio.onChanged(audio),
     api.audio.onRefuse(refuse),
+    api.onSettingsStopping(stopping),
   ];
   const emit = (channel: string, value?: unknown) =>
     mock.on.mock.calls.find(([name]) => name === channel)?.[1]({}, value);
@@ -645,6 +650,8 @@ test("window capabilities forward IDs and validate view and audio notifications"
   ])
     emit("windows:changed", value);
   emit("windows:removed", "a");
+  for (const value of [true, "true", {}, false]) emit("windows:settings-stopping", value);
+  expect(stopping.mock.calls).toEqual([[true], [false]]);
   for (const value of [null, "", "a".repeat(201)]) emit("windows:removed", value);
   expect(changed.mock.calls).toEqual([[valid]]);
   expect(removed.mock.calls).toEqual([["a"]]);
@@ -672,7 +679,7 @@ test("window capabilities forward IDs and validate view and audio notifications"
   emit("windows:refuse");
   expect(refuse).toHaveBeenCalledOnce();
   for (const off of offs) off();
-  expect(mock.removeListener).toHaveBeenCalledTimes(4);
+  expect(mock.removeListener).toHaveBeenCalledTimes(5);
 });
 test("main-generated window arguments scope metadata without exposing paths", async () => {
   const original = process.argv;
@@ -1445,11 +1452,13 @@ test("host bridge validates every nested fact and strips undeclared host data", 
         host: "worker",
         nickname: "Build box",
         codeFolder: facts.codeFolder,
+        setupAgent: { id: "setup-id", name: "Codex" },
         result,
         foreignWorktrees: 3,
       },
     ],
     remoteHostsAvailable: false,
+    gitOrigins: [{ repository: "/local/repo", host: "forge.test.", protocol: "https", port: 443 }],
     locations: [{ host: "worker", repository: "/local/repo", result }],
     result: { ok: false, reason: "clone-failed" },
   };
@@ -1460,6 +1469,21 @@ test("host bridge validates every nested fact and strips undeclared host data", 
     {},
     { ...value, result: { ok: false, reason: "secret" } },
     { ...value, remoteHostsAvailable: "false" },
+    ...["", "x".repeat(201)].map((id) => ({
+      ...value,
+      hosts: [{ host: "worker", codeFolder: facts.codeFolder, setupAgent: { id, name: "Codex" } }],
+    })),
+
+    {
+      ...value,
+      gitOrigins: [{ repository: "/local/repo", host: "forge.test", protocol: "git", port: 22 }],
+    },
+    {
+      ...value,
+      gitOrigins: [
+        { repository: "/local/repo", host: "git@forge.test", protocol: "ssh", port: 22 },
+      ],
+    },
     { ...value, hosts: [{ host: "worker", codeFolder: facts.codeFolder, nickname: "<invalid>" }] },
     {
       ...value,
@@ -1700,6 +1724,7 @@ test("preflight bridge validates and rebuilds every partial observation", async 
     locations: [],
     preflight: {
       ssh: { state: "pass" },
+      sshRevision: 2,
       platform: { state: "not-checked" },
       artifact: check,
       result,
@@ -1712,8 +1737,19 @@ test("preflight bridge validates and rebuilds every partial observation", async 
   await expect(
     api.hosts({ action: "preflight", host: "worker", codeFolder: "~/code" }),
   ).resolves.toEqual(value);
+  const legacy = { ...value.preflight, sshRevision: undefined };
+  const saved = { ...value.hosts[0], observation: { checkedAt: 1, preflight: legacy } };
+  mock.invoke.mockResolvedValue({ hosts: [saved], locations: [] });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({ hosts: [saved] });
+  mock.invoke.mockResolvedValue({
+    hosts: [{ ...saved, checklist: { preflight: legacy } }],
+    locations: [],
+  });
+  await expect(api.hosts({ action: "list" })).rejects.toThrow();
   for (const bad of [
+    legacy,
     { ...value.preflight, ssh: { state: "raw" } },
+    { ...value.preflight, sshRevision: -1 },
     { ...value.preflight, artifact: { state: "fail", reason: "secret" } },
     {
       ...value.preflight,
@@ -1987,27 +2023,26 @@ test("agent display details are bounded, copied and never expose undeclared meta
   await expect(api.hosts({ action: "list" })).rejects.toThrow();
 });
 
-test("host setup output and recipe IDs are bounded display-only reply fields", async () => {
+test("host setup validates fixed host failure reasons and bounded recipe IDs", async () => {
   const api = await bridge();
-  const output = {
+  const host = {
     host: "worker",
-    text: "SSH stderr\n<script>inert</script>",
-    running: false,
-    failed: true,
+    codeFolder: "/code",
+    hostKeyTrustFailure: "askpass-prompt-rejected",
+    factsRefreshFailure: "facts-unavailable",
   };
-  mock.invoke.mockResolvedValue({ hosts: [], locations: [], output, recipeSession: "recipe" });
-  await expect(api.hosts({ action: "progress" })).resolves.toMatchObject({
-    output,
+  mock.invoke.mockResolvedValue({ hosts: [host], locations: [], recipeSession: "recipe" });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({
+    hosts: [host],
     recipeSession: "recipe",
   });
   for (const invalid of [
-    { ...output, text: "x".repeat(65537) },
-    { ...output, running: 1 },
-    { ...output, failed: "no" },
-    { ...output, host: "-oCommand" },
+    { ...host, hostKeyTrustFailure: "raw SSH prompt" },
+    { ...host, hostKeyTrustFailure: 1 },
+    { ...host, factsRefreshFailure: "raw refresh error" },
   ]) {
-    mock.invoke.mockResolvedValue({ hosts: [], locations: [], output: invalid });
-    await expect(api.hosts({ action: "progress" })).rejects.toThrow();
+    mock.invoke.mockResolvedValue({ hosts: [invalid], locations: [] });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
   for (const recipeSession of ["", "x".repeat(201), 1]) {
     mock.invoke.mockResolvedValue({ hosts: [], locations: [], recipeSession });
@@ -2182,27 +2217,6 @@ test("approvals expose only a validated count and opening capability, with stale
   offInitial?.();
 });
 
-test("repository refusal events copy bounded details and explicitly clear stale launch context", async () => {
-  const api = await bridge();
-  const callback = vi.fn();
-  const off = api.onRepositorySetupRefused(callback);
-  const listener = mock.on.mock.calls.find(([name]) => name === "setup:launch-refused")?.[1];
-  if (!listener) throw new Error("Missing refusal listener");
-  const value = { repository: "/repo", host: null, missing: [{ id: "node", version: "24.x" }] };
-  listener({}, value);
-  expect(callback).toHaveBeenCalledExactlyOnceWith(value);
-  expect(callback.mock.calls[0]?.[0]).not.toBe(value);
-  value.missing[0] = { id: "changed", version: "26.x" };
-  expect(callback.mock.calls[0]?.[0]).toMatchObject({ missing: [{ id: "node" }] });
-  listener({}, null);
-  listener({}, { repository: "/repo", host: null, missing: "raw text" });
-  expect(callback).toHaveBeenCalledTimes(1);
-  listener({}, undefined);
-  expect(callback).toHaveBeenLastCalledWith(undefined);
-  off();
-  expect(mock.removeListener).toHaveBeenCalledWith("setup:launch-refused", listener);
-});
-
 test("readiness view snapshots cross the projected bridge with bounded fixed facts", async () => {
   const api = await bridge();
   const receive = vi.fn<(snapshot: ViewSnapshot<"readiness">) => void>();
@@ -2260,4 +2274,35 @@ test("preview history bridge validates navigation facts and forwards ID-scoped t
   expect(receive).toHaveBeenCalledExactlyOnceWith(state);
   off?.();
   expect(mock.removeListener).toHaveBeenCalledWith("preview:navigation", listener);
+});
+
+test("validates and projects recorded host requirements", async () => {
+  const api = await bridge();
+  const action = { action: "read", repository: "/fixture/repo" } as const;
+  const note = {
+    markdown: "# Requirements",
+    revision: "13d2354c-75d5-4771-8d2a-f0179896e640",
+    agent: "Codex",
+    host: "worker",
+    recordedAt: 1700000000000,
+  };
+  mock.invoke.mockResolvedValue({ ...note, extra: "discarded" });
+  await expect(api.repositoryRequirements(action)).resolves.toEqual(note);
+  expect(mock.invoke).toHaveBeenCalledWith("setup:repository-requirements", action);
+  mock.invoke.mockResolvedValue(null);
+  await expect(api.repositoryRequirements(action)).resolves.toBeNull();
+  for (const patch of [
+    { revision: "/path" },
+    { recordedAt: 0.5 },
+    { editedAt: Infinity },
+    { host: "x\u202e" },
+    { markdown: "  " },
+    { markdown: "é".repeat(8193) },
+    { markdown: "x\u0000" },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...note, ...patch });
+    await expect(api.repositoryRequirements(action)).rejects.toThrow(
+      "Invalid setup:repository-requirements response",
+    );
+  }
 });

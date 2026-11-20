@@ -1,3 +1,4 @@
+import type { HostKeyTrustFailure } from "../../shared/registered-hosts.d";
 import { readLoginShell } from "../login-shell";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -74,20 +75,6 @@ export function configuredHost(output: string): { host: string; port: number } |
   const target = alias ?? (number === 22 ? name : `[${name}]:${String(number)}`);
   return target.length <= 200 ? { host: target, port: number } : undefined;
 }
-
-export type HostKeyTrustFailure =
-  | "trust-not-eligible"
-  | "invalid-alias"
-  | "ssh-config-failed"
-  | "ssh-config-invalid"
-  | "socket-path-too-long"
-  | "askpass-prompt-rejected"
-  | "prompt-host-mismatch"
-  | "ssh-exited-without-prompt"
-  | "trust-timeout"
-  | "ssh-start-failed"
-  | "dialog-unavailable"
-  | "trust-unavailable";
 
 /** One detached SSH run, one authenticated local socket, one explicit answer. */
 export async function trustHostKey(

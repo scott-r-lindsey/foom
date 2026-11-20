@@ -1,4 +1,3 @@
-import type { RepositorySetupList, SetupCheck, SetupSources } from "./repository-setup.d";
 import type { RemoteReviewSnapshot } from "./remote-agent";
 export interface RegisteredHost {
   host: string;
@@ -37,6 +36,7 @@ export type HostFailure =
   | "clone-failed"
   | "checkout-refused";
 export type HostAgentState = "ready" | "missing" | "unable";
+export type CodexApprovals = "may-prompt" | "disabled" | "unknown";
 export type HostSignIn = "signed-in" | "signed-out" | "unknown";
 export interface HostRequirements {
   distro: "debian" | "rhel" | "arch" | "darwin" | "unknown";
@@ -53,9 +53,27 @@ export interface HostConnectionChecks {
   platform: HostCheck;
   artifact: HostCheck;
 }
+export interface GitOriginEndpoint {
+  host: string;
+  protocol: "ssh" | "https";
+  /** Null preserves SSH port selection by the host’s own configuration. */
+  port: number | null;
+}
 export interface HostPreflight extends HostConnectionChecks {
+  /** Absent in legacy saved checklists. */
+  sshRevision?: number;
   result: HostResult;
-  repositories: readonly { repository: string; origin: HostCheck; checkout: HostResult }[];
+  repositories: readonly {
+    repository: string;
+    origin: HostCheck;
+    /** Legacy observations without a checked endpoint cannot be attributed to the current origin. */
+    originEndpoint?: GitOriginEndpoint;
+    checkout: HostResult;
+  }[];
+}
+export interface LiveHostChecklist {
+  preflight: HostPreflight & { sshRevision: number };
+  saveFailed?: true;
 }
 export interface HostObservation {
   lastAgents?: { checkedAt: number; result: HostResult };
@@ -80,6 +98,8 @@ export interface HostFacts {
     id: string;
     state: HostAgentState;
     signIn?: HostSignIn;
+    /** Display-only remote account observation. */
+    codexApprovals?: CodexApprovals;
     details?: {
       path: string;
       version: string;
@@ -106,17 +126,9 @@ export type HostManagement = {
       partial?: true;
       target?: HostInspectionTarget;
       agentDetails?: true;
+      codexApprovalCheck?: true;
     }
   | { operation: "create-folder" }
-  | {
-      operation: "repository-setup";
-      catalog: string;
-      directory: string;
-      origin: string;
-      list: RepositorySetupList;
-      evidence: readonly string[];
-      path?: string;
-    }
   | { operation: "list-worktrees"; profile: string }
   | { operation: "repository" | "clone" | "origin"; directory: string; origin: string }
   | {
@@ -142,7 +154,6 @@ export type HostResult = { connection?: HostConnectionChecks } & (
   | {
       ok: true;
       facts: HostFacts;
-      setup?: { check: SetupCheck; sources?: SetupSources; checkout?: string; head?: string };
       checkout?: { path: string; state: "clean" | "changed" | "absent" };
       inventory?: { own: readonly RemoteWorktree[]; other: number };
       worktree?: {
@@ -156,7 +167,26 @@ export type HostResult = { connection?: HostConnectionChecks } & (
       };
     }
 );
+export type HostKeyTrustFailure =
+  | "trust-not-eligible"
+  | "invalid-alias"
+  | "ssh-config-failed"
+  | "ssh-config-invalid"
+  | "socket-path-too-long"
+  | "askpass-prompt-rejected"
+  | "prompt-host-mismatch"
+  | "ssh-exited-without-prompt"
+  | "trust-timeout"
+  | "ssh-start-failed"
+  | "dialog-unavailable"
+  | "trust-unavailable";
+
 export interface HostRow extends RegisteredHost {
+  setupAgent?: { id: string; name: string };
+  checklist?: LiveHostChecklist;
+  hostKeyTrustFailure?: HostKeyTrustFailure;
+  /** Failure from the latest explicit facts refresh. */
+  factsRefreshFailure?: HostFailure;
   hostKeyTrust?: "askpass" | "manual";
   rowFailures?: readonly { target: HostCheckTarget; reason: "save-failed" | "check-failed" }[];
   recipes?: readonly {
@@ -184,33 +214,32 @@ export interface HostCheckProgress {
   repositories: readonly {
     repository: string;
     origin?: HostCheck;
+    originEndpoint?: GitOriginEndpoint;
     checkout?: HostResult;
   }[];
 }
-export interface HostOutput {
-  host: string;
-  text: string;
-  running: boolean;
-  failed: boolean;
-}
 export interface HostsState {
+  /** Display-only endpoints of registered local origins. */
+  gitOrigins?: readonly (GitOriginEndpoint & { repository: string })[];
   /** Sealed local build capability; independent of host connectivity. */
   remoteHostsAvailable?: boolean;
-  output?: HostOutput;
   recipeSession?: string;
   progress?: readonly HostCheckProgress[];
   preflight?: HostPreflight;
+  preflightSaveFailed?: true;
   recipeFailure?: "recipe-unavailable";
   hosts: readonly HostRow[];
   locations: readonly RepositoryLocation[];
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "setup-agent"; host: string; agent: string; repositories: readonly string[] }
+  | { action: "show-setup-agent"; host: string; id: string }
   | { action: "trust-host-key"; host: string }
   | { action: "cancel-trust" }
   | { action: "reload"; host: string; target: HostCheckTarget }
   | { action: "rename"; host: string; nickname: string }
-  | { action: "trust-origin"; host: string; repository: string }
+  | { action: "trust-origin"; host: string; repository: string; endpoint: GitOriginEndpoint }
   | {
       action: "recipe";
       host: string;
@@ -223,7 +252,6 @@ export type HostsAction =
   | { action: "change-folder"; host: string; codeFolder: string }
   | { action: "list" }
   | { action: "progress" }
-  | { action: "dismiss-output" }
   | { action: "add"; host: string; codeFolder: string; nickname?: string }
   | { action: "test"; host: string; codeFolder: string }
   | { action: "refresh"; host: string }

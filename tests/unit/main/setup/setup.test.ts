@@ -9,6 +9,7 @@ import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { legacyBypassIdentities } from "../../../../src/main/agents/providers/bundled";
 import type { ReadinessReport } from "../../../../src/shared/readiness";
+import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import type { SetupDependencies } from "../../../../src/main/setup/setup";
 import type { ScanProgress, Settings, SettingsPatch } from "../../../../src/shared/setup";
 
@@ -522,6 +523,9 @@ test("host authorizations cannot be written through general settings", async () 
     setup.save({ registeredHosts: [{ host: "worker", codeFolder: "/code" }] }),
   ).rejects.toThrow();
   await expect(setup.hosts({ action: "list" })).rejects.toThrow("Hosts unavailable");
+  expect(() =>
+    setup.repositoryRequirements({ action: "read", repository: "/fixture/repo" }),
+  ).toThrow("Host requirements unavailable");
 });
 
 test("host copies require both registered host service and main clipboard capability", async () => {
@@ -566,6 +570,12 @@ test("completed host checks refresh inventory while saved list/progress reads an
   action.mockRejectedValueOnce(new Error("refused"));
   await expect(setup.hosts({ action: "refresh", host: "worker" })).rejects.toThrow("refused");
   expect(changed).toHaveBeenCalledOnce();
+  const unsaved = { ...state, preflightSaveFailed: true as const };
+  action.mockResolvedValueOnce(unsaved);
+  await expect(
+    setup.hosts({ action: "preflight", host: "worker", codeFolder: "/code" }),
+  ).resolves.toBe(unsaved);
+  expect(changed).toHaveBeenCalledOnce();
   hosts.dispose();
 });
 
@@ -590,6 +600,36 @@ test("successful nickname updates publish current profile settings; reads and fa
   ).rejects.toThrow();
   expect(apply).not.toHaveBeenCalled();
   deps.hosts.dispose();
+});
+
+test("setup agent IPC places the owned tile in the background and reveals it only on request", async () => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  const hosts = new Hosts(deps.store, () => [], "0.1.0");
+  vi.spyOn(hosts, "startSetupAgent").mockResolvedValue("setup-id");
+  const running = vi.spyOn(hosts, "setupAgentId").mockReturnValue(undefined);
+  const place = vi.fn();
+  const input = { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/repo"] };
+  await expect(new Setup({ ...deps, hosts }).hosts(input)).rejects.toThrow(
+    "Setup agent unavailable",
+  );
+  const setup = new Setup({
+    ...deps,
+    hosts,
+    launchHostSetupAgent: vi.fn(),
+    placeHostSetupAgent: place,
+  });
+  await expect(setup.hosts({ ...input, prompt: "untrusted" })).rejects.toThrow(
+    "Invalid host action",
+  );
+  await setup.hosts(input);
+  expect(place).toHaveBeenCalledExactlyOnceWith("setup-id", true);
+  await setup.hosts({ action: "show-setup-agent", host: "worker", id: "setup-id" });
+  expect(place).toHaveBeenCalledTimes(1);
+  running.mockReturnValue("setup-id");
+  await setup.hosts({ action: "show-setup-agent", host: "worker", id: "stale-id" });
+  expect(place).toHaveBeenCalledTimes(1);
+  await setup.hosts({ action: "show-setup-agent", host: "worker", id: "setup-id" });
+  expect(place).toHaveBeenLastCalledWith("setup-id", false);
 });
 
 test("local install delegation has no fallback when the capability is absent", async () => {
@@ -660,34 +700,6 @@ test("host removal lists dormant sessions, cancels safely and sends no remote re
   );
   expect(settings.registeredHosts).toHaveLength(1);
   hosts.dispose();
-});
-
-test("repository setup owns its board scope, cancellation and fixed draft brief", async () => {
-  const { RepositorySetup } = await import("../../../../src/main/setup/repository-setup");
-  const service = new RepositorySetup({
-    repositories: () => [],
-    identity: () => "fixture",
-    hosts: () => [],
-    sources: () => Promise.resolve(undefined),
-    check: () => Promise.reject(new Error("unused")),
-    save: () => Promise.resolve(),
-  });
-  const action = vi.spyOn(service, "action");
-  const cancel = vi.spyOn(service, "cancelScope");
-  const copy = vi.fn();
-  deps.repositorySetup = service;
-  deps.launchRepositorySetup = vi.fn(() => Promise.resolve("setup-1"));
-  deps.copyText = copy;
-  const setup = new Setup(deps);
-  await setup.repositorySetup({ action: "copy-brief" });
-  expect(copy).toHaveBeenCalledWith(expect.stringContaining("Do not install anything"));
-  expect(action.mock.calls[0]?.[0]).toMatch(/^[a-f0-9-]{36}$/u);
-  setup.cancelHostTrust();
-  expect(cancel).toHaveBeenCalledWith(action.mock.calls[0]?.[0]);
-  const withoutService = { ...deps };
-  delete withoutService.repositorySetup;
-  const unavailable = new Setup(withoutService);
-  expect(() => unavailable.repositorySetup({ action: "list" })).toThrow("unavailable");
 });
 
 test("readiness views share a lazy probe and its self-publication; commands and invalidations recheck", async () => {
@@ -791,4 +803,22 @@ test("windows share a profile's readiness probe and changed explicit recheck res
   await expect(a.readinessView()).resolves.toEqual(next);
   await expect(b.readinessView()).resolves.toEqual(next);
   expect(probe).toHaveBeenCalledTimes(2);
+});
+
+test("custom theme saves require a digest for the offered palette", async () => {
+  const interfaceTheme = "user:personal.json";
+  const digest = "a".repeat(64);
+  deps.themes = () => ({
+    interface: [{ id: interfaceTheme, theme: interfaceThemes["eclipse-dark"], digest }],
+    terminal: [],
+    errors: [],
+  });
+  const setup = new Setup(deps);
+  await expect(setup.save({ interfaceTheme })).rejects.toThrow("theme-selection-changed");
+  await expect(setup.save({ interfaceTheme }, "b".repeat(64))).rejects.toThrow(
+    "theme-selection-changed",
+  );
+  expect(deps.store.update).not.toHaveBeenCalled();
+  await setup.save({ interfaceTheme }, digest);
+  expect(deps.store.update).toHaveBeenCalledWith({ interfaceTheme }, digest);
 });

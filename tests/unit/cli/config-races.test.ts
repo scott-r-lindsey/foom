@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm, rename, symlink, appendFile } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 const hooks = vi.hoisted(() => ({
+  beforeLstat: undefined as undefined | ((path: string) => Promise<void>),
   beforeOpen: undefined as undefined | ((path: string) => Promise<void>),
   afterOpen: undefined as
     | undefined
@@ -13,6 +14,10 @@ vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof FsPromises>();
   return {
     ...fs,
+    lstat: async (...args: Parameters<typeof fs.lstat>) => {
+      await hooks.beforeLstat?.(String(args[0]));
+      return fs.lstat(...args);
+    },
     open: async (...args: Parameters<typeof fs.open>) => {
       await hooks.beforeOpen?.(String(args[0]));
       const file = await fs.open(...args);
@@ -24,6 +29,7 @@ vi.mock("node:fs/promises", async (original) => {
 import { validateConfig } from "../../../src/cli/config";
 const roots: string[] = [];
 afterEach(async () => {
+  hooks.beforeLstat = undefined;
   hooks.beforeOpen = undefined;
   hooks.afterOpen = undefined;
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -88,4 +94,18 @@ test("file replacement before open and growth after stat fail closed", async () 
     code: 1,
     problems: [{ reason: "unsafe-file" }],
   });
+});
+
+test("a regular Settings lock may disappear between the directory walk and lstat", async () => {
+  const { inside } = await fixture();
+  const lock = join(inside, ".foom-settings.lock");
+  await writeFile(lock, "{}");
+  const removed = vi.fn();
+  hooks.beforeLstat = async (path) => {
+    if (path !== lock) return;
+    await rm(lock);
+    removed();
+  };
+  expect(await validateConfig(inside)).toEqual({ problems: [], code: 0 });
+  expect(removed).toHaveBeenCalledOnce();
 });

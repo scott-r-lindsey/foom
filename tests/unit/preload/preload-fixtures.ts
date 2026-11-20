@@ -48,7 +48,7 @@ export const theme = {
   shape: { radius: 4, "panel-radius": 8, border: 1, shadow: 0.5 },
 };
 export const themes = {
-  interface: [{ id: "user:custom.json" as const, theme }],
+  interface: [{ id: "user:custom.json" as const, theme, digest: "a".repeat(64) }],
   terminal: [
     {
       id: "user:custom.json" as const,

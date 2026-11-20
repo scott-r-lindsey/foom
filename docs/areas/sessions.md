@@ -206,3 +206,5 @@ There is no durable daemon suppression: later startup discovery recovers a live
 session as human-owned, without saved parent links, grants or worktree ownership.
 Local-only change notifications refresh all board snapshots without triggering
 remote sidebar inventory. The renderer also skips inventory refresh for Forget.
+Returning focus from the Forget confirmation skips the board's usual inventory
+refresh.

@@ -6,7 +6,22 @@ import type {
   DialogOutcome,
 } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
-import { removalContent } from "./removal-review";
+
+/** Keep a prefix of whole display records, including both paths of renames and copies. */
+function removalDisplay(changes: string) {
+  const fields = changes.split("\0");
+  let display = "";
+  let omittedChanges = 0;
+  for (let index = 0; index < fields.length; index++) {
+    const record = fields[index];
+    if (!record) continue;
+    const source = /[RC]/u.test(record.slice(0, 2)) ? fields[++index] : undefined;
+    const line = source === undefined ? `${record}\0` : `${record}\0${source}\0`;
+    if (omittedChanges || display.length + line.length > 4096) omittedChanges++;
+    else display += line;
+  }
+  return { changes: display, omittedChanges };
+}
 
 type Caller = { resolve(outcome: DialogOutcome): void; cleanup(): void };
 interface Entry {
@@ -43,7 +58,7 @@ export class Approvals {
     },
     answer: (id, accepted) => {
       if (Array.isArray(accepted)) {
-        // Only an explicit snapshot of one removal kind is bulk eligible.
+        // Validate the whole snapshot against main-owned removal status before resolving any caller.
         if (!accepted.length || new Set(accepted).size !== accepted.length) return;
         const entries = accepted.map((id: unknown) =>
           typeof id === "string" ? this.entries.get(id) : undefined,
@@ -53,7 +68,7 @@ export class Approvals {
             (entry) =>
               !entry ||
               entry.row.kind !== "Worktree removal" ||
-              !entry.content.removal ||
+              entry.content.removal?.item.changes !== "" ||
               entry.content.pluginFeed !== undefined ||
               entry.content.pairing !== undefined ||
               !this.ready(entry),
@@ -122,6 +137,14 @@ export class Approvals {
     delete plain.removalFeed;
     delete plain.approvalFeed;
     delete plain.approvals;
+    const kind = approval?.kind ?? (removal ? "Worktree removal" : "Background");
+    const item =
+      kind === "Worktree removal" && !pluginFeed && !plain.pairing ? removal?.item : undefined;
+    if (
+      item?.changes &&
+      !(item.fileCount && Number.isSafeInteger(item.fileCount) && item.fileCount > 0)
+    )
+      return Promise.resolve("unavailable");
     // Callers supply canonical target/generation keys where an operation has live state.
     const key = JSON.stringify([
       approval?.kind,
@@ -135,17 +158,23 @@ export class Approvals {
     else {
       const request = {
         ...plain,
-        ...(removal
+        ...(item
           ? {
-              ...removalContent([removal.item]),
-              detail: [
-                removal.item.changes
-                  ? "Discard the listed uncommitted changes and remove this worktree. Keep its branch."
-                  : "Remove this clean worktree. Keep its branch.",
-                plain.detail,
-              ]
-                .filter((value) => value !== undefined)
-                .join("\n\n"),
+              worktreePath: item.path,
+              ...removalDisplay(item.changes),
+              ...(item.fileCount === undefined ? {} : { discardCount: item.fileCount }),
+              accept: item.changes ? "Discard changes and remove" : "Remove worktree",
+              ...(item.pullRequest
+                ? {
+                    facts: [
+                      ...(plain.facts ?? []),
+                      {
+                        label: "PR",
+                        value: `#${String(item.pullRequest.number)} · ${item.pullRequest.state}`,
+                      },
+                    ],
+                  }
+                : {}),
             }
           : {}),
         id: randomUUID(),
@@ -157,8 +186,10 @@ export class Approvals {
         content,
         row: {
           request,
-          kind: approval?.kind ?? (removal ? "Worktree removal" : "Background"),
-          origin: (approval?.origin ?? "Foom · background · no tile")
+          kind,
+          origin: (
+            approval?.origin ?? (item ? "Background cleanup" : "Foom · background · no tile")
+          )
             .replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/gu, " ")
             .slice(0, 8192),
           repeats: 1,

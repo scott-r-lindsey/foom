@@ -90,6 +90,20 @@ async function launch(
   });
   return { provider, install, prepared };
 }
+it("uses the supported initial-prompt capability without child guidance for a setup machine", async () => {
+  const { install, prepared } = await launch(model(), {
+    humanHome: true,
+    prompt: "fixed setup brief",
+  });
+  expect(install.initialPrompt).toBe(true);
+  expect(prepared.args).toContain("fixed setup brief");
+  const unavailable = v2Provider(model(), () => Promise.resolve()).discover(
+    "/fixture",
+    "fixture 1.2.3",
+    "",
+  );
+  expect(unavailable.initialPrompt).toBe(false);
+});
 it("uses stable numeric versions, complete option boundaries and earlier fact dependencies", () => {
   const m = model();
   const facts = (version: string, help = "--inline --prompt --mcp") =>

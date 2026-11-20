@@ -186,6 +186,9 @@ test("session, host and preview copies share main's clipboard capability", async
 test("window focus refreshes external workspace inventory", async () => {
   await import("../../../src/main/main");
   await start();
+  mock.confirmLocalFocusReturn.mockReturnValueOnce(true);
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).not.toHaveBeenCalled();
   mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
   expect(mock.workspace.refresh).toHaveBeenCalledOnce();
   mock.window.webContents.isCrashed.mockReturnValue(true);
@@ -421,7 +424,9 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   );
   expect(id).toBe("recipe");
   expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
-  const listener = mock.terminals.onExit.mock.calls[0]?.[0];
+  mock.workspace.isSettingsTerminal.mockImplementation((id) => id === "recipe");
+  expect(mock.allowView(mock.window.webContents, "recipe")).toBe(true);
+  const listener = mock.terminals.onExit.mock.calls.at(-1)?.[0];
   listener?.("other", 0);
   expect(finished).not.toHaveBeenCalled();
   listener?.("recipe", 17);
@@ -429,16 +434,104 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   expect(off).toHaveBeenCalledOnce();
 });
 
-test("other agents’ sign-in recipes keep the human foreground tile", async () => {
+test("host setup routes ordinary tile placement through its window and observes native exit", async () => {
   await start();
-  await mock.setup.deps?.launchHostRecipe?.({
+  const { Hosts } = await import("../../../src/main/setup/hosts");
+  const exited = vi.spyOn(Hosts.prototype, "setupAgentExited").mockResolvedValue(undefined);
+  try {
+    const validate = vi.fn();
+    await mock.setup.deps?.launchHostSetupAgent?.("setup-id", "codex", "Fixed brief", validate);
+    expect(mock.workspace.startHostSetupAgent).toHaveBeenCalledWith(
+      "setup-id",
+      "codex",
+      "Fixed brief",
+      validate,
+    );
+    mock.setup.deps?.placeHostSetupAgent?.("setup-id", true);
+    expect(mock.window.webContents.send).toHaveBeenLastCalledWith(
+      "app-menu:session",
+      "setup-id",
+      true,
+    );
+    mock.terminals.onExit.mock.calls[0]?.[0]("setup-id", 0);
+    expect(exited).toHaveBeenCalledWith("setup-id", true);
+  } finally {
+    exited.mockRestore();
+  }
+});
+
+test.each([
+  { trustOrigin: "git@forge.test:team/project.git" },
+  { recipe: { tool: "agy", action: "install-plugin", distro: "debian", digest: "a".repeat(64) } },
+  { recipe: { tool: "codex", action: "sign-in", distro: "debian", digest: "a".repeat(64) } },
+] as const)("returns the owning Settings window’s terminal ID for %j", async (action) => {
+  await start();
+  const target = { host: "worker", human: true, ...action } as const;
+  const id = await mock.setup.deps?.launchHostRecipe?.(target);
+  expect(id).toBe("recipe");
+  expect(mock.workspace.startHostRecipe).toHaveBeenCalledExactlyOnceWith(target);
+  expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
+});
+
+test("a Settings recipe launched during window closure is stopped before it can be reserved", async () => {
+  await start();
+  mock.window.isDestroyed.mockReturnValueOnce(true);
+  await expect(
+    mock.setup.deps?.launchHostRecipe?.({
+      host: "worker",
+      human: true,
+      trustOrigin: "git@forge.test:team/project.git",
+    }),
+  ).rejects.toThrow("Settings window closed");
+  expect(mock.terminals.kill).toHaveBeenCalledWith("recipe");
+  expect(mock.workspace.removed).toHaveBeenCalledWith("recipe");
+});
+
+test("native close waits for starting Settings repairs and remains retryable after a failed stop", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  await start();
+  const launch = Promise.withResolvers<string>();
+  mock.workspace.startHostRecipe.mockReturnValueOnce(launch.promise);
+  const target = {
     host: "worker",
     human: true,
-    recipe: { tool: "codex", action: "sign-in", distro: "debian", digest: "a".repeat(64) },
-  });
+    trustOrigin: "git@forge.test:team/project.git",
+  } as const;
+  const starting = mock.setup.deps?.launchHostRecipe?.(target);
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("close")?.(event);
+  mock.windowEvents.get("close")?.(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", true);
+  expect(mock.terminals.stop).not.toHaveBeenCalled();
+  await expect(mock.setup.deps?.launchHostRecipe?.(target)).rejects.toThrow(
+    "Settings window closing",
+  );
+  mock.terminals.stop.mockRejectedValueOnce(new Error("Stop failed"));
+  launch.resolve("recipe");
+  await starting;
   await vi.waitFor(() => {
-    expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "recipe");
+    expect(mock.errorBox).toHaveBeenCalledWith(
+      "Unable to close window",
+      "Could not stop a Settings repair. Please try again.",
+    );
   });
+  expect(mock.window.close).not.toHaveBeenCalled();
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", false);
+  expect(mock.workspace.removed).not.toHaveBeenCalled();
+  expect(mock.terminals.kill).not.toHaveBeenCalled();
+  mock.windowEvents.get("close")?.(event);
+  await vi.waitFor(() => {
+    expect(mock.window.close).toHaveBeenCalledOnce();
+  });
+  expect(
+    mock.window.webContents.send.mock.calls.filter(
+      ([channel, value]) => channel === "windows:settings-stopping" && value === false,
+    ),
+  ).toHaveLength(2);
+  expect(mock.terminals.stop).toHaveBeenCalledTimes(2);
+  expect(mock.terminals.kill).toHaveBeenCalledExactlyOnceWith("recipe");
+  expect(mock.workspace.removed).toHaveBeenCalledExactlyOnceWith("recipe");
 });
 
 test("a recipe that exits during startup still refreshes its rows", async () => {
@@ -475,7 +568,7 @@ test.each([false, true])(
     const off = vi.fn();
     mock.terminals.onExit.mockReturnValue(off);
     mock.workspace.startHostRecipe.mockImplementationOnce(() => {
-      const exit = mock.terminals.onExit.mock.calls[0]?.[0];
+      const exit = mock.terminals.onExit.mock.calls.at(-1)?.[0];
       for (let index = 0; index < 260; index++) exit?.(`other-${String(index)}`, 1);
       exit?.("recipe", 0);
       return Promise.resolve("recipe");
@@ -658,105 +751,4 @@ test("gh Cancel retains its session after a refused stop and clears only its own
   });
   expect(mock.terminals.stop).toHaveBeenCalledTimes(2);
   expect(vi.mocked(clipboard).clear.mock.calls).toHaveLength(1);
-});
-
-test("repository setup shares the local installer reservation and aborts its human terminal", async () => {
-  const settings = mock.settingsStore.get();
-  vi.spyOn(mock.settingsStore, "get").mockReturnValue({
-    ...settings,
-    registeredHosts: [{ host: "worker", codeFolder: "/code" }],
-  });
-  await start();
-  const launch = mock.setup.deps?.launchRepositorySetup;
-  const install = mock.setup.deps?.localAgentInstall;
-  if (!launch || !install) throw new Error("Missing Settings setup launcher");
-  const { setupDigest, setupCatalogDigest } = await import(
-    "../../../src/node-common/repository-setup-digest"
-  );
-  const list = {
-    requirements: [
-      {
-        kind: "toolchain" as const,
-        id: "node",
-        tool: "node" as const,
-        version: "24.x",
-        purpose: "Build",
-        sources: [],
-      },
-    ],
-    evidence: [],
-  };
-  const approval = {
-    repository: "/repo",
-    identity: "registration",
-    revision: 1,
-    digest: setupDigest(list),
-    catalog: setupCatalogDigest,
-    sources: { files: [], fingerprint: setupDigest([]) },
-    checkout: "/repo",
-    head: "a".repeat(40),
-    approvedAt: 1,
-    list,
-  };
-  const row = {
-    repository: "/repo",
-    host: null,
-    revision: 1,
-    state: "needs-setup" as const,
-    sourcesAtLaunch: false,
-    location: { root: "/repo", path: "/repo", present: true },
-    missing: [],
-    changed: [],
-    plan: {
-      platform: {
-        distro: "debian" as const,
-        os: "linux" as const,
-        arch: "x64" as const,
-        nodeAbi: true,
-      },
-      packages: [],
-      toolchains: [],
-      steps: [],
-    },
-  };
-  const abort = new AbortController();
-  const finish = vi.fn();
-  const validate = vi.fn();
-  const withoutPlan: Omit<typeof row, "plan"> & { plan?: typeof row.plan } = { ...row };
-  delete withoutPlan.plan;
-  await expect(launch(null, approval, withoutPlan, finish, abort.signal, validate)).rejects.toThrow(
-    "unavailable",
-  );
-  mock.workspace.startRepositorySetup.mockRejectedValueOnce(new Error("fixture failure"));
-  await expect(launch(null, approval, row, finish, abort.signal, validate)).rejects.toThrow(
-    "fixture failure",
-  );
-  expect(await launch(null, approval, row, finish, abort.signal, validate)).toBe(
-    "repository-setup",
-  );
-  await expect(launch(null, approval, row, finish, abort.signal, validate)).rejects.toThrow(
-    "already running",
-  );
-  if (process.platform !== "win32")
-    await expect(install("claude")).rejects.toThrow("already running");
-  mock.terminals.kill.mockRejectedValueOnce(new Error("already exited"));
-  abort.abort();
-  expect(mock.terminals.kill).toHaveBeenCalledWith("repository-setup");
-  const listener = mock.terminals.onExit.mock.calls.at(-1)?.[0];
-  listener?.("repository-setup", 7);
-  expect(finish).toHaveBeenCalledOnce();
-  expect(
-    await launch(
-      "worker",
-      approval,
-      { ...row, missing: ["node"] },
-      finish,
-      new AbortController().signal,
-      validate,
-    ),
-  ).toBe("recipe");
-  expect(mock.window.webContents.send).not.toHaveBeenCalledWith(
-    "app-menu:session",
-    "repository-setup",
-  );
 });

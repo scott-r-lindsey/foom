@@ -1,19 +1,15 @@
 import type { GithubSignInState } from "../../shared/registered-hosts.d";
-import { randomUUID } from "node:crypto";
-import type { RepositorySetup } from "./repository-setup";
-import type {
-  RepositorySetupState,
-  SetupApproval,
-  SetupRow,
-} from "../../shared/repository-setup.d";
 import { viewChanges } from "../data/view-changes";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
+import type { RepositoryRequirementsStore } from "./repository-requirements";
 import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
+import { ApplicationError } from "../../shared/application-errors";
+import { isUserThemeId } from "../../shared/theme-validation";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { bypassConsentIdentity, hasBypassArgument } from "../agents/default-arguments";
 import type { AgentId } from "../../shared/agents";
@@ -31,24 +27,20 @@ import type {
 } from "../../shared/setup";
 import type { WorktreeService } from "../workspace/worktrees";
 
+export { repositoryRequirementsForProfile } from "./repository-requirements";
+
 export interface SetupDependencies {
   githubSignIn?: (id: unknown, action: unknown) => Promise<GithubSignInState>;
-  repositorySetup?: RepositorySetup;
-  launchRepositorySetup?: (
-    host: string | null,
-    approval: SetupApproval,
-    row: SetupRow,
-    finished: () => void,
-    signal: AbortSignal,
-    validate: () => Promise<void>,
-  ) => Promise<string>;
   hosts?: Hosts;
+  repositoryRequirements?: RepositoryRequirementsStore;
   hostsChanged?: () => void;
   hostSessions?: () => readonly WorkspaceTerminal[];
   localAgentInstall?: (
     id: unknown,
   ) => Promise<{ available: readonly string[]; recipeSession?: string }>;
   launchHostRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>;
+  launchHostSetupAgent?: Parameters<Hosts["startSetupAgent"]>[1];
+  placeHostSetupAgent?: (id: string, background: boolean) => void;
   copyText?: (value: string) => void | Promise<void>;
   confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>;
   confirmRemoteSessions?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>;
@@ -89,29 +81,6 @@ interface ReadinessOwner {
 const readinessOwners = new WeakMap<SetupDependencies["store"], ReadinessOwner>();
 
 export class Setup {
-  private readonly setupScope = randomUUID();
-  repositorySetup(input: unknown): Promise<RepositorySetupState> {
-    if (!this.deps.repositorySetup || !this.deps.launchRepositorySetup)
-      throw new Error("Repository setup unavailable");
-    if (
-      typeof input === "object" &&
-      input !== null &&
-      "action" in input &&
-      input.action === "copy-brief" &&
-      Object.keys(input).length === 1
-    ) {
-      void this.deps.copyText?.(
-        'Read this repository’s build documentation and manifests as text. Do not install anything or request sudo. Propose distro-specific OS packages, required toolchain versions, purposes, evidence paths and uncertainties as structured JSON: {"requirements":[{"kind":"package","id":"native","purpose":"Why needed","sources":["package.json"],"packages":{"debian":[],"rhel":[],"arch":[],"darwin":[]}},{"kind":"toolchain","id":"node","tool":"node","version":"24.x","purpose":"Why needed","sources":["package.json"]}],"evidence":[]}. Do not include commands, executable paths, URLs, secrets or approval. The user reviews the list in Foom.',
-      );
-    }
-    return this.deps.repositorySetup.action(
-      this.setupScope,
-      input,
-      this.deps.confirmRemoteSessions ?? (() => Promise.resolve(false)),
-      this.deps.launchRepositorySetup,
-      this.hostTrust.signal,
-    );
-  }
   private saving: Promise<unknown> = Promise.resolve();
   private suggested: readonly string[] = [];
   /** Paths from the latest scan: the only ones the renderer may add or remove. */
@@ -133,6 +102,10 @@ export class Setup {
     if (!this.deps.localAgentInstall) throw new Error("Installer unavailable");
     return this.deps.localAgentInstall(id);
   }
+  repositoryRequirements(input: unknown) {
+    if (!this.deps.repositoryRequirements) throw new Error("Host requirements unavailable");
+    return this.deps.repositoryRequirements.settings(input);
+  }
   async copyHost(input: unknown): Promise<void> {
     if (!this.deps.hosts || !this.deps.copyText) throw new Error("Copy unavailable");
     await this.deps.copyText(this.deps.hosts.copyValue(input));
@@ -143,14 +116,29 @@ export class Setup {
   }
   private hostTrust = new AbortController();
   cancelHostTrust(): void {
-    this.deps.repositorySetup?.cancelScope(this.setupScope);
     this.hostTrust.abort();
     this.hostTrust = new AbortController();
   }
   async hosts(input: unknown) {
-    if (hostsAction(input) && input.action === "cancel-trust") this.cancelHostTrust();
+    if (!hostsAction(input)) throw new Error("Invalid host action");
+    if (input.action === "cancel-trust") this.cancelHostTrust();
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
-    if (hostsAction(input) && input.action === "remove") {
+    if (input.action === "setup-agent") {
+      if (!this.deps.launchHostSetupAgent) throw new Error("Setup agent unavailable");
+      const id = await this.deps.hosts.startSetupAgent(
+        input,
+        this.deps.launchHostSetupAgent,
+        this.hostTrust.signal,
+      );
+      this.deps.placeHostSetupAgent?.(id, true);
+      return this.deps.hosts.state();
+    }
+    if (input.action === "show-setup-agent") {
+      const id = this.deps.hosts.setupAgentId(input.host);
+      if (id === input.id) this.deps.placeHostSetupAgent?.(id, false);
+      return this.deps.hosts.state();
+    }
+    if (input.action === "remove") {
       const sessions = () =>
         (this.deps.hostSessions?.() ?? []).filter(
           (row) =>
@@ -199,18 +187,11 @@ export class Setup {
         this.hostTrust.signal,
         this.deps.confirmHostKey,
       )
-      .then(async (state) => {
-        if (hostsAction(input) && input.action === "preflight" && this.deps.repositorySetup) {
-          for (const repository of this.deps.code.worktrees.listRepositories())
-            await this.deps.repositorySetup.check(this.setupScope, input.host, repository.path);
-        }
-        if (hostsAction(input)) {
-          if (input.action === "rename") this.refresh();
-          if (
-            !["progress", "dismiss-output", "cancel-trust", "list", "reload"].includes(input.action)
-          )
-            this.deps.hostsChanged?.();
-        }
+      .then((state) => {
+        if (state.preflightSaveFailed) return state;
+        if (input.action === "rename") this.refresh();
+        if (!["progress", "cancel-trust", "list", "reload"].includes(input.action))
+          this.deps.hostsChanged?.();
         return state;
       });
   }
@@ -265,7 +246,7 @@ export class Setup {
     });
   }
 
-  async save(value: unknown): Promise<SetupState> {
+  async save(value: unknown, themeDigest?: unknown): Promise<SetupState> {
     const patch = parseSettingsPatch(value);
     if (
       patch.registeredHosts !== undefined ||
@@ -273,13 +254,20 @@ export class Setup {
       patch.agentBypassIdentities !== undefined
     )
       throw new Error("Bypass acknowledgement belongs to Foom's confirmation dialog.");
-    const saving = this.saving.catch(() => undefined).then(() => this.savePatch(patch));
+    const saving = this.saving
+      .catch(() => undefined)
+      .then(() => this.savePatch(patch, themeDigest));
     this.saving = saving;
     return saving;
   }
 
-  private async savePatch(patch: SettingsPatch): Promise<SetupState> {
+  private async savePatch(patch: SettingsPatch, themeDigest: unknown): Promise<SetupState> {
     const before = this.deps.store.get();
+    if (isUserThemeId(patch.interfaceTheme) && patch.interfaceTheme !== before.interfaceTheme) {
+      const offered = this.deps.themes?.().interface.find(({ id }) => id === patch.interfaceTheme);
+      if (typeof themeDigest !== "string" || offered?.digest !== themeDigest)
+        throw new ApplicationError("theme-selection-changed");
+    }
     if (
       patch.setupComplete === true &&
       this.deps.gitReadiness &&
@@ -310,7 +298,10 @@ export class Setup {
       patch.agentBypassAcknowledged = acknowledged;
       patch.agentBypassIdentities = identities;
     }
-    const settings = await this.deps.store.update(patch);
+    const settings = await this.deps.store.update(
+      patch,
+      ...(typeof themeDigest === "string" ? [themeDigest] : []),
+    );
     this.deps.apply(settings);
     return this.state();
   }

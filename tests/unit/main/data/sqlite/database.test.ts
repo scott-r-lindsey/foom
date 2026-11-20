@@ -1274,39 +1274,7 @@ const verdictFeedback = {
   action: "replied",
   timestamp: historyTime,
 };
-async function controlSources() {
-  const { parseSetupList } = await import("../../../../../src/shared/repository-setup");
-  const { setupDigest, setupCatalogDigest } = await import(
-    "../../../../../src/node-common/repository-setup-digest"
-  );
-  const requirements = parseSetupList(
-    JSON.stringify({
-      requirements: [
-        {
-          kind: "toolchain",
-          id: "node",
-          tool: "node",
-          version: "24.x",
-          purpose: "Build tooling",
-          sources: ["package.json"],
-        },
-      ],
-      evidence: [],
-    }),
-  );
-  const files = [{ path: "package.json", digest: "e".repeat(64) }];
-  const approved = {
-    repository: repo,
-    identity: "12345678-1234-1234-1234-123456789abc",
-    revision: 1,
-    digest: setupDigest(requirements),
-    catalog: setupCatalogDigest,
-    sources: { files, fingerprint: setupDigest(files) },
-    checkout: tree.path,
-    head: "f".repeat(40),
-    approvedAt: 1,
-    list: requirements,
-  };
+function controlSources() {
   const remotePath = "/code/.foom-worktree-child";
   const remoteTree = {
     repository: "/repo",
@@ -1333,16 +1301,6 @@ async function controlSources() {
     orchestrator: false,
     pr: { number: 1, headSha: "f".repeat(40), state: "OPEN", requiredChecks: "success" },
   };
-  const observation = {
-    repository: repo,
-    host: null,
-    revision: 1,
-    state: "met",
-    missing: [],
-    changed: [],
-    sourcesAtLaunch: true,
-    checkedAt: 1,
-  };
   return {
     "control/board.json": JSON.stringify({
       version: 1,
@@ -1366,11 +1324,6 @@ async function controlSources() {
       }) + "\n",
     "agent-setup/offers.json": JSON.stringify(["codex", "custom-agent"]),
     "probe-notices/seen.json": JSON.stringify(["codex"]),
-    "repository-setup/state.json": JSON.stringify({
-      version: 1,
-      approvals: [approved],
-      rows: [observation, { ...observation, host: "example" }],
-    }),
     "verdicts.jsonl": [verdictRecord, verdictFeedback].map((row) => JSON.stringify(row)).join("\n"),
     "codex-hook-health.json": JSON.stringify({ state: "trusted", fingerprint: "a".repeat(64) }),
     "foom-observers-1000/codex-health.json": JSON.stringify({
@@ -1409,7 +1362,7 @@ async function controlSources() {
 async function populatedControl() {
   const fixtureState = await fixture();
   const { importControlRows } = await import("../../../../../src/main/data-import/control");
-  const input = await controlSources();
+  const input = controlSources();
   await fixtureState.db.write((orm) => importRows(orm, sources()));
   const result = await fixtureState.db.write((orm) => importControlRows(orm, input));
   return { ...fixtureState, input, report: result.value };
@@ -1432,8 +1385,6 @@ test("control imports typed board/forge/operation/audit/history without credenti
       ["operation_audit_links", 2],
       ["verdict_records", 1],
       ["verdict_actions", 1],
-      ["repository_approvals", 1],
-      ["repository_observations", 2],
       ["terminal_diagnostics", 3],
     ] as const)
       expect(raw.prepare(`SELECT * FROM ${name}`).all()).toHaveLength(count);
@@ -1458,8 +1409,6 @@ test("every new control/board/history FK rejects referenced deletes, including c
     tables.forgeObservations,
     tables.operationAuditLinks,
     tables.verdictActions,
-    tables.repositoryApprovals,
-    tables.repositoryObservations,
   ];
   inspect(file, (raw) => {
     let checked = 0;
@@ -1583,7 +1532,7 @@ test("forge, offer, setup and verdict domain functions preserve owner validation
   const api = await import("../../../../../src/main/data-import/control");
   const { db, file } = await fixture();
   await db.write((orm) => importRows(orm, sources()));
-  const input = await controlSources();
+  const input = controlSources();
   const forgeData: unknown = JSON.parse(input["control/forge.json"]);
   const forgeRows = object(forgeData)["entries"];
   if (!Array.isArray(forgeRows)) throw new Error("Invalid fixture");
@@ -1599,12 +1548,6 @@ test("forge, offer, setup and verdict domain functions preserve owner validation
   await api.answerDatabaseOffer(db, "setup", "codex", true);
   await api.answerDatabaseOffer(db, "setup", "codex", false);
   await expect(api.answerDatabaseOffer(db, "setup", "bad!", true)).rejects.toThrow();
-  const setup: unknown = JSON.parse(input["repository-setup/state.json"]);
-  const approved = object(setup)["approvals"];
-  const rows = object(setup)["rows"];
-  if (!Array.isArray(approved) || !Array.isArray(rows)) throw new Error("Invalid fixture");
-  await api.saveDatabaseApproval(db, approved[0]);
-  await api.saveDatabaseSetupObservation(db, rows[0]);
   await api.saveDatabaseVerdict(db, verdictRecord);
   await api.feedbackDatabaseVerdict(db, verdictFeedback);
   await expect(api.feedbackDatabaseVerdict(db, verdictFeedback)).rejects.toThrow();
@@ -1627,7 +1570,7 @@ test("control importer is frozen, resumable and a no-op without rescanning chang
   const { importDatabaseControl } = await import("../../../../../src/main/data-import/control");
   const { db, profile, file } = await fixture();
   await db.write((orm) => importRows(orm, sources()));
-  for (const [name, contents] of Object.entries(await controlSources())) {
+  for (const [name, contents] of Object.entries(controlSources())) {
     const directory = name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : "";
     if (directory) await mkdir(join(profile, directory), { recursive: true, mode: 0o700 });
     await writeFile(join(profile, name), contents, { mode: 0o600 });
@@ -1689,7 +1632,7 @@ test("control quarantine isolates orphan references, duplicates, malformed metad
   const { importControlRows } = await import("../../../../../src/main/data-import/control");
   const { db, file } = await fixture();
   await db.write((orm) => importRows(orm, sources()));
-  const input = await controlSources();
+  const input = controlSources();
   const result = await db.write((orm) =>
     importControlRows(orm, {
       ...input,
@@ -1720,11 +1663,6 @@ test("control quarantine isolates orphan references, duplicates, malformed metad
         JSON.stringify({ ...verdictFeedback, verdictId: "missing" }),
         "{",
       ].join("\n"),
-      "repository-setup/state.json": JSON.stringify({
-        version: 1,
-        approvals: [{ repository: repo, identity: "wrong" }],
-        rows: [{ repository: repo, state: "invalid", host: null, sourcesAtLaunch: true }],
-      }),
       "codex-hook-health.json": JSON.stringify({ state: "invalid", fingerprint: "bad" }),
       "terminal-host-diagnostics/exits.json": JSON.stringify({
         version: 3,
@@ -1746,7 +1684,6 @@ test("legacy metadata parsers refuse incompatible versions and malformed file en
     { "control/board.json": '{"version":1,"threads":{},"posts":{},"receipts":{}}' },
     {
       "control/forge.json": "{}",
-      "repository-setup/state.json": '{"version":1,"approvals":{},"rows":{}}',
     },
     { "control/forge.json": "{", "agent-setup/offers.json": "{" },
     { "control/forge.json": "[]", "terminal-host-diagnostics/exits.json": "[]" },
@@ -1755,16 +1692,12 @@ test("legacy metadata parsers refuse incompatible versions and malformed file en
   await expect(
     db.write((orm) => importControlRows(orm, { "control/board.json": '{"version":99}' })),
   ).rejects.toThrow("version");
-  await expect(
-    db.write((orm) => importControlRows(orm, { "repository-setup/state.json": '{"version":99}' })),
-  ).rejects.toThrow("version");
 });
 test("forgotten hosts lose only saved dependent facts while historical board/audit identities remain", async () => {
   const { db, file } = await populatedControl();
   await executeDataCommand(db, { type: "forget-host", host: "example" });
   inspect(file, (raw) => {
     expect(raw.prepare("SELECT * FROM forge_observations").all()).toHaveLength(1);
-    expect(raw.prepare("SELECT * FROM repository_observations").all()).toHaveLength(1);
     expect(raw.prepare("SELECT * FROM board_threads").all()).toHaveLength(1);
     expect(raw.prepare("SELECT * FROM audit_records").all()).toHaveLength(2);
   });

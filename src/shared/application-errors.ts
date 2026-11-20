@@ -1,13 +1,7 @@
-import { setupRefusal } from "./repository-setup";
-import type { SetupRefusal } from "./repository-setup.d";
 import { LaunchFailure, launchReasons } from "./launch-failure";
 import type { CopyableErrorId, ApplicationErrorCode } from "./application-error";
 
 const messages = {
-  "repository-setup-missing": launchReasons.repository_setup_missing,
-  "repository-setup-changed": launchReasons.repository_setup_changed,
-  "repository-setup-manual": launchReasons.repository_setup_manual,
-  "repository-setup-unavailable": launchReasons.repository_setup_unavailable,
   "origin-auth": launchReasons["origin-auth"],
   "origin-host-key": launchReasons["origin-host-key"],
   "origin-unreachable": launchReasons["origin-unreachable"],
@@ -16,6 +10,7 @@ const messages = {
   "launch-cancel-incomplete": "Terminal may still be running.",
   "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "session-has-children": "Close its children first.",
+  "theme-selection-changed": "The theme changed. Choose it again after the theme list refreshes.",
   "settings-busy": "Settings are busy; try again.",
   "settings-lock-corrupt":
     "Quit other Foom windows, then remove .foom-settings.lock and its recovery locks.",
@@ -23,6 +18,7 @@ const messages = {
   "session-busy": "This session is busy. Try again when its current action finishes.",
   "session-running": "Stop this session before closing it.",
   "session-remote-unreachable": "Remote host unreachable. Reconnect before closing this session.",
+  "preview-file-unreadable": "Preview file is missing or unreadable.",
   "preview-image-invalid":
     "Invalid or oversized image. Use PNG, JPEG or WebP, at most 16 MiB and 16 million pixels.",
   "operation-failed": "Unable to complete this action.",
@@ -50,37 +46,11 @@ export class ApplicationError extends Error {
 }
 
 /** Display/navigation data only, emitted to the requesting board by the IPC router. */
-export class RepositorySetupError extends ApplicationError {
-  constructor(
-    code: ApplicationErrorCode,
-    readonly setup: SetupRefusal,
-  ) {
-    super(code);
-    if (!code.startsWith("repository-setup-") || !setupRefusal(setup))
-      throw new Error("Invalid setup refusal");
-  }
-}
 /** Preserve only typed, closed host Git failures through desktop IPC. */
 export function capabilityError(error: unknown): ApplicationError {
   if (error instanceof ApplicationError) return error;
   if (error instanceof LaunchFailure) {
     switch (error.reason) {
-      case "repository_setup_missing":
-        return error.setup
-          ? new RepositorySetupError("repository-setup-missing", error.setup)
-          : new ApplicationError("repository-setup-missing");
-      case "repository_setup_changed":
-        return error.setup
-          ? new RepositorySetupError("repository-setup-changed", error.setup)
-          : new ApplicationError("repository-setup-changed");
-      case "repository_setup_manual":
-        return error.setup
-          ? new RepositorySetupError("repository-setup-manual", error.setup)
-          : new ApplicationError("repository-setup-manual");
-      case "repository_setup_unavailable":
-        return error.setup
-          ? new RepositorySetupError("repository-setup-unavailable", error.setup)
-          : new ApplicationError("repository-setup-unavailable");
       case "origin-auth":
       case "origin-host-key":
       case "origin-unreachable":

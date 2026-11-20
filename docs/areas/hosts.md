@@ -28,12 +28,12 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
+list, progress, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
-validated in preload and rebuilt from declared fields. Failures retain fixed states/reasons. Explicit Add and check actions additionally
-expose bounded, display-only SSH output as described below; Git and agent probe
-output remain private. Artifact absence, version/handshake
+validated in preload and rebuilt from declared fields. Failures retain fixed
+states and reasons. SSH, Git and agent probe output remain private.
+Artifact absence, version/handshake
 mismatch, provider validation, changed agent configuration, invalid replies and
 cancellation have distinct reasons; only connection failures report unreachable.
 The local `progress` read bypasses the action queues and returns an array of active
@@ -81,6 +81,9 @@ and host caches in the same
 operation, without sending stop, kill or session-close, including when the last
 observation reports live sessions. Open attached tiles keep their connections until
 exit or Close and are excluded from saved rows for the rest of that app run.
+An active origin trust prompt remains in its owning Settings window after
+removal. Hosts shows it under the removed host and keeps Stop available until
+exit. Cancelling removal leaves the existing prompt and its controls in place.
 While the host is unregistered, its ordinary saved sessions are not restored.
 Re-enrolling the same host later allows startup discovery to recover any of this
 profile's sessions still live on its daemon as human-owned tiles, without their
@@ -134,8 +137,11 @@ origins are accepted; local paths, command protocols and URL passwords are refus
 The checkout directory is `repository-` plus 24 hex characters of the origin's
 SHA-256, directly beneath the approved folder. Existing destinations must be
 owned, non-writable by other users, canonical directories with matching origin
-and Git top level. Settings shows only read-only lists of existing checkouts, without clone controls, absent rows or per-repository clone status. A checkout must have
-a valid HEAD commit; an initialized repository with an unborn HEAD is refused.
+and Git top level. Settings lists existing checkouts as read-only facts. In
+Settings → Hosts, **Host facts** shows one line per checkout as **repository · path**.
+The lists omit clone controls, absent rows and per-repository clone status.
+A checkout must have a valid HEAD commit. Foom refuses initialized repositories
+with an unborn HEAD.
 
 First-use repository launch and worktree creation prepare a missing checkout automatically. Main shares concurrent preparation for the same registered host, folder and origin; existing valid checkouts are reused. Clone authorization rechecks the current host, approved folder and repository membership after origin reads and provider preparation, synchronously immediately before remote dispatch. A changed registration refuses without a remote mutation. Preparation runs Git with an argument array on the host, with the host's own login
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
@@ -306,7 +312,9 @@ Inspection, snapshots and confirmed removal validate the canonical clone and wor
 one management request. The hub derives the clone path from the registered origin;
 it does not open a separate repository-preflight SSH connection for these operations.
 The daemon still checks clone origin, HEAD, membership, provenance and identity.
-Removal still compares the confirmed changes and identity again before deletion.
+Worktree status reads for inspection and removal disable Git's FSMonitor and
+untracked cache and include all untracked files. Removal compares the full
+confirmed status and identity again before deletion.
 Creation retains its repository preflight and indeterminate-result handling.
 
 
@@ -374,8 +382,9 @@ Mac whose login Keychain may be locked over SSH.
 Settings → Hosts uses the Add → Check → Fix checklist described below.
 Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. Install opens the human-owned terminal inside its host card in
-Settings and the preflight rail. gh uses the device panel below. Other agents’
-Sign in retains its foreground human-owned tile; foreground placement waits for the refreshed row before closing Settings. The remote executable verifies a main-supplied SHA-256 digest of the fixed argv sequence before running it, without shell
+Settings and the preflight rail. gh uses the device panel below. Agent sign-in
+opens under the relevant Settings row. The remote executable verifies a main-supplied
+SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
 stops on the first failure. Every Debian install starts with fixed
 `/usr/bin/sudo /usr/bin/apt-get update`, including manifest-provided package
@@ -387,7 +396,7 @@ so a new image with missing or stale databases may fail until the user updates i
 DNF install already synchronizes missing or expired metadata
 ([DNF metadata synchronization](https://dnf.readthedocs.io/en/stable/command_ref.html#metadata-synchronization)),
 so it needs no separate refresh step. Prompts and sudo remain in the terminal. Recipe processes
-receive no terminal ID, orchestration authority or hub credentials. Restarting an exited recipe tile opens an ordinary shell on the same registered host, without replaying the install/sign-in. Recipe sessions
+receive no terminal ID, orchestration authority or hub credentials. Recipe sessions
 reserve the daemon mutation slot until exit or completed session removal;
 disconnect does not release it. Removal releases the reservation even when stop
 times out or native disposal fails and no exit callback reaches the daemon.
@@ -604,12 +613,15 @@ sandboxed preload validates and rebuilds all nested onboarding observations.
 
 Add host takes the SSH selector and code folder in one form, enrolls the host,
 and runs the full preflight. Ordinary opening of Hosts reads saved state only, without SSH,
-including session and worktree inventory. Returning after an explicit foreground
-recipe refreshes only its affected rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
+including session and worktree inventory. Recipes refresh only their affected
+rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
 full preflight, repositories and session/worktree inventory, saving a Last checked
-timestamp and the closed observations in its profile registration. Never-checked
-hosts say Not checked. Saved observations contain no secrets, terminal output,
-session identities or worktree authority; removal deletes them. They remain
+timestamp and the closed observations in its profile registration. If saving
+the checklist fails, main publishes the completed checks and the save failure to
+every open Hosts view. A completed SSH check supersedes older SSH row errors
+even if saving the checklist fails. Never-checked hosts say Not checked.
+Saved observations contain no secrets, terminal output, session identities or
+worktree authority; removal deletes them. They remain
 visible across restarts even when stale and never populate authorization caches.
 Saved requirements also restore Install and Sign in availability for display; missing or
 invalid requirements offer no recipes. Clicking an action selects its recipe from a
@@ -617,11 +629,20 @@ fresh inspection, never from saved observations. Host facts offers a separate
 session/worktree inventory refresh.
 
 Each host is a compact name, OS, status and chevron row, opening by default only
-when it needs attention. Expanding exposes all controls and observations. Ready Git-access checks collapse to a count; failed origin checks remain visible. Checked-out repositories appear in a separate read-only list. Busy state belongs to each host; checking
-one never disables another. Add host is enabled during loading and checks and is
+when it needs attention. Expanding exposes all controls and observations. Git access has one row per
+forge hostname used by a registered repository’s origin and shows only SSH or
+HTTPS as used. Hosts reads the origin metadata locally for display. Existing origin
+and checkout probes keep their scope. A check applies only when its saved host,
+protocol and port match the repository’s current origin. An omitted SSH port
+uses the host’s SSH configuration and has a distinct identity. Legacy results without
+an endpoint and results for changed endpoints appear as Not checked. A protocol
+shows a checked failure if one was observed, otherwise one successful check is
+enough to show a pass.
+Checked-out repositories appear with their paths under Host facts. Checking one
+host leaves other hosts' controls available. Add host is enabled during loading and checks and is
 disabled only while an add is running. An added host and its own check cannot be
 replaced by an older check reply. The grouped checklist keeps
-Host, Tools, Agents, each repository and macOS Power observations independent.
+Host, Tools, Agents, Git access and macOS Power observations independent.
 Unrun checks say Not checked, failed checks retain their fixed reason, and
 unknown sign-in probes say Sign-in unknown. The UI never infers Remote Login or
 Keychain state from a connection/authentication failure. Platform details are
@@ -629,10 +650,12 @@ limited to the existing closed observations; no OS version or CPU is invented.
 
 Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install uses the existing main-selected
-recipe in the host card; Settings stays open. Other agents’ Sign in retains foreground tile
-placement and closes Settings once the tile is visible. No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. Git access to origin and explicit Trust host key… remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
-foreign session End and foreign worktree counts remain under Host facts.
+recipe in the host card. Agent sign-in uses the same Settings-owned terminal.
+No background install, recipe replay or terminal typing is added.
+Missing recipes show no Install button. Failed Git access rows use a square and
+protocol-specific failure text. Fix is reserved for the setup dialog (#1263).
+Explicit Trust host key… remains available for a failed SSH host-key check.
+Host facts retains checkout paths, foreign session End and foreign worktree counts.
 
 Repositories → Locations groups existing checkouts beneath Local and each registered host,
 with checkout path copy controls and no clone controls or clone status. Local selection
@@ -687,15 +710,23 @@ A host is Ready when SSH, platform, daemon, code folder and Git pass and at leas
 one enabled agent is installed and probeable. Optional missing agents, gh sign-in, absent checkouts and nonblocking macOS
 folder/power warnings are neutral. Install and Sign in remain available. Repository access failures keep
 their fixed failure rows without making an otherwise usable host unavailable.
-Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready; existing checkouts are a read-only list.
+Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready. Existing checkouts are a read-only list in Host facts.
 
 An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
-repository's validated SSH origin and opens a human-owned tile on the registered
-host. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
+repository's validated SSH origin and verifies that it matches the selected
+endpoint before opening a human-owned terminal in the Git access section in
+Settings (#1260, #1261). Multiple untrusted SSH ports on a forge each have a
+Trust action labeled with the explicit port or SSH config. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
-launch refuses until the host daemon is updated. The user verifies the fingerprint and answers SSH; Foom never supplies an
-answer or accepts a key. Check capabilities observes the result.
+launch refuses until the host daemon is updated. The user verifies the fingerprint
+and answers SSH; Foom never supplies an answer or accepts a key. Starting origin
+trust brings the terminal into view. It stays attached during a capability check.
+The user can answer the prompt or use Stop while the check runs. On exit the
+terminal collapses and the card automatically rechecks that origin and checkout.
+The Git access row shows the scoped check result. SSH may exit 1 after
+successful authentication, so its process exit status does not determine the
+trust outcome.
 
 Codex's hook trust is not exposed by the existing version/help or exit-code sign-in
 probes. Foom does not inspect or modify Codex's hook-trust store. On a new host,
@@ -708,11 +739,6 @@ run repository scripts, plugins or package-manager probes. Preparing a host to
 build a repository is left to an agent the user runs on that host
 ([#1024](https://github.com/scott-r-lindsey/foom/issues/1024)).
 
-**Proposed, unimplemented (#1080):** the
-[repository setup design](../design/1080-repository-setup.md) adds a separately
-approved profile-only requirements list. It does not change the shipped checks
-above until the user approves the design and implementation follows.
-
 ## Checklist refresh scope (#1061)
 
 A full check runs only for **Check capabilities** and the first check on Add
@@ -720,7 +746,7 @@ A full check runs only for **Check capabilities** and the first check on Add
 **Last checked**. Rename contacts nothing remote. Create/Change folder use their
 own successful folder reply and invalidate affected repository rows to **Not checked**;
 there is no hidden repository check. Clone and Trust origin update only that
-repository. Install and Sign in automatically refresh only their affected tool/sign-in rows
+repository, with Trust origin rechecking on terminal exit. Install and Sign in automatically refresh only their affected tool/sign-in rows
 on exit, including failures, without advancing the full-check timestamp. Hosts
 reads the updated rows after an embedded install finishes; queued persistence
 failures retain the existing retry behavior when Hosts is reopened. Queued rows that become stale (disabled tools
@@ -730,8 +756,9 @@ hosts remain visible, and failed profile writes show Unable to save in the affec
 row's existing failure state. Known row results are retained for persistence-only
 retry without another remote inspection; one row's failure never blocks another.
 An explicit row reload invalidates that target's older queued observation before
-checking it. If saving the reload fails, reopening Hosts inspects that row again
-rather than persisting the superseded result.
+checking it. If saving an SSH observation fails, main publishes the observed
+result with its save failure and retries that save only while the observation
+is current. Other explicit reloads retain their existing row recheck on reopen.
 Recipes on the same host merge and deduplicate pending targets, including recipes
 launched from already-open Hosts views in different windows.
 A refused replacement folder leaves the registered
@@ -739,8 +766,9 @@ folder's saved and live observations intact and reports only the attempted chang
 Action validation and launch inspection
 still use the fresh inspections required above.
 
-Every checklist row has an accessibly named reload icon, revealed on hover or
-keyboard focus. Reload checks only that row, shows its own spinner and keeps
+Checklist rows have an accessibly named reload icon, revealed on hover or
+keyboard focus. A Git access row with several origins refreshes with
+**Check capabilities**. Reload checks only that row, shows its own spinner and keeps
 other results and controls available. If the existing observations cannot display
 the selected row without a full check, that row shows Check capabilities required, without
 helper copy or a synthetic full-check timestamp. Tool discovery does not run sign-in probes;
@@ -748,9 +776,9 @@ sign-in and origin checks can contact the network. Read-only partial inspection
 accepts a closed `target` selector. Hello advertises `hostRowCheck: 1`; compatible
 older daemons without it refuse scoped inspection and folder creation with `facts-unavailable`,
 without falling back to a full check. Scoped results update saved presentation
-without granting launch authority or advancing the full-check timestamp. Transient
-checklists are replaced or cleared by each newer action reply; they never mask
-newer live folder state.
+without granting launch authority or advancing the full-check timestamp. Main
+applies scoped folder and other row updates independently of the current SSH
+revision, including on an unsaved checklist.
 Scoped reload replies do not publish a broad board inventory refresh. Folder and
 clone replies may seed the sidebar's location view from the action's own observations
 only when every registered host/repository pair is represented, including the acting
@@ -763,8 +791,22 @@ A partial seed never stands in for the full location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
-inventory exists or a full read is pending. A failed resource refresh reports its
-failure under Host facts while retaining the checklist observations.
+inventory exists or a full read is pending. Main owns the latest SSH checklist
+observation per host and advances its revision independently of Last checked.
+Guarded profile patches contain only registered hosts. They recheck the revision
+at atomic replacement, and pending retries
+drop superseded SSH results. An unsaved checklist retains its save warning until
+that revision or a newer one is committed. SSH row write failures without a
+key observation remain visible as row errors. Preload requires
+a revision on live checklist replies and accepts older saved profiles without
+one. Host management, including repository row reloads, opens SSH connections
+with strict host-key checking and multiplexing disabled. Refresh facts preserves
+the checklist. A resource refresh
+failure appears under Host facts, including when the checklist shows the same reason.
+Refresh facts inspects resources before reading session and worktree
+inventories. If scoped facts require a daemon
+update, Foom shows that reason and still tries both inventory endpoints. Other
+inspection failures end the refresh after recording the reason.
 
 ## Settings agent scopes (#1070)
 
@@ -776,8 +818,9 @@ reload in Agents runs the full preflight and advances Last checked; individual
 agent reloads use the existing scoped tool/sign-in requests. The selected machine
 also reattaches its Settings-owned tool install terminal, sharing the same install
 exit guard as Hosts. Global and machine changes hide the view without ending the
-install; returning to that machine reattaches it. The separately confirmed plugin
-installation and sign-in recipes retain their human-owned foreground tiles.
+install; returning to that machine reattaches it. The separately confirmed
+plugin installation and agent sign-in open embedded terminals under their
+respective rows on the selected machine (#1260).
 
 Protocol-3 hello advertises `agentSettings: 1`. Read-only inspect may request
 `agentDetails: true`; only then does each agent include bounded display-only path,
@@ -790,7 +833,7 @@ Antigravity's Install plugin is opt-in and separately confirmed in main, naming 
 host, two fixed steps and global CLI effect. Its digest-bound recipe runs the
 `foom-host --stage-plugin agy` handler, prints the staged directory, then runs
 resolved `agy plugin install DIRECTORY` with an argument array in a human-owned
-recipe tile. Both hub and daemon select only the bundled agy action; no supplied
+terminal under the Foom plugin row. Both hub and daemon select only the bundled agy action; no supplied
 path, shell source, other plugin or manifest can select it. The host rechecks CLI
 inventory and refuses unless Foom is absent; present or unrecognized inventories
 must be managed in agy. Staging alone does not install. No global configuration
@@ -807,10 +850,11 @@ Read-only observations and other recipes retain their existing compatibility.
 
 ## Embedded host terminals (#1062)
 
-Settings and preflight render in the registered board window. Install attaches
-the existing human-owned recipe PTY through that window's ID-scoped terminal
-capability and shared attachment queue. No cross-window attachment or remote
-protocol change is needed. Output and scrollback retain the existing terminal
+Settings and preflight render in the registered board window. Host actions attach
+the existing human-owned PTY through that window's ID-scoped terminal
+capability and shared attachment queue. Main reserves the attachment for the
+launching window. The board excludes Settings terminals from sidebar, tile and
+window placement, and saved sessions exclude them. Output and scrollback retain the existing terminal
 bounds; input goes directly through terminal IPC and is never copied into setup
 state, diagnostics or persistence. Foom never types into the process.
 
@@ -825,24 +869,32 @@ the PTY. Stop uses the existing ID-validated terminal kill/removal path, waits f
 it to finish, then closes Settings and disposes the views. Failed termination
 keeps Settings open. Installs still launching are included in the check. Section
 changes retain window ownership and reattach the install when Hosts is reopened.
-Closing the whole window or quitting uses the existing main-owned confirmation,
-without this additional Settings dialog. Other agents’ sign-in tiles are unchanged. gh sign-in uses the same window ownership and exit guard.
-The panel retains its screen until dismissed or a
-new install replaces it. Its own header states Installing, Done, or Failed with
-the exit code; recipe tiles also state the final outcome in Foom chrome, never
-by adding text to process output. The main exit subscription starts before
+Closing a board window drains its Settings terminal views, waits for each PTY to
+exit through the terminal stop path, then disposes its session. The window
+shows **Stopping…** while it waits. On Unix, the terminal host gives Settings
+recipes five seconds to finish after SIGHUP before escalating to SIGKILL. This
+lets responding helpers remove their private staging files. The exit
+notification completes the recipe and releases any installer reservation.
+A failed stop keeps the session and owning window available for retry. When a
+quit prompt is open, the owner-close error waits for the decision. Cancelling
+quit shows the error on the owning window. Confirming quit lets app shutdown
+stop the remaining recipe. App quit uses the same grace for local
+Settings recipes. After confirmation, all board windows show **Stopping…**
+during recipe cleanup, including for a recipe still awaiting its create reply.
+Progress clears when the stop settles, including if a pending quit
+intercepts an owner-window close. Origin trust, remote plugin installs,
+and sign-in use the same window ownership and exit guard. On exit, origin trust,
+plugin installs, and agent sign-in collapse their terminal view and keep the
+outcome by the action row. Tool installs retain their screen until dismissed or
+replaced. Foom chrome shows the outcome independently of the process output. The main exit subscription starts before
 creation; exits received while launch settles pass through the existing workspace
 exit lifecycle before the view is returned.
 
-Add and explicit checks show a read-only output panel inside Add host or the
-host card. Main retains the latest 65,536 UTF-16 units in memory, including
-connection/platform steps, artifact verification, daemon upload/readiness and
-OpenSSH stderr. Progress reads reuse the existing local progress channel during
-an action; no idle polling or remote request is added. Raw text is inert display
-content, never instructions, parsed facts, error diagnostics or a saved profile
-field. Background inventory and repository/agent probe output are excluded.
-Completion retains output until dismissed or the next check; failures retain
-the fixed failure state alongside the output.
+Add host shows an inline status during enrollment and a fixed error in the
+form if enrollment is refused. Host cards show progress in the header during a
+check. Completed checks show fixed failure text on the affected rows. A failed
+facts refresh appears under Host facts. OpenSSH diagnostics stay in main for
+classification. Progress reads use the existing local channel during an action.
 
 ## GitHub device sign-in (#1067)
 
@@ -908,11 +960,15 @@ and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).
 
 ## Accepting a new SSH host key (#1059)
 
-Add and Check capabilities retain BatchMode=yes. The bounded platform probe uses
-StrictHostKeyChecking=yes and the C locale so OpenSSH reports an unknown key
-explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
+Add and Check capabilities retain BatchMode=yes. The bounded platform and
+standalone Linux libc probes use StrictHostKeyChecking=yes and the C locale
+so OpenSSH reports an unknown key explicitly. A separate management bootstrap
+also classifies client key refusals and updates the completed SSH row. It reads
+at most 16 KiB when classifying a refusal and discards the diagnostic file
+without reading it after a successful bootstrap.
+OpenSSH's local diagnostics go through `-E` into a private per-run
 0600 file beneath a 0700 temporary directory, removed on completion or failure.
-The open file's size is checked every 10 ms while SSH runs and again on exit,
+The platform and libc probes check the file's size every 10 ms and again on exit,
 including successful exits. Exceeding 16 KiB kills the detached SSH process group
 (Windows uses the fixed OS tree terminator) and permanently fails the probe;
 overflowed text can never enable trust. Polling can allow a burst between checks,
@@ -933,14 +989,17 @@ checkout requests run and no dependent failures are synthesized. An unavailable
 local artifact catalog is reported only after SSH and platform checks succeed.
 While SSH reports host-key-unknown, Settings hides every dependent section,
 including stale repository failures, tools/agents, checkout rows, Last checked and
-Host facts. Only the header, address/folder/Remove line, output and SSH trust row
+Host facts. Only the header, address/folder/Remove line and SSH trust row
 remain. The full card returns when the accepted key's normal first check runs.
 Changed-key and other SSH failures retain their current presentation, but likewise
 skip dependent repository checks because no connection was established.
 
 Only a registered host whose latest SSH observation is host-key-unknown can
-request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper
-using detached, bounded reads that share cancellation with the requesting run;
+request trust-host-key. The Settings affordance and main's eligibility check
+use the completed SSH row, including when a successful facts refresh or an
+older inventory reply reports a healthy connection.
+Main checks OpenSSH >= 8.4 and the bundled console helper using detached,
+bounded reads that share cancellation with the requesting run;
 Windows and unsupported clients show a copyable `ssh HOST` fallback. No other
 SSH call receives askpass variables or changes its environment allowlist.
 
@@ -973,24 +1032,78 @@ See [8.4 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_
 and [8.5 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_5_P1/sshconnect.c).
 Unexpected OpenSSH question variants are refused rather than displayed verbatim.
 An authenticated helper rejection reports only a fixed code, without forwarding
-the rejected prompt. Non-decline failures publish fixed trust reason codes in the
-check output panel; raw SSH prompts, host-file entries and exceptions are excluded.
+the rejected prompt. Non-decline failures show a fixed trust reason code on the
+SSH row. The current SSH status stays visible alongside a rejected trust
+attempt. Raw SSH prompts, host-file entries and exceptions stay private.
 Only one question can receive an answer per run. Cancel is focused by default;
 Cancel, Escape and close decline. No renderer payload can provide the answer.
 
 The run expires after two minutes. Cancellation, Settings section exit, board
 navigation/loss, window disposal and quit abort the dialog and kill the detached
 SSH group, revoke its credential and remove its directory. Accepted first-time
-hosts rerun their first full check automatically, using the existing output panel.
+hosts rerun their first full check automatically, with progress in the card header.
 An earlier successful observation (including retained lastAgents) prevents an
 automatic full check; Check capabilities remains explicit for established hosts.
 Declining preserves the failed observation. Changed keys require manual repair.
 The human reviews light/dark row and dialog screenshots and merges; a real new
 host must be verified manually before merge because automated tests use fixtures.
 
-## Repository setup (#1080)
+## Repository setup list retirement (#1262)
 
-Optional repository prerequisites are separate from host Ready and checkout
-presence. See [repository setup](repository-setup.md) for the profile owner,
-source policy, catalog and execution/admission boundaries. Settings reads saved
-observations; opening a panel never runs setup or a repository probe.
+[#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removed the #1080 setup list and its approvals, checks and recipes.
+Host capability checks and repository checkout controls continue to operate independently.
+
+## Set up with an agent (#1263)
+
+Each registered SSH host card offers **Set up with an agent…** beside its
+status, including while collapsed. The action is secondary on a Ready host
+and primary otherwise. It is hidden while an agent is running or the SSH row
+shows an unknown or changed host key. The row and button use the same completed
+checklist snapshot, including saved results and completed SSH row reloads.
+Background inventory updates host facts independently of that snapshot.
+
+The dialog focuses the local Agent picker and preselects the configured default
+when it is enabled, installed and accepts an initial prompt. The user selects
+registered repositories. Checked repositories stay visible while filtering.
+Escape, Cancel and the backdrop dismiss the dialog. Enter in the filter keeps
+the dialog open. Recorded requirements are managed in Settings → Repositories.
+
+**Start agent** queues one fresh, strict SSH connection check for the
+registration, with connection reuse disabled. Main opens the local tile only
+if that check connects. Closing the requesting window cancels pending origin
+discovery and SSH checks. It releases the setup reservation until the agent
+reaches its spawn guard, including while agent discovery is pending.
+An SSH refusal updates the checklist's SSH row and the dialog shows **Unable to
+start setup agent**. The tile opens in the background and Settings stays open.
+The card shows **Setting up · AGENT** while the invocation runs.
+**Show agent** opens the tile on explicit request. Questions use the tile's
+ordinary **Needs you** state. Main permits one active setup invocation per registration
+across windows and performs a full capability check when that invocation exits,
+even if Settings has closed. The check uses the code folder after any earlier
+queued changes. Removing a host leaves its agent tile running, releases its
+setup slot and skips the exit recheck for that registration.
+
+The [host setup brief](agent-launch.md#local-host-setup-agent-1263) uses main-owned
+registration and origin data. Agent output and reports have no authority over
+saved facts or the exit recheck.
+
+## Recorded repository requirements (#1264)
+
+Settings → Repositories shows one expandable requirements card per registration.
+Its Markdown source is inert text with recorder, host, recording date and optional
+human edit date. Edit and Clear act on the displayed revision. A setup run starts
+with the current notes for its selected repositories, including human edits.
+When recording is selected, its authenticated endpoint may replace a selected
+note during that run. Main checks the registration and revision again when
+writing. The setup agent folds the existing note into its replacement. A human
+edit, clear, or another run's replacement after the snapshot makes that write
+stale. Foom never runs instructions from notes.
+
+A registered host check can show **Codex may prompt for approval** on the card.
+The remote daemon reads a bounded account-level Codex config using the remote
+login environment and returns a closed observation. The hub requests it only
+after the daemon advertises `codexApprovalCheck: 1`. The card reflects account
+defaults at check time. Profiles, launch arguments, project overrides and
+managed policy can change the effective behavior. Config errors produce an
+unknown observation. Launch permissions and bypass validation remain owned by
+the existing launch policy.

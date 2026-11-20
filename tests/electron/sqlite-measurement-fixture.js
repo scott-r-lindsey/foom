@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("node:path");
 const { canonicalFileURL, requestFileURL } = require("./sqlite-measurement-files.js");
+const { workload } = require("./sqlite-measurements.js");
 const { createRequire } = require("node:module");
 const { randomUUID } = require("node:crypto");
 const [modulePath, root] = process.argv.slice(2);
@@ -72,7 +73,7 @@ async function measure() {
     try {
       if (value === "ready")
         registry.subscribe(
-          { id: "measurement", view: "repositories", params: { limit: 100 } },
+          { id: "measurement", view: "repositories", params: { limit: workload.pageSize } },
           (snapshot) => win.webContents.send(channel, snapshot),
         );
       else {
@@ -94,15 +95,20 @@ async function measure() {
   try {
     await win.loadURL(pageURL);
     const first = await pending;
-    pending = delivered();
-    const writeStart = performance.timeOrigin + performance.now();
-    await executeDataCommand(db, {
-      type: "register-repository",
-      path: path.join(root, "0000-written"),
-    });
-    const next = await pending;
-    if (next.first !== "0000-written") throw Error("Renderer did not receive committed data");
-    return { firstViewAt: first.time, writeToViewMs: next.time - writeStart };
+    const writeToViewMs = [];
+    const totalWrites = workload.warmupWritesPerProcess + workload.measuredWritesPerProcess;
+    for (let remaining = totalWrites; remaining > 0; remaining--) {
+      // Each committed name sorts first, proving the renderer saw this write.
+      const name = `0000-written-${String(remaining).padStart(2, "0")}`;
+      const repository = path.join(root, name);
+      pending = delivered();
+      const writeStart = performance.timeOrigin + performance.now();
+      await executeDataCommand(db, { type: "register-repository", path: repository });
+      const next = await pending;
+      if (next.first !== name) throw Error("Renderer did not receive committed data");
+      writeToViewMs.push(next.time - writeStart);
+    }
+    return { firstViewAt: first.time, writeToViewMs };
   } finally {
     ipcMain.removeListener(channel, onMessage);
     registry.dispose();

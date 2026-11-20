@@ -199,8 +199,10 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   const remote = path.join(root, "remote.git");
   git("clone", "--bare", repo, remote);
   git("remote", "add", "origin", remote);
-  for (const branch of [...Array.from({ length: 8 }, (_, i) => `merged-${i}`), "dirty"])
-    git("worktree", "add", "-b", branch, path.join(root, branch));
+  // Four workers start, one replacement starts after a completion, and one
+  // checkout stays queued so Stop must leave it alone.
+  for (const branch of [...Array.from({ length: 6 }, (_, i) => `merged-${i}`), "dirty"])
+    git("worktree", "add", "--no-checkout", "-b", branch, path.join(root, branch));
   await writeFile(path.join(root, "dirty", "keep.txt"), "keep");
   const app = await launchApp(context, { fixture: "empty-board", home });
   fixtureCleanup(context).apps.unshift(async () => {
@@ -208,14 +210,15 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     await app.evaluate(() => globalThis.cleanupRestore?.()).catch(() => {});
   });
   const page = await boardPage(app);
-  // Gate the start of each removal sequence, before its many real Git safety checks.
-  // Releasing a gate still runs the original sequence, including every revalidation.
+  // Gate the worker results. The first worker exercises real Git through
+  // deletion. Hold the other four until Stop, then let them report unavailable.
   await app.evaluate(({ app, dialog }, repo) => {
     const load = process
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
     const { WorktreeService } = load("./build/main/workspace/worktrees.js");
     const { WorkspaceContext: Workspace } = load("./build/main/workspace/workspace-context.js");
+    const { KeptWorktree } = load("./build/main/workspace/cleanup-run.js");
     const fetch = WorktreeService.prototype.mergedDefault;
     const remove = Workspace.prototype.removeTree;
     const gate = new Promise((resolve) => {
@@ -267,15 +270,22 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
         entry.elapsed = Date.now() - entry.started;
       }
     };
+    let firstRemoval = true;
     Workspace.prototype.removeTree = function (...args) {
+      const useGit = firstRemoval;
+      firstRemoval = false;
       let release;
       const gate = new Promise((resolve) => {
         release = resolve;
       });
-      const operation = gate.then(() => remove.apply(this, args));
+      const operation = gate.then(() => {
+        if (useGit) return remove.apply(this, args);
+        throw new KeptWorktree("unavailable");
+      });
       globalThis.cleanupRemovals.push(async () => {
         release();
-        await operation;
+        if (useGit) await operation;
+        else await Promise.allSettled([operation]);
       });
       return operation;
     };
@@ -314,7 +324,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
   await expect.poll(() => app.evaluate(() => globalThis.cleanupFetchReady)).toBe(true);
   await app.evaluate(() => globalThis.cleanupFetchRelease());
-  await expect(confirmation.getByRole("button", { name: "Delete 8", exact: true })).toBeEnabled();
+  await expect(confirmation.getByRole("button", { name: "Delete 6", exact: true })).toBeEnabled();
   await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "dirtyuncommitted changes",
   );
@@ -344,7 +354,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     confirmation,
     confirmation.getByRole("button", { name: "Cancel" }),
   );
-  await confirmation.getByRole("button", { name: "Delete 8", exact: true }).click();
+  await confirmation.getByRole("button", { name: "Delete 6", exact: true }).click();
   // Acceptance changes the feed synchronously, before the fetch and removals.
   // Keep a lost click distinct from a blocked service boundary.
   await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
@@ -356,9 +366,9 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     throw error;
   }
   await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
-  await expect(page.getByText("deleting 0/8", { exact: true })).toBeVisible();
+  await expect(page.getByText("deleting 0/6", { exact: true })).toBeVisible();
   await app.evaluate(() => globalThis.cleanupRemovals.shift()());
-  await expect(page.getByText("deleting 1/8", { exact: true })).toBeVisible();
+  await expect(page.getByText("deleting 1/6", { exact: true })).toBeVisible();
   await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Deleting merged worktrees/ }).click();
@@ -373,12 +383,13 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   });
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await reportCleanup("stopped run finished");
-  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
-    "not started",
-  );
+  await expect(confirmation.locator('[data-cleanup="removed"]')).toHaveCount(1);
+  const kept = confirmation.getByRole("list", { name: "Kept worktrees" });
+  await expect(kept.getByText("unavailable", { exact: true })).toHaveCount(4);
+  await expect(kept.getByText("not started", { exact: true })).toHaveCount(1);
   await confirmation.getByRole("button", { name: "Done", exact: true }).click();
   const inventory = await page.evaluate((repo) => window.desktop.worktrees(repo), repo);
-  assert.equal(inventory.length, 5); // main, dirty, and three never-started worktrees
+  assert.equal(inventory.length, 7); // main, dirty, four unavailable, one never started
   assert.equal(await readFile(path.join(root, "dirty", "keep.txt"), "utf8"), "keep");
 });
 
@@ -591,18 +602,28 @@ for (const { front, queued, sameBoard, checking, background } of [
       });
     git("init", "-q", "-b", "main");
     git("commit", "-q", "--allow-empty", "-m", "init");
-    git("clone", "--bare", repo, path.join(root, "remote.git"));
-    git("remote", "add", "origin", path.join(root, "remote.git"));
-    for (const branch of ["merged", "orchestrator", "review"]) {
-      const tree = path.join(root, branch);
-      git("worktree", "add", "-b", branch, tree);
-      if (branch !== "merged") {
-        // Keep the individual removal targets out of merged cleanup's approved set.
-        await writeFile(path.join(tree, "work.txt"), branch);
-        git("-C", tree, "add", "work.txt");
-        git("-C", tree, "commit", "-q", "-m", "unmerged work");
-      }
+    const hasCleanup = front === "cleanup" || queued === "cleanup";
+    const branches = ["orchestrator", "review"];
+    if (hasCleanup) {
+      const remote = path.join(root, "remote.git");
+      git("clone", "--bare", repo, remote);
+      git("remote", "add", "origin", remote);
+      git("worktree", "add", "--no-checkout", "-b", "merged", path.join(root, "merged"));
+      branches.push("merged");
+      // Both individual worktrees can share one change ahead of the default.
+      await writeFile(path.join(repo, "work.txt"), "unmerged work");
+      git("add", "work.txt");
+      git("commit", "-q", "-m", "unmerged work");
     }
+    for (const branch of ["orchestrator", "review"])
+      git(
+        "worktree",
+        "add",
+        ...(!hasCleanup ? ["--no-checkout"] : []),
+        "-b",
+        branch,
+        path.join(root, branch),
+      );
     const app = await launchApp(context, { fixture: "empty-board", home });
     fixtureCleanup(context).apps.unshift(async () => {
       await app
@@ -620,6 +641,7 @@ for (const { front, queued, sameBoard, checking, background } of [
         const load = process
           .getBuiltinModule("node:module")
           .createRequire(app.getAppPath() + "/package.json");
+        const { basename } = load("node:path");
         if (checking) {
           const { WorktreeService } = load("./build/main/workspace/worktrees.js");
           const fetch = WorktreeService.prototype.mergedDefault;
@@ -649,9 +671,11 @@ for (const { front, queued, sameBoard, checking, background } of [
           if (this.window) globalThis.overlapTrackVisible?.(this.window);
           if (content.approvalFeed) {
             const record = () => {
-              for (const row of content.approvalFeed.current())
-                if (["orchestrator", "review"].includes(row.request.subject))
-                  globalThis.overlapRequests.add(row.request.subject);
+              for (const row of content.approvalFeed.current()) {
+                const source = basename(row.request.worktreePath ?? "");
+                if (["orchestrator", "review"].includes(source))
+                  globalThis.overlapRequests.add(source);
+              }
             };
             globalThis.overlapOff.add(content.approvalFeed.subscribe(record));
             record();
@@ -732,7 +756,7 @@ for (const { front, queued, sameBoard, checking, background } of [
                 repo,
                 path,
                 identity,
-                (branch, changes) =>
+                (branch, changes, _automatic, fileCount) =>
                   owner.deps.dialog(
                     {
                       title: "Remove worktrees?",
@@ -745,6 +769,7 @@ for (const { front, queued, sameBoard, checking, background } of [
                           branch,
                           path,
                           changes,
+                          fileCount,
                         },
                       },
                     },
@@ -772,9 +797,9 @@ for (const { front, queued, sameBoard, checking, background } of [
       if (background) {
         const page = await approvalPage(app);
         await expect(
-          page
-            .locator(".approval-row")
-            .filter({ has: page.locator(".subject b", { hasText: new RegExp(`^${source}$`) }) }),
+          page.locator(".approval-row").filter({
+            has: page.getByRole("heading", { name: path.join(root, source), exact: true }),
+          }),
         ).toHaveCount(1);
         return page;
       }
@@ -805,7 +830,7 @@ for (const { front, queued, sameBoard, checking, background } of [
     const rowFor = (page, source) =>
       page
         .locator(".approval-row")
-        .filter({ has: page.locator(".subject b", { hasText: new RegExp(`^${source}$`) }) });
+        .filter({ has: page.getByRole("heading", { name: path.join(root, source), exact: true }) });
     const frontButton = background
       ? rowFor(frontPage, front).getByRole("button", {
           name: "Approve · Remove worktree",
@@ -834,7 +859,7 @@ for (const { front, queued, sameBoard, checking, background } of [
         : "human removal reviews must share one presentation slot",
     );
     if (background) await expect(frontPage.locator(".approval-row")).toHaveCount(2);
-    for (const branch of ["merged", "orchestrator", "review"])
+    for (const branch of branches)
       assert.ok(await realpath(path.join(root, branch)), "pending review must not remove anything");
     // Selecting a source's visible approval removes exactly its displayed target.
     await app.evaluate(() => {
@@ -1204,7 +1229,7 @@ test("detached removals share one review per checkout and approve independently"
   git("init", "-q", "-b", "main");
   git("commit", "-q", "--allow-empty", "-m", "init");
   const paths = [path.join(root, "review-one"), path.join(root, "review-two")];
-  for (const tree of paths) git("worktree", "add", "--detach", tree, "HEAD");
+  for (const tree of paths) git("worktree", "add", "--no-checkout", "--detach", tree, "HEAD");
   const app = await launchApp(context, { fixture: "empty-board", home });
   fixtureCleanup(context).apps.unshift(async () => {
     await app.evaluate(() => globalThis.detachedAbort?.abort()).catch(() => {});
@@ -1236,7 +1261,7 @@ test("detached removals share one review per checkout and approve independently"
           repo,
           path,
           identity,
-          (branch, changes) => {
+          (branch, changes, _automatic, fileCount) => {
             globalThis.detachedReviews.push(id);
             return owner.deps.dialog(
               {
@@ -1244,7 +1269,7 @@ test("detached removals share one review per checkout and approve independently"
                 accept: "Approve all",
                 removal: {
                   group: "detached-regression",
-                  item: { id, branch, path, changes },
+                  item: { id, branch, path, changes, fileCount },
                 },
               },
               globalThis.detachedAbort.signal,
@@ -1264,9 +1289,7 @@ test("detached removals share one review per checkout and approve independently"
   }, repo);
   await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "one"), paths[0]);
   const dialog = await approvalPage(app);
-  await expect(
-    dialog.getByRole("heading", { name: "Remove worktree?", exact: true }),
-  ).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: paths[0], exact: true })).toBeVisible();
   await app.evaluate((_, paths) => {
     globalThis.startDetachedRemoval(paths[0], "duplicate");
     globalThis.startDetachedRemoval(paths[1], "two");
@@ -1293,16 +1316,53 @@ test("detached removals share one review per checkout and approve independently"
   await expect
     .poll(() => app.evaluate(() => globalThis.detachedAnswers))
     .toEqual({ one: true, duplicate: true, two: false });
-  // The declined checkout has released its reservation and can be reviewed again.
-  await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "retry"), paths[1]);
-  const retry = await approvalPage(app);
-  await expect(retry.getByRole("heading", { name: "Remove worktree?", exact: true })).toBeVisible();
-  await clickApproval(
-    retry,
-    retry.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
+  // Re-review the declined checkout in the real bulk path with one new
+  // checkout. The approval queue fixture covers larger mixed batches.
+  const branch = "bulk-clean";
+  const clean = path.join(root, branch);
+  git("worktree", "add", "--no-checkout", "-b", branch, clean);
+  await app.evaluate(
+    ({ app }, { clean, changedLate }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const path = load("node:path");
+      const { writeFile } = load("node:fs/promises");
+      const worktrees = globalThis.detachedOwner.cleanup.deps.worktrees;
+      const remove = worktrees.removeWorktree.bind(worktrees);
+      worktrees.removeWorktree = (repository, tree, force, identity, beforeRemove) =>
+        remove(
+          repository,
+          tree,
+          force,
+          identity,
+          tree === changedLate
+            ? async () => {
+                // Leave the earlier status reads intact and change the checkout at the final guard.
+                await writeFile(path.join(tree, "late.txt"), "changed after consent");
+                await beforeRemove();
+              }
+            : beforeRemove,
+        );
+      globalThis.startDetachedRemoval(changedLate, "retry");
+      globalThis.startDetachedRemoval(clean, "bulk");
+    },
+    { clean, changedLate: paths[1] },
   );
-  await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.retry)).toBe(true);
-  assert.equal(require("node:fs").existsSync(paths[1]), false);
+  const queue = await approvalPage(app);
+  const bulk = queue.getByRole("button", {
+    name: "Approve all clean removals (2)",
+    exact: true,
+  });
+  await expect(bulk).toBeEnabled();
+  await bulk.click();
+  await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.bulk)).toBe(true);
+  await expect
+    .poll(() => app.evaluate(() => globalThis.detachedAnswers.retry))
+    .toContain("Worktree changes have changed");
+  await assert.rejects(realpath(clean), { code: "ENOENT" });
+  assert.ok(String(git("branch", "--list", branch)).trim(), `Branch ${branch} must survive`);
+  assert.equal(await readFile(path.join(paths[1], "late.txt"), "utf8"), "changed after consent");
 });
 
 test("Close hides a review session before slow worktree removal finishes", {

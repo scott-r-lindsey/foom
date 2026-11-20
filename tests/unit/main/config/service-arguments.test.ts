@@ -120,14 +120,9 @@ test("migration preserves approved arguments in the baseline without rewriting t
       apply,
       baseline: {
         get: () => baseline,
-        set: (value) => {
+        copy: () => copy,
+        set: (value, text) => {
           baseline = value;
-          return Promise.resolve();
-        },
-      },
-      appliedText: {
-        get: () => copy,
-        set: (text) => {
           copy = text;
           return Promise.resolve();
         },
@@ -226,4 +221,23 @@ test("Allow acknowledges Copilot bypass once through the provider registry", asy
   await f.service.refresh();
   expect(f.service.status().pending).toBeNull();
   expect(acknowledge).toHaveBeenCalledOnce();
+});
+
+test("saving one provider does not approve or discard another provider’s held arguments", async () => {
+  const f = await fixture();
+  const approved = { codex: ["--model", "approved"] };
+  await f.service.initialize({ agentArguments: approved });
+  const proposed = { codex: ["--model", "proposed"] };
+  await f.settings({ agentArguments: proposed });
+  const patch = { claude: ["--verbose"] };
+  await f.service.write({ agentArguments: patch });
+  expect(f.applied.at(-1)?.agentArguments).toEqual({ ...approved, ...patch });
+  expect(f.service.status().pending?.detail).toBe("agentArguments.codex");
+  expect(JSON.parse(await f.read("settings.json"))).toMatchObject({
+    agentArguments: { ...proposed, ...patch },
+  });
+  await f.decide("keep");
+  expect(JSON.parse(await f.read("settings.json"))).toMatchObject({
+    agentArguments: { ...approved, ...patch },
+  });
 });

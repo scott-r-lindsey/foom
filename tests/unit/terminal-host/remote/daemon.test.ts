@@ -1,4 +1,3 @@
-import { setupCatalogDigest } from "../../../../src/node-common/repository-setup-digest";
 import type * as os from "node:os";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import type { HostResult } from "../../../../src/shared/registered-hosts.d";
@@ -420,8 +419,8 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         hostFacts: 1,
         hostPreflight: 1,
         hostCheckConnection: 1,
-        repositorySetup: setupCatalogDigest,
         hostRowCheck: 1,
+        codexApprovalCheck: 1,
         agentSettings: 1,
         originTrust: 1,
         startupTheme: 1,
@@ -1491,8 +1490,8 @@ test.skipIf(process.platform === "win32")(
       hostFacts: 1,
       hostPreflight: 1,
       hostCheckConnection: 1,
-      repositorySetup: setupCatalogDigest,
       hostRowCheck: 1,
+      codexApprovalCheck: 1,
       agentSettings: 1,
       originTrust: 1,
       startupTheme: 1,
@@ -1874,8 +1873,8 @@ test.skipIf(process.platform === "win32")(
         hostFacts: 1,
         hostPreflight: 1,
         hostCheckConnection: 1,
-        repositorySetup: setupCatalogDigest,
         hostRowCheck: 1,
+        codexApprovalCheck: 1,
         agentSettings: 1,
         originTrust: 1,
         startupTheme: 1,

@@ -151,7 +151,7 @@ export class RemovalReview {
 export function removalCopyPaths(request: DialogContent): ReadonlyMap<string, string> {
   const paths = new Map<string, string>();
   const changes = (value: string | undefined, prefix: string) => {
-    const records = value?.split("\0").filter(Boolean) ?? [];
+    const records = value?.split("\0") ?? [];
     for (let index = 0; index < records.length; index++) {
       const record = records[index];
       if (!record) continue;

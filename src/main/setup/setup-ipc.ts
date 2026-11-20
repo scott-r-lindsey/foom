@@ -108,17 +108,17 @@ export function attachSetup(
       },
     ],
     [
-      "setup:repository-setup",
-      (...args) => {
-        if (args.length !== 1) throw new Error("Invalid repository setup request");
-        return setup.repositorySetup(args[0]);
-      },
-    ],
-    [
       "setup:local-agent-install",
       (...args) => {
         if (args.length !== 1) throw new Error("Invalid installer request");
         return setup.localAgentInstall(args[0]);
+      },
+    ],
+    [
+      "setup:repository-requirements",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid host requirements request");
+        return setup.repositoryRequirements(args[0]);
       },
     ],
     [
@@ -138,13 +138,13 @@ export function attachSetup(
     [
       "setup:save",
       (...args) => {
-        if (args.length !== 1) throw new Error("Invalid settings command");
+        if (args.length < 1 || args.length > 2) throw new Error("Invalid settings command");
         const patch = args[0];
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
         return serial(async () => {
           if (zooming) pointerZoom(true);
           try {
-            const state = await setup.save(patch);
+            const state = await setup.save(patch, ...args.slice(1));
             if (zooming) ensureZoom(state.settings.interfaceScale);
             send("setup:changed", state);
             return state;

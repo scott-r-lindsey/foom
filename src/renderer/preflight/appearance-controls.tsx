@@ -20,7 +20,7 @@ export function AppearanceControls({
   openFolder?: (() => Promise<void>) | undefined;
   compact?: boolean;
   settings: Settings;
-  onChange: (patch: SettingsPatch) => void;
+  onChange: (patch: SettingsPatch, themeDigest?: string) => void;
 }) {
   const scale = settings.interfaceScale;
   const smaller = SCALES.findLast((step) => step < scale);

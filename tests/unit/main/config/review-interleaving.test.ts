@@ -67,6 +67,19 @@ test("rejected profile baseline cannot overwrite held shared preferences", async
   expect(store.get()).toMatchObject({ concurrentChildren: 4, interfaceScale: 100 });
 });
 
+test("the read-only startup review still holds unsafe settings while another profile owns the lock", async () => {
+  const f = await fixture({ defaults });
+  await mkdir(f.folder);
+  await f.settings({ hooks: false });
+  const original = await f.read("settings.json");
+  const files = new ConfigFiles({ root: f.folder });
+  await files.withSettingsLock(async () => {
+    expect(await f.service.initialize()).toEqual({});
+    expect(f.service.status().pending?.detail).toBe("hooks: on → off");
+    expect(await f.read("settings.json")).toBe(original);
+  });
+});
+
 test("a stale lock refuses saves and removal permits retry without losing current keys", async () => {
   const f = await fixture({ defaults });
   await f.service.initialize();

@@ -1,3 +1,4 @@
+import { createWorktreeFixture } from "./worktree-git-fixture";
 import * as operations from "../../../../src/main/workspace/worktree-operations";
 import * as fs from "node:fs/promises";
 import { mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
@@ -10,7 +11,6 @@ import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
-import { createWorktreeFixture } from "./worktree-git-fixture";
 
 vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
 
@@ -76,9 +76,11 @@ describe("persistent ownership", () => {
     await store({ version: 1, repositories: [repo], managed: [] });
     const first = await restart();
     const identity = first.registrationIdentity(repo);
-    await first.persistRegistrationIdentities();
+    await expect(first.preserveRegistrationIdentity(repo, "stale")).rejects.toThrow("changed");
+    await first.preserveRegistrationIdentity(repo, identity);
     const second = await restart();
     expect(second.registrationIdentity(repo)).toBe(identity);
+    await second.preserveRegistrationIdentity(repo, identity);
     await second.removeRepository(repo);
     await second.addRepository(repo);
     const replacement = second.registrationIdentity(repo);

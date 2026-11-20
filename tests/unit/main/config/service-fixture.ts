@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, vi } from "vitest";
+import { digest } from "../../../../src/main/config/layout";
 import { configPart } from "../../../../src/main/config/approval";
 import { ConfigService } from "../../../../src/main/config/service";
 import type { ConfigServiceDependencies } from "../../../../src/main/config/service";
@@ -26,7 +27,7 @@ export async function fixture({
   themeDigests = [],
   realWatch = false,
   ...options
-}: Partial<Omit<ConfigServiceDependencies, "baseline" | "appliedText">> & {
+}: Partial<Omit<ConfigServiceDependencies, "baseline">> & {
   baseline?: string;
   appliedText?: string;
   themeDigests?: [string, string][];
@@ -49,15 +50,11 @@ export async function fixture({
     },
     baseline: {
       get: () => baseline,
-      set: (value) => {
+      copy: () => copy,
+      set: (value, text, theme) => {
         baseline = value;
-        return Promise.resolve();
-      },
-    },
-    appliedText: {
-      get: () => copy,
-      set: (text) => {
         copy = text;
+        if (theme) themeBaselines.set(theme.file, theme.digest);
         return Promise.resolve();
       },
     },
@@ -90,6 +87,8 @@ export async function fixture({
     root,
     folder,
     service,
+    selectTheme: async (file: string) =>
+      service.write({ interfaceTheme: `user:${file}` }, digest(await read(`themes/${file}`))),
     applied,
     listeners,
     statuses,
@@ -112,8 +111,7 @@ export async function restart(f: Awaited<ReturnType<typeof fixture>>) {
     root: f.folder,
     defaults: configPart({ ...DEFAULT_SETTINGS, agents: { claude: true, codex: true, agy: true } }),
     apply: () => {},
-    baseline: { get: () => f.baseline(), set: () => Promise.resolve() },
-    appliedText: { get: () => f.copy(), set: () => Promise.resolve() },
+    baseline: { get: f.baseline, copy: f.copy, set: () => Promise.resolve() },
     themeBaseline: {
       get: (file) => f.themeBaselines.get(file) ?? null,
       set: (file, value) => {

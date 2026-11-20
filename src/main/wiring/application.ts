@@ -1,4 +1,5 @@
 import { viewChanges } from "../data/view-changes";
+import { stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
 import { UpdateActivity } from "../update-activity";
@@ -33,6 +34,7 @@ import { RemovalPresentations } from "../confirmations/removal-review";
 import { ForgeRuntime } from "../control/forge-runtime";
 import type { PreviewBroker } from "../control/previews";
 import { addTailSecrets } from "../evaluator/terminal-tail";
+import { documentWithin } from "../previews/contained-files";
 import type { PreviewHost } from "../previews/host";
 import type { PreviewPlacement } from "../previews/placement";
 import { clearParentHooks, selectProfile, stateRoot } from "../profile";
@@ -158,7 +160,7 @@ export function runApplication() {
   let agentPreviews: PreviewBroker | undefined;
   previewHosts = new Map<number, PreviewHost>();
   const removingPreviewWorktrees = new Set<string>();
-  async function validatePreviewWorktree(path: string): Promise<void> {
+  async function validatePreviewPicker(path: string): Promise<void> {
     if (removingPreviewWorktrees.has(path)) throw new Error("Worktree is being removed");
     for (const repository of worktrees.listRepositories()) {
       if ((await worktrees.listWorktrees(repository.path)).some((tree) => tree.path === path)) {
@@ -168,6 +170,12 @@ export function runApplication() {
       }
     }
     throw new Error("Unknown preview worktree");
+  }
+  async function validatePreviewRoot(root: string, relativePath: string): Promise<void> {
+    if (!(await stat(root)).isDirectory()) throw new Error("Preview directory unavailable");
+    const document = path.join(root, relativePath);
+    for (const removing of removingPreviewWorktrees)
+      if (documentWithin(removing, document)) throw new Error("Worktree is being removed");
   }
   let terminals: ReturnType<typeof attachTerminal>;
   let workspace: Workspace;
@@ -185,6 +193,8 @@ export function runApplication() {
       confirmations: TrustedDialog;
       workspaceIpc: ReturnType<typeof attachWorkspace>;
       setup: Setup;
+      beginSettingsStopping(): () => void;
+      readonly settingsStop: Promise<void> | undefined;
       updateBackground(): void;
       applySettings(next: Settings): void;
       appMenu: ReturnType<typeof attachAppMenu>;
@@ -211,6 +221,7 @@ export function runApplication() {
   };
   /** Shows a session in the window that owns its view, or the focused board. */
   const revealSession = (id: string) => {
+    if (workspace.isSettingsTerminal(id)) return;
     const entry =
       [...windows.values()].find(({ window }) => window.isFocused()) ??
       windows.values().next().value;
@@ -237,9 +248,10 @@ export function runApplication() {
     if (!newWindowCommand) return;
     const targets = process.platform === "win32" ? [...windows.values()] : [entry];
     const snapshot = workspace.snapshot();
+    const board = { ...snapshot, terminals: snapshot.terminals.filter((row) => !row.recipe) };
     if (updates.state(0).status === "downloaded") publishSettings();
     for (const current of targets)
-      updateAttention(current?.window, snapshot, newWindowCommand, revealSession);
+      updateAttention(current?.window, board, newWindowCommand, revealSession);
   };
   /** Keep an actor's pending removals on one board even while its dialog owns focus. */
   const removalPresentations = new RemovalPresentations();
@@ -288,7 +300,7 @@ export function runApplication() {
         kind: "Worktree removal",
         origin: terminal
           ? `${builtinAgent(terminal.agent)?.name ?? terminal.agent} · Tile/session ${terminal.id} · ${terminal.repository}`
-          : `Foom · background cleanup · no tile · ${content.removal.item.path}`,
+          : "Background cleanup",
       };
     }
     if (!origin)
@@ -377,11 +389,25 @@ export function runApplication() {
     requestQuit,
   });
   let quitRequest: Promise<void> | undefined;
+  let quitConfirmation: Promise<boolean> | undefined;
   function requestQuit(): Promise<void> {
     quitRequest ??= performQuit().finally(() => {
       quitRequest = undefined;
     });
     return quitRequest;
+  }
+  function reportOwnerCloseFailure(report: () => void): void {
+    if (!quitPending) {
+      report();
+      return;
+    }
+    // A confirmed shutdown owns the terminals. A cancelled prompt returns them to the owner.
+    void quitConfirmation?.then(
+      (accepted) => {
+        if (!accepted) report();
+      },
+      () => {},
+    );
   }
   async function performQuit() {
     if (!initialized) {
@@ -404,7 +430,7 @@ export function runApplication() {
       const count = terminals.runningCount;
       if (count > 0) {
         const snapshot = workspace.snapshot();
-        const accepted = await confirmations.request(
+        quitConfirmation = confirmations.request(
           {
             title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
             accept: "Stop all and quit",
@@ -428,17 +454,31 @@ export function runApplication() {
           // A person asked Foom to quit, possibly from the Dock while another app is frontmost.
           { activate: true },
         );
+        const accepted = await quitConfirmation;
+        quitConfirmation = undefined;
         if (!accepted) return;
       }
       await saveWindows().catch((error: unknown) => {
         console.error("Unable to save windows:", error);
       });
       await workspace.prepareQuit();
+      const boards = [...windows.values()];
+      const settingsStops = boards.flatMap(({ settingsStop }) =>
+        settingsStop ? [settingsStop] : [],
+      );
+      const finishProgress =
+        settingsStops.length || terminals.hasRunningSettingsRecipe
+          ? boards.map((board) => board.beginSettingsStopping())
+          : [];
       try {
+        // A native close may already be stopping and disposing its own recipes.
+        await Promise.allSettled(settingsStops);
         await terminals.shutdown();
       } catch (error) {
         workspace.cancelQuit();
         throw error;
+      } finally {
+        for (const finish of finishProgress) finish();
       }
       // Terminals have stopped: revoke every hook credential and stop listening.
       await forgeRuntime.close();
@@ -471,6 +511,7 @@ export function runApplication() {
       console.error("Unable to quit the application:", error);
       dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
     } finally {
+      quitConfirmation = undefined;
       quitPending = false;
     }
   }
@@ -537,6 +578,7 @@ export function runApplication() {
     approvals,
     openApprovals: () => approvalDialog?.openApprovals(),
     refreshApprovals: () => approvalDialog?.refresh(),
+    reportOwnerCloseFailure,
     requestApprovalOutcome,
     removingPreviewWorktrees,
     removalPresentations,
@@ -566,7 +608,8 @@ export function runApplication() {
       themes = value;
     },
     themesChanged,
-    validatePreviewWorktree,
+    validatePreviewPicker,
+    validatePreviewRoot,
     views,
     moves,
     windows,
@@ -655,11 +698,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     },
     baseline: {
       get: () => wiring.settings.configDigest(),
-      set: (value) => wiring.settings.setConfigDigest(value),
-    },
-    appliedText: {
-      get: () => wiring.settings.configText(),
-      set: (text) => wiring.settings.setConfigText(text),
+      copy: () => wiring.settings.configText(),
+      set: (digest, text, theme) => wiring.settings.setConfigBaseline(digest, text, theme),
     },
     themeBaseline: {
       get: (file) => wiring.settings.themeDigest(file),
@@ -703,8 +743,11 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       void wiring.themes.reload();
     },
   });
-  wiring.themes = new ThemeLibrary(wiring.configRoot, wiring.themesChanged, (file, text, theme) =>
-    wiring.config.reviewTheme(file, text, theme),
+  wiring.themes = new ThemeLibrary(
+    wiring.configRoot,
+    wiring.themesChanged,
+    (file, text, theme) => wiring.config.reviewTheme(file, text, theme),
+    () => wiring.config.activePalette(),
   );
   wiring.disposeThemes = () => {
     wiring.themes.dispose();
@@ -717,7 +760,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       migratedScale === undefined ? legacy : { ...legacy, interfaceScale: migratedScale },
     );
     await wiring.settings.attachConfig(
-      (patch) => wiring.config.write(patch),
+      (...args) => wiring.config.write(...args),
       values,
       wiring.settings.configDigest(),
     );

@@ -1,23 +1,3 @@
-import type * as importType from "../../../../src/node-common/repository-setup-check";
-vi.mock("../../../../src/node-common/repository-setup-check", async () => {
-  const { fakeSetupProbes, mockScopedProbes } = await import("../../../helpers/setup-probes");
-  const create = vi.fn<typeof importType.setupProbeDependencies>(() =>
-    Promise.resolve(fakeSetupProbes()),
-  );
-  return {
-    repositorySetupEnvironment: vi.fn(() =>
-      Promise.resolve({ HOME: "/fixture", PATH: "/fixture/bin" }),
-    ),
-    setupProbeDependencies: create,
-    withSetupProbeDependencies: vi.fn(mockScopedProbes(create)),
-    checkSetupList: vi.fn(() =>
-      Promise.resolve({
-        platform: { distro: "debian", os: "linux", arch: "x64", nodeAbi: true },
-        items: [],
-      }),
-    ),
-  };
-});
 import { writeWorktreeProvenance } from "../../../../src/terminal-host/remote/worktree-provenance";
 import type * as fsPromises from "node:fs/promises";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -553,6 +533,8 @@ test.skipIf(process.platform === "win32")(
       agents: [],
     } as const;
     let changes = "";
+    let readFixtureStatus = false;
+    let statusReads = 0;
     let inspectedHead = "a".repeat(40);
     let inspectedOrigin: string = base.origin;
     let refs = "";
@@ -565,7 +547,16 @@ test.skipIf(process.platform === "win32")(
       if (args.includes("ls-remote")) return Promise.resolve(advertised);
       if (args.includes("symbolic-ref")) return Promise.resolve("feature\n");
       if (args.includes("HEAD^{commit}")) return Promise.resolve(inspectedHead);
-      if (args.includes("status") && cwd !== repository) return Promise.resolve(changes);
+      if (args.includes("status") && cwd !== repository) {
+        if (readFixtureStatus) {
+          if (++statusReads === 2)
+            return writeFile(join(cwd, "tracked.txt"), "changed contents\n").then(() =>
+              gitSync(args, { cwd, encoding: "utf8" }),
+            );
+          return Promise.resolve(gitSync(args, { cwd, encoding: "utf8" }));
+        }
+        return Promise.resolve(changes);
+      }
       return Promise.resolve("");
     });
     const created = await manageHost(
@@ -712,6 +703,54 @@ test.skipIf(process.platform === "win32")(
     expect(
       mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
     ).toBe(false);
+    // A stale FSMonitor reports no changes. It must not hide an edit between
+    // removal's initial check and the final status read.
+    await mkdir(tree.path, { recursive: true });
+    const git = (...args: string[]) => gitSync(args, { cwd: tree.path, encoding: "utf8" });
+    git("init", "-q");
+    await writeFile(join(tree.path, "tracked.txt"), "initial\n");
+    git("add", "tracked.txt");
+    git("commit", "-qm", "initial");
+    const hook = join(tree.path, ".git", "fixture-fsmonitor");
+    await writeFile(hook, '#!/bin/sh\nprintf "fixture-token\\000"\n', { mode: 0o700 });
+    git("config", "core.fsmonitor", hook);
+    git("config", "core.fsmonitorHookVersion", "2");
+    git("config", "core.untrackedCache", "true");
+    await writeFile(join(tree.path, "new-file"), "untracked\n");
+    git("update-index", "--fsmonitor");
+    expect(git("status", "--porcelain")).toBe(changes);
+    readFixtureStatus = true;
+    mock.probe.mockClear();
+    expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    expect(statusReads).toBe(2);
+    expect(git("--no-optional-locks", "status", "--porcelain", "--untracked-files=all")).toBe(
+      changes,
+    );
+    expect(
+      mock.probe.mock.calls
+        .map(([, args]): unknown => args)
+        .filter((args) => Array.isArray(args) && args.includes("status")),
+    ).toEqual(
+      Array.from({ length: 2 }, () => [
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.untrackedCache=false",
+        "-c",
+        "core.quotePath=true",
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+      ]),
+    );
+    expect(
+      mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
+    ).toBe(false);
+    readFixtureStatus = false;
     expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toMatchObject({
       ok: true,
     });
@@ -856,8 +895,6 @@ test.skipIf(process.platform === "win32").each(["replacement", "graft"] as const
     await mkdir(repository, { mode: 0o700 });
     const git = (...args: string[]) => gitSync(args, { cwd: repository }).toString().trim();
     git("init", "-q", "-b", "main");
-    git("config", "user.name", "Fixture");
-    git("config", "user.email", "fixture@example.test");
     git("commit", "--allow-empty", "-qm", "base");
     const base = git("rev-parse", "HEAD");
     git("worktree", "add", "--detach", path, base);
@@ -1656,75 +1693,13 @@ test("explicit agent details return bounded display facts and remain absent on o
     path: "/bin/codex",
     version: "codex-cli 0.161.0 ",
   });
+  expect(detailed.ok && detailed.facts.agents[0]?.codexApprovals).toBeUndefined();
+  const observed = await manageHost(
+    { ...request, agentDetails: true, codexApprovalCheck: true },
+    0,
+    "/fixture",
+    "0.1.0",
+    home,
+  );
+  expect(observed.ok && observed.facts.agents[0]?.codexApprovals).toBe("may-prompt");
 });
-
-test.skipIf(process.platform === "win32")(
-  "repository setup checks absent and present checkout sources without Git status or mutation",
-  async () => {
-    const { setupCatalogDigest } = await import(
-      "../../../../src/node-common/repository-setup-digest"
-    );
-    const { checkSetupList, repositorySetupEnvironment, setupProbeDependencies } = await import(
-      "../../../../src/node-common/repository-setup-check"
-    );
-    const origin = "https://fixture.invalid/team/repository.git";
-    const request = {
-      type: "manage" as const,
-      operation: "repository-setup" as const,
-      codeFolder: "~/code",
-      directory: "repo",
-      origin,
-      catalog: setupCatalogDigest,
-      list: { requirements: [], evidence: [] },
-      evidence: [],
-    };
-    expect(
-      await manageHost({ ...request, catalog: "0".repeat(64) }, 0, "/fixture", "1", home),
-    ).toMatchObject({ ok: false, reason: "version-mismatch" });
-    const absent = await manageHost(request, 0, "/fixture", "1", home);
-    expect(absent).toMatchObject({ ok: true, setup: { check: { items: [] } } });
-    expect(absent.ok && absent.setup?.sources).toBeUndefined();
-    const directory = join(home, "code/repo");
-    await mkdir(directory, { mode: 0o700 });
-    gitSync(["init", "-q"], { cwd: directory });
-    gitSync(["remote", "add", "origin", origin], { cwd: directory });
-    await writeFile(join(directory, "package.json"), "{}");
-    gitSync(["add", "package.json"], { cwd: directory });
-    gitSync(
-      [
-        "-c",
-        "user.name=Fixture",
-        "-c",
-        "user.email=fixture@example.test",
-        "commit",
-        "-qm",
-        "fixture",
-      ],
-      { cwd: directory },
-    );
-    mock.probe.mockImplementation((_command: string, args: string[], cwd: string) =>
-      Promise.resolve(gitSync(args, { cwd }).toString()),
-    );
-    const present = await manageHost(request, 0, "/fixture", "1", home);
-    expect(present).toMatchObject({
-      ok: true,
-      setup: { checkout: directory, sources: { files: [{ path: "package.json" }] } },
-    });
-    expect(
-      mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("status")),
-    ).toBe(false);
-    const created: unknown = await vi.mocked(setupProbeDependencies).mock.results.at(-1)?.value;
-    expect(vi.mocked(checkSetupList).mock.calls.at(-1)).toEqual([request.list, created]);
-    expect(vi.mocked(repositorySetupEnvironment).mock.calls.at(-1)?.[1]).toEqual([
-      join(home, "code"),
-      directory,
-    ]);
-    expect(vi.mocked(setupProbeDependencies).mock.calls.at(-1)?.[3]).toEqual([
-      join(home, "code"),
-      directory,
-    ]);
-    await expect(
-      manageHost({ ...request, path: join(directory, "missing") }, 0, "/fixture", "1", home),
-    ).resolves.toMatchObject({ ok: false });
-  },
-);

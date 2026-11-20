@@ -55,23 +55,6 @@ checks the live and on-disk arguments afterward. Config unit tests queue a
 scan and another Settings write behind a paused rename and verify that both
 zoom and arguments survive while an unrelated proposal remains held.
 
-## Repository setup linked-checkout identity (#1080)
-
-The linked-checkout setup-admission case creates its Git worktree through a
-symlinked parent on every supported POSIX platform. This reproduces macOS
-`/var` versus `/private/var` temporary paths on Linux too. Git registers the
-canonical checkout path; the test asserts that main's worktree inventory returns
-that path, then sends it through public launch IPC as the renderer does. Sending
-the original alias would correctly fail checkout identity before setup admission.
-The setup refusal and no-repository-tool/no-agent-execution assertions remain
-unchanged. Probe PATH pinning happens after checkout identity and cannot affect
-this membership lookup.
-
-The setup-terminal retry waits for the replacement pane's Installing status
-before checking its prompt/readiness or typing. The previous failed pane has the
-same prompt and ready attribute until the asynchronous setup reply replaces it;
-those conditions alone do not acknowledge the new terminal.
-
 ## Merged cleanup completion (#1221)
 
 The external-worktree cleanup case waits for the real checked-ref transaction
@@ -112,6 +95,13 @@ sidebar read asserts that setup now reuses the cache before measuring navigation
 Opening Hosts must leave the entire fixture request log unchanged. Explicit checks
 retain the separate assertion against daemon and repository requests when the
 catalog is omitted.
+
+The saved-check case starts with registered repositories, so startup sidebar
+inventory can still open SSH after the board compositor is ready. Its launch-time
+observer tracks current and superseded reads. The case waits for the sidebar rows
+and drains those reads before measuring the full SSH log across Hosts navigation,
+resizing and screenshots. It edits a repository origin between app launches so
+the live Git watcher does not overlap that measurement.
 
 ## Forget session request window (#1217)
 
@@ -207,7 +197,7 @@ agent setup and moved-pixel inspection stay in their owning suites.
 
 `approvalPage` explicitly opens the background queue through its waiting indicator.
 `clickApproval` (in `approval-actions.js`, re-exported by the harness) waits for
-withdrawal placeholders to settle, reveals the specific decision, waits for scroll/layout delivery and
+withdrawal placeholders to settle, reveals the decision and any required consequence summary, waits for scroll/layout delivery and
 its enabled state, then uses native Playwright input. A click's implicit scroll can
 move a guarded control immediately before dispatch; tests must reveal it first,
 just as a person scrolls to read it. After the one click, the helper waits for the
@@ -218,7 +208,7 @@ The click's implicit scroll then correctly triggers the movement guard. The help
 changes deadlines, or submits answers through the bridge. Immediate human actions,
 including launch-bypass consent, continue to use `confirmationPage`. The queue
 fixture scales its parent to fit the full 720 CSS-pixel cap on short desktops,
-preserving the assertion that two rows are fully visible. Native screen-point
+so tests can compare compact row heights and exercise a scrollable queue. Native screen-point
 checks convert CSS coordinates using the actual zoom factor. Tooling rejects direct
 clicks on queue-prefixed decisions outside the dedicated security suite, whose raw
 mouse/keyboard/synthetic input intentionally exercises the guard. Ordinary CLI,
@@ -265,13 +255,27 @@ observation in all three attempts: 12.750s failing (artifact **13645683548**),
 then 2.771s and 2.874s passing. That earlier observation alone cannot identify
 the failing click's cause; the original run's artifacts are no longer available.
 
-The helper now clicks near the screen's top, horizontally centered, rather than
-its potentially clipped bottom edge. The Escape regression holds the observed
-clipped screen geometry using a test-owned inline height, asserts that the former
-point hits the tile, and requires the corrected native click to restore terminal
-focus and exact PTY input. The height is released after the click. Native input,
-focus assertions, exact PTY-byte checks (including forbidden handoff input),
-deadlines and product behavior remain unchanged.
+Three later Linux 2/4 failures, runs
+[44256089799](https://github.com/scott-r-lindsey/foom/actions/runs/44256089799)
+(artifact **14406537280**),
+[44303463290](https://github.com/scott-r-lindsey/foom/actions/runs/44303463290)
+(**14426044599**) and
+[44317356991](https://github.com/scott-r-lindsey/foom/actions/runs/44317356991)
+(**14433672650**), exposed a second fixture geometry race. In all three, xterm
+started at y=38 when measured and y=57 when the board received mouse-down at
+(596, 48). The click hit a span above xterm and moved focus from the textarea
+to the tile. The window stayed focused, the replacement remained detached and
+no cancellation blur ran. On the succeeding attempts (artifacts **14415947621**,
+**14432977025** and **14436462760**), the helper measured y=57 and the click at
+y=67 hit xterm.
+
+The helper hit-tests the center of the screen clipped to the terminal body and
+viewport before sending one native click. That point has room for the observed
+top displacement and avoids the clipped bottom. The Escape regression holds
+the observed clipped screen geometry with a test-owned inline height, verifies
+that the old bottom point hits the tile and requires the native click to restore
+terminal focus and exact PTY input. The navigation case still rejects any PTY
+bytes during the handoff and checks exact bytes after the terminal click.
 
 ## Chromium session storage
 

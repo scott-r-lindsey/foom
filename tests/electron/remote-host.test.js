@@ -38,12 +38,26 @@ test("remote host fixture checks preflight failures and enrolls an incomplete co
   const fixture = await remoteFixture(context);
   const { remoteHome } = fixture;
   const { page } = await remoteApp(context, fixture);
-  for (const [host, row, reason] of [
-    ["fixture-unreachable", "ssh", "unreachable"],
-    ["fixture-unsupported", "platform", "unsupported"],
-    ["fixture-no-artifact", "artifact", "artifact-unavailable"],
-    ...(process.platform === "linux" ? [["fixture-old-libc", "platform", "libc-too-old"]] : []),
-  ]) {
+  const failures = [
+    ["fixture-unreachable", "ssh", "unreachable", "SSH", "Host unreachable"],
+    ["fixture-unsupported", "platform", "unsupported", "Platform", "Unsupported host platform"],
+    [
+      "fixture-no-artifact",
+      "artifact",
+      "artifact-unavailable",
+      "Remote daemon",
+      "Unavailable in this build",
+    ],
+  ];
+  if (process.platform === "linux")
+    failures.push([
+      "fixture-old-libc",
+      "platform",
+      "libc-too-old",
+      "Platform",
+      "Unsupported · glibc < 2.28",
+    ]);
+  for (const [host, row, reason] of failures) {
     const checked = await page.evaluate(
       ({ host, codeFolder }) =>
         window.desktop.hosts({ action: "draft-preflight", host, codeFolder }),
@@ -52,22 +66,35 @@ test("remote host fixture checks preflight failures and enrolls an incomplete co
     assert.deepEqual(checked.preflight[row], { state: "fail", reason });
     if (row !== "ssh") assert.deepEqual(checked.preflight.ssh, { state: "pass" });
     if (row === "artifact") assert.deepEqual(checked.preflight.platform, { state: "pass" });
-    const { output, ...observations } = checked;
-    assert.ok(!JSON.stringify(observations).includes("private fixture"));
-    assert.equal(output.host, host);
-    assert.equal(output.running, false);
-    assert.equal(output.failed, reason !== "artifact-unavailable");
-    assert.ok(output.text.length <= 65536);
-    if (row === "ssh") assert.match(output.text, /private fixture SSH output/u);
+    assert.equal(Object.hasOwn(checked, "output"), false);
+    assert.ok(!JSON.stringify(checked).includes("private fixture"));
   }
-  const offline = await page.evaluate(() =>
-    window.desktop.hosts({ action: "add", host: "fixture-unreachable", codeFolder: "~/pending" }),
-  );
-  assert.equal(offline.hosts[0].codeFolder, "~/pending");
-  assert.equal(offline.hosts[0].result.reason, "unreachable");
-  await page.evaluate(() =>
-    window.desktop.hosts({ action: "remove", host: "fixture-unreachable" }),
-  );
+
+  await openSettingsScreen(page);
+  const settings = page.getByRole("region", { name: "Settings" });
+  await settings.getByRole("button", { name: "Hosts", exact: true }).click();
+  const add = settings.locator(".host-add");
+  const hostRow = (card, label) =>
+    card.locator(".host-check-row").filter({ has: page.getByText(label, { exact: true }) });
+  for (const [host, row, reason, label, message] of failures) {
+    await settings.getByRole("button", { name: "Add host", exact: true }).click();
+    await add.getByLabel("SSH host", { exact: true }).fill(host);
+    await add.getByLabel("Code folder", { exact: true }).fill("~/pending");
+    await add.getByRole("button", { name: "Add host", exact: true }).click();
+    const card = page.getByRole("region", { name: host, exact: true });
+    const remove = card.getByRole("button", { name: "Remove", exact: true });
+    await expect(remove).toBeEnabled();
+    await expect(hostRow(card, label).getByText(message, { exact: true })).toBeVisible();
+    await expect(card.getByRole("region", { name: "Host check output" })).toHaveCount(0);
+    if (row === "ssh") {
+      const offline = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+      assert.equal(offline.hosts[0].codeFolder, "~/pending");
+      assert.equal(offline.hosts[0].result.reason, reason);
+      await expect(card.getByText("private fixture SSH output")).toHaveCount(0);
+    }
+    await remove.click();
+    await expect(card).toHaveCount(0);
+  }
   const preflight = await page.evaluate(
     (codeFolder) =>
       window.desktop.hosts({ action: "draft-preflight", host: "fixture-cloud", codeFolder }),
@@ -100,17 +127,14 @@ test("remote host fixture checks preflight failures and enrolls an incomplete co
     reason: "folder-missing",
   });
   await assert.rejects(stat(path.join(remoteHome, "code")), { code: "ENOENT" });
-  await openSettingsScreen(page);
-  await page
-    .getByRole("region", { name: "Settings" })
-    .getByRole("button", { name: "Hosts", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
-  await page.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(page.getByText("Code folder does not exist")).toBeVisible();
+  const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  const folder = hostRow(card, "Code folder");
+  await expect(folder.getByText("Code folder does not exist", { exact: true })).toBeVisible();
   await page.screenshot({ path: evidencePath("1005-incomplete-host.png") });
-  await page.getByRole("button", { name: "Create", exact: true }).click();
-  await expect(page.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  await folder.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(folder.getByText("Pass · Valid", { exact: true })).toBeVisible();
   assert.ok((await stat(path.join(remoteHome, "code"))).isDirectory());
   await page.keyboard.press("Escape");
   fixture.phase("host preflight and enrollment");
@@ -643,7 +667,7 @@ test("Forget removes an unavailable host session locally and recovers its live d
   const restored = await restart();
   // Observe every read before creating the superseded-read regression. Joining
   // only the current sidebar promise cannot drain a read invalidated by refresh.
-  await restored.app.evaluate(({ app }) => {
+  await restored.app.evaluate(({ app, BrowserWindow }) => {
     const load = process
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
@@ -651,6 +675,9 @@ test("Forget removes an unavailable host session locally and recovers its live d
     const { Hosts } = load("./build/main/setup/hosts.js");
     const sidebar = Workspace.prototype.sidebarInventory;
     const inventory = Hosts.prototype.inventory;
+    const watched = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     const pending = new Set();
     const state = { held: false, armed: false, draining: false, drained: false };
     let workspace;
@@ -676,6 +703,7 @@ test("Forget removes an unavailable host session locally and recovers its live d
       return inventory.apply(this, args);
     };
     globalThis.forgetSidebar = {
+      boardFocused: () => watched.isFocused(),
       state,
       pending: () => pending.size,
       arm: () => {
@@ -741,7 +769,6 @@ test("Forget removes an unavailable host session locally and recovers its live d
   await settling;
   await restored.page.evaluate(() => window.forgetSupersededSidebar);
   assert.notEqual(await readFile(fixture.sshLog, "utf8"), beforeRelease);
-  await restored.app.evaluate(() => globalThis.forgetSidebar.restore());
   const before = await readFile(fixture.sshLog, "utf8");
   await dialog.getByRole("button", { name: "Forget", exact: true }).click();
   await expect
@@ -751,7 +778,14 @@ test("Forget removes an unavailable host session locally and recovers its live d
       ),
     )
     .toBe(false);
+  // Returning from the trusted dialog also focuses the board. Drain any
+  // inventory started by that native event before checking the SSH log.
+  await expect
+    .poll(() => restored.app.evaluate(() => globalThis.forgetSidebar.boardFocused()))
+    .toBe(true);
+  await restored.app.evaluate(() => globalThis.forgetSidebar.drain());
   assert.equal(await readFile(fixture.sshLog, "utf8"), before);
+  await restored.app.evaluate(() => globalThis.forgetSidebar.restore());
   const saved = JSON.parse(await readFile(path.join(profilePath, "sessions.json"), "utf8"));
   assert.ok(!JSON.stringify(saved).includes(id));
   await quitAndWait(restored.app, () => restored.app.evaluate(({ app }) => app.quit()));

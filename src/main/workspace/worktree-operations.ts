@@ -25,6 +25,7 @@ export async function git(
   timeout = 30_000,
   input?: string,
   isolated = false,
+  encoding: "utf8" | "latin1" = "utf8",
 ): Promise<string> {
   // Ignore inherited repository selectors: the validated cwd selects the repository.
   const env = Object.fromEntries(
@@ -48,12 +49,74 @@ export async function git(
         : {}),
     },
     timeout,
-    encoding: "utf8",
+    encoding,
     maxBuffer: 16 * 1024 * 1024,
   });
   operation.child.stdin?.end(input);
   const { stdout } = await operation;
   return stdout;
+}
+
+/** NUL-delimited porcelain v1 represented as Latin-1, one code unit per Git byte. */
+export function removalStatus(raw: string) {
+  const records = raw.split("\0");
+  const paths = new Set<string>();
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index];
+    if (!record) continue;
+    paths.add(record.slice(3));
+    // For renames and copies, porcelain -z places the destination first.
+    if (/[RC]/u.test(record.slice(0, 2))) index++;
+  }
+  return { changes: Buffer.from(raw, "latin1").toString("utf8"), fileCount: paths.size };
+}
+
+// Remote management already exchanges Git's newline-delimited, C-quoted
+// porcelain. Undo quoting before counting so escaped and literal bytes agree.
+const quotedGitPath = String.raw`("(?:[^"\\]|\\(?:[0-7]{3}|[abfnrtv"\\]))*"|[^"]+?)`;
+const gitPathRecord = new RegExp(`^${quotedGitPath}$`, "u");
+const gitMoveRecord = new RegExp(`^${quotedGitPath} -> ${quotedGitPath}$`, "u");
+const gitEscapes = new Map([
+  ["a", "\x07"],
+  ["b", "\b"],
+  ["f", "\f"],
+  ["n", "\n"],
+  ["r", "\r"],
+  ["t", "\t"],
+  ["v", "\v"],
+  ['"', '"'],
+  ["\\", "\\"],
+]);
+
+function gitPathBytes(path: string): string {
+  if (!path.startsWith('"')) return Buffer.from(path).toString("latin1");
+  return Buffer.from(path.slice(1, -1))
+    .toString("latin1")
+    .replace(
+      /\\([0-7]{3}|[abfnrtv"\\])/gu,
+      (_match, escape: string) =>
+        gitEscapes.get(escape) ?? String.fromCharCode(Number.parseInt(escape, 8)),
+    );
+}
+
+export function remoteRemovalStatus(status: string, displayPath: (path: string) => string) {
+  const files = new Set<string>();
+  const display: string[] = [];
+  for (const line of status.split("\n")) {
+    if (!line) continue;
+    const flags = line.slice(0, 2);
+    const moved = /[RC]/u.test(flags);
+    const match = (moved ? gitMoveRecord : gitPathRecord).exec(line.slice(3));
+    const target = match?.[moved ? 2 : 1];
+    if (!target || (moved && !match[1])) throw new Error("Invalid remote worktree status");
+    const raw = gitPathBytes(target);
+    files.add(raw);
+    display.push(`${flags} ${displayPath(Buffer.from(raw, "latin1").toString("utf8"))}`);
+    const source = moved ? match[1] : undefined;
+    if (source)
+      display.push(displayPath(Buffer.from(gitPathBytes(source), "latin1").toString("utf8")));
+  }
+  return { changes: display.length ? `${display.join("\0")}\0` : "", fileCount: files.size };
 }
 
 export function validatePath(path: string): void {

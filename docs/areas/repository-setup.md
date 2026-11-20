@@ -1,5 +1,7 @@
 # Repository setup (#1080)
 
+**Superseded by [#1262](https://github.com/scott-r-lindsey/foom/issues/1262).** This document records the historical #1080 design.
+
 The [approved design](../design/1080-repository-setup.md) owns behavior. This
 feature retains serialized JSON persistence, without SQLite or phase-D guards.
 `main/setup/repository-setup.ts` owns immutable active approvals, board-scoped

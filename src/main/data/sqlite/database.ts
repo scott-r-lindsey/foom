@@ -41,8 +41,6 @@ const views: Readonly<Record<string, readonly DataView[]>> = {
   operation_audit_links: [],
   verdict_records: ["sessions"],
   verdict_actions: ["sessions"],
-  repository_approvals: ["readiness", "repositories"],
-  repository_observations: ["readiness", "repositories", "hosts"],
   terminal_diagnostics: [],
   windows: [],
   legacy_window_size: [],

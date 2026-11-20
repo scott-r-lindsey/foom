@@ -1,9 +1,11 @@
+import { ApplicationError } from "../../shared/application-errors";
 import { ConfigCatalog } from "./catalog";
-import { ConfigFiles, decode, ignore, settle } from "./files";
+import { ConfigFiles, decode, ignore, MAX_CONFIG_FILE_BYTES, settle } from "./files";
 import { bundledForgeManifests } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
 import type { AgentProvider } from "../agents/providers/registry";
 import { watch } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import type { rename } from "node:fs/promises";
 import { lstat, mkdir } from "node:fs/promises";
 import {
@@ -16,11 +18,22 @@ import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
 import type { ConfigStatus } from "../../shared/foom-config";
 import { SOUND_KINDS } from "../../shared/sounds";
-import type { ParsedThemeFile, ThemeKind } from "../../shared/theme-file";
+import type {
+  ParsedThemeFile,
+  ThemeKind,
+  ThemeSnapshot,
+  UserThemeId,
+} from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
 import { attentionConflicts } from "../../shared/user-interface-theme";
-import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
-import { argumentChanges, argumentDisclosure, effective, weakenings } from "./approval";
+import { isUserThemeId, ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
+import {
+  argumentChanges,
+  argumentDisclosure,
+  effective,
+  retainApproved,
+  weakenings,
+} from "./approval";
 import type { EffectiveConfig, Weakening } from "./approval";
 import { OWNED_FILES, SETTINGS_FILE, THEME_FOLDERS, digest, refreshable } from "./layout";
 
@@ -29,10 +42,12 @@ export interface ConfigServiceDependencies {
   defaults: EffectiveConfig;
   /** Pushes validated values into the running app. */
   apply(values: ConfigSettings): void;
-  /** The profile's digest of the settings file it last applied: the approval baseline. */
-  baseline: { get(): string | null; set(value: string): Promise<void> };
-  /** The profile's copy of that file, so Keep it on can restore it after a restart. */
-  appliedText?: { get(): string | null; set(text: string): Promise<void> };
+  /** The profile persists the approved copy, its digest and any selected palette together. */
+  baseline: {
+    get(): string | null;
+    copy?(): string | null;
+    set(digest: string, text: string, theme?: { file: string; digest: string }): Promise<void>;
+  };
   /** The profile's digest of each interface theme file it last applied, by config path. */
   themeBaseline: {
     get(file: string): string | null;
@@ -62,8 +77,22 @@ const DEFAULTS: Applied = {
   values: {},
 };
 
+interface Palette {
+  text: string;
+  parsed: ParsedThemeFile;
+}
+
+interface Selection {
+  file: string;
+  source: string | null;
+  palette: Palette | undefined;
+  unavailable: boolean;
+}
+
 interface Pending extends Applied {
+  id: string;
   weak: Weakening[];
+  selection: Selection | undefined;
 }
 
 const watchFolder = (directory: string, listener: (file: string | null) => void) => {
@@ -98,9 +127,13 @@ function themeKind(path: string): ThemeKind | undefined {
  */
 export class ConfigService {
   private applied: Applied = DEFAULTS;
+  private liveValues: ConfigSettings | undefined;
   private pending: Pending | null = null;
-  private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
-  private heldThemes = new Map<string, { text: string; previous: string | null }>();
+  private appliedThemes = new Map<string, Palette>();
+  private heldThemes = new Map<
+    string,
+    { text: string; previous: string | null; settings: string | null; id: string }
+  >();
   /** Each rejected file: the digest of the bytes rejected and a fixed reason. */
   private rejected = new Map<string, { object: string; reason: string }>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -108,6 +141,7 @@ export class ConfigService {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private available = true;
   private error: string | undefined;
+  private notice: string | undefined;
   private closed = false;
   private started = false;
 
@@ -202,17 +236,17 @@ export class ConfigService {
       await this.recordBaseline(this.applied.text);
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);
-    this.deps.apply(this.applied.values);
-    await this.scan();
+    this.applyLive(this.applied.values);
+    // Startup reviews a read-only snapshot before attaching the config writer.
+    await this.scan(false);
     this.startWatching();
     this.started = true;
-    return this.applied.values;
+    return this.liveValues ?? this.applied.values;
   }
 
   /** The profile keeps the digest and a copy of the settings file it last applied. */
   private async recordBaseline(text: string): Promise<void> {
-    await this.deps.baseline.set(digest(text));
-    await this.deps.appliedText?.set(text);
+    await this.deps.baseline.set(digest(text), text);
   }
 
   /**
@@ -227,7 +261,7 @@ export class ConfigService {
     const candidates: Uint8Array[] = [];
     const working = await settle(this.files.read(SETTINGS_FILE), null);
     if (working) candidates.push(working);
-    const copy = this.deps.appliedText?.get();
+    const copy = this.deps.baseline.copy?.();
     if (copy) candidates.push(Buffer.from(copy));
     for (const bytes of candidates) {
       if (digest(bytes) !== known) continue;
@@ -275,14 +309,14 @@ export class ConfigService {
     if (this.closed) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      void this.serial(() => this.scan()).catch(ignore);
+      void this.serial(() => this.scanLive()).catch(ignore);
     }, this.deps.delay ?? 250);
   }
 
   /** Runs one scan now; tests and IPC use it instead of waiting for the watcher. */
   refresh(): Promise<ConfigStatus> {
     return this.serial(async () => {
-      await this.scan();
+      await this.scanLive();
       return this.status();
     });
   }
@@ -291,9 +325,19 @@ export class ConfigService {
     this.rejected.set(file, { object, reason });
   }
 
-  private async scan(): Promise<void> {
+  private async scanLive(): Promise<void> {
+    try {
+      await this.scan();
+    } catch (error) {
+      if (!(error instanceof ApplicationError) || error.code !== "settings-busy") throw error;
+      this.schedule();
+    }
+  }
+
+  private async scan(lockSettings = true): Promise<void> {
     if (this.closed) return;
-    await this.scanSettings();
+    if (lockSettings) await this.files.withSettingsLock(() => this.scanSettings());
+    else await this.scanSettings();
     await this.scanPlugins();
     // Known names too, so a removed theme clears its applied, held or rejected state.
     const themes = new Set([
@@ -308,64 +352,114 @@ export class ConfigService {
 
   private async scanPlugins(): Promise<void> {
     await this.plugins.scanPlugins();
-    const defaults = this.applied.values.agentArguments;
-    if (defaults) {
-      const recovered = recoverAgentDefaults(defaults);
-      if (JSON.stringify(recovered) !== JSON.stringify(defaults)) {
-        this.applied.values = { ...this.applied.values, agentArguments: recovered };
-        this.deps.apply(this.applied.values);
-      }
-    }
+    this.applyLive(this.applied.values);
   }
 
-  private async scanSettings(): Promise<"accepted" | "held" | "rejected"> {
+  private applyLive(values: ConfigSettings): void {
+    const live = values.agentArguments
+      ? { ...values, agentArguments: recoverAgentDefaults(values.agentArguments) }
+      : values;
+    if (isDeepStrictEqual(this.liveValues, live)) return;
+    this.liveValues = live;
+    this.deps.apply(live);
+  }
+
+  private async readSettings(): Promise<Applied | null> {
     let bytes: Buffer | null;
     try {
       bytes = await this.files.read(SETTINGS_FILE);
     } catch (error) {
       this.reject(SETTINGS_FILE, invalid(error), invalid(error));
-      return "rejected";
+      return null;
     }
     if (bytes === null) {
       this.reject(SETTINGS_FILE, "missing", "$: missing");
-      return "rejected";
+      return null;
     }
     let text: string;
     let values: ConfigSettings;
     try {
       text = decode(bytes);
-      if (text === this.applied.text) {
-        this.rejected.delete(SETTINGS_FILE);
-        this.pending = null;
-        return "accepted";
-      }
-      values = parseSettingsFile(text);
+      values = text === this.applied.text ? this.applied.values : parseSettingsFile(text);
     } catch (error) {
       this.reject(SETTINGS_FILE, digest(bytes), invalid(error));
-      return "rejected";
+      return null;
     }
     this.rejected.delete(SETTINGS_FILE);
+    return { text, values };
+  }
+
+  private async inspectSettings(current: Applied): Promise<Pending> {
     const before = effective(this.deps.defaults, this.applied.values);
-    const after = effective(this.deps.defaults, values);
+    const after = effective(this.deps.defaults, current.values);
+    const selection = await this.readSelection(before.interfaceTheme, after.interfaceTheme);
     const weak = [
       ...weakenings(before, after),
       ...argumentChanges(before, after),
-      ...(await this.themeSelectionWeakening(before, after)),
+      ...this.themeSelectionWeakening(selection),
     ];
-    if (weak.length) {
-      if (this.pending?.text !== text) this.pending = { text, values, weak };
-      return "held";
-    }
-    await this.applyValues(text, values);
-    return "accepted";
+    const id = digest(
+      selection
+        ? JSON.stringify([
+            current.text,
+            selection.file,
+            selection.source,
+            selection.unavailable,
+            selection.palette?.text,
+          ])
+        : current.text,
+    );
+    return { ...current, weak, id, selection };
   }
 
-  /** Applies validated settings and records them as the profile's baseline. */
-  private async applyValues(text: string, values: ConfigSettings): Promise<void> {
-    this.deps.apply(values);
-    this.applied = { text, values };
+  private async scanSettings(): Promise<void> {
+    const current = await this.readSettings();
+    if (!current) return;
+    if (current.text === this.applied.text) {
+      this.pending = null;
+      return;
+    }
+    const proposal = await this.inspectSettings(current);
+    if (proposal.weak.length) this.pending = proposal;
+    else await this.applyValues(proposal, proposal.selection);
+  }
+
+  /** The active palette comes from the same snapshot as the applied selection. */
+  activePalette():
+    | {
+        id: UserThemeId;
+        theme: Extract<ParsedThemeFile, { kind: "theme" }>["theme"] | undefined;
+        digest?: string;
+      }
+    | undefined {
+    const id = effective(this.deps.defaults, this.applied.values).interfaceTheme;
+    if (!isUserThemeId(id)) return undefined;
+    const palette = this.appliedThemes.get(`themes/${id.slice(5)}`);
+    if (palette?.parsed.kind !== "theme") return { id, theme: undefined };
+    return { id, theme: palette.parsed.theme, digest: digest(palette.text) };
+  }
+
+  private async applyValues(applied: Applied, selection?: Selection): Promise<void> {
+    const palette = selection?.palette;
+    if (selection) {
+      if (palette) this.appliedThemes.set(selection.file, palette);
+      else this.appliedThemes.delete(selection.file);
+      this.heldThemes.delete(selection.file);
+    }
+    const previous = this.activePalette();
+    const next = effective(this.deps.defaults, applied.values).interfaceTheme;
+    if (previous && previous.id !== next) this.heldThemes.delete(`themes/${previous.id.slice(5)}`);
+    this.applied = applied;
     this.pending = null;
-    await this.recordBaseline(text).catch(ignore);
+    this.notice = undefined;
+    this.applyLive(applied.values);
+    await this.deps.baseline
+      .set(
+        digest(applied.text),
+        applied.text,
+        selection && palette ? { file: selection.file, digest: digest(palette.text) } : undefined,
+      )
+      .catch(ignore);
   }
 
   /** Both watchers pass through this serialized gate before a palette reaches any window. */
@@ -373,16 +467,18 @@ export class ConfigService {
     file: string,
     text: string,
     parsed: ParsedThemeFile,
-  ): Promise<ParsedThemeFile | undefined> {
+  ): Promise<ThemeSnapshot | undefined> {
     return this.serial(async () => {
       // The library reads before joining this queue. A config scan may already
       // have reviewed a newer edit, so an old snapshot must not clear its hold
       // or replace the profile's approval baseline.
       const bytes = await settle(this.files.read(file), null);
-      if (!bytes || decode(bytes) !== text) return this.appliedThemes.get(file)?.parsed;
-      const accepted = await this.reviewThemeValue(file, text, parsed);
-      this.publish();
-      return accepted;
+      if (bytes && decode(bytes) === text) {
+        await this.reviewThemeValue(file, text, parsed);
+        this.publish();
+      }
+      const snapshot = this.appliedThemes.get(file);
+      if (snapshot) return { parsed: snapshot.parsed, digest: digest(snapshot.text) };
     });
   }
 
@@ -390,11 +486,11 @@ export class ConfigService {
     file: string,
     text: string,
     parsed: ParsedThemeFile,
-  ): Promise<ParsedThemeFile | undefined> {
+  ): Promise<void> {
     const kind = themeKind(file);
     if (kind !== "theme" || parsed.kind !== "theme") {
       this.appliedThemes.set(file, { text, parsed });
-      return parsed;
+      return;
     }
     // The approval baseline is only the version this profile last applied: in memory,
     // or after a restart the unchanged file matching the digest the profile keeps.
@@ -410,20 +506,29 @@ export class ConfigService {
       conflicts(parsed).some((conflict) => !approved.has(conflict))
     ) {
       // Keep it on restores the approved version; without one it leaves the theme instead.
-      this.heldThemes.set(file, { text, previous: previous?.text ?? null });
-      if (previous) {
-        this.appliedThemes.set(file, previous);
-        return previous.parsed;
-      }
-      return undefined;
+      const settings = await settle(this.files.read(SETTINGS_FILE), null);
+      const settingsDigest = settings && digest(settings);
+      this.heldThemes.set(file, {
+        text,
+        previous: previous?.text ?? null,
+        settings: settingsDigest,
+        id: digest(JSON.stringify([settingsDigest, file, text])),
+      });
+      if (previous) this.appliedThemes.set(file, previous);
+      return;
     }
-    await this.acceptTheme(file, text, parsed);
-    return parsed;
+    await this.acceptTheme(file, text, parsed, active === `user:${file.slice("themes/".length)}`);
   }
 
-  private async acceptTheme(file: string, text: string, parsed: ParsedThemeFile): Promise<void> {
+  private async acceptTheme(
+    file: string,
+    text: string,
+    parsed: ParsedThemeFile,
+    active: boolean,
+  ): Promise<void> {
     this.heldThemes.delete(file);
     this.appliedThemes.set(file, { text, parsed });
+    if (!active) return;
     try {
       await this.deps.themeBaseline.set(file, digest(text));
     } catch {
@@ -431,33 +536,50 @@ export class ConfigService {
     }
   }
 
-  private async themeSelectionWeakening(
-    before: EffectiveConfig,
-    after: EffectiveConfig,
-  ): Promise<Weakening[]> {
-    if (
-      before.interfaceTheme === after.interfaceTheme ||
-      typeof after.interfaceTheme !== "string" ||
-      !after.interfaceTheme.startsWith("user:")
-    )
-      return [];
-    const file = `themes/${after.interfaceTheme.slice(5)}`;
-    let parsed = this.appliedThemes.get(file)?.parsed;
+  private async readSelection(
+    before: EffectiveConfig["interfaceTheme"],
+    after: EffectiveConfig["interfaceTheme"],
+  ): Promise<Selection | undefined> {
+    if (before === after || !isUserThemeId(after)) return undefined;
+    const file = `themes/${after.slice(5)}`;
+    let source: string | null = null;
     try {
       const bytes = await this.files.read(file);
-      if (!bytes) return [];
-      parsed = parseThemeFile(decode(bytes), "theme");
+      if (bytes) {
+        source = digest(bytes);
+        const text = decode(bytes);
+        return {
+          file,
+          source,
+          palette: { text, parsed: parseThemeFile(text, "theme") },
+          unavailable: false,
+        };
+      }
     } catch {
-      /* Invalid or unreadable edits retain the catalog's last accepted palette. */
+      return { file, source, palette: this.appliedThemes.get(file), unavailable: true };
     }
+    return { file, source, palette: this.appliedThemes.get(file), unavailable: false };
+  }
+
+  private themeSelectionWeakening(selection?: Selection): Weakening[] {
+    const parsed = selection?.palette?.parsed;
     if (
       parsed?.kind === "theme" &&
       parsed.warnings?.some((warning) => warning.reason === "attention-distinctness")
     )
       return [
         {
+          field: ["interfaceTheme"],
           action: "use a theme where needs-you is hard to tell apart",
           detail: "interfaceTheme: attention-distinctness",
+        },
+      ];
+    if (selection?.unavailable)
+      return [
+        {
+          field: ["interfaceTheme"],
+          action: "use a theme whose needs-you colors could not be checked",
+          detail: "interfaceTheme: palette unavailable",
         },
       ];
     return [];
@@ -545,14 +667,14 @@ export class ConfigService {
       available: this.available,
       pending: pending
         ? {
-            id: digest(pending.text),
+            id: pending.id,
             action: pending.weak.map((entry) => entry.action).join(" and "),
             file: SETTINGS_FILE,
             detail: pending.weak.map((entry) => entry.detail).join(", "),
           }
         : held
           ? {
-              id: digest(held[0] + held[1].text),
+              id: held[1].id,
               file: held[0],
               action: "use a theme where needs-you is hard to tell apart",
               detail: "attention-distinctness",
@@ -560,6 +682,7 @@ export class ConfigService {
           : null,
       rejected,
       ...(this.error ? { error: this.error } : {}),
+      ...(this.notice ? { notice: this.notice } : {}),
     };
   }
 
@@ -568,114 +691,220 @@ export class ConfigService {
   }
 
   /** Settings UI writes go through the same file. */
-  write(patch: ConfigSettings): Promise<void> {
-    return this.serial(() => this.writeSettings(patch));
+  write(patch: ConfigSettings, themeDigest?: string): Promise<void> {
+    return this.serial(() =>
+      this.files.withSettingsLock(() => this.writeSettingsLocked(patch, undefined, themeDigest)),
+    );
   }
 
-  private writeSettings(patch: ConfigSettings): Promise<void> {
-    return this.files.withSettingsLock(() => this.writeSettingsLocked(patch));
-  }
-
-  private async writeSettingsLocked(patch: ConfigSettings): Promise<void> {
+  private async writeSettingsLocked(
+    patch: ConfigSettings,
+    settings?: Applied,
+    themeDigest?: string,
+  ): Promise<void> {
     // Read and merge while other profiles are excluded through the atomic rename.
-    const scanned = await this.scanSettings();
-    if (scanned === "rejected" || (scanned === "held" && this.applied === DEFAULTS)) {
+    const current = settings ?? (await this.readSettings());
+    const proposal = current ? await this.inspectSettings(current) : null;
+    if (proposal?.weak.length) this.pending = proposal;
+    if (!proposal || (proposal.weak.length && this.applied === DEFAULTS)) {
       this.publish();
       throw new Error(
         "Unable to read valid Foom settings. Retry after the file is available and reviewed.",
       );
     }
-    const current = this.pending?.values ?? this.applied.values;
-    const text = `${JSON.stringify({ kind: "settings", ...current, ...patch }, null, 2)}\n`;
-    let values: ConfigSettings;
+    let next: Applied;
+    let approved: Applied;
     try {
-      values = parseSettingsFile(text);
-      if (values.agentArguments) parseAgentDefaults(values.agentArguments);
+      if (patch.agentArguments) parseAgentDefaults(patch.agentArguments);
+      next = this.settingsFile(this.mergeSettings(proposal.values, patch));
+      approved = proposal.weak.length ? this.approvedSettings(proposal, patch) : next;
     } catch {
       throw new Error("This setting cannot be stored in the Foom config folder");
     }
-    await this.files.writeFile(SETTINGS_FILE, text);
-    if (scanned === "held") {
-      // Preserve unrelated proposals on disk without granting them approval.
-      const approved = { ...this.applied.values, ...patch };
-      await this.applyValues(
-        `${JSON.stringify({ kind: "settings", ...approved }, null, 2)}\n`,
-        approved,
-      );
-      await this.scanSettings();
-    } else await this.applyValues(text, values);
+    await this.commitSettings(
+      next,
+      approved,
+      patch.interfaceTheme === undefined ? undefined : (themeDigest ?? null),
+    );
     this.publish();
   }
 
-  /**
-   * Allow applies the held change; keep restores the applied file. `id`
-   * names the proposal the user saw, so a click never approves a later replacement.
-   */
+  private mergeSettings(values: ConfigSettings, patch: ConfigSettings): ConfigSettings {
+    const merged = { ...values, ...patch };
+    if (patch.agentArguments)
+      merged.agentArguments = { ...values.agentArguments, ...patch.agentArguments };
+    return merged;
+  }
+
+  private approvedSettings(proposal: Pending, patch: ConfigSettings = {}): Applied {
+    const baseline = this.applied.values;
+    const approved = retainApproved(this.deps.defaults, baseline, proposal.values, proposal.weak);
+    try {
+      return this.settingsFile(this.mergeSettings(approved, patch));
+    } catch (error) {
+      if (patch.agents !== undefined || !proposal.weak.some(({ field }) => field[0] === "agents"))
+        throw error;
+      // Restoring enabled entries can exceed the provider map limit.
+      if (baseline.agents === undefined) delete approved.agents;
+      else approved.agents = baseline.agents;
+      return this.settingsFile(this.mergeSettings(approved, patch));
+    }
+  }
+
+  private async commitSettings(
+    next: Applied,
+    approved: Applied,
+    offeredThemeDigest?: string | null,
+  ): Promise<void> {
+    const before = effective(this.deps.defaults, this.applied.values);
+    const after = effective(this.deps.defaults, approved.values);
+    let reviewed: Selection | undefined;
+    let fallback: Applied | undefined;
+    if (before.interfaceTheme !== after.interfaceTheme && isUserThemeId(after.interfaceTheme)) {
+      if (offeredThemeDigest !== undefined) {
+        reviewed = await this.readSelection(before.interfaceTheme, after.interfaceTheme);
+        if (
+          offeredThemeDigest === null ||
+          reviewed?.source !== offeredThemeDigest ||
+          !reviewed.palette
+        )
+          throw new ApplicationError("theme-selection-changed");
+      } else {
+        const values = { ...approved.values };
+        if (this.applied.values.interfaceTheme === undefined) delete values.interfaceTheme;
+        else values.interfaceTheme = this.applied.values.interfaceTheme;
+        fallback = this.settingsFile(values);
+      }
+    }
+    await this.files.writeFile(SETTINGS_FILE, next.text);
+    // Palette writers do not take the settings lock. Inspect the working
+    // palette after rename, then use the exact checked snapshot for display.
+    if (fallback) {
+      reviewed = await this.readSelection(before.interfaceTheme, after.interfaceTheme);
+      if (this.themeSelectionWeakening(reviewed).length) {
+        approved = fallback;
+        reviewed = undefined;
+      }
+    }
+    await this.applyValues(approved, reviewed);
+    if (next.text !== this.applied.text) await this.scanSettings();
+  }
+
+  private settingsFile(values: ConfigSettings): Applied {
+    if (isDeepStrictEqual(values, this.applied.values)) return this.applied;
+    const file = { kind: "settings", ...values };
+    const pretty = `${JSON.stringify(file, null, 2)}\n`;
+    const text = Buffer.byteLength(pretty) <= MAX_CONFIG_FILE_BYTES ? pretty : JSON.stringify(file);
+    return { text, values: parseSettingsFile(text) };
+  }
+
+  /** Decisions name the exact settings and palette snapshot shown for review. */
   decide(decision: unknown, id: unknown): Promise<ConfigStatus> {
     if (decision !== "allow" && decision !== "keep")
       return Promise.reject(new Error("Invalid decision"));
     return this.serial(async () => {
       const pending = this.pending;
-      if (!pending) {
-        const held = this.heldThemes.entries().next().value;
-        if (!held) throw new Error("No change is waiting for approval");
-        const [file, proposal] = held;
-        if (id !== digest(file + proposal.text))
-          throw new Error("The change was replaced. Review it again.");
-        const bytes = await settle(this.files.read(file), null);
-        if (!bytes || decode(bytes) !== proposal.text) {
-          await this.scan();
-          throw new Error("The file changed. Review the new change.");
-        }
-        if (decision === "allow")
-          await this.acceptTheme(file, proposal.text, parseThemeFile(proposal.text, "theme"));
-        else if (proposal.previous === null)
-          await this.writeSettings({ interfaceTheme: this.deps.defaults.interfaceTheme });
-        else await this.files.writeFile(file, proposal.previous);
-        this.heldThemes.delete(file);
-        await this.scan();
-        this.deps.onThemeDecision?.();
-        return this.status();
-      }
-      if (id !== digest(pending.text)) throw new Error("The change was replaced. Review it again.");
-      const bytes = await settle(this.files.read(SETTINGS_FILE), null);
-      if (!bytes || bytes.toString("utf8") !== pending.text) {
-        await this.scan();
-        throw new Error("The file changed. Review the new change.");
-      }
-      if (decision === "allow") {
-        const before = effective(this.deps.defaults, this.applied.values);
-        const after = effective(this.deps.defaults, pending.values);
-        if (argumentChanges(before, after).length) {
-          if (!(await this.deps.confirmArguments?.(argumentDisclosure(before, after))))
-            return this.status();
-          // The dialog can remain open while an agent replaces the proposal.
-          const current = await settle(this.files.read(SETTINGS_FILE), null);
-          if (!current || decode(current) !== pending.text) {
-            await this.scan();
-            throw new Error("The file changed. Review the new change.");
-          }
-          const bypass = Object.keys(after.agentArguments).filter(
-            (agent) =>
-              JSON.stringify(before.agentArguments[agent]) !==
-                JSON.stringify(after.agentArguments[agent]) &&
-              hasBypassArgument(agent, after.agentArguments[agent] ?? []),
-          );
-          if (bypass.length) await this.deps.acknowledgeBypass?.(bypass);
-        }
-        await this.applyValues(pending.text, pending.values);
+      if (pending) {
+        if (id !== pending.id) throw new Error("The change was replaced. Review it again.");
+        await this.decideSettings(decision, pending);
       } else {
-        await this.files.withSettingsLock(async () => {
-          const current = await this.files.read(SETTINGS_FILE);
-          if (!current || decode(current) !== pending.text)
-            throw new Error("The file changed. Review the new change.");
-          await this.files.writeFile(SETTINGS_FILE, this.applied.text);
-          this.pending = null;
-        });
+        await this.decideTheme(decision, id);
+        this.deps.onThemeDecision?.();
       }
       this.publish();
       return this.status();
     });
+  }
+
+  private async decideSettings(decision: "allow" | "keep", pending: Pending): Promise<void> {
+    const before = effective(this.deps.defaults, this.applied.values);
+    const after = effective(this.deps.defaults, pending.values);
+    const confirm = decision === "allow" && argumentChanges(before, after).length > 0;
+    if (confirm) {
+      if (!(await this.files.withSettingsLock(() => this.matchSettings(pending))))
+        await this.changedProposal();
+      if (!(await this.deps.confirmArguments?.(argumentDisclosure(before, after)))) return;
+    }
+    const committed = await this.files.withSettingsLock(async () => {
+      let current = await this.matchSettings(pending);
+      if (!current) return false;
+      if (decision === "keep") {
+        await this.keepSettings(current);
+        return true;
+      }
+      if (confirm) {
+        const bypass = Object.keys(after.agentArguments).filter(
+          (agent) =>
+            !isDeepStrictEqual(before.agentArguments[agent], after.agentArguments[agent]) &&
+            hasBypassArgument(agent, after.agentArguments[agent] ?? []),
+        );
+        if (bypass.length) {
+          await this.deps.acknowledgeBypass?.(bypass);
+          current = await this.matchSettings(pending);
+          if (!current) return false;
+        }
+      }
+      await this.applyValues(current, current.selection);
+      return true;
+    });
+    if (!committed) await this.changedProposal();
+  }
+
+  private async keepSettings(current: Pending): Promise<void> {
+    try {
+      const approved = this.approvedSettings(current);
+      // commitSettings serializes any defensive palette fallback before replacing the file.
+      await this.commitSettings(approved, approved);
+      return;
+    } catch (error) {
+      if (!(error instanceof ThemeValidationError) || error.reason !== "too-large") throw error;
+    }
+    await this.commitSettings(this.applied, this.applied);
+    this.notice =
+      "Restored the last approved settings. Other edits were dropped because they exceeded 64 KiB when combined.";
+  }
+
+  private async matchSettings(pending: Pending): Promise<Pending | undefined> {
+    const current = await this.readSettings();
+    if (current?.text !== pending.text) return undefined;
+    const proposal = await this.inspectSettings(current);
+    if (proposal.id === pending.id) return proposal;
+    return undefined;
+  }
+
+  private async decideTheme(decision: "allow" | "keep", id: unknown): Promise<void> {
+    const held = this.heldThemes.entries().next().value;
+    if (!held) throw new Error("No change is waiting for approval");
+    const [file, proposal] = held;
+    if (id !== proposal.id) throw new Error("The change was replaced. Review it again.");
+    const committed = await this.files.withSettingsLock(async () => {
+      const current = await this.readSettings();
+      const bytes = await settle(this.files.read(file), null);
+      if (
+        !current ||
+        digest(current.text) !== proposal.settings ||
+        effective(this.deps.defaults, current.values).interfaceTheme !== `user:${file.slice(7)}` ||
+        !bytes?.equals(Buffer.from(proposal.text))
+      )
+        return false;
+      if (decision === "allow")
+        await this.acceptTheme(file, proposal.text, parseThemeFile(proposal.text, "theme"), true);
+      else if (proposal.previous === null)
+        await this.writeSettingsLocked(
+          { interfaceTheme: this.deps.defaults.interfaceTheme },
+          current,
+        );
+      else await this.files.writeFile(file, proposal.previous);
+      this.heldThemes.delete(file);
+      return true;
+    });
+    if (!committed) await this.changedProposal();
+    this.schedule();
+  }
+
+  private async changedProposal(): Promise<never> {
+    await this.scanLive();
+    throw new Error("The file changed. Review the new change.");
   }
 
   async dispose(): Promise<void> {

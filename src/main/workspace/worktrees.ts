@@ -46,26 +46,26 @@ import { WorktreePanelFacts } from "./worktree-panel-facts";
 import { WorktreeMergePolicy } from "./worktree-merge-policy";
 import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
 
+export { absolutePath as registeredRepositoryPath } from "./worktree-operations";
+
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
-  private readonly removalListeners = new Set<(repository: string) => Promise<void>>();
-  onRemoved(listener: (repository: string) => Promise<void>): () => void {
-    this.removalListeners.add(listener);
-    return () => {
-      this.removalListeners.delete(listener);
-    };
-  }
   private readonly registrations = new Map<string, string>();
+  private readonly legacyRegistrations = new Set<string>();
+  /** A profile record cannot reference an ID synthesized only for this process. */
+  async preserveRegistrationIdentity(path: string, id: string): Promise<void> {
+    if (this.registrationIdentity(path) !== id) throw new Error("Repository registration changed");
+    if (!this.legacyRegistrations.has(path)) return;
+    await this.save();
+    if (this.registrationIdentity(path) !== id) throw new Error("Repository registration changed");
+    this.legacyRegistrations.delete(path);
+  }
   registrationIdentity(path: string): string {
     this.repository(path);
     const id = this.registrations.get(path);
     if (!id) throw new Error("Repository registration unavailable");
     return id;
-  }
-  /** Make legacy registration incarnations durable before binding profile approvals. */
-  persistRegistrationIdentities(): Promise<void> {
-    return this.save();
   }
   // Saved paths that could not be validated still have unknown Git membership.
   private readonly unavailableRepositories = new Set<string>();
@@ -199,7 +199,9 @@ export class WorktreeService {
     for (const path of state["repositories"]) {
       try {
         if ((await realpath(path)) !== path) continue;
+        const hasSavedIdentity = this.registrations.has(path);
         await this.addRepository(path);
+        if (!hasSavedIdentity) this.legacyRegistrations.add(path);
       } catch {
         // Omit unusable registrations, but retain their unknown retry membership.
       }
@@ -310,7 +312,6 @@ export class WorktreeService {
   /** Forget registration and creation history, leaving every checkout on disk. */
   async removeRepository(path: string): Promise<void> {
     await this.saveRegistration(path);
-    for (const listener of this.removalListeners) await listener(path);
   }
 
   private async saveRegistration(path: string, repository?: Repository): Promise<void> {
@@ -329,6 +330,7 @@ export class WorktreeService {
         }
         this.repositories.delete(path);
         this.registrations.delete(path);
+        this.legacyRegistrations.delete(path);
       }
     };
     if (!this.store) {
@@ -620,10 +622,15 @@ export class WorktreeService {
   // Background status reads must not refresh/write the index while removal is
   // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
   // Disable status caches so they cannot hide changes from a removal snapshot.
-  async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
+  async changes(
+    repositoryPath: string,
+    path: string,
+    identity?: string,
+    encoding: "utf8" | "latin1" = "utf8",
+  ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repositoryPath, path));
     await this.checkRemovalIdentity(repositoryPath, path, expected);
-    return git(path, [
+    const args = [
       "--no-optional-locks",
       "-c",
       "core.fsmonitor=false",
@@ -633,7 +640,8 @@ export class WorktreeService {
       "--porcelain=v1",
       "-z",
       "--untracked-files=all",
-    ]);
+    ];
+    return git(path, args, undefined, undefined, false, encoding);
   }
 
   /** A fresh config-neutral status snapshot for group cleanup, never explicit removal. */

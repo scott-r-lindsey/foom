@@ -4,7 +4,7 @@ const path = require("node:path");
 const { mkdir, writeFile } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
 const { assertAccessible, boardPage, confirmationPage, launchApp } = require("./harness.js");
-const { previewContents, previewViewState } = require("./preview-fixture.js");
+const { pollPreviewContents, previewViewState } = require("./preview-fixture.js");
 
 async function newBoard(app, source) {
   const before = app.windows();
@@ -200,12 +200,8 @@ test("previews move to existing boards at drop edges with identity, network rese
   );
   assert.equal(moved.network, false);
   await writeFile(file, "<!doctype html><h1>After transfer</h1>");
-  await expect
-    .poll(() =>
-      previewContents(app, id, "document.querySelector('h1')?.textContent", {
-        requireAttached: true,
-      }),
-    )
-    .toBe("After transfer");
+  await pollPreviewContents(app, id, "document.querySelector('h1')?.textContent").toBe(
+    "After transfer",
+  );
   await assertAccessible(second);
 });

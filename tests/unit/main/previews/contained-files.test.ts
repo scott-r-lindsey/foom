@@ -1,15 +1,20 @@
 import fs from "node:fs";
+import { PreviewWatcher } from "../../../../src/main/previews/watcher";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { git, gitSync } from "../../../helpers/git.js";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   canonicalRoot,
   type CanonicalRoot,
+  openDocument,
   openFlags,
   openInside,
   readInside,
   readPreview,
+  resolveDocument,
+  walkPreviewPath,
 } from "../../../../src/main/previews/contained-files";
 import { MAX_FILE_BYTES, MAX_MARKDOWN_BYTES } from "../../../../src/main/previews/policy";
 
@@ -77,7 +82,7 @@ beforeEach(() => {
     handle.close = () => io.close(fd);
     return handle;
   });
-  base = fs.mkdtempSync(path.join(os.tmpdir(), "foom-preview-"));
+  base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "foom-preview-")));
   root = path.join(base, "tree");
   outside = path.join(base, "outside");
   fs.mkdirSync(path.join(root, "docs", "assets"), { recursive: true });
@@ -107,6 +112,390 @@ async function body(pathname: string): Promise<string> {
   if (result.status !== 200) throw new Error(result.reason);
   return result.body.toString();
 }
+
+test("a stale gitfile keeps the preview in the document directory", async () => {
+  const directory = path.join(outside, "docs");
+  fs.mkdirSync(directory);
+  const document = path.join(directory, "page.html");
+  fs.writeFileSync(document, "<p>Standalone</p>");
+  fs.writeFileSync(path.join(outside, ".git"), "gitdir: missing-metadata\n");
+  await expect(git(["rev-parse", "--show-toplevel"], { cwd: directory })).rejects.toThrow();
+
+  const resolved = await resolveDocument(document);
+  expect(resolved).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(directory) },
+    relative: "page.html",
+  });
+  if (resolved.status !== 200) throw new Error(resolved.reason);
+  expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+});
+
+test("a configured parent worktree cannot expose files outside the checkout", async () => {
+  const directory = path.join(outside, "docs");
+  fs.mkdirSync(directory);
+  const document = path.join(directory, "page.html");
+  fs.writeFileSync(document, "<p>Checkout</p>");
+  fs.writeFileSync(path.join(base, "sibling.txt"), "Outside the checkout");
+  gitSync(["init", "-q"], { cwd: outside });
+  gitSync(["config", "--local", "core.worktree", base], { cwd: outside });
+  const { stdout } = await git(["rev-parse", "--show-toplevel"], { cwd: directory });
+  expect(fs.realpathSync.native(stdout.trim())).toBe(fs.realpathSync.native(base));
+
+  const resolved = await resolveDocument(document);
+  expect(resolved).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(directory) },
+    relative: "page.html",
+  });
+  if (resolved.status !== 200) throw new Error(resolved.reason);
+  expect(await readInside(resolved.root, "/sibling.txt")).toMatchObject({ status: 404 });
+});
+
+test("a checkout swapped after inspecting its Git entry falls back to the document directory", async () => {
+  const checkout = fs.realpathSync.native(outside);
+  const directory = path.join(checkout, "docs");
+  const document = path.join(directory, "page.html");
+  const replacement = path.join(base, "replacement");
+  fs.mkdirSync(directory);
+  fs.writeFileSync(document, "<p>Original</p>");
+  fs.mkdirSync(path.join(replacement, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(replacement, "docs", "page.html"), "<p>Replacement</p>");
+  fs.writeFileSync(path.join(replacement, "secret.txt"), "Replacement checkout");
+  for (const cwd of [checkout, replacement]) gitSync(["init", "-q"], { cwd });
+
+  const lstat = fs.promises.lstat;
+  let swapped = false;
+  vi.spyOn(fs.promises, "lstat").mockImplementation(async (...args) => {
+    const result = await lstat(...args);
+    if (args[0] === path.join(checkout, ".git")) {
+      fs.renameSync(checkout, path.join(base, "original"));
+      fs.renameSync(replacement, checkout);
+      swapped = true;
+    }
+    return result;
+  });
+
+  const resolved = await resolveDocument(document);
+  expect(swapped).toBe(true);
+  expect(resolved).toMatchObject({ status: 200, root: { path: directory }, relative: "page.html" });
+  if (resolved.status !== 200) throw new Error(resolved.reason);
+  expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+});
+
+test("a checkout briefly absent during the walk cannot grant an enclosing checkout", async () => {
+  const enclosing = fs.realpathSync.native(outside);
+  const nested = path.join(enclosing, "nested");
+  const directory = path.join(nested, "docs");
+  const document = path.join(directory, "page.html");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(document, "<p>Nested checkout</p>");
+  for (const cwd of [enclosing, nested]) gitSync(["init", "-q"], { cwd });
+
+  const lstat = fs.promises.lstat;
+  let moved = false;
+  vi.spyOn(fs.promises, "lstat").mockImplementation(async (...args) => {
+    if (!moved && args[0] === path.join(nested, ".git")) {
+      const displaced = path.join(base, "displaced");
+      fs.renameSync(nested, displaced);
+      moved = true;
+      try {
+        return await lstat(...args);
+      } finally {
+        fs.renameSync(displaced, nested);
+      }
+    }
+    return lstat(...args);
+  });
+
+  const resolved = await resolveDocument(document);
+  expect(moved).toBe(true);
+  expect(resolved).toMatchObject({ status: 200, root: { path: directory }, relative: "page.html" });
+  if (resolved.status !== 200) throw new Error(resolved.reason);
+  expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+});
+
+test("refuses opening a document under .git even without a registered checkout", async () => {
+  const directory = path.join(root, ".git", "docs");
+  fs.mkdirSync(directory);
+  for (const name of ["page.html", ".page.html"]) {
+    const document = path.join(directory, name);
+    fs.writeFileSync(document, "<p>Git metadata</p>");
+    expect(await resolveDocument(document)).toEqual({ status: 400, reason: "hidden" });
+  }
+  expect(() => canonicalRoot(directory)).toThrow("Git metadata is hidden");
+});
+
+test.skipIf(process.platform === "win32")(
+  "refuses an entry symlink onto a document under .git",
+  async () => {
+    const document = path.join(root, ".git", "page.html");
+    fs.writeFileSync(document, "<p>Git metadata</p>");
+    const alias = path.join(root, "alias.html");
+    fs.symlinkSync(document, alias);
+    expect(await resolveDocument(alias)).toEqual({ status: 400, reason: "hidden" });
+  },
+);
+
+test.each(["regular", "malformed config", "linked objects"])(
+  "a bare repository inside a checkout contains the preview (%s)",
+  async (layout) => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const bare = path.join(outside, "bare.git");
+    gitSync(["init", "-q", "--bare", bare], { cwd: outside });
+    const directory = path.join(bare, "docs");
+    fs.mkdirSync(directory);
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, "<p>Bare repo document</p>");
+    if (layout === "linked objects") {
+      const objects = path.join(bare, "objects");
+      const linked = path.join(base, "objects");
+      fs.renameSync(objects, linked);
+      fs.symlinkSync(linked, objects, process.platform === "win32" ? "junction" : "dir");
+    }
+    const bareResult = await git(["rev-parse", "--is-bare-repository"], { cwd: directory });
+    expect(bareResult.stdout.trim()).toBe("true");
+    if (layout === "malformed config") fs.appendFileSync(path.join(bare, "config"), "\n[invalid\n");
+
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(directory) },
+      relative: "page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+  },
+);
+
+test.each([{ artifacts: [] }, { artifacts: ["objects"] }, { artifacts: ["objects", "refs"] }])(
+  "an ordinary HEAD file with build artifact directories $artifacts retains parent assets",
+  async ({ artifacts }) => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const directory = path.join(outside, "docs");
+    fs.mkdirSync(directory);
+    for (const name of artifacts) fs.mkdirSync(path.join(directory, name));
+    fs.writeFileSync(path.join(directory, "HEAD"), "An ordinary file");
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, '<link rel="stylesheet" href="../style.css">');
+    const stylesheet = "body { color: red; }";
+    fs.writeFileSync(path.join(outside, "style.css"), stylesheet);
+
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(outside) },
+      relative: "docs/page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    const origin = "foom-preview://id";
+    const asset = new URL("../style.css", `${origin}/${resolved.relative}`);
+    const response = await readPreview(resolved.root, asset.href, origin);
+    expect(response.status).toBe(200);
+    if (response.status !== 200) throw new Error(response.reason);
+    expect(response.body.toString("utf8")).toBe(stylesheet);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a FIFO named HEAD leaves the enclosing checkout eligible",
+  async () => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const directory = path.join(outside, "docs");
+    fs.mkdirSync(directory);
+    execFileSync("mkfifo", [path.join(directory, "HEAD")]);
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, "<p>Checkout</p>");
+
+    expect(await resolveDocument(document)).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(outside) },
+      relative: "docs/page.html",
+    });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "Git cannot confirm a dangling checkout marker with an enclosing repository",
+  async () => {
+    const directory = path.join(outside, "docs");
+    fs.mkdirSync(directory);
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, "<p>Standalone</p>");
+    fs.symlinkSync(path.join(base, "missing"), path.join(outside, ".git"), "dir");
+    gitSync(["init", "-q"], { cwd: base });
+    gitSync(["config", "--local", "core.worktree", outside], { cwd: base });
+    const { stdout } = await git(["rev-parse", "--show-toplevel"], { cwd: outside });
+    expect(fs.realpathSync.native(stdout.trim())).toBe(fs.realpathSync.native(outside));
+
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(directory) },
+      relative: "page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 404 });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "uses the checkout root when Git follows a symlink to separate metadata",
+  async () => {
+    const directory = path.join(outside, "docs");
+    fs.mkdirSync(directory);
+    const document = path.join(directory, "page.html");
+    fs.writeFileSync(document, "<p>Checkout</p>");
+    const metadata = path.join(base, "metadata");
+    gitSync(["init", "-q", "--separate-git-dir", metadata, outside], { cwd: base });
+    fs.unlinkSync(path.join(outside, ".git"));
+    fs.symlinkSync(metadata, path.join(outside, ".git"), "dir");
+    const top = await git(["rev-parse", "--show-toplevel"], { cwd: directory });
+    expect(fs.realpathSync.native(top.stdout.trim())).toBe(fs.realpathSync.native(outside));
+
+    const resolved = await resolveDocument(document);
+    expect(resolved).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(outside) },
+      relative: "docs/page.html",
+    });
+    if (resolved.status !== 200) throw new Error(resolved.reason);
+    expect(await readInside(resolved.root, "/secret.txt")).toMatchObject({ status: 200 });
+  },
+);
+
+test.runIf(process.platform === "win32")(
+  "retains an in-checkout picker junction when the checkout's spelling differs",
+  async () => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const docs = path.join(outside, "docs");
+    fs.mkdirSync(docs);
+    fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+    fs.symlinkSync(docs, path.join(outside, "alias"), "junction");
+    const alternate = path.join(path.dirname(outside), path.basename(outside).toUpperCase());
+    expect(await resolveDocument(path.join(alternate, "alias", "page.html"), true)).toMatchObject({
+      status: 200,
+      root: { path: fs.realpathSync.native(outside) },
+      relative: "alias/page.html",
+    });
+  },
+);
+
+test("retains a picker alias when an alternate parent path names the checkout", async () => {
+  const parent = path.join(base, "Long checkout container");
+  const checkout = path.join(parent, "checkout");
+  const docs = path.join(checkout, "docs");
+  fs.mkdirSync(docs, { recursive: true });
+  fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+  gitSync(["init", "-q"], { cwd: checkout });
+  const alternate = path.join(base, "short");
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  fs.symlinkSync(parent, alternate, kind);
+  fs.symlinkSync(docs, path.join(checkout, "alias"), kind);
+
+  const file = path.join(alternate, "checkout", "alias", "page.html");
+  expect(await resolveDocument(file, true)).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(checkout) },
+    relative: "alias/page.html",
+  });
+
+  const outsideAlias = path.join(base, "outside-alias");
+  fs.symlinkSync(docs, outsideAlias, kind);
+  expect(await resolveDocument(path.join(outsideAlias, "page.html"), true)).toMatchObject({
+    status: 200,
+    root: { path: fs.realpathSync.native(checkout) },
+    relative: "docs/page.html",
+  });
+});
+
+test.each([".git", "bare.git"])(
+  "a picker alias through %s falls back and is neither served nor watched",
+  async (metadata) => {
+    gitSync(["init", "-q"], { cwd: outside });
+    const docs = path.join(outside, "docs");
+    fs.mkdirSync(docs);
+    fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+    if (metadata === "bare.git") gitSync(["init", "-q", "--bare", metadata], { cwd: outside });
+    const kind = process.platform === "win32" ? "junction" : "dir";
+    const alternate = path.join(base, "alternate");
+    fs.symlinkSync(outside, alternate, kind);
+    fs.symlinkSync(path.join(outside, metadata), path.join(outside, "via"), kind);
+    fs.symlinkSync(docs, path.join(outside, metadata, "return"), kind);
+    fs.symlinkSync(path.join(outside, metadata, "return"), path.join(outside, "direct"), kind);
+
+    const opened = await resolveDocument(path.join(alternate, "via", "return", "page.html"), true);
+    expect(opened).toMatchObject({ status: 200, relative: "docs/page.html" });
+    if (opened.status !== 200) throw new Error(opened.reason);
+    const watcher = new PreviewWatcher(opened.root.path, vi.fn());
+    const watch = vi.spyOn(fs, "watch").mockImplementation(() => {
+      throw new Error("A rejected path must not reach fs.watch");
+    });
+    try {
+      const origin = "foom-preview://id";
+      for (const relative of ["via/return/page.html", "direct/page.html"]) {
+        expect(
+          await readPreview(opened.root, `${origin}/${relative}`, origin, watcher.recorder()),
+        ).toMatchObject({ status: 403 });
+        await watcher.record(path.join(outside, relative));
+      }
+      expect(watch).not.toHaveBeenCalled();
+    } finally {
+      watcher.close();
+    }
+  },
+);
+
+test("a retained picker alias cannot serve a file after retargeting to bare metadata", async () => {
+  gitSync(["init", "-q"], { cwd: outside });
+  const docs = path.join(outside, "docs");
+  fs.mkdirSync(docs);
+  fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  const alternate = path.join(base, "alternate");
+  fs.symlinkSync(outside, alternate, kind);
+  const alias = path.join(outside, "alias");
+  fs.symlinkSync(docs, alias, kind);
+  const opened = await resolveDocument(path.join(alternate, "alias", "page.html"), true);
+  expect(opened).toMatchObject({ status: 200, relative: "alias/page.html" });
+  if (opened.status !== 200) throw new Error(opened.reason);
+
+  const bare = path.join(outside, "bare.git");
+  gitSync(["init", "-q", "--bare", bare], { cwd: outside });
+  fs.writeFileSync(path.join(bare, "page.html"), "Bare repository contents");
+  fs.renameSync(alias, path.join(outside, "original-alias"));
+  fs.symlinkSync(bare, alias, kind);
+  const origin = "foom-preview://id";
+  const record = vi.fn();
+  expect(
+    await readPreview(opened.root, `${origin}/${opened.relative}`, origin, record),
+  ).toMatchObject({ status: 403, reason: "metadata" });
+  expect(record).not.toHaveBeenCalled();
+  expect(await readInside(opened.root, "/bare.git/page.html")).toMatchObject({ status: 403 });
+});
+
+test("an alias back to the checkout root stays watchable under an alternate picker prefix", async () => {
+  gitSync(["init", "-q"], { cwd: outside });
+  const docs = path.join(outside, "docs");
+  fs.mkdirSync(docs);
+  fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  const alternate = path.join(base, "alternate");
+  fs.symlinkSync(outside, alternate, kind);
+  const back = path.join(outside, "back");
+  fs.symlinkSync(outside, back, kind);
+  const opened = await resolveDocument(path.join(alternate, "back", "docs", "page.html"), true);
+  expect(opened).toMatchObject({ status: 200, relative: "back/docs/page.html" });
+  if (opened.status !== 200) throw new Error(opened.reason);
+  const replacement = path.join(outside, "replacement");
+  fs.mkdirSync(path.join(replacement, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(replacement, "docs", "page.html"), "<p>Retargeted</p>");
+  fs.renameSync(back, path.join(outside, "original-back"));
+  fs.symlinkSync(replacement, back, kind);
+  const result = await readInside(opened.root, `/${opened.relative}`);
+  if (result.status !== 200) throw new Error(result.reason);
+  expect(result.body.toString("utf8")).toBe("<p>Retargeted</p>");
+});
 
 test("serves pages, relative assets and directory indexes from owned handles", async () => {
   expect(await body("/docs/page.html")).toBe("<p>page</p>");
@@ -501,6 +890,164 @@ test.skipIf(!links)("keeps the canonical root captured before a root path swap",
   fs.symlinkSync(outside, root, "dir");
   expect(await openInside(captured, "/secret.txt")).toEqual({ status: 403, reason: "escape" });
 });
+
+test.skipIf(!links || process.platform === "win32")(
+  "an absolute junction target can use an ordinary Windows short spelling of the root",
+  async () => {
+    const short = path.join(base, "SHORT");
+    fs.mkdirSync(path.join(short, "docs"), { recursive: true });
+    const link = path.join(root, "alias");
+    fs.symlinkSync(path.join(short, "docs"), link, "dir");
+    const back = path.join(root, "back");
+    fs.symlinkSync(short, back, "dir");
+    const realpath = fs.promises.realpath;
+    vi.spyOn(fs.promises, "realpath").mockImplementation((file) =>
+      path.relative(short, file.toString()) === "" ? Promise.resolve(root) : realpath(file),
+    );
+    vi.stubGlobal("process", { ...process, platform: "win32" });
+    const request = path.join(link, "page.html");
+    expect(await walkPreviewPath(root, request)).toEqual({
+      missing: false,
+      watches: [
+        { directory: root, name: "alias" },
+        { directory: path.join(root, "docs"), name: "page.html" },
+      ],
+    });
+    const fromRoot = path.join(back, "docs", "page.html");
+    expect(await walkPreviewPath(root, fromRoot)).toEqual({
+      missing: false,
+      watches: [
+        { directory: root, name: "back" },
+        { directory: path.join(root, "docs"), name: "page.html" },
+      ],
+    });
+
+    fs.renameSync(short, path.join(base, "old-short"));
+    fs.symlinkSync(root, short, "dir");
+    expect(await walkPreviewPath(root, request)).toEqual({ status: 403, reason: "escape" });
+    expect(await walkPreviewPath(root, fromRoot)).toEqual({ status: 403, reason: "escape" });
+  },
+);
+
+test.skipIf(!links || process.platform === "win32")(
+  "absolute link dot segments are walked inside the checkout before they can go up",
+  async () => {
+    gitSync(["init", "-q"], { cwd: outside });
+    fs.mkdirSync(path.join(outside, "docs"));
+    fs.writeFileSync(path.join(outside, "page.html"), "<p>Checkout</p>");
+    const alias = path.join(outside, "alias.html");
+    fs.symlinkSync(`${outside}/docs/../page.html`, alias);
+    expect(await resolveDocument(alias, true)).toMatchObject({
+      status: 200,
+      relative: "alias.html",
+    });
+    const checkout = canonicalRoot(outside);
+    expect(await readInside(checkout, "/alias.html")).toMatchObject({
+      status: 200,
+      body: Buffer.from("<p>Checkout</p>"),
+    });
+
+    gitSync(["init", "-q", "--bare", "bare.git"], { cwd: outside });
+    fs.symlinkSync(path.join(outside, "bare.git"), path.join(outside, "metadata"), "dir");
+    fs.symlinkSync(`${outside}/metadata/../page.html`, path.join(outside, "through-bare.html"));
+    fs.symlinkSync(`${outside}/.git/../page.html`, path.join(outside, "through-dotgit.html"));
+    fs.symlinkSync(`${outside}/../outside/page.html`, path.join(outside, "reenter.html"));
+    expect(await readInside(checkout, "/through-bare.html")).toEqual({
+      status: 403,
+      reason: "metadata",
+    });
+    expect(await readInside(checkout, "/through-dotgit.html")).toEqual({
+      status: 403,
+      reason: "target-hidden",
+    });
+    expect(await readInside(checkout, "/reenter.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+  },
+);
+
+test.runIf(links && process.platform === "linux")(
+  "a case-variant Windows sibling cannot supply a route back into the preview root",
+  async () => {
+    const checkout = path.join(base, "Root");
+    const sibling = path.join(base, "root");
+    const docs = path.join(checkout, "docs");
+    fs.mkdirSync(docs, { recursive: true });
+    fs.mkdirSync(sibling);
+    fs.writeFileSync(path.join(docs, "page.html"), "<p>Checkout</p>");
+    fs.symlinkSync(docs, path.join(sibling, "docs"), "dir");
+    fs.symlinkSync(path.join(sibling, "docs"), path.join(checkout, "alias"), "dir");
+    const capturedCheckout = canonicalRoot(checkout);
+
+    // Apply Windows case folding while retaining real, case-sensitive filesystem lookups.
+    vi.stubGlobal("process", { ...process, platform: "win32" });
+    vi.spyOn(path, "relative").mockImplementation((from, to) =>
+      path.win32.relative(from, to).replaceAll("\\", path.sep),
+    );
+    expect(await readInside(capturedCheckout, "/docs/page.html")).toMatchObject({ status: 200 });
+    expect(await readInside(capturedCheckout, "/alias/page.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+  },
+);
+
+test.skipIf(!links || process.platform === "win32")(
+  "absolute preview links accept a symlinked temp ancestor such as macOS /var",
+  async () => {
+    const physical = path.join(base, "private", "var", "preview");
+    fs.mkdirSync(physical, { recursive: true });
+    fs.symlinkSync("private/var", path.join(base, "var"), "dir");
+    fs.writeFileSync(path.join(physical, "plain.html"), "<p>Preview</p>");
+    const temporary = path.join(base, "var", "preview");
+    fs.symlinkSync(path.join(temporary, "plain.html"), path.join(physical, "alias.html"));
+    fs.symlinkSync(path.join(temporary, "plain.html"), path.join(physical, "alias.png"));
+    const capturedPreview = canonicalRoot(temporary);
+    expect(capturedPreview.path).toBe(physical);
+    expect(await readInside(capturedPreview, "/alias.html")).toMatchObject({
+      status: 200,
+      body: Buffer.from("<p>Preview</p>"),
+    });
+    expect(await openDocument(capturedPreview, "/alias.png")).toEqual({
+      status: 400,
+      reason: "invalid-image",
+    });
+
+    fs.symlinkSync(`${temporary}/../preview/plain.html`, path.join(physical, "escape.html"));
+    expect(await readInside(capturedPreview, "/escape.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+
+    const bare = path.join(base, "metadata.git");
+    gitSync(["init", "-q", "--bare", bare], { cwd: base });
+    fs.symlinkSync(path.dirname(physical), path.join(bare, "var"), "dir");
+    fs.symlinkSync("metadata.git/var", path.join(base, "via-metadata"), "dir");
+    fs.symlinkSync(
+      path.join(base, "via-metadata", "preview", "plain.html"),
+      path.join(physical, "via-metadata.html"),
+    );
+    expect(await readInside(capturedPreview, "/via-metadata.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+  },
+);
+
+test.skipIf(!links || process.platform === "win32")(
+  "relative links can go up within the root but cannot leave and reenter it",
+  async () => {
+    const docs = path.join(root, "docs");
+    fs.symlinkSync("../README.md", path.join(docs, "readme.txt"));
+    fs.symlinkSync("../tree/docs", path.join(root, "escape"), "dir");
+    expect(await body("/docs/readme.txt")).toBe("# readme");
+    expect(await readInside(captured, "/escape/page.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
+  },
+);
 
 test.skipIf(process.platform === "win32" || !links)(
   "rechecks Windows alias targets even on POSIX",

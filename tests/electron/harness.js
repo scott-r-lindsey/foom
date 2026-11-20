@@ -349,12 +349,17 @@ function prepareConfirmationActions(app, page) {
   return ready;
 }
 
-async function confirmationPage(app) {
+async function confirmationPage(app, name) {
   let page;
   await expect
-    .poll(() => {
-      page = app.windows().find((page) => page.url() === "app://confirmation/confirmation.html");
-      return Boolean(page);
+    .poll(async () => {
+      for (const candidate of app.windows()) {
+        if (candidate.url() !== "app://confirmation/confirmation.html") continue;
+        if (name && !(await candidate.getByRole("alertdialog", { name }).count())) continue;
+        page = candidate;
+        return true;
+      }
+      return false;
     })
     .toBe(true);
   await prepareConfirmationActions(app, page);
@@ -795,12 +800,29 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               "const userInfo = os.userInfo;",
               `os.userInfo = (...args) => ({ ...userInfo(...args), shell: ${JSON.stringify(isolated.SHELL)} });`,
             ]),
+        ...(options.trackSidebarReads
+          ? [
+              `const workspaceModule = require(${JSON.stringify(path.join(entry, "build/main/workspace/workspace.js"))});`,
+              "const readSidebar = workspaceModule.Workspace.prototype.sidebarInventory;",
+              "const pendingSidebarReads = new Set();",
+              "workspaceModule.Workspace.prototype.sidebarInventory = function (...args) {",
+              "  const read = readSidebar.apply(this, args);",
+              "  pendingSidebarReads.add(read);",
+              "  const clear = () => pendingSidebarReads.delete(read);",
+              "  void read.then(clear, clear);",
+              "  return read;",
+              "};",
+              "workspaceModule.settleFixtureSidebar = async () => {",
+              "  while (pendingSidebarReads.size) await Promise.allSettled([...pendingSidebarReads]);",
+              "};",
+            ]
+          : []),
         ...(options.probeWaitingMs === undefined
           ? []
           : [
-              `const workspaceModule = require(${JSON.stringify(path.join(entry, "build/main/workspace/workspace.js"))});`,
-              `const ProductionWorkspace = workspaceModule.Workspace;`,
-              `workspaceModule.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
+              `const waitingProbeWorkspace = require(${JSON.stringify(path.join(entry, "build/main/workspace/workspace.js"))});`,
+              `const ProductionWorkspace = waitingProbeWorkspace.Workspace;`,
+              `waitingProbeWorkspace.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
             ]),
         `require(${JSON.stringify(path.join(entry, "build/main/setup/local-host.js"))}).localResources = async () => (${JSON.stringify(options.hostResources ?? { cores: 64, load: [0, 0, 0], memoryTotal: 256 * 1024 ** 3, memoryAvailable: 128 * 1024 ** 3 })});`,
         `app.setPath("home", ${JSON.stringify(options.home)});`,

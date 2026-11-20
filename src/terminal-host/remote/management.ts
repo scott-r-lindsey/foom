@@ -1,12 +1,4 @@
-import { setupSelectedTools } from "../../shared/repository-setup-catalog";
-import { inspectSetupSources } from "../../node-common/repository-setup-sources";
-import {
-  checkSetupList,
-  withSetupProbeDependencies,
-  repositorySetupEnvironment,
-} from "../../node-common/repository-setup-check";
-import { setupCatalogDigest } from "../../node-common/repository-setup-digest";
-import { remoteToolchainPrefix } from "../../node-common/repository-setup-run";
+import { codexApprovals } from "./codex-approvals";
 import { remotePluginState } from "./plugin-status";
 import { requirements, signInStatus } from "./host-facts";
 import { networkGit } from "./network-git";
@@ -110,17 +102,7 @@ export async function manageHost(
       error instanceof Error && error.message === "unsafe-folder"
         ? "unsafe-folder"
         : "folder-refused";
-    if (
-      !partial &&
-      request.operation !== "origin" &&
-      !(
-        request.operation === "repository-setup" &&
-        error instanceof Error &&
-        "code" in error &&
-        error.code === "ENOENT"
-      )
-    )
-      return { ok: false, reason };
+    if (!partial && request.operation !== "origin") return { ok: false, reason };
     folderCheck = {
       state: "fail",
       reason:
@@ -203,6 +185,9 @@ export async function manageHost(
             : undefined);
         agents.push({
           id: model.id,
+          ...(request.operation === "inspect" && request.codexApprovalCheck && model.id === "codex"
+            ? { codexApprovals: await codexApprovals(home, found.env) }
+            : {}),
           ...(request.operation === "inspect" && request.agentDetails
             ? {
                 details: {
@@ -379,8 +364,7 @@ export async function manageHost(
   try {
     // Revalidate without recreating a folder removed since the initial check.
     signal?.throwIfAborted();
-    if (request.operation !== "repository-setup" || folderCheck.state === "pass")
-      await approvedCodeFolder(folder, home);
+    await approvedCodeFolder(folder, home);
     if (request.operation === "list-worktrees") {
       const entries = await opendir(folder);
       let count = 0;
@@ -431,50 +415,11 @@ export async function manageHost(
       await approvedCodeFolder(folder, home);
       return { ok: true, facts, inventory: { own, other } };
     }
-    if (request.operation === "repository-setup") {
-      if (request.catalog !== setupCatalogDigest) return { ok: false, reason: "version-mismatch" };
-      const path = join(folder, request.directory);
-      let source:
-        | {
-            checkout: string;
-            head: string;
-          }
-        | undefined;
-      const exists = await lstat(path).then(
-        () => true,
-        (error: unknown) => {
-          if (error instanceof Error && "code" in error && error.code === "ENOENT" && !request.path)
-            return false;
-          throw error;
-        },
-      );
-      if (exists) {
-        await checkout(path, request.origin, 5000, false);
-        const selected = request.path ?? path;
-        await remoteCheckout(path, selected, env, signal);
-        source = {
-          checkout: selected,
-          head: (await git(["rev-parse", "HEAD"], selected)).trim(),
-        };
-      }
-      const prefix = remoteToolchainPrefix(home);
-      const excluded = [folder, ...(source ? [source.checkout] : [])];
-      const safe = await repositorySetupEnvironment(
-        env,
-        excluded,
-        prefix,
-        setupSelectedTools(request.list),
-        home,
-      );
-      const check = await withSetupProbeDependencies(safe, home, signal, excluded, (deps) =>
-        checkSetupList(request.list, deps),
-      );
-      const sources = source
-        ? await inspectSetupSources(source.checkout, request.evidence)
-        : undefined;
-      return { ok: true, facts, setup: { check, ...source, ...(sources ? { sources } : {}) } };
-    }
     const path = join(folder, request.directory);
+    const worktreeStatus =
+      request.operation === "inspect-worktree" ||
+      request.operation === "snapshot-worktree" ||
+      request.operation === "remove-worktree";
     let exists = true;
     try {
       await lstat(path);
@@ -526,7 +471,7 @@ export async function manageHost(
       } finally {
         await rm(temporary, { recursive: true, force: true });
       }
-    } else status = await checkout(path, request.origin);
+    } else status = await checkout(path, request.origin, undefined, !worktreeStatus);
     if (request.operation === "create-worktree") {
       await git(["check-ref-format", "--branch", request.branch], path);
       const refs = await git(
@@ -585,11 +530,7 @@ export async function manageHost(
         worktree: { path: destination, branch: request.branch, identity, changes: "" },
       };
     }
-    if (
-      request.operation === "inspect-worktree" ||
-      request.operation === "snapshot-worktree" ||
-      request.operation === "remove-worktree"
-    ) {
+    if (worktreeStatus) {
       if (
         request.path === path ||
         !request.path.startsWith(`${folder}/.foom-worktree-`) ||
@@ -619,7 +560,23 @@ export async function manageHost(
           return "HEAD";
         });
       if (branch !== "HEAD") await git(["check-ref-format", "--branch", branch], path);
-      const changes = await git(["status", "--porcelain", "--untracked-files=all"], request.path);
+      // Keep Git's C-quoted byte spelling in the existing wire snapshot.
+      const readChanges = () =>
+        git(
+          [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.untrackedCache=false",
+            "-c",
+            "core.quotePath=true",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+          ],
+          request.path,
+        );
+      const changes = await readChanges();
       if (changes.length > 65536) throw new Error("Changes too large");
       if (request.operation === "remove-worktree") {
         if (request.changes !== changes) throw new Error("Changes changed");
@@ -663,6 +620,7 @@ export async function manageHost(
           owner.origin !== request.origin
         )
           throw new Error("Ownership changed");
+        if ((await readChanges()) !== changes) throw new Error("Changes changed");
         await git(["worktree", "remove", "--force", "--", request.path], path);
         await rm(worktreeProvenancePath(request.path));
       }

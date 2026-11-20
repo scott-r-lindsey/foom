@@ -26,8 +26,12 @@ async function withPreviewFocusTrace(context, app, page, run) {
           viewport: { width: innerWidth, height: innerHeight },
           point,
           hit: describe(hit),
+          hitContainer: describe(
+            hit?.closest(".xterm-screen, .tile-attention, .tile-title, .terminal-tile"),
+          ),
           hitBounds: rect(hit),
           terminalBounds: rect(document.querySelector(".xterm-screen")),
+          terminalBodyBounds: rect(document.querySelector(".tile-terminal")),
         };
       };
       for (const type of ["focus", "blur", "mousedown", "mouseup", "focusin", "focusout"]) {

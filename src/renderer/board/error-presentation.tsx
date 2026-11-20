@@ -129,10 +129,8 @@ export function ActionError({
   close,
   fix,
   returnFocus,
-  details,
 }: {
   message: string;
-  details?: ReactNode;
   close: () => void;
   returnFocus?: (() => Element | null) | undefined;
   fix?: { label: string; run: () => void } | undefined;
@@ -185,7 +183,6 @@ export function ActionError({
           />
         </p>
       </div>
-      {details}
       <div className="action-error-buttons">
         <button type="button" onClick={close}>
           Dismiss

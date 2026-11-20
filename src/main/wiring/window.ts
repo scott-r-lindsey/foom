@@ -1,7 +1,4 @@
 import { GithubSignIn } from "../setup/github-sign-in";
-import { repositorySetupFor, repositoryToolchainPrefix } from "../setup/repository-setup-service";
-import type { SetupRun } from "../../shared/repository-setup.d";
-import { setupRunDigest } from "../../node-common/repository-setup-run";
 import { createViewReader } from "../data/view-readers";
 import { listTerminalFonts } from "../fonts/terminal-fonts";
 import { attachViews } from "../data/view-ipc";
@@ -34,7 +31,7 @@ import { pickPreviewFile } from "../previews/pick";
 import { PreviewPlacement } from "../previews/placement";
 import { PreviewRegistry } from "../previews/registry";
 import { attachEnvironment } from "../setup/environment-ipc";
-import { Setup } from "../setup/setup";
+import { Setup, repositoryRequirementsForProfile } from "../setup/setup";
 import { attachSetup } from "../setup/setup-ipc";
 import { attachSounds } from "../sounds/ipc";
 import { SoundLibrary } from "../sounds/library";
@@ -258,7 +255,7 @@ export async function buildWindow(
   const previewHost = new PreviewHost(
     window,
     new PreviewRegistry(path.join(app.getPath("userData"), `previews-${windowId}.json`)),
-    wiring.validatePreviewWorktree,
+    wiring.validatePreviewRoot,
     () => {
       if (!window.isDestroyed() && !window.webContents.isDestroyed())
         window.webContents.send("workspace:changed");
@@ -278,7 +275,7 @@ export async function buildWindow(
   const disposePreviews = attachPreviews(
     ipc,
     previewHost,
-    (worktree) => pickPreviewFile(window, previewHost, wiring.validatePreviewWorktree, worktree),
+    (worktree) => pickPreviewFile(window, previewHost, wiring.validatePreviewPicker, worktree),
     (id) =>
       wiring.moves.popout(window.id, async () => {
         const targetWindow = await wiring.createWindow();
@@ -304,7 +301,8 @@ export async function buildWindow(
   );
   window.on("focus", () => {
     // A trusted dialog can return focus to a crashed board during quit.
-    if (!window.webContents.isCrashed()) wiring.workspace.refresh();
+    if (!confirmations.consumeLocalFocusReturn() && !window.webContents.isCrashed())
+      wiring.workspace.refresh();
   });
   const windowScale = attachWindowScale(
     window,
@@ -343,11 +341,22 @@ export async function buildWindow(
   window.once("closed", () => {
     githubSignIn.dispose();
   });
-  const launchRecipe = async (
-    target:
-      | RemoteTarget
-      | { localAgent: string }
-      | { localSetup: SetupRun; prefix: string; validate: () => Promise<void> },
+  const settingsLaunches = new Set<Promise<string>>();
+  let settingsStop: Promise<void> | undefined;
+  let settingsStopping = 0;
+  // An owner close and a confirmed app quit can both be waiting on this board.
+  const beginSettingsStopping = () => {
+    settingsStopping++;
+    if (settingsStopping === 1 && !window.isDestroyed())
+      window.webContents.send("windows:settings-stopping", true);
+    return () => {
+      settingsStopping--;
+      if (settingsStopping === 0 && !window.isDestroyed())
+        window.webContents.send("windows:settings-stopping", false);
+    };
+  };
+  const startRecipe = async (
+    target: RemoteTarget | { localAgent: string },
     finished?: () => void,
   ) => {
     let id: string | undefined;
@@ -370,15 +379,15 @@ export async function buildWindow(
       : undefined;
     try {
       id =
-        "localSetup" in target
-          ? await wiring.workspace.startRepositorySetup(
-              target.localSetup,
-              target.prefix,
-              target.validate,
-            )
-          : "localAgent" in target
-            ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
-            : await wiring.workspace.startHostRecipe(target);
+        "localAgent" in target
+          ? await wiring.workspace.startLocalAgentInstall(target.localAgent)
+          : await wiring.workspace.startHostRecipe(target);
+      if (window.isDestroyed()) {
+        await wiring.terminals.kill(id);
+        wiring.workspace.removed(id);
+        throw new Error("Settings window closed");
+      }
+      wiring.views.reserveSettings(id, window.id);
       const gh =
         "recipe" in target &&
         target.recipe.tool === "gh" &&
@@ -406,86 +415,21 @@ export async function buildWindow(
         );
         finished();
       }
-      if (
-        "localSetup" in target ||
-        "localAgent" in target ||
-        target.repositorySetup ||
-        gh ||
-        target.recipe?.action === "install"
-      )
-        return id;
-      wiring.revealSession(id);
       return id;
     } catch (error) {
       off?.();
       throw error;
     }
   };
+  const launchRecipe: typeof startRecipe = (target, finished) => {
+    if (settingsStop) return Promise.reject(new Error("Settings window closing"));
+    const launch = startRecipe(target, finished).finally(() => {
+      settingsLaunches.delete(launch);
+    });
+    settingsLaunches.add(launch);
+    return launch;
+  };
   const setup = new Setup({
-    repositorySetup: repositorySetupFor(wiring.settings),
-    launchRepositorySetup: async (host, approval, row, finished, signal, validate) => {
-      if (!row.plan || !row.location) throw new Error("Setup plan unavailable");
-      const binding = {
-        location: row.location,
-        list: approval.list,
-        catalog: approval.catalog,
-        revision: approval.revision,
-        repository: approval.repository,
-        registration: JSON.stringify([
-          approval.identity,
-          host === null
-            ? "local"
-            : wiring.settings.get().registeredHosts?.find((entry) => entry.host === host)
-                ?.codeFolder,
-        ]),
-        host: host ?? "local",
-        sources: approval.sources.fingerprint,
-        check: {
-          platform: row.plan.platform,
-          items: approval.list.requirements.map((item) => ({
-            id: item.id,
-            state: row.missing.includes(item.id) ? ("missing" as const) : ("met" as const),
-          })),
-        },
-      };
-      const run = { ...binding, digest: setupRunDigest(binding) };
-      signal.throwIfAborted();
-      if (host === null) {
-        if (localHostMutations.has(wiring.settings))
-          throw new Error("Host mutation already running");
-        localHostMutations.add(wiring.settings);
-      }
-      let id: string | undefined;
-      const stop = () => {
-        if (id) void wiring.terminals.kill(id).catch(() => undefined);
-      };
-      try {
-        id = await launchRecipe(
-          host === null
-            ? { localSetup: run, prefix: repositoryToolchainPrefix(wiring.settings), validate }
-            : {
-                ...hostsForStore(
-                  wiring.settings,
-                  wiring.worktrees.listRepositories.bind(wiring.worktrees),
-                  app.getVersion(),
-                ).shellTarget(host),
-                repositorySetup: run,
-                beforeOpen: validate,
-              },
-          () => {
-            if (host === null) localHostMutations.delete(wiring.settings);
-            signal.removeEventListener("abort", stop);
-            finished();
-          },
-        );
-      } catch (error) {
-        if (host === null) localHostMutations.delete(wiring.settings);
-        throw error;
-      }
-      signal.addEventListener("abort", stop, { once: true });
-      if (signal.aborted) stop();
-      return id;
-    },
     hostSessions: () => wiring.workspace.snapshot().terminals,
     hostsChanged: () => {
       wiring.workspace.refresh();
@@ -520,11 +464,20 @@ export async function buildWindow(
     },
     githubSignIn: (id, action) => githubSignIn.action(id, action),
     launchHostRecipe: launchRecipe,
+    launchHostSetupAgent: (id, agent, prompt, validate) =>
+      wiring.workspace.startHostSetupAgent(id, agent, prompt, validate),
+    placeHostSetupAgent: (id, background) => {
+      if (!window.isDestroyed()) window.webContents.send("app-menu:session", id, background);
+    },
     copyText: (text) => clipboard.writeText(text),
     confirmHostKey: (content, signal) =>
       confirmations.requestOutcome(content, signal, { activate: true }),
     confirmRemoteSessions: (content, signal) =>
       confirmations.request(content, signal, { activate: true }),
+    repositoryRequirements: repositoryRequirementsForProfile(
+      app.getPath("userData"),
+      wiring.worktrees,
+    ),
     hosts: hostsForStore(
       wiring.settings,
       wiring.worktrees.listRepositories.bind(wiring.worktrees),
@@ -645,6 +598,10 @@ export async function buildWindow(
     confirmations,
     workspaceIpc,
     setup,
+    beginSettingsStopping,
+    get settingsStop() {
+      return settingsStop;
+    },
     updateBackground,
     applySettings,
     appMenu,
@@ -668,7 +625,8 @@ export async function buildWindow(
     owns: (content) =>
       content.kind === "preview"
         ? previewHost.registry.records.has(content.id)
-        : (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
+        : !wiring.workspace.isSettingsTerminal(content.id) &&
+          (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
           !wiring.workspace
             .snapshot()
             .terminals.some((row) => row.id === content.id && row.dormant && row.exited) &&
@@ -702,7 +660,9 @@ export async function buildWindow(
     },
   });
   const disposeViews = attachWindowViews(window, ipc, wiring.views, {
-    knows: (id) => wiring.terminals.owns(id) || wiring.workspace.ownsSession(id),
+    knows: (id) =>
+      !wiring.workspace.isSettingsTerminal(id) &&
+      (wiring.terminals.owns(id) || wiring.workspace.ownsSession(id)),
     find: (id) => wiring.windows.get(id)?.window,
     detach: (id) => {
       wiring.terminals.detachView(id, window.webContents);
@@ -749,7 +709,53 @@ export async function buildWindow(
     if (wiring.quitPending || (wiring.windows.size === 1 && process.platform !== "darwin")) {
       event.preventDefault();
       void wiring.requestQuit();
+      return;
     }
+    if (settingsStop) {
+      event.preventDefault();
+      return;
+    }
+    const settingsSessions = wiring.views.settingsSessions(window.id);
+    if (!settingsSessions.length && !settingsLaunches.size) return;
+    event.preventDefault();
+    const finishProgress = beginSettingsStopping();
+    settingsStop = (async () => {
+      await Promise.allSettled(settingsLaunches);
+      const ids = wiring.views.settingsSessions(window.id);
+      if (ids.length) {
+        const resume = await wiring.terminals.suspendViews(window.webContents, ids);
+        try {
+          for (const id of ids) {
+            // Keep the PTY and its exit listener until Stop confirms process exit.
+            await wiring.terminals.stop(id);
+            await wiring.terminals.kill(id);
+            wiring.workspace.removed(id);
+            wiring.views.forgetSettings(id);
+          }
+        } finally {
+          resume();
+        }
+      }
+    })().finally(finishProgress);
+    void settingsStop.then(
+      () => {
+        // Let the intercepted native close unwind. A pending quit owns the outcome.
+        setImmediate(() => {
+          settingsStop = undefined;
+          if (!wiring.quitPending && !window.isDestroyed()) window.close();
+        });
+      },
+      () => {
+        settingsStop = undefined;
+        wiring.reportOwnerCloseFailure(() => {
+          if (window.isDestroyed()) return;
+          dialog.showErrorBox(
+            "Unable to close window",
+            "Could not stop a Settings repair. Please try again.",
+          );
+        });
+      },
+    );
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {

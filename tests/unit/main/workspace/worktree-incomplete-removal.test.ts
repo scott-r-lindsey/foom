@@ -1,3 +1,4 @@
+import { createWorktreeFixture } from "./worktree-git-fixture";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
@@ -5,7 +6,6 @@ import * as operations from "../../../../src/main/workspace/worktree-operations"
 import { IncompleteRemovalError, errorMessage } from "../../../../src/shared/application-errors";
 import { git } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
-import { createWorktreeFixture } from "./worktree-git-fixture";
 
 vi.mock("../../../../src/main/workspace/worktree-operations", async (original) => ({
   ...(await original<typeof operations>()),
