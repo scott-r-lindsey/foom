@@ -1565,7 +1565,13 @@ test("middle click focuses the inactive terminal and routes typing to its PTY", 
   await expect(tiles).toHaveCount(2);
   await startProbe(shellB, markerB);
 
-  await shellA.locator(".xterm-screen").click({ button: "middle", position: { x: 40, y: 40 } });
+  // Exercise tile focus when xterm and Chromium leave keyboard focus alone.
+  await shellA.locator(".xterm-screen").dispatchEvent("pointerdown", {
+    button: 1,
+    buttons: 4,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
   await expect(shellA.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.press("KeyB");
   await expect(shellA.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
