@@ -1034,22 +1034,25 @@ Host capability checks and repository checkout controls continue to operate inde
 
 Each registered SSH host card offers **Set up with an agent…** beside its
 status, including while collapsed. The action is secondary on a Ready host
-and primary otherwise. An unknown or changed SSH host key and a running setup
-agent hide the action.
+and primary otherwise. The latest key evidence from host checks or background
+inventory hides the action when the SSH host key is unknown or changed. A
+running setup agent also hides the action.
 
 The dialog focuses the local Agent picker and preselects the configured default
 when it is enabled, installed and accepts an initial prompt. The user selects
 registered repositories. Checked repositories stay visible while filtering.
-Escape, Cancel and the backdrop dismiss the dialog. The requirements control
+Escape, Cancel and the backdrop dismiss the dialog. Enter in the filter keeps
+the dialog open. The requirements control
 and badges arrive with #1264.
 
 **Start agent** opens an ordinary local tile in the background and leaves
 Settings open. The card shows **Setting up · AGENT** while the invocation runs.
 **Show agent** opens the tile on explicit request. Questions use the tile's
-ordinary **Needs you** state. Main permits one active setup invocation per host
+ordinary **Needs you** state. Main permits one active setup invocation per registration
 across windows and performs a full capability check when that invocation exits,
-even if Settings has closed. Removing a host leaves its agent tile running and
-skips the exit recheck for that registration.
+even if Settings has closed. The check uses the code folder after any earlier
+queued changes. Removing a host leaves its agent tile running, releases its
+setup slot and skips the exit recheck for that registration.
 
 The [host setup brief](agent-launch.md#local-host-setup-agent-1263) uses main-owned
 registration and origin data. Agent output and reports have no authority over

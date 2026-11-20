@@ -195,9 +195,6 @@ test("an empty setup dialog stays open on an interior click and closes on backdr
   expect(within(dialog).getByText("No agents available")).toBeTruthy();
   const start = within(dialog).getByRole("button", { name: "Start agent" });
   expect(start.matches(":disabled")).toBe(true);
-  const form = start.closest("form");
-  if (!form) throw new Error("Missing setup form");
-  fireEvent.submit(form);
   fireEvent.click(dialog, { clientX: 0, clientY: 0 });
   expect(dialog.isConnected).toBe(true);
   fireEvent.click(dialog, { clientX: 1, clientY: 1 });

@@ -182,15 +182,35 @@ interface HostSetupRun {
   id: string;
   name: string;
   started: boolean;
-  removed?: true;
 }
+
+type HostOperation =
+  | Exclude<HostsAction, { action: "setup-agent" | "show-setup-agent" }>
+  | { action: "setup-recheck"; host: string; registration: symbol };
 
 export class Hosts {
   private readonly setupAgents = new Map<string, HostSetupRun>();
+  private readonly registrationIds = new Map<string, symbol>();
+
+  private registrationId(host: string): symbol {
+    const current = this.registrationIds.get(host);
+    if (current) return current;
+    const id = Symbol();
+    this.registrationIds.set(host, id);
+    return id;
+  }
+
+  private setupKeyUntrusted(host: RegisteredHost): boolean {
+    const preflight = this.checklists.get(host.host)?.preflight ?? host.observation?.preflight;
+    return (
+      this.setupSshTrust.get(host.host)?.untrusted ??
+      (hostKeyUntrusted(preflight?.ssh) || untrustedSetupKey(this.results.get(host.host)))
+    );
+  }
 
   setupAgentId(host: string): string | undefined {
     const run = this.setupAgents.get(host);
-    return run?.started && !run.removed ? run.id : undefined;
+    return run?.started ? run.id : undefined;
   }
 
   async startSetupAgent(
@@ -204,13 +224,10 @@ export class Hosts {
     const run: HostSetupRun = { id: randomUUID(), name: provider.name, started: false };
     const validate = () => {
       const current = this.registered(host, registration.codeFolder);
-      const latest = this.checklists.get(host)?.preflight ?? current.observation?.preflight;
       if (
         this.setupAgents.get(host) !== run ||
-        run.removed ||
         this.cancellation.signal.aborted ||
-        (latest ? hostKeyUntrusted(latest.ssh) : untrustedSetupKey(this.results.get(host))) ||
-        untrustedSetupKey(this.resourceResults.get(host)) ||
+        this.setupKeyUntrusted(current) ||
         this.store.get().agents[agent] !== true ||
         repositories.some((path) => !this.repositories().some((repo) => repo.path === path))
       )
@@ -247,15 +264,20 @@ export class Hosts {
   async setupAgentExited(id: string, recheck: boolean): Promise<void> {
     const entry = [...this.setupAgents].find(([, run]) => run.id === id);
     if (!entry) return;
-    const [host, run] = entry;
+    const [host] = entry;
     this.setupAgents.delete(host);
     viewChanges.publish("hosts");
-    const registration = this.store.get().registeredHosts?.find((entry) => entry.host === host);
-    if (!recheck || run.removed || !registration) return;
+    if (!recheck) return;
     try {
-      await this.action({ action: "preflight", host, codeFolder: registration.codeFolder });
+      await this.performAction({
+        action: "setup-recheck",
+        host,
+        registration: this.registrationId(host),
+      });
     } catch {
       console.warn("Setup agent host recheck failed");
+    } finally {
+      viewChanges.publish("hosts", "agents");
     }
   }
 
@@ -511,6 +533,7 @@ export class Hosts {
   /** No timers: stale or absent observations are refreshed on demand. */
   async inventory(host: string): Promise<HostResult> {
     const registration = this.registered(host);
+    const registrationId = this.registrationId(host);
     const seen = this.observed.get(host);
     // Until the explicit SSH trust boundary is cleared, a background inventory
     // cannot connect or supersede that observation with a local artifact failure.
@@ -529,7 +552,8 @@ export class Hosts {
       if (!pending) {
         // Explicit host checks can finish while this background read is in flight.
         const previous = this.results.get(host);
-        const current = () => this.results.get(host) === previous;
+        const current = () =>
+          this.registrationIds.get(host) === registrationId && this.results.get(host) === previous;
         pending = this.run(
           host,
           {
@@ -746,6 +770,9 @@ export class Hosts {
     throw new Error("Invalid host copy");
   }
   private readonly results = new HostObservations<string, HostResult>();
+  // Setup authorization follows direct SSH evidence independently of display snapshots.
+  private readonly setupSshTrust = new Map<string, { order: number; untrusted: boolean }>();
+  private sshDispatchOrder = 0;
   /** Display-only resource replies never seed the launch inventory. */
   private readonly resourceResults = new HostObservations<string, HostResult>();
   private readonly progress = new Map<string, HostCheckProgress>();
@@ -911,7 +938,8 @@ export class Hosts {
         const setupAgent = this.setupAgents.get(host.host);
         return {
           ...host,
-          ...(setupAgent?.started && !setupAgent.removed
+          setupKeyUntrusted: this.setupKeyUntrusted(host),
+          ...(setupAgent?.started
             ? { setupAgent: { id: setupAgent.id, name: setupAgent.name } }
             : {}),
           ...(checklist &&
@@ -1341,26 +1369,26 @@ export class Hosts {
     trustSignal?: AbortSignal,
     confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>,
   ): Promise<HostsState> {
-    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey).finally(
-      () => {
-        if (hostsAction(input) && !["progress", "cancel-trust"].includes(input.action))
-          viewChanges.publish("hosts", "agents");
-      },
-    );
-  }
-  private performAction(
-    input: unknown,
-    confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
-    launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
-    trustSignal?: AbortSignal,
-    confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>,
-  ): Promise<HostsState> {
     if (
       !hostsAction(input) ||
       input.action === "setup-agent" ||
       input.action === "show-setup-agent"
     )
       return Promise.reject(new Error("Invalid host action"));
+    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey).finally(
+      () => {
+        if (!["progress", "cancel-trust"].includes(input.action))
+          viewChanges.publish("hosts", "agents");
+      },
+    );
+  }
+  private performAction(
+    input: HostOperation,
+    confirm?: (content: DialogContent, signal?: AbortSignal) => Promise<boolean>,
+    launchRecipe?: (target: RemoteTarget, finished?: () => void) => Promise<unknown>,
+    trustSignal?: AbortSignal,
+    confirmHostKey?: (content: PlainDialogContent, signal: AbortSignal) => Promise<DialogOutcome>,
+  ): Promise<HostsState> {
     if (input.action === "cancel-trust") return Promise.resolve(this.state());
     if (input.action === "trust-host-key") {
       const host = input.host;
@@ -1444,11 +1472,15 @@ export class Hosts {
         "change-folder",
         "create-folder",
         "preflight",
+        "setup-recheck",
         "locations",
       ].includes(input.action)
     )
       this.sidebarLocations = undefined;
-    const isCheck = input.action === "preflight" || input.action === "draft-preflight";
+    const isCheck =
+      input.action === "preflight" ||
+      input.action === "draft-preflight" ||
+      input.action === "setup-recheck";
     const host = "host" in input ? input.host : undefined;
     let release: (() => void) | undefined;
     const hostWork = host ? (this.hostPending.get(host) ?? Promise.resolve()) : Promise.resolve();
@@ -1624,12 +1656,20 @@ export class Hosts {
           this.sessionInventories.set(input.host, result);
           return this.state();
         }
-        if (input.action === "preflight" || input.action === "draft-preflight") {
+        if (isCheck) {
           const registration =
             input.action === "preflight"
               ? this.registered(input.host, input.codeFolder)
               : hosts.find((entry) => entry.host === input.host);
-          if (registration && registration.codeFolder !== input.codeFolder)
+          if (
+            input.action === "setup-recheck" &&
+            this.registrationIds.get(input.host) !== input.registration
+          )
+            return this.state();
+          const codeFolder =
+            input.action === "setup-recheck" ? registration?.codeFolder : input.codeFolder;
+          if (codeFolder === undefined) return this.state();
+          if (registration && registration.codeFolder !== codeFolder)
             throw new Error("Folder changed");
           this.progress.set(input.host, {
             host: input.host,
@@ -1647,7 +1687,7 @@ export class Hosts {
           try {
             const preflight = await this.preflight(
               input.host,
-              input.codeFolder,
+              codeFolder,
               registration,
               connection,
             );
@@ -1882,8 +1922,9 @@ export class Hosts {
           await this.updateRegistrations((hosts) =>
             hosts.filter((entry) => entry.host !== host.host),
           );
-          const setupAgent = this.setupAgents.get(host.host);
-          if (setupAgent) setupAgent.removed = true;
+          this.setupAgents.delete(host.host);
+          this.registrationIds.delete(host.host);
+          this.setupSshTrust.delete(host.host);
           this.locations = this.locations.filter((entry) => entry.host !== host.host);
           this.results.delete(host.host);
           this.checklists.delete(host.host);
@@ -2001,6 +2042,9 @@ export class Hosts {
     } = {},
   ): Promise<HostResult> {
     const currentObservation = options.currentObservation ?? (() => true);
+    const registration = this.store.get().registeredHosts?.some((entry) => entry.host === host)
+      ? this.registrationId(host)
+      : undefined;
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
@@ -2041,6 +2085,7 @@ export class Hosts {
       let result: unknown;
       // Provider preparation can await. Revoke stale mutation authority before dispatch.
       if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
+      const order = ++this.sshDispatchOrder;
       try {
         const requestWithAgents = { ...request, agents: probes };
         result = this.execute
@@ -2066,6 +2111,19 @@ export class Hosts {
           result.facts.codeFolder !== request.codeFolder)
       )
         return failed("invalid-reply", "reply");
+      if (registration && this.registrationIds.get(host) === registration) {
+        const untrusted = untrustedSetupKey(result);
+        const previous = this.setupSshTrust.get(host);
+        // A newer successful connection clears a key failure. An unrelated failure
+        // (for example, an unreachable host) provides no evidence about its key.
+        if (
+          (untrusted || connectionChecks(result).ssh.state === "pass") &&
+          order > (previous?.order ?? 0)
+        ) {
+          this.setupSshTrust.set(host, { order, untrusted });
+          if (previous?.untrusted !== untrusted) viewChanges.publish("hosts");
+        }
+      }
       if (!result.ok)
         return {
           ...failed(result.reason, "connection"),

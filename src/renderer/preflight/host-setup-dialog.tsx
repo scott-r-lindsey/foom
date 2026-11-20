@@ -73,18 +73,7 @@ export function HostSetupDialog({
         repositories need. It works in its own tile and will ask you there if it needs a password or
         a decision.
       </p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (starting || !chosen || !selection.length) return;
-          setStarting(true);
-          setFailed(false);
-          void start(chosen, selection).then(close, () => {
-            setStarting(false);
-            setFailed(true);
-          });
-        }}
-      >
+      <div>
         <label className="host-setup-agent-picker">
           Agent
           <select
@@ -144,14 +133,22 @@ export function HostSetupDialog({
             Cancel
           </button>
           <button
-            type="submit"
+            type="button"
             className="primary"
             disabled={starting || !chosen || !selection.length}
+            onClick={() => {
+              setStarting(true);
+              setFailed(false);
+              void start(chosen, selection).then(close, () => {
+                setStarting(false);
+                setFailed(true);
+              });
+            }}
           >
             {starting ? "Starting…" : "Start agent"}
           </button>
         </footer>
-      </form>
+      </div>
     </dialog>
   );
 }

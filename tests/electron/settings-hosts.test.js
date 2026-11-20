@@ -555,6 +555,11 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
   await expect(repo).toBeVisible();
   await expect(repo).toBeChecked();
   await expect(dialog.getByRole("checkbox")).toHaveCount(1);
+  await expect(start).toBeEnabled();
+  await filter.press("Enter");
+  await expect(dialog).toBeVisible();
+  await expect(start).toBeEnabled();
+  await expect.poll(() => readFile(setupArguments, "utf8").catch(() => "")).toBe("");
   await filter.clear();
   await expect(dialog.getByRole("checkbox")).toHaveCount(6);
   assert.ok(
@@ -571,7 +576,7 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
     );
   const before = await checkedAt();
   const beforeCalls = await readFile(calls, "utf8");
-  await start.click();
+  await start.press("Enter");
   await expect(dialog).toBeHidden();
   await expect(navigation).toBeVisible();
   await expect(status).toHaveText("Setting up · Codex");

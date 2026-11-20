@@ -155,18 +155,104 @@ test("setup refuses stale selections, untrusted keys and unsafe origins and rele
   expect(launch).toHaveBeenCalledTimes(2);
 });
 
-test("a removed setup target does not recheck or launch a replacement registration on exit", async () => {
+test("new background SSH key failures fence setup even with a saved passing checklist", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(settings.registeredHosts[0]?.observation?.preflight.ssh.state).toBe("pass");
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+  try {
+    run.mockResolvedValueOnce({ ok: false, reason: "host-key-changed" });
+    expect(await hosts.inventory("worker")).toMatchObject({ reason: "host-key-changed" });
+  } finally {
+    now.mockRestore();
+  }
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Setup agent unavailable");
+  expect(launch).not.toHaveBeenCalled();
+  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(true);
+  run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+  expect(await hosts.inventory("worker")).toMatchObject({ reason: "unreachable" });
+  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(true);
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(false);
+  await expect(hosts.startSetupAgent(input, launch)).resolves.toBeTypeOf("string");
+});
+
+test("an older inventory reply cannot replace a newer setup trust decision", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const dispatched = Promise.withResolvers<undefined>();
+  const inventoryResult = Promise.withResolvers<HostResult>();
+  run.mockImplementationOnce(() => {
+    dispatched.resolve(undefined);
+    return inventoryResult.promise;
+  });
+  const inventory = hosts.inventory("worker");
+  await dispatched.promise;
+  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+  inventoryResult.resolve({ ok: false, reason: "host-key-changed" });
+  await inventory;
+  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(false);
+});
+
+test("a replacement registration can start setup before the removed host's tile exits", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const launch = () => Promise.resolve();
+  const id = await hosts.startSetupAgent(input, launch);
+  await hosts.action({ action: "remove", host: "worker" });
+  await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
+  expect(hosts.setupAgentId("worker")).toBeUndefined();
+  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+  const replacement = await hosts.startSetupAgent(input, launch);
+  expect(replacement).not.toBe(id);
+  run.mockClear();
+  await hosts.setupAgentExited(id, true);
+  expect(run).not.toHaveBeenCalled();
+  expect(hosts.state().hosts[0]?.setupAgent?.id).toBe(replacement);
+  await hosts.setupAgentExited(replacement, true);
+  expect(run).toHaveBeenCalledWith("worker", expect.objectContaining({ agentDetails: true }));
+});
+
+test("setup exit checks the code folder committed by an in-flight change", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   const id = await hosts.startSetupAgent(
     { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
     () => Promise.resolve(),
   );
-  await hosts.action({ action: "remove", host: "worker" });
-  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
-  expect(hosts.setupAgentId("worker")).toBeUndefined();
-  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
-  await hosts.setupAgentExited(id, true);
-  expect(run).not.toHaveBeenCalled();
+  const codeFolder = "/home/worker/new-folder";
+  const started = Promise.withResolvers<undefined>();
+  const changeResult = Promise.withResolvers<HostResult>();
+  run.mockImplementationOnce(() => {
+    started.resolve(undefined);
+    return changeResult.promise;
+  });
+  const change = hosts.action({ action: "change-folder", host: "worker", codeFolder });
+  await started.promise;
+  const exiting = hosts.setupAgentExited(id, true);
+  const result = { ok: true, facts: { ...facts, codeFolder } } as const;
+  run.mockResolvedValue(result);
+  changeResult.resolve(result);
+  await Promise.all([change, exiting]);
+  expect(run).toHaveBeenCalledWith(
+    "worker",
+    expect.objectContaining({ operation: "inspect", agentDetails: true, codeFolder }),
+  );
+  expect(settings.registeredHosts[0]?.observation?.preflight.result).toMatchObject({
+    ok: true,
+    facts: { codeFolder },
+  });
 });
 test("test does not authorize, add records enrollment, refresh replaces stale facts, removal never kills", async () => {
   expect(await hosts.action({ action: "list" })).toEqual({ hosts: [], locations: [] });
