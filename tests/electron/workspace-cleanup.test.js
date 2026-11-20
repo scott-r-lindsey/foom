@@ -736,7 +736,7 @@ for (const { front, queued, sameBoard, checking, background } of [
                 repo,
                 path,
                 identity,
-                (branch, changes) =>
+                (branch, changes, _automatic, fileCount) =>
                   owner.deps.dialog(
                     {
                       title: "Remove worktrees?",
@@ -749,6 +749,7 @@ for (const { front, queued, sameBoard, checking, background } of [
                           branch,
                           path,
                           changes,
+                          fileCount,
                         },
                       },
                     },
@@ -1240,7 +1241,7 @@ test("detached removals share one review per checkout and approve independently"
           repo,
           path,
           identity,
-          (branch, changes) => {
+          (branch, changes, _automatic, fileCount) => {
             globalThis.detachedReviews.push(id);
             return owner.deps.dialog(
               {
@@ -1248,7 +1249,7 @@ test("detached removals share one review per checkout and approve independently"
                 accept: "Approve all",
                 removal: {
                   group: "detached-regression",
-                  item: { id, branch, path, changes },
+                  item: { id, branch, path, changes, fileCount },
                 },
               },
               globalThis.detachedAbort.signal,
@@ -1347,7 +1348,7 @@ test("detached removals share one review per checkout and approve independently"
   });
   await revealApproval(
     queue,
-    queue.getByRole("button", { name: "Discard and remove", exact: true }),
+    queue.getByRole("button", { name: "Discard 1 file and remove", exact: true }),
   );
   await expect(bulk).toBeEnabled();
   await expect(queue.getByText("notes.txt", { exact: true })).toHaveCount(1);

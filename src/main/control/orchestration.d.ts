@@ -90,7 +90,12 @@ export interface OrchestrationHost {
     repository: string,
     worktree: string,
     identity: string,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    confirm: (
+      branch: string,
+      changes: string,
+      automatic?: boolean,
+      fileCount?: number,
+    ) => Promise<boolean>,
     revalidate: () => void,
     onReview?: (pending: boolean) => Promise<void>,
   ): Promise<boolean>;

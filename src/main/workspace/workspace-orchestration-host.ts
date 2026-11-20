@@ -13,6 +13,7 @@ import { hasBypassArgument } from "../agents/default-arguments";
 import type { OrchestrationHost } from "../control/orchestration.d";
 import type { OrchestrationHostContext } from "./workspace-capabilities";
 import { reviewSnapshot } from "./review-snapshot";
+import { remoteRemovalStatus } from "./worktree-operations";
 
 /** Host adapters share the coordinator's reservations; no lock state lives here. */
 export function workspaceOrchestrationHost(caps: OrchestrationHostContext): OrchestrationHost {
@@ -522,10 +523,15 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
               )
                 throw new ControlError("conflict");
               const current = await inspect(repository, tree);
+              const status = remoteRemovalStatus(current.changes, (path) =>
+                prepareTail([path]).replace(/[\p{Cc}\p{Cf}]/gu, " "),
+              );
               if (
                 !(await confirm(
                   `${current.branch === "HEAD" ? "Detached HEAD" : current.branch} · ${tree.host}`,
-                  prepareTail([current.changes]).replace(/[^\P{Cc}\n\t]|\p{Cf}/gu, " "),
+                  status.changes,
+                  false,
+                  status.fileCount,
                 ))
               )
                 return false;

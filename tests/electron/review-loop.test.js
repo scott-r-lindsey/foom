@@ -587,7 +587,7 @@ for (const scenario of [
         await clickApproval(
           confirmation,
           request.getByRole("button", {
-            name: "Discard and remove",
+            name: "Discard 1 file and remove",
             exact: true,
           }),
         );

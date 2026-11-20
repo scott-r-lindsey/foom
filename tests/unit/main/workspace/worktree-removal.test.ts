@@ -35,6 +35,25 @@ afterEach(async () => {
 });
 
 describe("safe removal", () => {
+  it.skipIf(process.platform !== "linux")(
+    "reads byte-exact Git status for distinct non-UTF-8 file names",
+    async () => {
+      const { path } = await service.createWorktree(repo, "byte-paths");
+      const names = [0x80, 0x81].map((byte) =>
+        Buffer.concat([Buffer.from(`${path}/file-`), Buffer.from([byte])]),
+      );
+      try {
+        for (const name of names) await writeFile(name, "");
+        const status = await service.changes(repo, path, undefined, "latin1");
+        expect(operations.removalStatus(status)).toEqual({
+          changes: "?? file-�\0?? file-�\0",
+          fileCount: 2,
+        });
+      } finally {
+        for (const name of names) await rm(name, { force: true });
+      }
+    },
+  );
   it.each(["local", "remote", "tag", "unreachable"])(
     "detached reviewer requires a ref (%s)",
     async (kind) => {

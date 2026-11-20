@@ -608,10 +608,15 @@ export class WorktreeService {
   // Background status reads must not refresh/write the index while removal is
   // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
   // Disable status caches so they cannot hide changes from a removal snapshot.
-  async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
+  async changes(
+    repositoryPath: string,
+    path: string,
+    identity?: string,
+    encoding: "utf8" | "latin1" = "utf8",
+  ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repositoryPath, path));
     await this.checkRemovalIdentity(repositoryPath, path, expected);
-    return git(path, [
+    const args = [
       "--no-optional-locks",
       "-c",
       "core.fsmonitor=false",
@@ -621,7 +626,8 @@ export class WorktreeService {
       "--porcelain=v1",
       "-z",
       "--untracked-files=all",
-    ]);
+    ];
+    return git(path, args, undefined, undefined, false, encoding);
   }
 
   /** A fresh config-neutral status snapshot for group cleanup, never explicit removal. */

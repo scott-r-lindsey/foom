@@ -317,17 +317,19 @@ it("remote removal retains confirmation, rechecks authorization and refuses whil
     "/local/repo",
     expect.objectContaining({ operation: "remove-worktree" }),
   );
+  const status = '?? "file-\\200"\n?? "file-\\201"\n';
+  hosts.worktree.mockResolvedValueOnce({ ...tree, changes: status });
   const revalidate = vi.fn();
   expect(
     await host.remove("/local/repo", created.path, created.identity, confirm, revalidate),
   ).toBe(true);
-  expect(confirm).toHaveBeenLastCalledWith("feature · worker", "");
+  expect(confirm).toHaveBeenLastCalledWith("feature · worker", "?? file-�\0?? file-�\0", false, 2);
   expect(revalidate).toHaveBeenCalledTimes(2);
   expect(hosts.worktree).toHaveBeenCalledWith("worker", "/local/repo", {
     operation: "remove-worktree",
     path: tree.path,
     identity: tree.identity,
-    changes: "",
+    changes: status,
   });
   expect(host.worktreeHost?.(created.path)).toBeUndefined();
   expect(caps.busyWorktrees.size).toBe(0);
@@ -501,7 +503,7 @@ it("branch changes retain checkout authority and use the current branch in launc
   expect(await host.remove("/local/repo", created.path, created.identity, confirm, () => {})).toBe(
     false,
   );
-  expect(confirm).toHaveBeenCalledWith("Detached HEAD · worker", "");
+  expect(confirm).toHaveBeenCalledWith("Detached HEAD · worker", "", false, 0);
 });
 
 it.each(["before inspection", "during confirmation"])(

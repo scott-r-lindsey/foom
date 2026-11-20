@@ -533,6 +533,8 @@ test.skipIf(process.platform === "win32")(
       agents: [],
     } as const;
     let changes = "";
+    let lateChanges: string | undefined;
+    let statusReads = 0;
     let inspectedHead = "a".repeat(40);
     let inspectedOrigin: string = base.origin;
     let refs = "";
@@ -545,7 +547,10 @@ test.skipIf(process.platform === "win32")(
       if (args.includes("ls-remote")) return Promise.resolve(advertised);
       if (args.includes("symbolic-ref")) return Promise.resolve("feature\n");
       if (args.includes("HEAD^{commit}")) return Promise.resolve(inspectedHead);
-      if (args.includes("status") && cwd !== repository) return Promise.resolve(changes);
+      if (args.includes("status") && cwd !== repository) {
+        if (lateChanges !== undefined && ++statusReads === 2) return Promise.resolve(lateChanges);
+        return Promise.resolve(changes);
+      }
       return Promise.resolve("");
     });
     const created = await manageHost(
@@ -692,6 +697,16 @@ test.skipIf(process.platform === "win32")(
     expect(
       mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
     ).toBe(false);
+    lateChanges = "?? late-file\n";
+    expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    expect(statusReads).toBe(2);
+    expect(
+      mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
+    ).toBe(false);
+    lateChanges = undefined;
     expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toMatchObject({
       ok: true,
     });

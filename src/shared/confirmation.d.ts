@@ -19,6 +19,8 @@ export interface RemovalItem {
   branch: string;
   path: string;
   changes: string;
+  /** Main-owned count of distinct Git paths before display decoding. */
+  fileCount?: number;
   pullRequest?: { number: number; state: "OPEN" | "CLOSED" | "MERGED" };
 }
 export interface RemovalFeed {
@@ -113,6 +115,7 @@ export interface DialogContent {
   worktrees?: readonly { branch: string; reason?: string }[];
   worktreePath?: string;
   changes?: string;
+  discardCount?: number;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
 export interface DialogRequest

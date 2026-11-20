@@ -1107,6 +1107,7 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
         ? {
             worktreePath: `/fixture/${id}`,
             changes: id === "c" ? "D  notes.txt\0?? notes.txt\0" : "",
+            discardCount: id === "c" ? 1 : 0,
             ...(id === "a" ? { facts: [{ label: "PR", value: "#123 · OPEN" }] } : {}),
           }
         : {}),
@@ -1184,37 +1185,38 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   expect(within(files).getAllByText("notes.txt")).toHaveLength(2);
   expect(within(files).getByText("deleted")).toBeTruthy();
   expect(within(files).getByText("untracked")).toBeTruthy();
-  const discard = within(c).getByRole("button", { name: "Discard and remove" });
+  const discard = within(c).getByRole("button", { name: "Discard 1 file and remove" });
+  expect(discard.textContent).toBe("Discard 1 file and remove");
   expect(discard).toHaveProperty("disabled", true);
-  expect(within(c).getByText("Discards 1 file")).toBeTruthy();
+  const summary = within(c).getByText("Discards 1 file").parentElement;
+  if (!summary) throw new Error("Missing discard summary");
   const viewport = view.getByRole("region", { name: "Pending approvals" });
   vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 500, 500));
-  const fileBounds = vi.spyOn(c, "getBoundingClientRect");
-  fileBounds.mockReturnValue(new DOMRect(20, 490, 400, 20));
+  const buttonBounds = vi
+    .spyOn(discard, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(20, 470, 100, 25));
+  const summaryBounds = vi
+    .spyOn(summary, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(20, -1, 400, 20));
   await act(async () => {
     receive({ ...request, approvals: [row("a"), row("b", "Authority"), row("c")] });
     await vi.advanceTimersByTimeAsync(900);
   });
-  expect(discard).toHaveProperty("disabled", true);
-  fileBounds.mockReturnValue(new DOMRect(20, 470, 400, 20));
   fireEvent.scroll(viewport);
-  expect(discard).toHaveProperty("disabled", false);
-  const box = within(c).getByRole("region", { name: "Review files to discard" });
-  vi.spyOn(box, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 471, 400, 17));
-  vi.spyOn(box, "scrollHeight", "get").mockReturnValue(60);
-  vi.spyOn(box, "clientHeight", "get").mockReturnValue(20);
-  box.scrollTop = 20;
-  fireEvent.scroll(box);
   expect(discard).toHaveProperty("disabled", true);
-  box.scrollTop = 40;
-  fireEvent.scroll(box);
-  expect(discard).toHaveProperty("disabled", false);
-  box.scrollTop = 0;
-  fireEvent.scroll(box);
+  summaryBounds.mockReturnValue(new DOMRect(20, 440, 400, 20));
+  buttonBounds.mockReturnValue(new DOMRect(20, 490, 100, 25));
+  fireEvent.scroll(viewport);
+  expect(discard).toHaveProperty("disabled", true);
+  buttonBounds.mockReturnValue(new DOMRect(20, 470, 100, 25));
+  fireEvent.scroll(viewport);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(900);
+  });
   expect(discard).toHaveProperty("disabled", false);
   fireEvent.click(discard);
   expect(answer).not.toHaveBeenCalled();
-  fileBounds.mockReturnValue(new DOMRect(20, 490, 400, 20));
+  summaryBounds.mockReturnValue(new DOMRect(20, -1, 400, 20));
   fireEvent.click(discard);
   expect(answer).not.toHaveBeenCalled();
   fireEvent.scroll(viewport);

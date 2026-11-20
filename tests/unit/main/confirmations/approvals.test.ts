@@ -15,7 +15,10 @@ function setup() {
       title: "Remove?",
       accept: "Remove",
       approval: { kind: "Worktree removal", origin: "Claude · Tile 1 · repo" },
-      removal: { group: "generation", item: { id, branch: id, path: `/repo/${id}`, changes } },
+      removal: {
+        group: "generation",
+        item: { id, branch: id, path: `/repo/${id}`, changes, fileCount: changes ? 1 : 0 },
+      },
     }) satisfies DialogContent;
   return { queue, present, content };
 }
@@ -95,6 +98,7 @@ test.each([" M tracked.txt\0", "?? untracked.txt\0"])(
     await vi.advanceTimersByTimeAsync(900);
     const rows = queue.feed.current();
     expect(rows.map((row) => row.request.changes)).toEqual(["", changes]);
+    expect(rows.map((row) => row.request.discardCount)).toEqual([0, 1]);
     queue.feed.answer(
       "queue",
       rows.map((row) => row.request.id),
@@ -107,6 +111,19 @@ test.each([" M tracked.txt\0", "?? untracked.txt\0"])(
     await expect(dirty).resolves.toBe(true);
   },
 );
+test("a dirty removal requires a main-owned count", async () => {
+  const { queue, content } = setup();
+  const dirty = content("dirty", " M file\0");
+  for (const fileCount of [0, -1, 0.5]) {
+    await expect(
+      queue.requestOutcome({
+        ...dirty,
+        removal: { ...dirty.removal, item: { ...dirty.removal.item, fileCount } },
+      }),
+    ).resolves.toBe("unavailable");
+  }
+  expect(queue.feed.current()).toEqual([]);
+});
 test("duplicates share one row, each withdrawal releases only its caller, expiry removes requests", async () => {
   const { queue, content } = setup();
   const cancel = new AbortController();
@@ -115,7 +132,7 @@ test("duplicates share one row, each withdrawal releases only its caller, expiry
     ...content("a"),
     removal: {
       group: "generation",
-      item: { id: "another-op", branch: "a", path: "/repo/a", changes: "" },
+      item: { id: "another-op", branch: "a", path: "/repo/a", changes: "", fileCount: 0 },
     },
   });
   expect(queue.feed.current()).toHaveLength(1);

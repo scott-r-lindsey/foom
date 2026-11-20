@@ -1581,7 +1581,7 @@ process.stdout.write("FOOM_AGENT_READY`,
       await clickApproval(
         confirmation,
         confirmation.getByRole("button", {
-          name: "Discard and remove",
+          name: "Discard 1 file and remove",
           exact: true,
         }),
       );
@@ -1657,7 +1657,7 @@ process.stdout.write("FOOM_AGENT_READY`,
         await clickApproval(
           confirmation,
           removalRow("batch-selected").getByRole("button", {
-            name: "Discard and remove",
+            name: "Discard 1 file and remove",
             exact: true,
           }),
         );

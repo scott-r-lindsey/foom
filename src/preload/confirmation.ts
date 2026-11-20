@@ -228,6 +228,7 @@ const validRemovalItem: Validator<RemovalItem> = shape({
   branch: text,
   path: text,
   changes: text,
+  fileCount: either(absent, range(0, 25_050, true)),
   pullRequest: either(
     absent,
     shape({
@@ -382,6 +383,7 @@ const dialogFields = {
   ),
   worktreePath: either(absent, nonempty),
   changes: either(absent, boundedChanges),
+  discardCount: either(absent, range(0, 25_050, true)),
   sessions: either(
     absent,
     array(

@@ -121,6 +121,14 @@ export class Approvals {
     delete plain.removalFeed;
     delete plain.approvalFeed;
     delete plain.approvals;
+    const kind = approval?.kind ?? (removal ? "Worktree removal" : "Background");
+    const item =
+      kind === "Worktree removal" && !pluginFeed && !plain.pairing ? removal?.item : undefined;
+    if (
+      item?.changes &&
+      !(item.fileCount && Number.isSafeInteger(item.fileCount) && item.fileCount > 0)
+    )
+      return Promise.resolve("unavailable");
     // Callers supply canonical target/generation keys where an operation has live state.
     const key = JSON.stringify([
       approval?.kind,
@@ -132,15 +140,13 @@ export class Approvals {
     let entry = [...this.entries.values()].find((entry) => entry.key === key);
     if (entry) entry.row = { ...entry.row, repeats: entry.row.repeats + 1 };
     else {
-      const kind = approval?.kind ?? (removal ? "Worktree removal" : "Background");
-      const item =
-        kind === "Worktree removal" && !pluginFeed && !plain.pairing ? removal?.item : undefined;
       const request = {
         ...plain,
         ...(item
           ? {
               worktreePath: item.path,
               changes: item.changes,
+              ...(item.fileCount === undefined ? {} : { discardCount: item.fileCount }),
               accept: item.changes ? "Discard changes and remove" : "Remove worktree",
               ...(item.pullRequest
                 ? {

@@ -253,6 +253,11 @@ prunable after its row was rendered.
 
 ## Explicit orchestrator removal diagnostics (#819)
 
+Local removal approvals keep the original NUL-delimited Git status bytes until
+the last deletion check. Remote management keeps Git's C-quoted status in the
+existing wire field and reads it again immediately before removal. The approval
+display counts distinct primary paths before decoding the file names for display.
+
 Ownership uses the captured filesystem and Git registration identity, so a child
 checking out a different branch or detaching HEAD does not invalidate ownership.
 Explicit removal refuses a detached HEAD unless `for-each-ref --contains=HEAD`

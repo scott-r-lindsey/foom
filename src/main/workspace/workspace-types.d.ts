@@ -210,7 +210,12 @@ export interface WorkspaceMethods {
     repository: string,
     worktree: string,
     branch: string | null,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    confirm: (
+      branch: string,
+      changes: string,
+      automatic?: boolean,
+      fileCount?: number,
+    ) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,

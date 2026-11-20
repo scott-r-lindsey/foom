@@ -1,11 +1,11 @@
 const { expect } = require("./test-policy.js");
 
-/** Reveal the decision and any required files, then let the movement guard settle. */
+/** Reveal the decision and its consequence, then let the movement guard settle. */
 async function revealApproval(page, button) {
   await expect(page.locator(".approval-placeholder")).toHaveCount(0);
   const revealedRow = await button.evaluate((element) => {
     if (!element.hasAttribute("data-approval-discard")) return false;
-    element.closest(".approval-removal").scrollIntoView({ block: "center" });
+    element.closest("footer").scrollIntoView({ block: "center" });
     return true;
   });
   if (!revealedRow) await button.scrollIntoViewIfNeeded();

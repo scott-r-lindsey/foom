@@ -178,10 +178,33 @@ function RemovalActions({
   disabled: boolean;
   accept: string;
   decide: RemovalDecision;
-  discard?: { ready: boolean; check(): boolean };
+  discard?: { label: string; summary: React.ReactNode };
 }) {
+  const summaryRef = useRef<HTMLParagraphElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [visible, setVisible] = useState(false);
+  const dirty = discard !== undefined;
+  useLayoutEffect(() => {
+    if (!dirty) return;
+    const summary = summaryRef.current;
+    const button = buttonRef.current;
+    const viewport = button?.closest(".approval-scroll");
+    if (!summary || !button || !viewport) return;
+    const update = () => {
+      setVisible(visibleInQueue(summary) && visibleInQueue(button));
+    };
+    const observer = new IntersectionObserver(update, { root: viewport, threshold: 1 });
+    observer.observe(summary);
+    observer.observe(button);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [dirty]);
   return (
-    <footer>
+    <footer className={dirty ? "approval-discard-actions" : undefined}>
+      {discard && <p ref={summaryRef}>{discard.summary}</p>}
       <button
         type="button"
         disabled={disabled}
@@ -194,93 +217,20 @@ function RemovalActions({
       </button>
       <button
         type="button"
-        disabled={disabled || (discard !== undefined && !discard.ready)}
+        ref={buttonRef}
+        disabled={disabled || (dirty && !visible)}
         className="confirmation-accept"
         aria-label={discard ? undefined : `Approve · ${accept}`}
         data-approval-decision={id}
         data-approval-discard={discard ? "" : undefined}
         onClick={(event) => {
-          if (!discard || discard.check()) decide(event, true);
+          if (!dirty || (visibleInQueue(summaryRef.current) && visibleInQueue(event.currentTarget)))
+            decide(event, true);
         }}
       >
-        {discard ? "Discard and remove" : "Approve"}
+        {discard?.label ?? "Approve"}
       </button>
     </footer>
-  );
-}
-
-function canDiscard(box: HTMLDivElement | null, reachedEnd: boolean): boolean {
-  return (
-    box !== null &&
-    visibleInQueue(box.closest(".approval-removal")) &&
-    (reachedEnd || box.scrollHeight <= box.clientHeight)
-  );
-}
-
-function DiscardReview({
-  request,
-  items,
-  fileCount,
-  disabled,
-  decide,
-}: {
-  request: DialogRequest;
-  items: ReturnType<typeof parseChanges>;
-  fileCount: number;
-  disabled: boolean;
-  decide: RemovalDecision;
-}) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const reachedEndRef = useRef(false);
-  const [ready, setReady] = useState(false);
-  useLayoutEffect(() => {
-    const box = boxRef.current;
-    const row = box?.closest(".approval-removal");
-    const viewport = row?.closest(".approval-scroll");
-    if (!box || !row || !viewport) return;
-    const update = () => {
-      setReady(canDiscard(box, reachedEndRef.current));
-    };
-    const intersection = new IntersectionObserver(update, { root: viewport, threshold: 1 });
-    intersection.observe(row);
-    const resize = new ResizeObserver(update);
-    resize.observe(box);
-    if (box.firstElementChild) resize.observe(box.firstElementChild);
-    viewport.addEventListener("scroll", update);
-    return () => {
-      intersection.disconnect();
-      resize.disconnect();
-      viewport.removeEventListener("scroll", update);
-    };
-  }, []);
-  return (
-    <>
-      <div
-        className="approval-file-review"
-        aria-label="Review files to discard"
-        role="region"
-        tabIndex={0}
-        ref={boxRef}
-        onScroll={(event) => {
-          const box = event.currentTarget;
-          const end = box.scrollHeight - box.clientHeight;
-          // The reported scroll position can be fractional at interface zoom.
-          if (end > 0 && end - box.scrollTop <= 1 && visibleInQueue(box))
-            reachedEndRef.current = true;
-          setReady(canDiscard(box, reachedEndRef.current));
-        }}
-      >
-        <ChangeList items={items} fileCount={fileCount} />
-      </div>
-      {request.detail && <p className="prose">{request.detail}</p>}
-      <RemovalActions
-        id={request.id}
-        accept={request.accept}
-        disabled={disabled}
-        decide={decide}
-        discard={{ ready, check: () => canDiscard(boxRef.current, reachedEndRef.current) }}
-      />
-    </>
   );
 }
 function Worktrees({
@@ -549,7 +499,24 @@ export function ConfirmationCard({
   const copyPath = (pathId: string) => window.confirmation.copyPath(request.id, pathId);
   if (removal && request.worktreePath && request.changes !== undefined) {
     const changes = request.changes ? parseChanges(request.changes) : undefined;
-    const discardCount = new Set(changes?.map((item) => item.path)).size;
+    const discardCount = request.discardCount;
+    const files =
+      discardCount === undefined
+        ? "files"
+        : `${String(discardCount)} ${discardCount === 1 ? "file" : "files"}`;
+    const summary = (
+      <>
+        {changes ? <strong className="approval-discard-warning">Discards {files}</strong> : "Clean"}{" "}
+        · keeps branch · {removal.origin}
+        {request.facts?.map((fact) => (
+          <span key={fact.label}>
+            {" "}
+            · {fact.label} {fact.value}
+          </span>
+        ))}
+        {removal.repeats > 1 && <span> · Repeated {removal.repeats} times · one decision</span>}
+      </>
+    );
     return (
       <CopyPathContext value={copyPath}>
         <section
@@ -563,25 +530,7 @@ export function ConfirmationCard({
               <h1 id={`confirmation-title-${request.id}`} aria-label={request.worktreePath}>
                 <CopyPath value={request.worktreePath} pathId="worktree" />
               </h1>
-              <p>
-                {changes ? (
-                  <strong className="approval-discard-warning">
-                    Discards {discardCount} {discardCount === 1 ? "file" : "files"}
-                  </strong>
-                ) : (
-                  "Clean"
-                )}{" "}
-                · keeps branch · {removal.origin}
-                {request.facts?.map((fact) => (
-                  <span key={fact.label}>
-                    {" "}
-                    · {fact.label} {fact.value}
-                  </span>
-                ))}
-                {removal.repeats > 1 && (
-                  <span> · Repeated {removal.repeats} times · one decision</span>
-                )}
-              </p>
+              {!changes && <p>{summary}</p>}
             </header>
             {!changes && (
               <RemovalActions
@@ -592,17 +541,25 @@ export function ConfirmationCard({
               />
             )}
           </div>
-          {changes ? (
-            <DiscardReview
-              key={request.changes}
-              request={request}
-              items={changes}
-              fileCount={discardCount}
-              disabled={disabled}
+          {changes && (
+            <div
+              className="approval-file-review"
+              role="region"
+              aria-label="Review files to discard"
+              tabIndex={0}
+            >
+              <ChangeList items={changes} fileCount={discardCount ?? 0} />
+            </div>
+          )}
+          {request.detail && <p className="prose">{request.detail}</p>}
+          {changes && (
+            <RemovalActions
+              id={request.id}
+              accept={request.accept}
+              disabled={disabled || !discardCount}
               decide={decide}
+              discard={{ label: `Discard ${files} and remove`, summary }}
             />
-          ) : (
-            request.detail && <p className="prose">{request.detail}</p>
           )}
         </section>
       </CopyPathContext>

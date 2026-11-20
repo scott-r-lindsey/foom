@@ -695,11 +695,15 @@ li[data-dirty="true"] > .row > .why svg {
   font: var(--type-strong-weight, 600) calc(13px * var(--type-scale, 1)) / 1.45 var(--font-mono);
   text-wrap: wrap;
 }
-.approval-removal header p {
+.approval-removal header p,
+.approval-discard-actions p {
   margin: 0;
   color: var(--muted);
   font-size: calc(11px * var(--type-scale, 1));
   overflow-wrap: anywhere;
+}
+.approval-discard-actions p {
+  flex: 1 1 14rem;
 }
 .approval-discard-warning {
   color: var(--attention-ink);
@@ -718,6 +722,9 @@ li[data-dirty="true"] > .row > .why svg {
 .approval-removal footer {
   margin-left: auto;
   padding: 0;
+}
+.approval-removal .approval-discard-actions {
+  margin-left: 0;
 }
 .approval-head button,
 .approval-bulk button {

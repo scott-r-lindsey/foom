@@ -556,7 +556,13 @@ export async function manageHost(
           return "HEAD";
         });
       if (branch !== "HEAD") await git(["check-ref-format", "--branch", branch], path);
-      const changes = await git(["status", "--porcelain", "--untracked-files=all"], request.path);
+      // Keep Git's C-quoted byte spelling in the existing wire snapshot.
+      const readChanges = () =>
+        git(
+          ["-c", "core.quotePath=true", "status", "--porcelain", "--untracked-files=all"],
+          request.path,
+        );
+      const changes = await readChanges();
       if (changes.length > 65536) throw new Error("Changes too large");
       if (request.operation === "remove-worktree") {
         if (request.changes !== changes) throw new Error("Changes changed");
@@ -600,6 +606,7 @@ export async function manageHost(
           owner.origin !== request.origin
         )
           throw new Error("Ownership changed");
+        if ((await readChanges()) !== changes) throw new Error("Changes changed");
         await git(["worktree", "remove", "--force", "--", request.path], path);
         await rm(worktreeProvenancePath(request.path));
       }

@@ -709,7 +709,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           parent.repository,
           tree.path,
           tree.identity,
-          async (branch, changes, automatic = false) => {
+          async (branch, changes, automatic = false, fileCount) => {
             if (abort.signal.aborted) return false;
             if (automatic) {
               outcome.accepted = true;
@@ -747,6 +747,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                     branch: metadataName(branch),
                     path: this.host.worktreeLabel?.(tree.path) ?? tree.path,
                     changes,
+                    ...(fileCount !== undefined ? { fileCount } : {}),
                     ...(pr ? { pullRequest: { number: pr.number, state: pr.state } } : {}),
                   },
                 },

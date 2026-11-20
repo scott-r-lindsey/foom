@@ -1,6 +1,7 @@
 import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import { expect, it, vi } from "vitest";
 import { CleanupOwner } from "../../../../src/main/workspace/cleanup-owner";
+import { remoteRemovalStatus } from "../../../../src/main/workspace/worktree-operations";
 import type { CleanupOwnerDependencies } from "../../../../src/main/workspace/cleanup-owner";
 import type { CleanupFeed } from "../../../../src/shared/cleanup";
 import type { BoardPullRequest } from "../../../../src/shared/forge";
@@ -1023,6 +1024,46 @@ it.each([
   });
   expect(f.worktrees.removeWorktree).toHaveBeenCalledTimes(mode === "final-snapshot" ? 1 : 0);
   await f.owner.dispose();
+});
+
+it("counts distinct raw paths and refuses a byte-only status change at the final removal check", async () => {
+  const f = fixture();
+  const snapshot = "D  file-\x80\0?? file-\x80\0?? file-\x81\0";
+  f.worktrees.changes.mockResolvedValue(snapshot);
+  const confirm = vi.fn(accept);
+  f.worktrees.removeWorktree.mockImplementation(
+    async (_repo, _path, _force, _identity, validate) => {
+      f.worktrees.changes.mockResolvedValue(snapshot.replace("\x81", "\x82"));
+      await validate?.();
+    },
+  );
+  await expect(
+    f.owner.removeReservedTree(repository, tree().path, "feature", confirm),
+  ).rejects.toMatchObject({ reason: "changes_changed" });
+  expect(confirm).toHaveBeenCalledWith("feature", "D  file-�\0?? file-�\0?? file-�\0", false, 2);
+  expect(f.worktrees.changes).toHaveBeenLastCalledWith(
+    repository,
+    tree().path,
+    "identity",
+    "latin1",
+  );
+});
+
+it("counts remote Git paths before display decoding and preserves rename records", () => {
+  const status = [
+    'R  "old -> name" -> "file-\\200"',
+    ' D "file-\\200"',
+    '?? "file-\\201"',
+    '?? "tab\\tname"',
+    "?? regular",
+  ].join("\n");
+  expect(remoteRemovalStatus(status, (path) => path)).toEqual({
+    fileCount: 4,
+    changes: "R  file-�\0old -> name\0 D file-�\0?? file-�\0?? tab\tname\0?? regular\0",
+  });
+  expect(() => remoteRemovalStatus('R  "unterminated', (path) => path)).toThrow(
+    "Invalid remote worktree status",
+  );
 });
 
 it("cancels pending retained-review offers on disposal and drains their reservations", async () => {
