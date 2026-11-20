@@ -772,7 +772,8 @@ export class Hosts {
   private readonly results = new HostObservations<string, HostResult>();
   // Setup authorization follows direct SSH evidence independently of display snapshots.
   private readonly setupSshTrust = new Map<string, { order: number; untrusted: boolean }>();
-  private sshDispatchOrder = 0;
+  private readonly checkConnectionOrders = new WeakMap<RemoteCheckConnection, number>();
+  private sshConnectionOrder = 0;
   /** Display-only resource replies never seed the launch inventory. */
   private readonly resourceResults = new HostObservations<string, HostResult>();
   private readonly progress = new Map<string, HostCheckProgress>();
@@ -2085,13 +2086,18 @@ export class Hosts {
       let result: unknown;
       // Provider preparation can await. Revoke stale mutation authority before dispatch.
       if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
-      const order = ++this.sshDispatchOrder;
+      // A checklist opens SSH on its first request. Later requests reuse its
+      // authentication and cannot supply newer key evidence.
+      const connection = options.connection;
+      const order =
+        (connection && this.checkConnectionOrders.get(connection)) ?? ++this.sshConnectionOrder;
+      if (connection) this.checkConnectionOrders.set(connection, order);
       try {
         const requestWithAgents = { ...request, agents: probes };
         result = this.execute
           ? await this.execute(host, requestWithAgents)
-          : await (options.connection
-              ? options.connection.manage(requestWithAgents)
+          : await (connection
+              ? connection.manage(requestWithAgents)
               : remoteManagement(
                   { host },
                   this.version,

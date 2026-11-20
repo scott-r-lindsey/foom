@@ -1035,8 +1035,9 @@ Host capability checks and repository checkout controls continue to operate inde
 Each registered SSH host card offers **Set up with an agent…** beside its
 status, including while collapsed. The action is secondary on a Ready host
 and primary otherwise. The latest key evidence from host checks or background
-inventory hides the action when the SSH host key is unknown or changed. A
-running setup agent also hides the action.
+inventory hides the action when the SSH host key is unknown or changed.
+Requests on a shared checklist stream retain the order of its original SSH
+connection. A running setup agent also hides the action.
 
 The dialog focuses the local Agent picker and preselects the configured default
 when it is enabled, installed and accepts an initial prompt. The user selects
