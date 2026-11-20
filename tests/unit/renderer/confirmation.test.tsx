@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import type { DialogRequest, ApprovalKind } from "../../../src/shared/confirmation";
 import { resolveInterfaceTheme } from "../../../src/shared/interface-themes";
 import { ConfirmationPage } from "../../../src/renderer/confirmation";
@@ -1138,6 +1138,8 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   });
   expect(view.getByRole("button", { name: "Approve all clean removals (1)" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Approve all clean removals (1)" }));
+  fireEvent.click(within(a).getByRole("button", { name: "Approve · Remove" }));
+  fireEvent.click(within(a).getByRole("button", { name: "Decline" }));
   expect(answer).not.toHaveBeenCalled();
   request = { ...request, geometryRevision: 1, theme: resolveInterfaceTheme("follow", false) };
   act(() => {
