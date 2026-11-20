@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   originSshArgs,
+  gitOriginEndpoint,
   hostAlias,
   codeFolder,
   registeredHosts,
@@ -505,6 +506,18 @@ test("local progress action accepts no host or arbitrary payload", () => {
   expect(hostsAction({ action: "progress", host: "worker" })).toBe(false);
 });
 
+test.each([
+  ["git@192.0.2.42:team/repo.git", "192.0.2.42", 22, "git@192.0.2.42"],
+  ["ssh://git@Forge.test.:02222/team/repo.git", "forge.test.", 2222, "git@Forge.test."],
+])(
+  "accepted origin %s has a matching display endpoint and SSH destination",
+  (origin, host, port, destination) => {
+    expect(gitOrigin(origin)).toBe(true);
+    expect(gitOriginEndpoint(origin)).toEqual({ host, protocol: "ssh", port });
+    expect(originSshArgs(origin)?.at(-1)).toBe(destination);
+  },
+);
+
 test("origin trust selects only SSH targets and preserves explicit ports without a command", () => {
   expect(originSshArgs("git@forge.test:team/repo.git")?.slice(-2)).toEqual([
     "--",
@@ -526,9 +539,11 @@ test("origin trust selects only SSH targets and preserves explicit ports without
     null,
   ])
     expect(originSshArgs(origin)).toBeUndefined();
-  expect(hostsAction({ action: "trust-origin", host: "worker", repository: "/local/repo" })).toBe(
-    true,
-  );
+  const endpoint = { host: "forge.test", protocol: "ssh", port: 22 };
+  const trust = { action: "trust-origin", host: "worker", repository: "/local/repo" };
+  expect(hostsAction({ ...trust, endpoint })).toBe(true);
+  expect(hostsAction(trust)).toBe(false);
+  expect(hostsAction({ ...trust, endpoint: { ...endpoint, port: "22" } })).toBe(false);
   expect(
     hostsAction({
       action: "trust-origin",

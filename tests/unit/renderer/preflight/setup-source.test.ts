@@ -204,7 +204,12 @@ test("Settings waits for its own host actions and disposes running or exited ses
   await installs.close();
   expect(kill).toHaveBeenCalledExactlyOnceWith("install");
   expect(installs.hasSessions()).toBe(false);
-  const trust = { action: "trust-origin", host: "cloud", repository: "/repo" } as const;
+  const trust = {
+    action: "trust-origin",
+    host: "cloud",
+    repository: "/repo",
+    endpoint: { host: "forge.test", protocol: "ssh", port: 22 },
+  } as const;
   const trusting = source.hosts(trust);
   resolve({ hosts: [], locations: [], recipeSession: "trust" });
   await trusting;
@@ -234,7 +239,12 @@ test("origin trust metadata disappears on exit or successful Stop and survives a
     },
   });
   const source = createSetupSource(undefined, close);
-  const trust = { action: "trust-origin", host: "cloud", repository: "/repo" } as const;
+  const trust = {
+    action: "trust-origin",
+    host: "cloud",
+    repository: "/repo",
+    endpoint: { host: "forge.test", protocol: "ssh", port: 22 },
+  } as const;
   if (!source.hosts || !source.hostTerminal?.stop || !source.installs?.hostActions)
     throw new Error("Missing Settings repair owner");
   await source.hosts(trust);

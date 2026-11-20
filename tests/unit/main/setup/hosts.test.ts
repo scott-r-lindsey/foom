@@ -87,6 +87,7 @@ beforeEach(() => {
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
   hosts = new Hosts(store, () => repositories, "0.1.0", run);
 });
+const forgeEndpoint = { host: "forge.test", protocol: "ssh", port: 22 } as const;
 test("Hosts projects current registered origin endpoints without probing a host", async () => {
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   repositories = [
@@ -94,22 +95,28 @@ test("Hosts projects current registered origin endpoints without probing a host"
     { path: "/local/https", name: "https" },
     { path: "/local/invalid", name: "invalid" },
     { path: "/local/port", name: "port" },
+    { path: "/local/ip", name: "ip" },
+    { path: "/local/absolute-dns", name: "absolute-dns" },
   ];
   mock.execute
     .mockResolvedValueOnce({ stdout: "ssh://git@GitLab.com:2222/team/repo.git\n" })
     .mockResolvedValueOnce({ stdout: "https://GitHub.com/team/repo.git\n" })
     .mockResolvedValueOnce({ stdout: "https://token@forge.test/team/repo.git\n" })
-    .mockResolvedValueOnce({ stdout: "https://forge.test:99999/team/repo.git\n" });
+    .mockResolvedValueOnce({ stdout: "https://forge.test:99999/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "git@192.0.2.42:team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "ssh://git@forge.test.:2222/team/repo.git\n" });
   await Promise.all([hosts.prepareView(), hosts.prepareView()]);
   expect(mock.execute).toHaveBeenCalledTimes(repositories.length);
-  expect(hosts.state().gitOrigins).toEqual([
-    { repository: "/local/ssh", host: "gitlab.com", protocol: "ssh" },
-    { repository: "/local/https", host: "github.com", protocol: "https" },
-  ]);
+  const endpoints = [
+    { repository: "/local/ssh", host: "gitlab.com", protocol: "ssh", port: 2222 },
+    { repository: "/local/https", host: "github.com", protocol: "https", port: 443 },
+    { repository: "/local/port", host: "forge.test", protocol: "https", port: 99999 },
+    { repository: "/local/ip", host: "192.0.2.42", protocol: "ssh", port: 22 },
+    { repository: "/local/absolute-dns", host: "forge.test.", protocol: "ssh", port: 2222 },
+  ];
+  expect(hosts.state().gitOrigins).toEqual(endpoints);
   repositories = repositories.slice(1);
-  expect(hosts.state().gitOrigins).toEqual([
-    { repository: "/local/https", host: "github.com", protocol: "https" },
-  ]);
+  expect(hosts.state().gitOrigins).toEqual(endpoints.slice(1));
   expect(run).not.toHaveBeenCalled();
 });
 
@@ -1889,7 +1896,7 @@ test("Trust host key re-reads registered origin and launches a human terminal wi
   await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
   const launch = vi.fn((_target: unknown, _finished?: () => void) => Promise.resolve("trust"));
   const state = await hosts.action(
-    { action: "trust-origin", host: "worker", repository: "/local/repo" },
+    { action: "trust-origin", host: "worker", repository: "/local/repo", endpoint: forgeEndpoint },
     undefined,
     launch,
   );
@@ -1911,16 +1918,39 @@ test("Trust host key re-reads registered origin and launches a human terminal wi
   expect(run.mock.calls.map(([, request]) => request.operation)).toEqual(["origin", "repository"]);
   await expect(
     hosts.action(
-      { action: "trust-origin", host: "worker", repository: "/unregistered" },
+      {
+        action: "trust-origin",
+        host: "worker",
+        repository: "/unregistered",
+        endpoint: forgeEndpoint,
+      },
       undefined,
       launch,
     ),
   ).rejects.toThrow("not registered");
+  mock.execute.mockResolvedValue({ stdout: "ssh://git@forge.test:2222/me/repo.git" });
+  await expect(
+    hosts.action(
+      {
+        action: "trust-origin",
+        host: "worker",
+        repository: "/local/repo",
+        endpoint: forgeEndpoint,
+      },
+      undefined,
+      launch,
+    ),
+  ).resolves.toMatchObject({ recipeFailure: "recipe-unavailable" });
   mock.execute.mockResolvedValue({ stdout: "https://forge.test/me/repo.git" });
   expect(
     (
       await hosts.action(
-        { action: "trust-origin", host: "worker", repository: "/local/repo" },
+        {
+          action: "trust-origin",
+          host: "worker",
+          repository: "/local/repo",
+          endpoint: forgeEndpoint,
+        },
         undefined,
         launch,
       )
@@ -1969,6 +1999,7 @@ test("saved full checks survive restart as display data, list makes no SSH reads
       codeFolder: facts.codeFolder,
     });
     const observation = checked.hosts[0]?.observation;
+    expect(observation?.preflight.repositories[0]?.originEndpoint).toEqual(forgeEndpoint);
     expect(observation?.checkedAt).toBeGreaterThan(0);
     expect(observation?.foreignSessions).toBe(1);
     expect(mock.inventory).toHaveBeenCalledTimes(1);
@@ -2190,6 +2221,7 @@ test("repository reload and clone preserve all other rows and the full-check tim
   });
   expect(run).toHaveBeenCalledTimes(1);
   expect(run.mock.lastCall?.[1].operation).toBe("origin");
+  expect(origin.preflight?.repositories[0]?.originEndpoint).toEqual(forgeEndpoint);
   expect(origin.preflight?.repositories[0]?.origin).toEqual({
     state: "fail",
     reason: "origin-auth",
@@ -2425,7 +2457,7 @@ test("removed repositories drop queued trust rows without failing list", async (
   await hosts.action({ action: "add", host: "worker", codeFolder: facts.codeFolder });
   const launch = vi.fn(() => Promise.resolve());
   await hosts.action(
-    { action: "trust-origin", host: "worker", repository: "/local/repo" },
+    { action: "trust-origin", host: "worker", repository: "/local/repo", endpoint: forgeEndpoint },
     undefined,
     launch,
   );

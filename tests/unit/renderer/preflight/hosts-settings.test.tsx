@@ -52,6 +52,7 @@ const host = {
   foreignSessions: 1,
   result: { ok: true as const, facts },
 };
+const projectEndpoint = { host: "github.com", protocol: "ssh", port: 22 } as const;
 const preflight: HostPreflight = {
   ssh: { state: "pass" },
   platform: { state: "pass" },
@@ -60,6 +61,7 @@ const preflight: HostPreflight = {
   repositories: [
     {
       repository: "/local/project",
+      originEndpoint: projectEndpoint,
       origin: { state: "pass" },
       checkout: { ...host.result, checkout: { path: "/remote/project", state: "absent" } },
     },
@@ -69,7 +71,7 @@ const initial: HostsState = {
   hosts: [host],
   locations: [],
   preflight,
-  gitOrigins: [{ repository: "/local/project", host: "github.com", protocol: "ssh" }],
+  gitOrigins: [{ repository: "/local/project", ...projectEndpoint }],
 };
 function saved(state: HostsState): HostsState {
   return {
@@ -256,6 +258,7 @@ test("partial facts retain passes and expose Create plus available Install and S
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "origin-auth" },
           checkout: {
             ...host.result,
@@ -578,6 +581,7 @@ test("ready hosts list checkout paths without rendering dirty or clone state", a
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "pass" },
           checkout: { ...host.result, checkout: { path: "/remote/project", state: "changed" } },
         },
@@ -677,6 +681,7 @@ test("a failed connection row is not repeated as helper copy, and credential tip
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "artifact-unavailable" },
           checkout: result,
         },
@@ -837,7 +842,7 @@ test("first check renders pending repository rows and replaces them with observa
     ...progress,
     phase: "checkout",
     repositories: [
-      { repository: "/local/project", origin: { state: "pass" } },
+      { repository: "/local/project", originEndpoint: projectEndpoint, origin: { state: "pass" } },
       { repository: "/local/next" },
     ],
   };
@@ -917,7 +922,7 @@ test("usable hosts keep optional missing agents, sign-in and checkouts neutral",
   );
   expect(screen.getByRole("button", { name: "Install pi" })).toBeTruthy();
 });
-test("host-key fix identifies only the repository", async () => {
+test("host-key repair selects the repository and its checked endpoint", async () => {
   const state: HostsState = {
     ...initial,
     preflight: {
@@ -925,6 +930,7 @@ test("host-key fix identifies only the repository", async () => {
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "origin-host-key" },
           checkout: {
             ...host.result,
@@ -949,6 +955,7 @@ test("host-key fix identifies only the repository", async () => {
       action: "trust-origin",
       host: "worker",
       repository: "/local/project",
+      endpoint: projectEndpoint,
     });
   });
 });
@@ -963,6 +970,7 @@ test.each([false, true])(
         repositories: [
           {
             repository,
+            originEndpoint: projectEndpoint,
             origin: { state: "fail", reason: "origin-host-key" },
             checkout: { ...host.result, checkout: { path: "/remote/project", state: "clean" } },
           },
@@ -1039,6 +1047,7 @@ test("a pending origin probe keeps the same origin terminal attached and stoppab
     repositories: [
       {
         repository,
+        originEndpoint: projectEndpoint,
         origin: { state: "fail" as const, reason: "origin-host-key" as const },
         checkout: {
           ...host.result,
@@ -1127,9 +1136,10 @@ test("a pending origin probe keeps the same origin terminal attached and stoppab
 
 test("reopening Hosts restores each origin terminal independently of other recipes", async () => {
   const repositories = ["/local/one", "/local/two"].map(
-    (repository) =>
+    (repository, index) =>
       ({
         repository,
+        originEndpoint: { ...projectEndpoint, port: 2222 + index },
         origin: { state: "fail", reason: "origin-host-key" },
         checkout: {
           ...host.result,
@@ -1142,10 +1152,9 @@ test("reopening Hosts restores each origin terminal independently of other recip
   const { api } = await mount(
     {
       ...initial,
-      gitOrigins: repositories.map(({ repository }, index) => ({
+      gitOrigins: repositories.map(({ repository, originEndpoint }) => ({
         repository,
-        host: index === 0 ? "github.com" : "gitlab.com",
-        protocol: "ssh",
+        ...originEndpoint,
       })),
       preflight: { ...preflight, repositories },
     },
@@ -1154,9 +1163,9 @@ test("reopening Hosts restores each origin terminal independently of other recip
         sessions: () => new Map([["worker", "install"]]),
         hostActions: () =>
           new Map(
-            repositories.map(({ repository }) => [
+            repositories.map(({ repository, originEndpoint }) => [
               repository,
-              { action: "trust-origin", host: "worker", repository },
+              { action: "trust-origin", host: "worker", repository, endpoint: originEndpoint },
             ]),
           ),
         hasSessions: () => true,
@@ -1196,10 +1205,9 @@ test("reopening Hosts restores each origin terminal independently of other recip
   });
   const refreshed = saved({
     ...initial,
-    gitOrigins: repositories.map(({ repository }, index) => ({
+    gitOrigins: repositories.map(({ repository, originEndpoint }) => ({
       repository,
-      host: index === 0 ? "github.com" : "gitlab.com",
-      protocol: "ssh",
+      ...originEndpoint,
     })),
     preflight: {
       ...preflight,
@@ -1213,26 +1221,32 @@ test("reopening Hosts restores each origin terminal independently of other recip
     exit.get("/local/one")?.({ exited: true, code: 1 });
     await Promise.resolve();
   });
-  expect(screen.getByText("SSH ✓")).toBeTruthy();
+  expect(screen.getByText("SSH · Origin SSH host key is not trusted")).toBeTruthy();
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Trust host key for github.com:2223…" })
+      .disabled,
+  ).toBe(true);
   expect(screen.queryByText(/exit code 1/u)).toBeNull();
   expect(screen.getByText("Verify the fingerprint in SSH")).toBeTruthy();
   expect(screen.getAllByRole("region", { name: "Origin host key terminal" })).toHaveLength(1);
 });
 
 test("Git access groups registered origins by host and displays only the protocols in use", async () => {
+  const gitOrigins = [
+    { repository: "/local/project-0", host: "github.com", protocol: "ssh", port: 22 },
+    { repository: "/local/project-1", host: "github.com", protocol: "ssh", port: 22 },
+    { repository: "/local/project-2", host: "github.com", protocol: "https", port: 443 },
+    { repository: "/local/project-3", host: "gitlab.com", protocol: "ssh", port: 22 },
+    { repository: "/local/project-4", host: "forge.test", protocol: "https", port: 443 },
+  ] as const;
   const state = saved({
     ...initial,
-    gitOrigins: [
-      { repository: "/local/project-0", host: "github.com", protocol: "ssh" },
-      { repository: "/local/project-1", host: "github.com", protocol: "ssh" },
-      { repository: "/local/project-2", host: "github.com", protocol: "https" },
-      { repository: "/local/project-3", host: "gitlab.com", protocol: "ssh" },
-      { repository: "/local/project-4", host: "forge.test", protocol: "https" },
-    ],
+    gitOrigins,
     preflight: {
       ...preflight,
-      repositories: Array.from({ length: 4 }, (_, index) => ({
-        repository: `/local/project-${String(index)}`,
+      repositories: gitOrigins.slice(0, 4).map(({ repository, ...originEndpoint }, index) => ({
+        repository,
+        originEndpoint,
         origin: index === 3 ? { state: "fail", reason: "origin-auth" } : { state: "pass" },
         checkout: {
           ...host.result,
@@ -1260,6 +1274,90 @@ test("Git access groups registered origins by host and displays only the protoco
   expect(screen.queryByRole("button", { name: /^Git access/u })).toBeNull();
   expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
   expect(screen.getByText("/remote/project-0").closest("details")).toBeTruthy();
+});
+
+test.each([
+  [{ host: "new.example", protocol: "https", port: 443 }, { state: "pass" }, "HTTPS"],
+  [
+    { host: "new.example", protocol: "ssh", port: 22 },
+    { state: "fail", reason: "origin-host-key" },
+    "SSH",
+  ],
+  [
+    { host: "old.example", protocol: "ssh", port: 2222 },
+    { state: "fail", reason: "origin-host-key" },
+    "SSH",
+  ],
+] as const)(
+  "Git access discards results from a different endpoint (%j)",
+  async (current, origin, label) => {
+    const repository = "/local/project";
+    await mount({
+      ...initial,
+      gitOrigins: [{ repository, ...current }],
+      preflight: {
+        ...preflight,
+        repositories: [
+          {
+            repository,
+            origin,
+            originEndpoint: { host: "old.example", protocol: "ssh", port: 22 },
+            checkout: host.result,
+          },
+        ],
+      },
+    });
+    expect(screen.getByText(current.host)).toBeTruthy();
+    expect(screen.getByText(`${label} · Not checked`)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Trust host key/u })).toBeNull();
+  },
+);
+
+test("every untrusted port in a forge row can open its own trust terminal", async () => {
+  const gitOrigins = [2222, 2222, 2223].map((port, index) => ({
+    repository: `/local/project-${String(index)}`,
+    host: "forge.test",
+    protocol: "ssh" as const,
+    port,
+  }));
+  const { api } = await mount({
+    ...initial,
+    gitOrigins,
+    preflight: {
+      ...preflight,
+      repositories: gitOrigins.map(({ repository, ...originEndpoint }) => ({
+        repository,
+        originEndpoint,
+        origin: { state: "fail", reason: "origin-host-key" },
+        checkout: host.result,
+      })),
+    },
+  });
+  expect(screen.getAllByText("forge.test")).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: /^Trust host key for forge.test:/u })).toHaveLength(
+    2,
+  );
+  for (const [port, repository] of [
+    [2223, "/local/project-2"],
+    [2222, "/local/project-0"],
+  ] as const) {
+    await waitFor(() => {
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", {
+          name: `Trust host key for forge.test:${String(port)}…`,
+        }).disabled,
+      ).toBe(false);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: `Trust host key for forge.test:${String(port)}…` }),
+    );
+    expect(api).toHaveBeenCalledWith({
+      action: "trust-origin",
+      host: "worker",
+      repository,
+      endpoint: { host: "forge.test", protocol: "ssh", port },
+    });
+  }
 });
 
 test("slow list and independent host checks leave Add enabled and preserve a newly added host", async () => {
@@ -2097,6 +2195,7 @@ test("untrusted hosts hide dependent checks and stale failures until acceptance 
       repositories: [
         {
           repository: "/local/project",
+          originEndpoint: projectEndpoint,
           origin: { state: "fail", reason: "origin-unavailable" },
           checkout: failed,
         },

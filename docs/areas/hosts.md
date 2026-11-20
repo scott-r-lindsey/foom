@@ -630,8 +630,11 @@ Each host is a compact name, OS, status and chevron row, opening by default only
 when it needs attention. Expanding exposes all controls and observations. Git access has one row per
 forge hostname used by a registered repository’s origin and shows only SSH or
 HTTPS as used. Hosts reads the origin metadata locally for display. Existing origin
-and checkout probes keep their scope. A protocol shows a checked failure if
-one was observed, otherwise one successful check is enough to show a pass.
+and checkout probes keep their scope. A check applies only when its saved host,
+protocol and port match the repository’s current origin. Legacy results without
+an endpoint and results for changed endpoints appear as Not checked. A protocol
+shows a checked failure if one was observed, otherwise one successful check is
+enough to show a pass.
 Checked-out repositories appear with their paths under Host facts. Checking one
 host leaves other hosts' controls available. Add host is enabled during loading and checks and is
 disabled only while an add is running. An added host and its own check cannot be
@@ -707,8 +710,10 @@ their fixed failure rows without making an otherwise usable host unavailable.
 Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready. Existing checkouts are a read-only list in Host facts.
 
 An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
-repository's validated SSH origin and opens a human-owned terminal in the
-Git access section in Settings (#1260, #1261). The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
+repository's validated SSH origin and verifies that it matches the selected
+endpoint before opening a human-owned terminal in the Git access section in
+Settings (#1260, #1261). Multiple untrusted SSH ports on a forge each have a
+port-labeled Trust action. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint

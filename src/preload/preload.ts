@@ -9,6 +9,7 @@ import type {
 } from "../shared/message-board";
 import type {
   HostsState,
+  GitOriginEndpoint,
   HostResult,
   HostFacts,
   HostCheckTarget,
@@ -581,13 +582,25 @@ const validHostResult: Validator<HostResult> = either(
     ),
   }),
 );
+const gitOriginEndpointFields = {
+  host: (value): value is string =>
+    typeof value === "string" && /^[a-z0-9][a-z0-9.-]{0,2047}$/u.test(value),
+  protocol: literal("ssh", "https"),
+  port: range(0, 99999, true),
+} satisfies Contract<GitOriginEndpoint>;
+const optionalGitOriginEndpoint = either(absent, shape(gitOriginEndpointFields));
 const hostPreflightFields = {
   ssh: validHostCheck,
   platform: validHostCheck,
   artifact: validHostCheck,
   result: validHostResult,
   repositories: array(
-    shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
+    shape({
+      repository: text,
+      origin: validHostCheck,
+      originEndpoint: optionalGitOriginEndpoint,
+      checkout: validHostResult,
+    }),
   ),
 };
 const validHostPreflight = shape({ ...hostPreflightFields, sshRevision: either(absent, count) });
@@ -614,20 +627,7 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
 const validHostsState: Validator<HostsState> = shape({
-  gitOrigins: either(
-    absent,
-    array(
-      shape({
-        repository: text,
-        host: (value): value is string =>
-          typeof value === "string" &&
-          value.length <= 253 &&
-          !/^\d+(?:\.\d+){3}$/u.test(value) &&
-          value.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(label)),
-        protocol: literal("ssh", "https"),
-      }),
-    ),
-  ),
+  gitOrigins: either(absent, array(shape({ repository: text, ...gitOriginEndpointFields }))),
   progress: either(
     absent,
     array(
@@ -640,6 +640,7 @@ const validHostsState: Validator<HostsState> = shape({
           shape({
             repository: text,
             origin: either(absent, validHostCheck),
+            originEndpoint: optionalGitOriginEndpoint,
             checkout: either(absent, validHostResult),
           }),
         ),

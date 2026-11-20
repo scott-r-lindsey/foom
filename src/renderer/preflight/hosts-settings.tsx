@@ -1,12 +1,17 @@
 import { GithubSignInPanel } from "./github-sign-in";
 import { useHostsView, useViewState } from "../data/view-hooks";
 import { HostTerminal } from "./host-terminal";
-import { hostDisplayName, hostNicknameError } from "../../shared/registered-hosts";
+import {
+  hostDisplayName,
+  hostNicknameError,
+  sameGitOriginEndpoint,
+} from "../../shared/registered-hosts";
 import { Fragment, createContext, use, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
 import type {
   HostCheckTarget,
+  GitOriginEndpoint,
   HostCheck,
   HostCheckProgress,
   HostFailure,
@@ -17,15 +22,17 @@ import type {
 } from "../../shared/registered-hosts.d";
 import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
+type RegisteredGitOrigin = NonNullable<HostsState["gitOrigins"]>[number];
 type RecipeView = {
   host: string;
   id: string;
   finished: boolean;
-  repository?: string;
+  endpoint?: GitOriginEndpoint;
   reveal?: true;
   gh?: "install" | "sign-in";
 };
-const originRecipeKey = (host: string, repository: string) => JSON.stringify([host, repository]);
+const originRecipeKey = (host: string, endpoint: GitOriginEndpoint) =>
+  JSON.stringify([host, endpoint.host, endpoint.port, endpoint.protocol]);
 const EMPTY_HOSTS: HostsState = { hosts: [], locations: [] };
 const reasons: Record<HostFailure, string> = {
   unreachable: "Host unreachable",
@@ -255,11 +262,17 @@ function GitAccess({
   originTerminals: ReadonlyMap<string, { running: boolean; panel: ReactNode }>;
   act: (action: HostsAction) => void;
 }) {
-  const checks = new Map(repositories.map(({ repository, origin }) => [repository, origin]));
-  const forges = new Map<string, { ssh: string[]; https: string[] }>();
+  const checks = new Map(repositories.map((check) => [check.repository, check]));
+  const checkFor = (origin: RegisteredGitOrigin) => {
+    const check = checks.get(origin.repository);
+    return factsAvailable && check && sameGitOriginEndpoint(check.originEndpoint, origin)
+      ? check.origin
+      : undefined;
+  };
+  const forges = new Map<string, Record<RegisteredGitOrigin["protocol"], RegisteredGitOrigin[]>>();
   for (const origin of origins ?? []) {
     const protocols = forges.get(origin.host) ?? { ssh: [], https: [] };
-    protocols[origin.protocol].push(origin.repository);
+    protocols[origin.protocol].push(origin);
     forges.set(origin.host, protocols);
   }
   if (!forges.size) return null;
@@ -268,18 +281,9 @@ function GitAccess({
       <Group>Git access</Group>
       {[...forges].map(([hostname, protocols]) => {
         const statuses = (["ssh", "https"] as const).flatMap((protocol) => {
-          const paths = protocols[protocol];
-          return paths.length
-            ? [
-                {
-                  protocol,
-                  ...gitProtocolStatus(
-                    protocol,
-                    paths.map((path) => (factsAvailable ? checks.get(path) : undefined)),
-                    checking,
-                  ),
-                },
-              ]
+          const endpoints = protocols[protocol];
+          return endpoints.length
+            ? [{ protocol, ...gitProtocolStatus(protocol, endpoints.map(checkFor), checking) }]
             : [];
         });
         const tone: Tone = statuses.some((status) => status.tone === "fail")
@@ -289,14 +293,19 @@ function GitAccess({
             : statuses.every((status) => status.tone === "pass")
               ? "pass"
               : "neutral";
-        const trust = factsAvailable
-          ? protocols.ssh.find((repository) => {
-              const check = checks.get(repository);
-              return check?.state === "fail" && check.reason === "origin-host-key";
-            })
-          : undefined;
-        const paths = [...protocols.ssh, ...protocols.https];
-        const repository = paths[0];
+        const untrusted = new Map<number, RegisteredGitOrigin>();
+        for (const origin of protocols.ssh) {
+          const check = checkFor(origin);
+          if (
+            check?.state === "fail" &&
+            check.reason === "origin-host-key" &&
+            !untrusted.has(origin.port)
+          )
+            untrusted.set(origin.port, origin);
+        }
+        const showPort = new Set(protocols.ssh.map(({ port }) => port)).size > 1;
+        const endpoints = [...protocols.ssh, ...protocols.https];
+        const repository = endpoints[0]?.repository;
         const name =
           hostname === "github.com" ? "GitHub" : hostname === "gitlab.com" ? "GitLab" : hostname;
         return (
@@ -313,27 +322,36 @@ function GitAccess({
                 ))}
               </span>
             }
-            {...(paths.length === 1 && repository && checks.has(repository)
+            {...(endpoints.length === 1 && repository && checks.has(repository)
               ? {
                   target: { kind: "origin" as const, repository },
                   reloadLabel: `${name} Git access`,
                 }
               : {})}
-            action={
-              trust && (
-                <button
-                  type="button"
-                  disabled={
-                    disabled || protocols.ssh.some((path) => originTerminals.get(path)?.running)
-                  }
-                  onClick={() => {
-                    act({ action: "trust-origin", host, repository: trust });
-                  }}
-                >
-                  Trust host key…
-                </button>
-              )
-            }
+            action={[...untrusted].map(([port, origin]) => (
+              <button
+                key={port}
+                type="button"
+                disabled={disabled || originTerminals.get(originRecipeKey(host, origin))?.running}
+                aria-label={
+                  showPort ? `Trust host key for ${hostname}:${String(port)}…` : undefined
+                }
+                onClick={() => {
+                  act({
+                    action: "trust-origin",
+                    host,
+                    repository: origin.repository,
+                    endpoint: {
+                      host: origin.host,
+                      protocol: origin.protocol,
+                      port,
+                    },
+                  });
+                }}
+              >
+                {showPort ? `Trust :${String(port)}…` : "Trust host key…"}
+              </button>
+            ))}
           />
         );
       })}
@@ -635,8 +653,8 @@ function Checklist({
           />
         )}
       </fieldset>
-      {[...originTerminals].map(([repository, terminal]) => (
-        <Fragment key={repository}>{terminal.panel}</Fragment>
+      {[...originTerminals].map(([endpoint, terminal]) => (
+        <Fragment key={endpoint}>{terminal.panel}</Fragment>
       ))}
       {!awaitingTrust && mac && (
         <fieldset className="host-controls" disabled={disabled}>
@@ -848,10 +866,10 @@ export function HostsSettings({
     );
     for (const [id, action] of source.installs?.hostActions?.() ?? []) {
       if (action.action === "trust-origin")
-        saved.set(originRecipeKey(action.host, action.repository), {
+        saved.set(originRecipeKey(action.host, action.endpoint), {
           host: action.host,
           id,
-          repository: action.repository,
+          endpoint: action.endpoint,
           finished: false,
         });
     }
@@ -1043,14 +1061,14 @@ export function HostsSettings({
         setRecipes((previous) =>
           new Map(previous).set(
             action.action === "trust-origin"
-              ? originRecipeKey(action.host, action.repository)
+              ? originRecipeKey(action.host, action.endpoint)
               : action.host,
             {
               host: action.host,
               id,
               finished: false,
               ...(action.action === "trust-origin"
-                ? { repository: action.repository, reveal: true as const }
+                ? { endpoint: action.endpoint, reveal: true as const }
                 : {}),
               ...(action.action === "recipe" && action.tool === "gh"
                 ? {
@@ -1253,7 +1271,7 @@ export function HostsSettings({
       {!state.hosts.length && !adding && <p>No hosts</p>}
       {hostsQuery.data !== undefined &&
         [...recipes.values()].map((recipe) =>
-          recipe.repository &&
+          recipe.endpoint &&
           !recipe.finished &&
           !state.hosts.some((host) => host.host === recipe.host) ? (
             <section
@@ -1309,11 +1327,11 @@ export function HostsSettings({
           for (const origin of recipes.values()) {
             if (
               origin.host !== entry.host ||
-              !origin.repository ||
+              !origin.endpoint ||
               (awaitingTrust && origin.finished)
             )
               continue;
-            originTerminals.set(origin.repository, {
+            originTerminals.set(originRecipeKey(entry.host, origin.endpoint), {
               running: !origin.finished,
               panel: originPanel(origin.id, origin.reveal),
             });

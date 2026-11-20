@@ -82,6 +82,15 @@ async function assertHostColumns(card) {
   assert.ok(Math.max(...starts) - Math.min(...starts) < 1, JSON.stringify(starts));
 }
 
+async function settleFixtureSidebar(app) {
+  await app.evaluate(async ({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    await load("./build/main/workspace/workspace.js").settleFixtureSidebar();
+  });
+}
+
 async function hostsFixture(
   context,
   captureEnrollment = false,
@@ -320,7 +329,11 @@ process.stdin.on('data', bytes => {
 `,
     { mode: 0o700 },
   );
-  const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
+  const app = await launchApp(context, {
+    fixture: "repository",
+    env: { PATH: bin },
+    trackSidebarReads: trackSidebar,
+  });
   if (failFirstChecklistSave) {
     await app.evaluate(({ app }) => {
       const load = process
@@ -337,38 +350,9 @@ process.stdin.on('data', bytes => {
       };
     });
   }
-  if (trackSidebar) {
-    // Observe real work, including reads superseded by a later invalidation.
-    await app.evaluate(({ app }) => {
-      const load = process
-        .getBuiltinModule("node:module")
-        .createRequire(app.getAppPath() + "/package.json");
-      const workspace = load("./build/main/workspace/workspace.js");
-      const original = workspace.Workspace.prototype.sidebarInventory;
-      const pending = new Set();
-      workspace.Workspace.prototype.sidebarInventory = function (...args) {
-        const read = original.apply(this, args);
-        pending.add(read);
-        void read.then(
-          () => pending.delete(read),
-          () => pending.delete(read),
-        );
-        return read;
-      };
-      workspace.settleFixtureSidebar = async () => {
-        while (pending.size) await Promise.allSettled([...pending]);
-      };
-    });
-  }
   const settleSidebar = async () => {
     await page.evaluate(() => window.desktop.sidebarInventory());
-    if (trackSidebar)
-      await app.evaluate(async ({ app }) => {
-        const load = process
-          .getBuiltinModule("node:module")
-          .createRequire(app.getAppPath() + "/package.json");
-        await load("./build/main/workspace/workspace.js").settleFixtureSidebar();
-      });
+    if (trackSidebar) await settleFixtureSidebar(app);
   };
 
   fixtureCleanup(context).apps.push(async () => {
@@ -1237,6 +1221,14 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     "git@gitlab.com:fixtures/five.git",
     "https://forge.test/fixtures/six.git",
   ];
+  const endpoints = [
+    { host: "github.com", protocol: "ssh", port: 22 },
+    { host: "github.com", protocol: "ssh", port: 443 },
+    { host: "github.com", protocol: "https", port: 443 },
+    { host: "gitlab.com", protocol: "ssh", port: 22 },
+    { host: "gitlab.com", protocol: "ssh", port: 22 },
+    { host: "forge.test", protocol: "https", port: 443 },
+  ];
   const repositories = [];
   for (const [index, origin] of origins.entries()) {
     const repository = path.join(root, `project-${index}`);
@@ -1272,6 +1264,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     repositories: repositories.map((repository, index) => ({
       repository,
       origin: { state: "pass" },
+      originEndpoint: endpoints[index],
       checkout: { ...result, checkout: { path: `/remote/project-${index}`, state: "clean" } },
     })),
   };
@@ -1313,15 +1306,24 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     rows: [{ state: "needs-setup" }],
   });
   await writeFile(retiredState, retiredContents, { mode: 0o600 });
-  const app = await launchApp(context, {
-    fixture: "empty-board",
-    args: [`--user-data-dir=${root}`],
-    env: { PATH: bin },
-  });
-  const page = await boardPage(app);
-  await openSettingsScreen(page);
+  const openSavedBoard = async () => {
+    const app = await launchApp(context, {
+      fixture: "restored",
+      args: [`--user-data-dir=${root}`],
+      env: { PATH: bin },
+      trackSidebarReads: true,
+    });
+    const page = await boardPage(app);
+    // Repository rows render after startup inventory, which can probe saved hosts.
+    await expect(
+      page.locator(".repository-row .tree-label").filter({ hasText: "project-0" }),
+    ).toBeVisible();
+    await openSettingsScreen(page);
+    await settleFixtureSidebar(app);
+    return { app, page, before: await readFile(calls, "utf8") };
+  };
+  const { app, page, before } = await openSavedBoard();
   const navigation = page.getByRole("navigation", { name: "Settings sections" });
-  const before = await readFile(calls, "utf8");
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   const card = page.getByRole("region", { name: "saved-fixture", exact: true });
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
@@ -1384,6 +1386,22 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   assert.equal(await readFile(calls, "utf8"), before);
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  gitSync(["remote", "set-url", "origin", "https://new.example/fixtures/one.git"], {
+    cwd: repositories[0],
+  });
+  const { page: reopened, before: reopenedBaseline } = await openSavedBoard();
+  await reopened
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const reopenedCard = reopened.getByRole("region", { name: "saved-fixture", exact: true });
+  await reopenedCard.getByRole("button", { name: "Expand saved-fixture", exact: true }).click();
+  const changedOrigin = reopenedCard.locator(".host-check-row").filter({ hasText: "new.example" });
+  await expect(changedOrigin.locator(".host-git-protocols > span")).toHaveText([
+    "HTTPS · Not checked",
+  ]);
+  assert.equal(await readFile(calls, "utf8"), reopenedBaseline);
   assert.equal(await readFile(retiredState, "utf8"), retiredContents);
 });
 
