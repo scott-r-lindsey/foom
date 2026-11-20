@@ -1002,17 +1002,52 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { page, card, catalog, compressed, capture, updateScenario } = await hostsFixture(context);
+  const { app, page, card, catalog, compressed, capture, updateScenario } =
+    await hostsFixture(context);
+  await card.getByText("Host facts", { exact: true }).click();
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const refresh = card.getByRole("button", { name: "Refresh facts", exact: true });
+  await expect(check).toBeEnabled();
+  await expect(refresh).toBeEnabled();
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
-  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Hosts } = load("./build/main/setup/hosts.js");
+    const gate = Promise.withResolvers();
+    const prepareView = Hosts.prototype.prepareView;
+    globalThis.releaseFixtureHostsView = () => {
+      Hosts.prototype.prepareView = prepareView;
+      gate.resolve();
+    };
+    Hosts.prototype.prepareView = async function (...args) {
+      await gate.promise;
+      return prepareView.apply(this, args);
+    };
+  });
+  const save = card.getByRole("button", { name: "Save", exact: true });
+  try {
+    await save.click();
+    await expect(save).toHaveCount(0);
+    await expect(
+      card.locator(".host-meta").getByText("/remote/account/foom", { exact: true }),
+    ).toBeVisible();
+    await expect(check).toBeDisabled();
+    await expect(refresh).toBeDisabled();
+  } finally {
+    await app.evaluate(() => globalThis.releaseFixtureHostsView());
+  }
   // Save can finish before the subscribed card receives the new registered folder.
   await expect(
     card.locator(".host-meta").getByText("/remote/account/new-code", { exact: true }),
   ).toBeVisible();
-  await expect(card.getByRole("button", { name: "Check capabilities", exact: true })).toBeEnabled();
+  await expect(check).toBeEnabled();
+  await expect(refresh).toBeEnabled();
+  await card.getByText("Host facts", { exact: true }).click();
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
-  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await check.click();
   await expect(card.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
   await capture("missing-folder");
   await updateScenario({});

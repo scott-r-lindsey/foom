@@ -136,6 +136,51 @@ test.each([false, true])(
     view.unmount();
   },
 );
+test("a saved code folder keeps checks pending until the live registration advances", async () => {
+  const stream = viewStream();
+  const previous = saved(initial);
+  stream.data.hosts = previous;
+  const updatedFolder = "/home/worker/new";
+  const api = vi.fn(
+    (action: HostsAction): Promise<HostsState> =>
+      Promise.resolve(
+        action.action === "change-folder"
+          ? { ...previous, result: { ok: true, facts: { ...facts, codeFolder: updatedFolder } } }
+          : stream.data.hosts,
+      ),
+  );
+  render(<HostsSettings source={{ hosts: api, views: stream.api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: host.host });
+  expandHosts();
+  const check = screen.getByRole("button", { name: "Check capabilities" });
+  await waitFor(() => {
+    expect(check.matches(":disabled")).toBe(false);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Change folder" }));
+  fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/new" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+  expect(check.matches(":disabled")).toBe(true);
+  // A coalesced publication can skip over the saved path when another edit follows it.
+  act(() => {
+    stream.data.hosts = saved({
+      ...initial,
+      hosts: [{ ...host, codeFolder: "/home/worker/newer" }],
+    });
+    stream.push("hosts");
+  });
+  await waitFor(() => {
+    expect(check.matches(":disabled")).toBe(false);
+  });
+  act(() => {
+    stream.data.hosts = previous;
+    stream.push("hosts");
+  });
+  await screen.findByText(facts.codeFolder);
+  expect(check.matches(":disabled")).toBe(false);
+});
 test("Add host enrolls then runs full preflight, without separate connection/folder tests", async () => {
   let state: HostsState = { hosts: [], locations: [] };
   const api = vi.fn((action: HostsAction) => {

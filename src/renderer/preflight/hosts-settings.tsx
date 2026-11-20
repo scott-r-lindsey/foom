@@ -831,6 +831,18 @@ export function HostsSettings({
   const renamedRef = useRef(new Map<string, { nickname: string }>());
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const [pendingFolderViews, setPendingFolderViews] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+  if (pendingFolderViews.size) {
+    // A coalesced snapshot may already reflect a subsequent edit or removal.
+    const stillPending = new Map(
+      [...pendingFolderViews].filter(([host, previousFolder]) =>
+        state.hosts.some((entry) => entry.host === host && entry.codeFolder === previousFolder),
+      ),
+    );
+    if (stillPending.size !== pendingFolderViews.size) setPendingFolderViews(stillPending);
+  }
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<ReactNode>();
   const [error, setError] = useState<ReactNode>("");
@@ -1101,7 +1113,14 @@ export function HostsSettings({
         setAddError(
           <Status tone={failureTone(next.result.reason)}>{reasons[next.result.reason]}</Status>,
         );
-      if (action.action === "change-folder") setChanging(undefined);
+      if (action.action === "change-folder") {
+        setChanging(undefined);
+        if (source.views && next.result?.ok) {
+          const previousFolder = state.hosts.find((entry) => entry.host === target)?.codeFolder;
+          if (previousFolder !== undefined && previousFolder !== next.result.facts.codeFolder)
+            setPendingFolderViews((previous) => new Map(previous).set(target, previousFolder));
+        }
+      }
       if (
         (action.action === "change-folder" || action.action === "create-folder") &&
         next.result &&
@@ -1331,7 +1350,8 @@ export function HostsSettings({
         );
         const ssh = preflight?.ssh ?? (source.views ? undefined : entry.result?.connection?.ssh);
         const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
-        const controlsDisabled = resuming || busy.has(entry.host);
+        const controlsDisabled =
+          resuming || busy.has(entry.host) || pendingFolderViews.has(entry.host);
         if (source.hostTerminal) {
           for (const origin of recipes.values()) {
             if (
@@ -1587,7 +1607,7 @@ export function HostsSettings({
                       </span>
                       <button
                         type="button"
-                        disabled={busy.has(entry.host)}
+                        disabled={controlsDisabled}
                         onClick={() => {
                           void act({
                             action: "preflight",
@@ -1616,7 +1636,7 @@ export function HostsSettings({
                       <summary>Host facts</summary>
                       <button
                         type="button"
-                        disabled={busy.has(entry.host)}
+                        disabled={controlsDisabled}
                         onClick={() => {
                           void act({ action: "refresh", host: entry.host });
                         }}
