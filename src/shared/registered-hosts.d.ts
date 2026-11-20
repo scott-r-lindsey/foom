@@ -201,6 +201,12 @@ export interface HostCheckProgress {
   }[];
 }
 export interface HostsState {
+  /** Display-only endpoints of registered local origins. */
+  gitOrigins?: readonly {
+    repository: string;
+    host: string;
+    protocol: "ssh" | "https";
+  }[];
   /** Sealed local build capability; independent of host connectivity. */
   remoteHostsAvailable?: boolean;
   recipeSession?: string;

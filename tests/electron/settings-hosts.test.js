@@ -8,6 +8,7 @@ const {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   writeFile,
   rename,
   rm,
@@ -64,7 +65,7 @@ async function captureHosts(
         .toBe(mode === "dark");
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1262)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1261|1262)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -440,7 +441,7 @@ process.stdin.on('data', bytes => {
   await expect(card.getByText("Not found", { exact: true })).toHaveCount(1);
   await expect(card.getByRole("button", { name: "Install codex", exact: true })).toHaveCount(0);
   await expect(
-    card.locator(".host-check-row").getByText("Not checked", { exact: true }),
+    card.locator(".host-check-row").getByText("SSH · Not checked", { exact: true }),
   ).toHaveCount(1);
   if (captureEnrollment) await capture("partial-facts");
   return {
@@ -673,7 +674,7 @@ test("Hosts shows independent inspection and repository check progress", {
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(progressStatus).toHaveText("Checking Git access · shell-fixture (1 of 1)");
   await expect(card.locator(".host-throbber")).toBeVisible();
-  const originRow = card.locator(".host-check-row").filter({ hasText: "Git access to origin" });
+  const originRow = card.locator(".host-check-row").filter({ hasText: "forge.test" });
   const checkoutRow = card.locator(".host-check-row").filter({ hasText: "Repository checkout" });
   await expect(originRow).toContainText("Checking…");
   await expect(checkoutRow).toHaveCount(0);
@@ -748,7 +749,7 @@ test("Hosts shows independent inspection and repository check progress", {
   // Release origin, then hold checkout: the step text still advances without animation.
   await updateScenario({ ...checkingOrigin, hold: "repository" });
   await expect(progressStatus).toHaveText("Checking checkout · shell-fixture (1 of 1)");
-  await expect(originRow).toContainText("Pass · Reachable");
+  await expect(originRow).toContainText("SSH ✓");
   await expect(checkoutRow).toHaveCount(0);
   await capture("progress-checkout-reduced");
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -764,7 +765,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
-  const { card, platform, capture, updateScenario } = await hostsFixture(context);
+  const { app, page, card, platform, capture, updateScenario } = await hostsFixture(context);
   await updateScenario({
     facts: {
       tools: [
@@ -775,9 +776,9 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     origin: "origin-auth",
   });
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(card.getByText("Origin authentication failed", { exact: true })).toBeVisible();
-  await expect(card.getByLabel("Git access fixes")).toBeVisible();
-  await capture("failed-origin-fix-actions");
+  await expect(card.getByText("SSH · key not accepted", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Fix", exact: true })).toHaveCount(0);
+  await captureHosts(app, page, "1261/failure", card);
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
   await card.getByRole("button", { name: "Save", exact: true }).click();
@@ -785,7 +786,7 @@ test("Hosts renders Git failures and platform capability diagnostics", {
   await expect(card.getByText("/remote/account/new-code", { exact: true })).toBeVisible();
   // Each fixed no-prompt Git failure is rendered in the host checklist.
   for (const [reason, label] of [
-    ["origin-auth", "Origin authentication failed"],
+    ["origin-auth", "key not accepted"],
     ["origin-host-key", "Origin SSH host key is not trusted"],
     ["origin-unreachable", "Origin unreachable"],
     ["timed-out", "Git operation timed out"],
@@ -799,9 +800,9 @@ test("Hosts renders Git failures and platform capability diagnostics", {
     await expect(
       card
         .locator(".host-check-row")
-        .filter({ hasText: "Git access to origin" })
+        .filter({ hasText: "forge.test" })
         .locator(".host-status > span:last-child"),
-    ).toHaveText(label);
+    ).toHaveText(`SSH · ${label}`);
   }
   // Available facts do not claim a Keychain or Remote Login diagnosis.
   await updateScenario({
@@ -962,7 +963,7 @@ test("Hosts shows readiness and read-only checkouts with explicit origin trust",
   await page.keyboard.type("yes");
   await page.keyboard.press("Enter");
   await expect(terminal).toHaveCount(0);
-  await expect(card.getByText("Pass · Reachable", { exact: true })).toBeVisible();
+  await expect(card.getByText("SSH ✓", { exact: true })).toBeVisible();
   await expect(card.getByText(/exit code 1/u)).toHaveCount(0);
   // Origin success is published before the separate checkout probe finishes.
   await expect.poll(checkoutState).toBe("clean");
@@ -1217,7 +1218,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   skip: process.platform === "win32",
   timeout: deadline(30000),
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "hosts-saved-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hosts-saved-")));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   await mkdir(bin);
@@ -1227,6 +1228,27 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     path.join(bin, "ssh"),
     `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(calls)}, 'ssh\\n'); process.exit(1);\n`,
     { mode: 0o700 },
+  );
+  const origins = [
+    "git@GitHub.com:fixtures/one.git",
+    "ssh://git@github.com:443/fixtures/two.git",
+    "https://github.com/fixtures/three.git",
+    "git@gitlab.com:fixtures/four.git",
+    "git@gitlab.com:fixtures/five.git",
+    "https://forge.test/fixtures/six.git",
+  ];
+  const repositories = [];
+  for (const [index, origin] of origins.entries()) {
+    const repository = path.join(root, `project-${index}`);
+    await mkdir(repository);
+    gitSync(["init", "-q", "-b", "main"], { cwd: repository });
+    gitSync(["commit", "--allow-empty", "-qm", "fixture"], { cwd: repository });
+    gitSync(["remote", "add", "origin", origin], { cwd: repository });
+    repositories.push(repository);
+  }
+  await writeFile(
+    path.join(root, "worktrees.json"),
+    JSON.stringify({ version: 1, repositories, managed: [] }),
   );
   const facts = {
     codeFolder: "/remote/code",
@@ -1247,8 +1269,8 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     platform: { state: "pass" },
     artifact: { state: "pass" },
     result,
-    repositories: Array.from({ length: 6 }, (_, index) => ({
-      repository: `/local/project-${index}`,
+    repositories: repositories.map((repository, index) => ({
+      repository,
       origin: { state: "pass" },
       checkout: { ...result, checkout: { path: `/remote/project-${index}`, state: "clean" } },
     })),
@@ -1284,7 +1306,7 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     version: 1,
     approvals: [
       {
-        repository: "/local/project-0",
+        repository: repositories[0],
         list: { requirements: [{ kind: "toolchain", tool: "node", version: "24.x" }] },
       },
     ],
@@ -1324,10 +1346,14 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   await expect(page.getByRole("region", { name: "Repository setup" })).toHaveCount(0);
   await captureHosts(app, page, "1262/hosts");
   await capture("expanded");
-  await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
-  await expect(card.getByText("Repository · project-0", { exact: true })).toBeVisible();
+  const rows = card.locator(".host-check-row").filter({ has: page.locator(".host-git-protocols") });
+  await expect(rows.locator(".host-check-name")).toHaveText(["GitHub", "GitLab", "forge.test"]);
+  await expect(rows.nth(0).locator(".host-git-protocols > span")).toHaveText(["SSH ✓", "HTTPS ✓"]);
+  await expect(rows.nth(1).locator(".host-git-protocols > span")).toHaveText(["SSH ✓"]);
+  await expect(rows.nth(2).locator(".host-git-protocols > span")).toHaveText(["HTTPS ✓"]);
+  await expect(card.getByRole("button", { name: /^Git access/u })).toHaveCount(0);
+  await expect(card.getByText(/^Repository ·/u)).toHaveCount(0);
   await assertHostColumns(card);
-  await capture("repositories");
   for (const width of [900, 640]) {
     await app.evaluate(({ BrowserWindow }, width) => {
       const window = BrowserWindow.getAllWindows().find(
@@ -1338,24 +1364,20 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     }, width);
     await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width);
     await assertHostColumns(card);
-    await capture(`repositories-${width}`);
-    await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
-    await assertHostColumns(card);
     await capture(`expanded-${width}`);
-    await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   }
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setContentSize(1280, 800),
   );
-  await card.getByRole("button", { name: /Git access · 6 ready/ }).click();
   await card.getByText("Host facts", { exact: true }).click();
   await expect(card.getByText("Other profiles or untagged: 2", { exact: true })).toBeVisible();
   await expect(card.locator(".host-details .host-checkouts li")).toHaveCount(6);
   await expect(card.getByText("project-0 · /remote/project-0", { exact: true })).toBeVisible();
   await expect(card.getByText("/remote/project-0", { exact: true })).toHaveCount(1);
   await capture("inventory");
+  await captureHosts(app, page, "1261/ready", card);
   await assertAccessible(page);
   assert.equal(await readFile(calls, "utf8"), before);
   await navigation.getByRole("button", { name: "General", exact: true }).click();
@@ -2803,7 +2825,7 @@ test("Hosts accepts new SSH keys only through the trusted askpass dialog", {
     "Code folder",
     "git / gh",
     "Agents",
-    "Git access to origin",
+    "Git access",
     "Checked out repositories",
     "Host facts",
   ]) {
@@ -3954,9 +3976,9 @@ test("Hosts status classification stays consistent with sealed catalog omission"
   await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
   await expect(unavailable).toHaveClass(/host-neutral/u);
   await expect(card.locator(".host-fail")).toHaveCount(0);
-  await expect(
-    card.locator(".host-check-row").filter({ hasText: "Git access to origin" }),
-  ).toContainText("Not checked");
+  await expect(card.locator(".host-check-row").filter({ hasText: "forge.test" })).toContainText(
+    "Not checked",
+  );
   await capture("1131/sealed-omission");
   await card.getByRole("button", { name: "Reload Remote daemon", exact: true }).click();
   await expect(unavailable).toContainText("Unavailable in this build");

@@ -747,16 +747,10 @@
   font-size: calc(11px * var(--type-scale, 1));
   padding: 5px 9px;
 }
-.host-origin-fixes {
-  display: flex;
+.host-git-protocols {
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 14px;
-  padding: 10px 0 12px 25px;
-  border-bottom: 1px solid var(--line);
-  font-size: calc(11px * var(--type-scale, 1));
-}
-.host-origin-fixes span {
-  border-bottom: 1px dotted var(--muted);
+  gap: 4px 14px;
 }
 .host-footer {
   display: flex;
@@ -1013,16 +1007,6 @@
 .host-body[hidden] {
   display: none;
 }
-.host-repositories {
-  justify-self: start;
-  margin-top: 16px;
-  font-size: calc(12px * var(--type-scale, 1));
-  color: var(--muted);
-}
-.host-repositories summary {
-  cursor: pointer;
-}
-
 .host-row-reload {
   opacity: 0;
 }

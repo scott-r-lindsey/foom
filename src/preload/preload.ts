@@ -614,6 +614,20 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
 const validHostsState: Validator<HostsState> = shape({
+  gitOrigins: either(
+    absent,
+    array(
+      shape({
+        repository: text,
+        host: (value): value is string =>
+          typeof value === "string" &&
+          value.length <= 253 &&
+          !/^\d+(?:\.\d+){3}$/u.test(value) &&
+          value.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(label)),
+        protocol: literal("ssh", "https"),
+      }),
+    ),
+  ),
   progress: either(
     absent,
     array(

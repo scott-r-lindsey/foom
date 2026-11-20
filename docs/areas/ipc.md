@@ -55,7 +55,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows }` → `{ id, attention }` or null on cancellation |
 | `setup:readiness` | renderer → main (invoke) | no arguments → fixed Git/forge readiness and platform enums plus selected repository DNS hostnames; no CLI output or paths |
 | `setup:github-sign-in` | renderer → main (invoke) | requesting window’s gh recipe ID and `read` / `copy` / `open` / `cancel`; main derives a strict device code and opens only the fixed GitHub device URL; returns validated ephemeral state, never clipboard reads |
-| `setup:hosts` | renderer → main (invoke) | one closed host action; main owns registration, approved folders, origin and destination selection; fixed typed host/repository states only; see [Hosts](hosts.md) |
+| `setup:hosts` | renderer → main (invoke) | one closed host action; main owns registration, approved folders, origin and destination selection; replies carry typed host/repository states and display-only origin hostnames and protocol enums. See [Hosts](hosts.md) |
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
 | `setup:save` | renderer → main (invoke) | settings patch (known fields only), optional offered custom interface palette digest → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |

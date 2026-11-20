@@ -627,13 +627,16 @@ fresh inspection, never from saved observations. Host facts offers a separate
 session/worktree inventory refresh.
 
 Each host is a compact name, OS, status and chevron row, opening by default only
-when it needs attention. Expanding exposes all controls and observations. Ready
-Git-access checks collapse to a count. Failed origin checks remain visible.
+when it needs attention. Expanding exposes all controls and observations. Git access has one row per
+forge hostname used by a registered repository’s origin and shows only SSH or
+HTTPS as used. Hosts reads the origin metadata locally for display. Existing origin
+and checkout probes keep their scope. A protocol shows a checked failure if
+one was observed, otherwise one successful check is enough to show a pass.
 Checked-out repositories appear with their paths under Host facts. Checking one
 host leaves other hosts' controls available. Add host is enabled during loading and checks and is
 disabled only while an add is running. An added host and its own check cannot be
 replaced by an older check reply. The grouped checklist keeps
-Host, Tools, Agents, each repository and macOS Power observations independent.
+Host, Tools, Agents, Git access and macOS Power observations independent.
 Unrun checks say Not checked, failed checks retain their fixed reason, and
 unknown sign-in probes say Sign-in unknown. The UI never infers Remote Login or
 Keychain state from a connection/authentication failure. Platform details are
@@ -643,8 +646,10 @@ Create explicitly creates the approved folder. Change folder edits its approved
 path and rechecks without creating it. Install uses the existing main-selected
 recipe in the host card. Agent sign-in uses the same Settings-owned terminal.
 No background install, recipe replay or terminal typing is added.
-Missing recipes show no Install button. Git access to origin and explicit Trust host key… remain in each repository’s Git-access group. Origin-auth hints identify HTTPS through gh, a deploy key and ssh-agent as user-configured access options; Foom never applies them or instructs global URL rewrites. Host facts,
-foreign session End and foreign worktree counts remain under Host facts.
+Missing recipes show no Install button. Failed Git access rows use a square and
+protocol-specific failure text. Fix is reserved for the setup dialog (#1263).
+Explicit Trust host key… remains available for a failed SSH host-key check.
+Host facts retains checkout paths, foreign session End and foreign worktree counts.
 
 Repositories → Locations groups existing checkouts beneath Local and each registered host,
 with checkout path copy controls and no clone controls or clone status. Local selection
@@ -702,8 +707,8 @@ their fixed failure rows without making an otherwise usable host unavailable.
 Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready. Existing checkouts are a read-only list in Host facts.
 
 An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
-repository's validated SSH origin and opens a human-owned terminal just below
-its Git access to origin row in Settings (#1260). The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
+repository's validated SSH origin and opens a human-owned terminal in the
+Git access section in Settings (#1260, #1261). The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint
@@ -753,8 +758,9 @@ folder's saved and live observations intact and reports only the attempted chang
 Action validation and launch inspection
 still use the fresh inspections required above.
 
-Every checklist row has an accessibly named reload icon, revealed on hover or
-keyboard focus. Reload checks only that row, shows its own spinner and keeps
+Checklist rows have an accessibly named reload icon, revealed on hover or
+keyboard focus. A Git access row with several origins refreshes with
+**Check capabilities**. Reload checks only that row, shows its own spinner and keeps
 other results and controls available. If the existing observations cannot display
 the selected row without a full check, that row shows Check capabilities required, without
 helper copy or a synthetic full-check timestamp. Tool discovery does not run sign-in probes;

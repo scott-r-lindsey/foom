@@ -87,6 +87,32 @@ beforeEach(() => {
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
   hosts = new Hosts(store, () => repositories, "0.1.0", run);
 });
+test("Hosts projects current registered origin endpoints without probing a host", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  repositories = [
+    { path: "/local/ssh", name: "ssh" },
+    { path: "/local/https", name: "https" },
+    { path: "/local/invalid", name: "invalid" },
+    { path: "/local/port", name: "port" },
+  ];
+  mock.execute
+    .mockResolvedValueOnce({ stdout: "ssh://git@GitLab.com:2222/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "https://GitHub.com/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "https://token@forge.test/team/repo.git\n" })
+    .mockResolvedValueOnce({ stdout: "https://forge.test:99999/team/repo.git\n" });
+  await Promise.all([hosts.prepareView(), hosts.prepareView()]);
+  expect(mock.execute).toHaveBeenCalledTimes(repositories.length);
+  expect(hosts.state().gitOrigins).toEqual([
+    { repository: "/local/ssh", host: "gitlab.com", protocol: "ssh" },
+    { repository: "/local/https", host: "github.com", protocol: "https" },
+  ]);
+  repositories = repositories.slice(1);
+  expect(hosts.state().gitOrigins).toEqual([
+    { repository: "/local/https", host: "github.com", protocol: "https" },
+  ]);
+  expect(run).not.toHaveBeenCalled();
+});
+
 test("test does not authorize, add records enrollment, refresh replaces stale facts, removal never kills", async () => {
   expect(await hosts.action({ action: "list" })).toEqual({ hosts: [], locations: [] });
   expect(
