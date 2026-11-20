@@ -19,7 +19,31 @@ test.skipIf(process.platform === "win32")(
         ['approval_policy = "on-failure"', "may-prompt"],
         ['approval_policy = "untrusted"', "may-prompt"],
         ['model = "example"', "may-prompt"],
-        ["[approval_policy.granular]\nsandbox_approval = true", "may-prompt"],
+        [
+          "[approval_policy.granular]\nsandbox_approval = true\nrules = false\nmcp_elicitations = false",
+          "may-prompt",
+        ],
+        [
+          "[approval_policy.granular]\nsandbox_approval = false\nrules = false\nmcp_elicitations = false\nrequest_permissions = true",
+          "may-prompt",
+        ],
+        [
+          '[approval_policy.granular]\nsandbox_approval = true\nrules = "not a boolean"\nmcp_elicitations = false',
+          "unknown",
+        ],
+        [
+          '[approval_policy.granular]\nsandbox_approval = true\nrules = false\nmcp_elicitations = false\nskill_approval = "not a boolean"',
+          "unknown",
+        ],
+        ["[approval_policy.granular]\nsandbox_approval = true", "unknown"],
+        [
+          "[approval_policy.granular]\nsandbox_approval = false\nrules = false\nmcp_elicitations = false\nfuture_field = true",
+          "unknown",
+        ],
+        [
+          "[approval_policy]\nother = true\n[approval_policy.granular]\nsandbox_approval = true\nrules = false\nmcp_elicitations = false",
+          "unknown",
+        ],
         ["[approval_policy.granular]\nsandbox_approval = false", "unknown"],
         ['approval_policy = "unsupported"', "unknown"],
         ['profile = "other"', "unknown"],

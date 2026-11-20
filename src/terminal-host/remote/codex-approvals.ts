@@ -2,10 +2,26 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { parse } from "smol-toml";
-import { record } from "../../shared/remote-agent-protocol";
+import { keys, record } from "../../shared/remote-agent-protocol";
 import type { CodexApprovals } from "../../shared/registered-hosts.d";
 
 const maxConfigBytes = 64 * 1024;
+
+const requiredGranularSettings = ["sandbox_approval", "rules", "mcp_elicitations"];
+const optionalGranularSettings = ["request_permissions", "skill_approval"];
+
+function granularMayPrompt(policy: unknown): boolean {
+  if (!record(policy) || !keys(policy, ["granular"])) return false;
+  const settings = policy["granular"];
+  return (
+    record(settings) &&
+    requiredGranularSettings.every((key) => typeof settings[key] === "boolean") &&
+    optionalGranularSettings.every(
+      (key) => settings[key] === undefined || typeof settings[key] === "boolean",
+    ) &&
+    [...requiredGranularSettings, ...optionalGranularSettings].some((key) => settings[key] === true)
+  );
+}
 
 /** Observe the account defaults without running Codex or returning its settings. */
 export async function codexApprovals(
@@ -49,9 +65,7 @@ export async function codexApprovals(
         policy === "on-request" ||
         policy === "on-failure" ||
         policy === "untrusted" ||
-        (record(policy) &&
-          record(policy["granular"]) &&
-          Object.values(policy["granular"]).some((value) => value === true))
+        granularMayPrompt(policy)
       )
         return "may-prompt";
       return "unknown";

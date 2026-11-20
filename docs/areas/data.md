@@ -75,7 +75,8 @@ Until the data migration, main serializes requirement edits and replacements in
 private profile JSON under `repository-requirements/`, one file keyed by the
 current repository path and registration ID. Removing and re-adding a repository
 creates a different registration, without exposing the previous note. Clearing
-a note removes its file. A note carries a revision, a Markdown body of up to
+a note replaces it with a tombstone containing a new revision so a run started
+before the clear cannot recreate it. A note carries a Markdown body of up to
 16 KiB, and main-supplied recorder, host and timestamps. Invalid records are
 refused at read. The renderer can read, edit or clear a registered repository's
 note through Settings IPC. Edits and clears require the revision the human saw.

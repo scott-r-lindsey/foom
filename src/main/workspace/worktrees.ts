@@ -46,6 +46,8 @@ import { WorktreePanelFacts } from "./worktree-panel-facts";
 import { WorktreeMergePolicy } from "./worktree-merge-policy";
 import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
 
+export { absolutePath as registeredRepositoryPath } from "./worktree-operations";
+
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();

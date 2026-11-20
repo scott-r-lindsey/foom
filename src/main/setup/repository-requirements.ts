@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { readOwnedFile } from "../../node-common/owned-files";
 import { atomicPrivate, privateDirectory } from "../../node-common/private-files";
 import { keys, record } from "../../shared/remote-agent-protocol";
@@ -9,6 +8,7 @@ import type {
   RepositoryRequirements,
   RepositoryRequirementsAction,
 } from "../../shared/repository-requirements";
+import { registeredRepositoryPath } from "../workspace/worktrees";
 import type { WorktreeService } from "../workspace/worktrees";
 
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
@@ -20,11 +20,6 @@ function noteFile(repository: string, id: string): string {
 }
 function revision(value: unknown): value is string {
   return typeof value === "string" && uuid.test(value);
-}
-function repositoryPath(value: unknown): value is string {
-  return (
-    typeof value === "string" && value.length <= 4096 && isAbsolute(value) && !/\p{Cc}/u.test(value)
-  );
 }
 function markdown(value: unknown): value is string {
   return (
@@ -63,8 +58,28 @@ function savedNote(value: unknown): value is RepositoryRequirements {
     (value["editedAt"] === undefined || date(value["editedAt"]))
   );
 }
+interface ClearedRequirements {
+  revision: string;
+  cleared: true;
+}
+
+type StoredRequirements = RepositoryRequirements | ClearedRequirements;
+
+function clearedNote(value: unknown): value is ClearedRequirements {
+  return (
+    record(value) &&
+    keys(value, ["revision", "cleared"]) &&
+    revision(value["revision"]) &&
+    value["cleared"] === true
+  );
+}
+
+function visibleNote(current: StoredRequirements | null): RepositoryRequirements | null {
+  return current && "markdown" in current ? current : null;
+}
+
 function settingsAction(value: unknown): value is RepositoryRequirementsAction {
-  if (!record(value) || !repositoryPath(value["repository"])) return false;
+  if (!record(value) || !registeredRepositoryPath(value["repository"])) return false;
   if (value["action"] === "read") return keys(value, ["action", "repository"]);
   if (!revision(value["revision"])) return false;
   if (value["action"] === "clear") return keys(value, ["action", "repository", "revision"]);
@@ -79,7 +94,7 @@ function recordRequest(value: unknown): value is RecordRepositoryRequirements {
     record(value) &&
     keys(value, ["runId", "repository", "markdown"]) &&
     typeof value["runId"] === "string" &&
-    repositoryPath(value["repository"]) &&
+    registeredRepositoryPath(value["repository"]) &&
     markdown(value["markdown"])
   );
 }
@@ -113,7 +128,7 @@ export class RepositoryRequirementsStore {
     return next;
   }
 
-  private async read(directory: string, name: string): Promise<RepositoryRequirements | null> {
+  private async read(directory: string, name: string): Promise<StoredRequirements | null> {
     let input: unknown;
     try {
       input = JSON.parse(await readOwnedFile(join(directory, name), maxFileBytes));
@@ -121,7 +136,8 @@ export class RepositoryRequirementsStore {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
       throw new Error("Unable to read host requirements", { cause: error });
     }
-    if (!savedNote(input)) throw new Error("Invalid saved host requirements");
+    if (!savedNote(input) && !clearedNote(input))
+      throw new Error("Invalid saved host requirements");
     return input;
   }
 
@@ -131,25 +147,24 @@ export class RepositoryRequirementsStore {
       const id = this.identity(input.repository);
       const directory = await privateDirectory(this.profile, "repository-requirements");
       const name = noteFile(input.repository, id);
-      const current = await this.read(directory, name);
+      const current = visibleNote(await this.read(directory, name));
       if (input.action === "read") return current;
       if (current?.revision !== input.revision || this.identity(input.repository) !== id)
         throw new Error("Host requirements changed");
-      if (input.action === "clear") {
-        await rm(join(directory, name));
-        return null;
-      }
-      const next = {
-        ...current,
-        markdown: input.markdown,
-        revision: randomUUID(),
-        editedAt: Date.now(),
-      };
+      const next: StoredRequirements =
+        input.action === "clear"
+          ? { revision: randomUUID(), cleared: true }
+          : {
+              ...current,
+              markdown: input.markdown,
+              revision: randomUUID(),
+              editedAt: Date.now(),
+            };
       await atomicPrivate(directory, name, next, () => {
         if (this.identity(input.repository) !== id)
           throw new Error("Repository registration changed");
       });
-      return next;
+      return visibleNote(next);
     });
   }
 
@@ -159,25 +174,28 @@ export class RepositoryRequirementsStore {
       throw new Error("Invalid host setup run");
     const { id: runId, agent, host, signal, record: recording } = run;
     const selected = [...new Set(run.repositories)];
-    if (selected.length > 1000 || !selected.every(repositoryPath))
+    if (selected.length > 1000 || !selected.every(registeredRepositoryPath))
       throw new Error("Invalid setup repositories");
     const scope = await this.serial(async () => {
       signal.throwIfAborted();
       const directory = await privateDirectory(this.profile, "repository-requirements");
-      const scoped = new Map<string, { id: string; note: RepositoryRequirements | null }>();
+      const scoped = new Map<string, { id: string; current: StoredRequirements | null }>();
       for (const repository of selected) {
         signal.throwIfAborted();
         const id = this.identity(repository);
-        scoped.set(repository, { id, note: await this.read(directory, noteFile(repository, id)) });
+        scoped.set(repository, {
+          id,
+          current: await this.read(directory, noteFile(repository, id)),
+        });
       }
       signal.throwIfAborted();
       return scoped;
     });
     return {
-      notes: [...scope].map(([repository, { note }]) => ({
-        repository,
-        note: note && { ...note },
-      })),
+      notes: [...scope].map(([repository, { current }]) => {
+        const note = visibleNote(current);
+        return { repository, note: note && { ...note } };
+      }),
       write: recording
         ? (input: unknown) => {
             if (!recordRequest(input) || input.runId !== runId || !scope.has(input.repository))
@@ -191,26 +209,27 @@ export class RepositoryRequirementsStore {
               const name = noteFile(input.repository, entry.id);
               const current = await this.read(directory, name);
               if (
-                current?.revision !== entry.note?.revision ||
+                current?.revision !== entry.current?.revision ||
                 this.identity(input.repository) !== entry.id
               )
                 throw new Error("Host requirements changed");
               await this.preserveRegistrationIdentity?.(input.repository, entry.id);
               signal.throwIfAborted();
+              const editedAt = visibleNote(current)?.editedAt;
               const next = {
                 agent,
                 host,
                 markdown: input.markdown,
                 revision: randomUUID(),
                 recordedAt: Date.now(),
-                ...(current?.editedAt === undefined ? {} : { editedAt: current.editedAt }),
+                ...(editedAt === undefined ? {} : { editedAt }),
               };
               await atomicPrivate(directory, name, next, () => {
                 signal.throwIfAborted();
                 if (this.identity(input.repository) !== entry.id)
                   throw new Error("Repository registration changed");
               });
-              scope.set(input.repository, { id: entry.id, note: next });
+              scope.set(input.repository, { id: entry.id, current: next });
             });
           }
         : undefined,

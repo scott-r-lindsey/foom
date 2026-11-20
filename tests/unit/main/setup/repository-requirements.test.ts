@@ -1,8 +1,13 @@
-import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { RepositoryRequirementsStore } from "../../../../src/main/setup/repository-requirements";
+import {
+  RepositoryRequirementsStore,
+  repositoryRequirementsForProfile,
+} from "../../../../src/main/setup/repository-requirements";
+import { WorktreeService } from "../../../../src/main/workspace/worktrees";
+import { git } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
 
 vi.mock("../../../../src/node-common/private-file-permissions", () => ({
@@ -153,3 +158,37 @@ test("a duplicate claimed registration ID cannot expose another repository's not
   await live.write?.(request());
   await expect(settings("read", { repository: other })).resolves.toBeNull();
 });
+
+test("a run that started before a note existed cannot recreate it after Clear", async () => {
+  const stale = await run();
+  const recorder = await run(true, undefined, "recorder");
+  await recorder.write?.(request("# Recorded requirements", "recorder"));
+  const recorded = await settings("read");
+  await expect(settings("clear", { revision: recorded?.revision })).resolves.toBeNull();
+
+  await expect(stale.write?.(request())).rejects.toThrow("Host requirements changed");
+  await expect(settings("read")).resolves.toBeNull();
+
+  const fresh = await run(true, undefined, "fresh");
+  expect(fresh.notes).toEqual([{ repository, note: null }]);
+  await fresh.write?.(request("# Fresh requirements", "fresh"));
+  await expect(settings("read")).resolves.toMatchObject({ markdown: "# Fresh requirements" });
+});
+
+test.skipIf(process.platform === "win32")(
+  "reads and records notes for a registered path containing a tab",
+  async () => {
+    const checkout = join(profile, "repo\twith-tab");
+    await mkdir(checkout);
+    await git(["init"], { cwd: checkout });
+    const worktrees = await WorktreeService.open(profile, join(profile, "worktrees"));
+    const registered = await worktrees.addRepository(checkout);
+    repository = registered.path;
+    store = repositoryRequirementsForProfile(profile, worktrees);
+    await expect(settings("read")).resolves.toBeNull();
+
+    const recorder = await run();
+    await recorder.write?.(request());
+    await expect(settings("read")).resolves.toMatchObject({ markdown: request().markdown });
+  },
+);
