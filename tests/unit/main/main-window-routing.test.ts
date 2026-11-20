@@ -186,6 +186,9 @@ test("session, host and preview copies share main's clipboard capability", async
 test("window focus refreshes external workspace inventory", async () => {
   await import("../../../src/main/main");
   await start();
+  mock.confirmLocalFocusReturn.mockReturnValueOnce(true);
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).not.toHaveBeenCalled();
   mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
   expect(mock.workspace.refresh).toHaveBeenCalledOnce();
   mock.window.webContents.isCrashed.mockReturnValue(true);

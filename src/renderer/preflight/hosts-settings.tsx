@@ -6,7 +6,6 @@ import { Fragment, createContext, use, useCallback, useEffect, useRef, useState 
 import type { ReactNode, RefObject } from "react";
 import { CopyValue } from "../ui/copy-value";
 import type {
-  HostOutput,
   HostCheckTarget,
   HostCheck,
   HostCheckProgress,
@@ -23,6 +22,7 @@ type RecipeView = {
   id: string;
   finished: boolean;
   repository?: string;
+  reveal?: true;
   gh?: "install" | "sign-in";
 };
 const originRecipeKey = (host: string, repository: string) => JSON.stringify([host, repository]);
@@ -55,41 +55,6 @@ const reasons: Record<HostFailure, string> = {
   "checkout-refused": "Checkout unavailable",
 };
 
-function HostCheckOutput({
-  output,
-  dismiss,
-  awaitingTrust = false,
-}: {
-  output: HostOutput;
-  dismiss: () => void;
-  awaitingTrust?: boolean;
-}) {
-  return (
-    <section className="host-terminal" aria-label="Host check output">
-      <header>
-        <span
-          role="status"
-          className={awaitingTrust ? "host-need" : output.failed ? "hosts-failure" : undefined}
-        >
-          {awaitingTrust
-            ? "Host key not trusted"
-            : output.running
-              ? "Checking…"
-              : output.failed
-                ? "Failed"
-                : "Done"}
-        </span>
-        {!output.running && !awaitingTrust && (
-          <button type="button" onClick={dismiss}>
-            Dismiss
-          </button>
-        )}
-      </header>
-      <pre tabIndex={0}>{output.text}</pre>
-    </section>
-  );
-}
-
 type Tone = "pass" | "need" | "fail" | "neutral" | "work";
 function failureTone(reason: HostFailure): "need" | "fail" | "neutral" {
   return reason === "artifact-unavailable"
@@ -119,6 +84,7 @@ const ReloadContext = createContext<
   | undefined
 >(undefined);
 const rowKey = (target: HostCheckTarget) => JSON.stringify(target);
+const sshRowKey = rowKey({ kind: "ssh" });
 function reloadName(target: HostCheckTarget): string {
   if ("tool" in target)
     return `${agentNames.get(target.tool) ?? target.tool}${target.kind === "sign-in" ? " sign-in" : ""}`;
@@ -142,7 +108,7 @@ function Row({
 }: {
   name: ReactNode;
   tone: Tone;
-  text: string;
+  text: ReactNode;
   action?: ReactNode;
   target?: HostCheckTarget;
 }) {
@@ -250,6 +216,7 @@ const agentNames = new Map<string, string>([
 ]);
 function Checklist({
   awaitingTrust,
+  ssh,
   entry,
   preflight,
   checking,
@@ -270,6 +237,7 @@ function Checklist({
   signInTerminal?: { tool: string; running: boolean; panel: ReactNode } | undefined;
   ghRunning?: boolean;
   awaitingTrust: boolean;
+  ssh: HostCheck | undefined;
   copySsh: () => Promise<unknown>;
   openAgents?: ((host: string) => void) | undefined;
   enabledAgents?: Readonly<Record<string, boolean>> | undefined;
@@ -289,7 +257,29 @@ function Checklist({
   const connection = progress?.result
     ? progress.result.connection
     : (preflight ?? result?.connection);
-  const folder = facts?.folder;
+  const unmatchedFailure =
+    result &&
+    !result.ok &&
+    !(result.reason === "unreachable" && ssh?.state === "fail") &&
+    ![ssh, connection?.platform, connection?.artifact].some(
+      (check) => check?.state === "fail" && check.reason === result.reason,
+    )
+      ? result.reason
+      : undefined;
+  const folderFailure =
+    unmatchedFailure === "folder-missing" ||
+    unmatchedFailure === "folder-refused" ||
+    unmatchedFailure === "unsafe-folder";
+  const folder = folderFailure
+    ? { state: "fail" as const, reason: unmatchedFailure }
+    : facts?.folder;
+  const sshStatus = checkPresentation(ssh, "Host key trusted");
+  const trustFailure =
+    entry.hostKeyTrustFailure && "Unable to trust host key · " + entry.hostKeyTrustFailure;
+  const daemon =
+    unmatchedFailure && !folderFailure
+      ? { state: "fail" as const, reason: unmatchedFailure }
+      : connection?.artifact;
   const folderStatus = checkPresentation(folder, "Valid");
   if (mac?.protectedFolder) {
     if (folder?.state !== "fail") folderStatus.tone = "neutral";
@@ -391,7 +381,13 @@ function Checklist({
         </Fragment>
       );
     });
-  const repositories = progress?.repositories ?? preflight?.repositories ?? [];
+  const repositories = awaitingTrust
+    ? []
+    : (progress?.repositories ?? preflight?.repositories ?? []);
+  const repositoryPaths = new Set(repositories.map(({ repository }) => repository));
+  const uncheckedRepositories = [...originTerminals]
+    .filter(([repository, terminal]) => terminal.running && !repositoryPaths.has(repository))
+    .map(([repository]): (typeof repositories)[number] => ({ repository }));
   const readyRepositories = repositories.filter(
     (repo) =>
       facts &&
@@ -403,202 +399,193 @@ function Checklist({
   const [showReady, setShowReady] = useState(false);
   return (
     <div className="host-checks" aria-busy={checking}>
-      <Group>Host</Group>
-      <Row
-        target={{ kind: "ssh" }}
-        name="SSH"
-        {...checkPresentation(connection?.ssh, "Host key trusted")}
-        action={
-          connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown" ? (
-            entry.hostKeyTrust === "askpass" ? (
-              <button
-                className="primary"
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  act({ action: "trust-host-key", host: entry.host });
-                }}
-              >
-                Trust host key…
-              </button>
-            ) : (
-              <CopyValue value={`ssh ${entry.host}`} label="Copy SSH command" copy={copySsh} />
-            )
-          ) : undefined
-        }
-      />
-      {!awaitingTrust && (
-        <>
-          <Row
-            target={{ kind: "platform" }}
-            name="Platform"
-            {...checkPresentation(connection?.platform, "Supported")}
-          />
-          <Row
-            target={{ kind: "artifact" }}
-            name="Remote daemon"
-            {...checkPresentation(connection?.artifact, "In this build")}
-          />
-          <Row
-            target={{ kind: "folder" }}
-            name="Code folder"
-            {...folderStatus}
-            action={
+      <fieldset className="host-controls" disabled={disabled}>
+        <Group>Host</Group>
+        <Row
+          target={{ kind: "ssh" }}
+          name="SSH"
+          tone={sshStatus.tone}
+          text={
+            trustFailure ? (
               <>
-                {folder?.state === "fail" && folder.reason === "folder-missing" && (
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => {
-                      act({ action: "create-folder", host: entry.host });
-                    }}
-                  >
-                    Create
-                  </button>
-                )}
-                <button type="button" disabled={disabled} onClick={changeFolder}>
-                  Change folder
-                </button>
+                <span>{sshStatus.text}</span>
+                <br />
+                <span className="host-fail">{trustFailure}</span>
               </>
-            }
-          />
-          {result &&
-            !result.ok &&
-            ![connection?.ssh, connection?.platform, connection?.artifact].some(
-              (check) => check?.state === "fail" && check.reason === result.reason,
-            ) && (
-              <p className={`host-${failureTone(result.reason)}`} role="status">
-                {reasons[result.reason]}
-              </p>
-            )}
-          <Group>Tools</Group>
-          {mac && (
-            <Row
-              target={{ kind: "command-line-tools" }}
-              name="Command Line Tools"
-              tone={mac.commandLineTools ? "pass" : "need"}
-              text={mac.commandLineTools ? "Pass · Installed" : "Not found"}
-              action={!mac.commandLineTools ? "Do this on the Mac" : undefined}
-            />
-          )}
-          {facts?.tools ? (
-            tools(facts.tools)
-          ) : (
-            <Row name="git / gh" tone="neutral" text="Not checked" />
-          )}
-          <Group>Agents</Group>
-          {openAgents && agents ? (
-            <Row
-              name="Agents"
-              tone="neutral"
-              text={`${String(agents.filter((agent) => enabledAgents?.[agent.id] === true && agent.state === "ready" && agent.signIn !== "signed-out").length)} of ${String(Object.values(enabledAgents ?? {}).filter((enabled) => enabled).length)} ready`}
-              action={
+            ) : (
+              sshStatus.text
+            )
+          }
+          action={
+            ssh?.state === "fail" && ssh.reason === "host-key-unknown" ? (
+              entry.hostKeyTrust === "askpass" ? (
                 <button
+                  className="primary"
                   type="button"
+                  disabled={disabled}
                   onClick={() => {
-                    openAgents(entry.host);
+                    act({ action: "trust-host-key", host: entry.host });
                   }}
                 >
-                  Open
+                  Trust host key…
                 </button>
+              ) : (
+                <CopyValue value={`ssh ${entry.host}`} label="Copy SSH command" copy={copySsh} />
+              )
+            ) : undefined
+          }
+        />
+        {!awaitingTrust && (
+          <>
+            <Row
+              target={{ kind: "platform" }}
+              name="Platform"
+              {...checkPresentation(connection?.platform, "Supported")}
+            />
+            <Row
+              target={{ kind: "artifact" }}
+              name="Remote daemon"
+              {...checkPresentation(daemon, "In this build")}
+            />
+            <Row
+              target={{ kind: "folder" }}
+              name="Code folder"
+              {...folderStatus}
+              action={
+                <>
+                  {folder?.state === "fail" && folder.reason === "folder-missing" && (
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        act({ action: "create-folder", host: entry.host });
+                      }}
+                    >
+                      Create
+                    </button>
+                  )}
+                  <button type="button" disabled={disabled} onClick={changeFolder}>
+                    Change folder
+                  </button>
+                </>
               }
             />
-          ) : agents ? (
-            tools(agents)
-          ) : (
-            <Row name="Agents" tone="neutral" text="Not checked" />
-          )}
-          {repositories.length > 0 && (
-            <button
-              type="button"
-              className="host-repositories"
-              aria-expanded={showReady}
-              onClick={() => {
-                setShowReady(!showReady);
-              }}
-            >
-              <span aria-hidden="true">{showReady ? "⌄" : "›"}</span> Git access ·{" "}
-              {readyRepositories.length} ready
-            </button>
-          )}
-          {repositories
-            .filter(
-              (repo) =>
-                showReady ||
-                originTerminals.has(repo.repository) ||
-                !readyRepositories.includes(repo),
-            )
-            .map((repo) => (
-              <Fragment key={repo.repository}>
-                <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
-                <Row
-                  target={{ kind: "origin", repository: repo.repository }}
-                  name="Git access to origin"
-                  {...(checking && !repo.origin
-                    ? { tone: "work" as const, text: "Checking…" }
-                    : checkPresentation(facts ? repo.origin : undefined, "Reachable"))}
-                  action={
-                    facts &&
-                    repo.origin?.state === "fail" &&
-                    repo.origin.reason === "origin-host-key" ? (
-                      <button
-                        type="button"
-                        disabled={disabled || originTerminals.get(repo.repository)?.running}
-                        onClick={() => {
-                          act({
-                            action: "trust-origin",
-                            host: entry.host,
-                            repository: repo.repository,
-                          });
-                        }}
-                      >
-                        Trust host key…
-                      </button>
-                    ) : undefined
-                  }
-                />
-                {originTerminals.get(repo.repository)?.panel}
-                {facts && repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
-                  <div className="host-origin-fixes" aria-label="Git access fixes">
-                    <span title={"Configure the host's Git to use HTTPS through gh"}>
-                      Use HTTPS through gh
-                    </span>
-                    <span title="Add a passphrase-less deploy key on this host">deploy key</span>
-                    <span title="Load the key in a persistent ssh-agent visible to the host login environment">
-                      ssh-agent
-                    </span>
-                  </div>
-                )}
-              </Fragment>
-            ))}
-          <Group>Checked out repositories</Group>
-          <p>Foom checks out repositories automatically when you use this host.</p>
-          {repositories
-            .filter(
-              (repo) =>
-                repo.checkout?.ok &&
-                repo.checkout.checkout &&
-                repo.checkout.checkout.state !== "absent",
-            )
-            .map((repo) => (
-              <div key={repo.repository} className="host-repository-row">
-                <span>{repo.repository.split(/[\\/]/u).at(-1)}</span>
-                <code>{repo.checkout?.ok ? repo.checkout.checkout?.path : ""}</code>
-              </div>
-            ))}
-          {mac && (
-            <>
-              <Group>Power</Group>
+            <Group>Tools</Group>
+            {mac && (
               <Row
-                target={{ kind: "power" }}
-                name="Stays awake"
-                tone={mac.staysAwake ? "pass" : "neutral"}
-                text={mac.staysAwake ? "Pass · Stays awake" : "Warning · Sleeps when idle"}
-                action={!mac.staysAwake ? "On the Mac · Battery → Options" : undefined}
+                target={{ kind: "command-line-tools" }}
+                name="Command Line Tools"
+                tone={mac.commandLineTools ? "pass" : "need"}
+                text={mac.commandLineTools ? "Pass · Installed" : "Not found"}
+                action={!mac.commandLineTools ? "Do this on the Mac" : undefined}
               />
-            </>
-          )}
-        </>
+            )}
+            {facts?.tools ? (
+              tools(facts.tools)
+            ) : (
+              <Row name="git / gh" tone="neutral" text="Not checked" />
+            )}
+            <Group>Agents</Group>
+            {openAgents && agents ? (
+              <Row
+                name="Agents"
+                tone="neutral"
+                text={`${String(agents.filter((agent) => enabledAgents?.[agent.id] === true && agent.state === "ready" && agent.signIn !== "signed-out").length)} of ${String(Object.values(enabledAgents ?? {}).filter((enabled) => enabled).length)} ready`}
+                action={
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openAgents(entry.host);
+                    }}
+                  >
+                    Open
+                  </button>
+                }
+              />
+            ) : agents ? (
+              tools(agents)
+            ) : (
+              <Row name="Agents" tone="neutral" text="Not checked" />
+            )}
+          </>
+        )}
+        {repositories.length > 0 && (
+          <button
+            type="button"
+            className="host-repositories"
+            aria-expanded={showReady}
+            onClick={() => {
+              setShowReady(!showReady);
+            }}
+          >
+            <span aria-hidden="true">{showReady ? "⌄" : "›"}</span> Git access ·{" "}
+            {readyRepositories.length} ready
+          </button>
+        )}
+      </fieldset>
+      {[...repositories, ...uncheckedRepositories]
+        .filter(
+          (repo) =>
+            showReady || originTerminals.has(repo.repository) || !readyRepositories.includes(repo),
+        )
+        .map((repo) => (
+          <Fragment key={repo.repository}>
+            <Group>Repository · {repo.repository.split(/[\\/]/u).at(-1)}</Group>
+            <fieldset className="host-controls" disabled={disabled}>
+              <Row
+                {...(repositoryPaths.has(repo.repository)
+                  ? { target: { kind: "origin" as const, repository: repo.repository } }
+                  : {})}
+                name="Git access to origin"
+                {...(checking && !repo.origin
+                  ? { tone: "work" as const, text: "Checking…" }
+                  : checkPresentation(facts ? repo.origin : undefined, "Reachable"))}
+                action={
+                  facts &&
+                  repo.origin?.state === "fail" &&
+                  repo.origin.reason === "origin-host-key" ? (
+                    <button
+                      type="button"
+                      disabled={disabled || originTerminals.get(repo.repository)?.running}
+                      onClick={() => {
+                        act({
+                          action: "trust-origin",
+                          host: entry.host,
+                          repository: repo.repository,
+                        });
+                      }}
+                    >
+                      Trust host key…
+                    </button>
+                  ) : undefined
+                }
+              />
+            </fieldset>
+            {originTerminals.get(repo.repository)?.panel}
+            {facts && repo.origin?.state === "fail" && repo.origin.reason === "origin-auth" && (
+              <div className="host-origin-fixes" aria-label="Git access fixes">
+                <span title={"Configure the host's Git to use HTTPS through gh"}>
+                  Use HTTPS through gh
+                </span>
+                <span title="Add a passphrase-less deploy key on this host">deploy key</span>
+                <span title="Load the key in a persistent ssh-agent visible to the host login environment">
+                  ssh-agent
+                </span>
+              </div>
+            )}
+          </Fragment>
+        ))}
+      {!awaitingTrust && mac && (
+        <fieldset className="host-controls" disabled={disabled}>
+          <Group>Power</Group>
+          <Row
+            target={{ kind: "power" }}
+            name="Stays awake"
+            tone={mac.staysAwake ? "pass" : "neutral"}
+            text={mac.staysAwake ? "Pass · Stays awake" : "Warning · Sleeps when idle"}
+            action={!mac.staysAwake ? "On the Mac · Battery → Options" : undefined}
+          />
+        </fieldset>
       )}
     </div>
   );
@@ -734,6 +721,18 @@ export function HostsSettings({
   const [checks, setChecks] = useState<ReadonlyMap<string, HostPreflight>>(
     () => new Map<string, HostPreflight>(),
   );
+  const rememberChecklist = useCallback(
+    (host: string, preflight: HostPreflight | undefined) => {
+      if (source.views) return;
+      setChecks((previous) => {
+        const updated = new Map(previous);
+        if (preflight) updated.set(host, preflight);
+        else updated.delete(host);
+        return updated;
+      });
+    },
+    [source.views],
+  );
   const [adding, setAdding] = useState(false);
   const [host, setHost] = useState("");
   const [folder, setFolder] = useState("~/foom");
@@ -743,6 +742,7 @@ export function HostsSettings({
   const [changing, setChanging] = useState<{ host: string; folder: string }>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<ReactNode>();
   const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
   const [resuming, setResuming] = useState(!!source.views);
@@ -765,8 +765,6 @@ export function HostsSettings({
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
-  const [outputOverride, setOutputOverride] = useState<HostOutput | null>();
-  const output = outputOverride === null ? undefined : (outputOverride ?? state.output);
   const [recipes, setRecipes] = useState<ReadonlyMap<string, RecipeView>>(() => {
     const saved = new Map<string, RecipeView>(
       [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
@@ -802,10 +800,6 @@ export function HostsSettings({
         new Map([...previous].filter(([, recipe]) => recipe.host !== host || !recipe.finished)),
     );
   };
-  const dismissOutput = () => {
-    setOutputOverride(null);
-    void api?.({ action: "dismiss-output" });
-  };
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
       await api?.({ action: "list" })
@@ -826,7 +820,7 @@ export function HostsSettings({
     },
     [api, setState],
   );
-  const originPanel = (id: string) =>
+  const originPanel = (id: string, reveal = false) =>
     source.hostTerminal && (
       <HostTerminal
         key={id}
@@ -837,6 +831,7 @@ export function HostsSettings({
         activeLabel="Verify the fingerprint in SSH"
         collapseOnExit
         showExitStatus={false}
+        reveal={reveal}
       />
     );
   const refreshGithubTool = useCallback(
@@ -845,23 +840,17 @@ export function HostsSettings({
         const next = await api?.({ action: "reload", host, target: { kind: "tool", tool: "gh" } });
         if (next) {
           setState(next);
-          setChecks((previous) => {
-            const updated = new Map(previous);
-            if (next.preflight) updated.set(host, next.preflight);
-            else updated.delete(host);
-            return updated;
-          });
+          rememberChecklist(host, next.preflight);
         }
       } catch {
         setError("Unable to refresh tool");
       }
     },
-    [api, setState],
+    [api, rememberChecklist, setState],
   );
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const applyState = (next: HostsState, host: string, startedRename?: { nickname: string }) => {
-    if (next.output) setOutputOverride(next.output);
     setState((previous) => ({
       ...next,
       hosts: [
@@ -895,10 +884,7 @@ export function HostsSettings({
         progressPendingRef.current = true;
         try {
           const next = await api({ action: "progress" });
-          if (active) {
-            setProgress(next.progress);
-            if (next.output) setOutputOverride(next.output);
-          }
+          if (active) setProgress(next.progress);
         } catch {
           // The authoritative preflight request owns error reporting.
         }
@@ -940,7 +926,6 @@ export function HostsSettings({
 
   const act = async (action: HostsAction) => {
     changedRef.current = true;
-    if (action.action === "recipe") setOutputOverride(undefined);
     if ("host" in action && action.action !== "remove") {
       clearRecipe(action.host);
       setExpanded((previous) => new Map(previous).set(action.host, true));
@@ -949,7 +934,10 @@ export function HostsSettings({
     const startedRename = renamedRef.current.get(target);
     setBusy((previous) => new Set(previous).add(target));
     let enrolling = action.action === "add";
-    if (enrolling) setAddBusy(true);
+    if (enrolling) {
+      setAddBusy(true);
+      setAddError(undefined);
+    }
     setError("");
     try {
       let next =
@@ -965,14 +953,27 @@ export function HostsSettings({
         if (next.hosts.some((entry) => entry.host === action.host)) return;
         clearRecipe(action.host);
       }
-      if ("host" in action && ["preflight", "add", "remove"].includes(action.action))
+      if (
+        !next.preflightSaveFailed &&
+        "host" in action &&
+        ["preflight", "add", "remove"].includes(action.action)
+      )
         setRowFailed(
-          (previous) => new Set([...previous].filter((key) => !key.startsWith(`${action.host}:`))),
+          (previous) =>
+            new Map([...previous].filter(([key]) => !key.startsWith(`${action.host}:`))),
         );
       applyState(next, target, startedRename);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
-        setChecks((previous) => new Map(previous).set(action.host, preflight));
+        rememberChecklist(action.host, preflight);
+        if (next.preflightSaveFailed && preflight.ssh.state !== "not-checked") {
+          const key = `${action.host}:${sshRowKey}`;
+          setRowFailed((previous) => {
+            const updated = new Map(previous);
+            updated.delete(key);
+            return updated;
+          });
+        }
       }
       if (next.recipeSession && "host" in action) {
         const id = next.recipeSession;
@@ -985,7 +986,9 @@ export function HostsSettings({
               host: action.host,
               id,
               finished: false,
-              ...(action.action === "trust-origin" ? { repository: action.repository } : {}),
+              ...(action.action === "trust-origin"
+                ? { repository: action.repository, reveal: true as const }
+                : {}),
               ...(action.action === "recipe" && action.tool === "gh"
                 ? {
                     gh:
@@ -1005,7 +1008,7 @@ export function HostsSettings({
         setFolder("~/foom");
         setNickname("");
       } else if (action.action === "add" && next.result && !next.result.ok)
-        setError(
+        setAddError(
           <Status tone={failureTone(next.result.reason)}>{reasons[next.result.reason]}</Status>,
         );
       if (action.action === "change-folder") setChanging(undefined);
@@ -1017,16 +1020,12 @@ export function HostsSettings({
         setError(
           <Status tone={failureTone(next.result.reason)}>{reasons[next.result.reason]}</Status>,
         );
-      if (action.action !== "preflight" && "host" in action) {
+      // Refresh facts returns resource and inventory observations only.
+      if (action.action !== "preflight" && action.action !== "refresh" && "host" in action) {
         const observed =
           next.preflight ??
           next.hosts.find((entry) => entry.host === action.host)?.observation?.preflight;
-        setChecks((previous) => {
-          const updated = new Map(previous);
-          if (observed) updated.set(action.host, observed);
-          else updated.delete(action.host);
-          return updated;
-        });
+        rememberChecklist(action.host, observed);
       }
       if (action.action === "add") {
         const entry = next.hosts.find((entry) => entry.host === action.host);
@@ -1034,15 +1033,14 @@ export function HostsSettings({
           next = await runCheck(entry.host, entry.codeFolder);
           if (next) {
             applyState(next, target, startedRename);
-            if (next.preflight) {
-              const preflight = next.preflight;
-              setChecks((previous) => new Map(previous).set(entry.host, preflight));
-            }
+            if (next.preflight) rememberChecklist(entry.host, next.preflight);
           }
         }
       }
+      if (next?.preflightSaveFailed && !source.views) setError("Unable to update hosts");
     } catch {
-      setError("Unable to update hosts");
+      if (enrolling) setAddError("Unable to add host");
+      else setError("Unable to update hosts");
     } finally {
       setBusy((previous) => {
         const next = new Set(previous);
@@ -1052,15 +1050,15 @@ export function HostsSettings({
       if (enrolling) setAddBusy(false);
     }
   };
-  const [rowFailed, setRowFailed] = useState<ReadonlySet<string>>(() => new Set());
-  const reload = async (host: string, target: HostCheckTarget) => {
+  const [rowFailed, setRowFailed] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const reload = async (host: string, target: HostCheckTarget, sshRevision: number) => {
     clearRecipe(host);
     const key = `${host}:${rowKey(target)}`;
     setExpanded((previous) => new Map(previous).set(host, true));
     setError("");
     setRowPending((previous) => new Set(previous).add(key));
     setRowFailed((previous) => {
-      const next = new Set(previous);
+      const next = new Map(previous);
       next.delete(key);
       return next;
     });
@@ -1068,13 +1066,10 @@ export function HostsSettings({
       const next = await api?.({ action: "reload", host, target });
       if (next) {
         applyState(next, host);
-        if (next.preflight) {
-          const preflight = next.preflight;
-          setChecks((previous) => new Map(previous).set(host, preflight));
-        }
+        if (next.preflight) rememberChecklist(host, next.preflight);
       }
     } catch {
-      setRowFailed((previous) => new Set(previous).add(key));
+      setRowFailed((previous) => new Map(previous).set(key, sshRevision));
     } finally {
       setRowPending((previous) => {
         const next = new Set(previous);
@@ -1083,6 +1078,9 @@ export function HostsSettings({
       });
     }
   };
+  const hostError =
+    error ||
+    (state.hosts.some((entry) => entry.checklist?.saveFailed) ? "Unable to update hosts" : "");
   return (
     <div className="hosts-page">
       <header className="hosts-heading">
@@ -1094,6 +1092,7 @@ export function HostsSettings({
             type="button"
             disabled={addBusy}
             onClick={() => {
+              setAddError(undefined);
               setAdding(true);
             }}
           >
@@ -1102,9 +1101,9 @@ export function HostsSettings({
         )}
       </header>
       {state.remoteHostsAvailable === false && <p>This build has no remote host support</p>}
-      {!!(error || hostsQuery.isError) && (
-        <p role="alert" className={typeof error === "string" ? "hosts-failure" : undefined}>
-          {error || "Unable to load hosts"}
+      {!!(hostError || hostsQuery.isError) && (
+        <p role="alert" className={typeof hostError === "string" ? "hosts-failure" : undefined}>
+          {hostError || "Unable to load hosts"}
         </p>
       )}
       {adding && (
@@ -1129,6 +1128,7 @@ export function HostsSettings({
                 placeholder="user@host"
                 value={host}
                 onChange={(event) => {
+                  setAddError(undefined);
                   setHost(event.target.value);
                 }}
               />
@@ -1139,6 +1139,7 @@ export function HostsSettings({
                 value={nickname}
                 aria-invalid={!!nicknameError}
                 onChange={(event) => {
+                  setAddError(undefined);
                   setNickname(event.target.value);
                 }}
               />
@@ -1148,6 +1149,7 @@ export function HostsSettings({
               <input
                 value={folder}
                 onChange={(event) => {
+                  setAddError(undefined);
                   setFolder(event.target.value);
                 }}
               />
@@ -1158,6 +1160,17 @@ export function HostsSettings({
             {nicknameError && (
               <span role="alert" className="hosts-failure host-notice">
                 {nicknameError}
+              </span>
+            )}
+            {addBusy && (
+              <span className="host-check-progress host-work host-notice" role="status">
+                <span className="host-throbber" aria-hidden="true" />
+                Checking host…
+              </span>
+            )}
+            {addError && (
+              <span className="host-notice" role="alert">
+                {addError}
               </span>
             )}
             <span className="host-notice">Host key trusted outside Foom</span>
@@ -1172,16 +1185,6 @@ export function HostsSettings({
           >
             Cancel
           </button>
-          {output?.host === host.trim() && (
-            <HostCheckOutput
-              output={output}
-              dismiss={dismissOutput}
-              awaitingTrust={
-                state.preflight?.ssh.state === "fail" &&
-                state.preflight.ssh.reason === "host-key-unknown"
-              }
-            />
-          )}
         </form>
       )}
       {!state.hosts.length && !adding && <p>No hosts</p>}
@@ -1226,23 +1229,31 @@ export function HostsSettings({
                 : {})}
             />
           ) : undefined;
-        const preflight = buildPreflight(
-          checks.get(entry.host) ?? entry.observation?.preflight,
-          state.remoteHostsAvailable,
-        );
+        const latest =
+          entry.checklist?.preflight ?? checks.get(entry.host) ?? entry.observation?.preflight;
+        const sshRevision = latest?.sshRevision ?? 0;
+        const preflight = buildPreflight(latest, state.remoteHostsAvailable);
         const hostProgress = progress?.find((item) => item.host === entry.host);
-        const connection = hostProgress?.result
-          ? hostProgress.result.connection
-          : (preflight ?? entry.result?.connection);
-        const awaitingTrust =
-          connection?.ssh.state === "fail" && connection.ssh.reason === "host-key-unknown";
-        if (!awaitingTrust && source.hostTerminal) {
-          for (const repo of preflight?.repositories ?? []) {
-            const origin = recipes.get(originRecipeKey(entry.host, repo.repository));
-            if (!origin) continue;
-            originTerminals.set(repo.repository, {
+        const checkouts = (hostProgress?.repositories ?? preflight?.repositories ?? []).flatMap(
+          ({ repository, checkout: result }) =>
+            result?.ok && result.checkout && result.checkout.state !== "absent"
+              ? [{ repository, path: result.checkout.path }]
+              : [],
+        );
+        const ssh = preflight?.ssh ?? (source.views ? undefined : entry.result?.connection?.ssh);
+        const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
+        const controlsDisabled = resuming || busy.has(entry.host);
+        if (source.hostTerminal) {
+          for (const origin of recipes.values()) {
+            if (
+              origin.host !== entry.host ||
+              !origin.repository ||
+              (awaitingTrust && origin.finished)
+            )
+              continue;
+            originTerminals.set(origin.repository, {
               running: !origin.finished,
-              panel: originPanel(origin.id),
+              panel: originPanel(origin.id, origin.reveal),
             });
           }
         }
@@ -1304,55 +1315,46 @@ export function HostsSettings({
                 )}
               </span>
             </div>
-            <fieldset
-              className="host-body"
-              hidden={!open}
-              disabled={resuming || busy.has(entry.host)}
-            >
-              <div className="host-meta">
-                <CopyValue
-                  value={entry.host}
-                  label="Copy host alias"
-                  copy={() =>
-                    source.copyHost?.({ kind: "copy-host-alias", host: entry.host }) ??
-                    Promise.reject(new Error("Copy unavailable"))
-                  }
-                />
-                <code>
+            <div className="host-body" hidden={!open}>
+              <fieldset className="host-controls" disabled={controlsDisabled}>
+                <div className="host-meta">
                   <CopyValue
-                    value={entry.codeFolder}
-                    label="Copy code folder"
+                    value={entry.host}
+                    label="Copy host alias"
                     copy={() =>
-                      source.copyHost?.({ kind: "copy-host-code-folder", host: entry.host }) ??
+                      source.copyHost?.({ kind: "copy-host-alias", host: entry.host }) ??
                       Promise.reject(new Error("Copy unavailable"))
                     }
                   />
-                </code>
-                <button
-                  type="button"
-                  className="host-remove"
-                  disabled={busy.has(entry.host)}
-                  onClick={() => {
-                    void act({ action: "remove", host: entry.host });
-                  }}
-                >
-                  Remove
-                </button>
-              </div>
-              {output?.host === entry.host && (
-                <HostCheckOutput
-                  output={output}
-                  dismiss={dismissOutput}
-                  awaitingTrust={awaitingTrust}
-                />
-              )}
-              {!awaitingTrust &&
-                !(recipeAction?.action === "recipe" && recipeAction.operation === "sign-in") &&
-                terminal}
+                  <code>
+                    <CopyValue
+                      value={entry.codeFolder}
+                      label="Copy code folder"
+                      copy={() =>
+                        source.copyHost?.({ kind: "copy-host-code-folder", host: entry.host }) ??
+                        Promise.reject(new Error("Copy unavailable"))
+                      }
+                    />
+                  </code>
+                  <button
+                    type="button"
+                    className="host-remove"
+                    disabled={busy.has(entry.host)}
+                    onClick={() => {
+                      void act({ action: "remove", host: entry.host });
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                {!awaitingTrust &&
+                  !(recipeAction?.action === "recipe" && recipeAction.operation === "sign-in") &&
+                  terminal}
+              </fieldset>
               <ReloadContext
                 value={{
                   reload: (target) => {
-                    void reload(entry.host, target);
+                    void reload(entry.host, target, sshRevision);
                   },
                   needsFullCheck:
                     (preflight?.result ?? entry.result)?.ok !== true || summary === "Not checked",
@@ -1363,8 +1365,12 @@ export function HostsSettings({
                   ),
                   failed: new Set([
                     ...[...rowFailed]
-                      .filter((key) => key.startsWith(`${entry.host}:`))
-                      .map((key) => key.slice(entry.host.length + 1)),
+                      .filter(
+                        ([key, failedAt]) =>
+                          key.startsWith(`${entry.host}:`) &&
+                          (key !== `${entry.host}:${sshRowKey}` || failedAt >= sshRevision),
+                      )
+                      .map(([key]) => key.slice(entry.host.length + 1)),
                     ...(entry.rowFailures ?? []).map((row) => rowKey(row.target)),
                   ]),
                   pending: new Set(
@@ -1408,6 +1414,7 @@ export function HostsSettings({
                     ) : undefined
                   }
                   awaitingTrust={awaitingTrust}
+                  ssh={ssh}
                   copySsh={() =>
                     source.copyHost?.({ kind: "copy-host-ssh-command", host: entry.host }) ??
                     Promise.reject(new Error("Copy unavailable"))
@@ -1418,7 +1425,7 @@ export function HostsSettings({
                   preflight={preflight}
                   progress={progress?.find((item) => item.host === entry.host)}
                   checking={checkingHosts.has(entry.host)}
-                  disabled={busy.has(entry.host)}
+                  disabled={controlsDisabled}
                   act={(action) => {
                     void act(action);
                   }}
@@ -1427,142 +1434,161 @@ export function HostsSettings({
                   }}
                 />
               </ReloadContext>
-              {!awaitingTrust && changing?.host === entry.host && (
-                <form
-                  className="host-folder-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void act({
-                      action: "change-folder",
-                      host: entry.host,
-                      codeFolder: changing.folder,
-                    });
-                  }}
-                >
-                  <label>
-                    Code folder
-                    <input
-                      value={changing.folder}
-                      onChange={(event) => {
-                        setChanging({ host: entry.host, folder: event.target.value });
-                      }}
-                    />
-                  </label>
-                  <button type="submit" disabled={busy.has(entry.host) || !changing.folder.trim()}>
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setChanging(undefined);
+              <fieldset className="host-controls" disabled={controlsDisabled}>
+                {!awaitingTrust && changing?.host === entry.host && (
+                  <form
+                    className="host-folder-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void act({
+                        action: "change-folder",
+                        host: entry.host,
+                        codeFolder: changing.folder,
+                      });
                     }}
                   >
-                    Cancel
-                  </button>
-                </form>
-              )}
-              {!awaitingTrust && (
-                <>
-                  <footer className="host-footer">
-                    <span className="host-count">
-                      {entry.observation ? (
-                        <>
-                          Last checked{" "}
-                          <time dateTime={new Date(entry.observation.checkedAt).toISOString()}>
-                            {new Date(entry.observation.checkedAt).toLocaleString()}
-                          </time>
-                        </>
-                      ) : (
-                        "Not checked"
-                      )}
-                    </span>
+                    <label>
+                      Code folder
+                      <input
+                        value={changing.folder}
+                        onChange={(event) => {
+                          setChanging({ host: entry.host, folder: event.target.value });
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={busy.has(entry.host) || !changing.folder.trim()}
+                    >
+                      Save
+                    </button>
                     <button
                       type="button"
-                      disabled={busy.has(entry.host)}
                       onClick={() => {
-                        void act({
-                          action: "preflight",
-                          host: entry.host,
-                          codeFolder: entry.codeFolder,
-                        });
-                      }}
-                      className="agent-reload"
-                      aria-label="Check capabilities"
-                      title={`Re-check ${hostDisplayName(entry)}`}
-                    >
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        aria-hidden="true"
-                      >
-                        <path d="M20 12a8 8 0 1 1-2.6-5.9M20 3v5h-5" />
-                      </svg>
-                    </button>
-                  </footer>
-                  <details className="host-details">
-                    <summary>Host facts</summary>
-                    <button
-                      type="button"
-                      disabled={busy.has(entry.host)}
-                      onClick={() => {
-                        void act({ action: "refresh", host: entry.host });
+                        setChanging(undefined);
                       }}
                     >
-                      Refresh facts
+                      Cancel
                     </button>
-                    {entry.foreignWorktrees !== undefined && (
-                      <p>{entry.foreignWorktrees} other worktrees</p>
-                    )}
-                    {entry.foreignSessions !== undefined && (
-                      <p>
-                        <span>Other profiles or untagged: {entry.foreignSessions}</span>{" "}
-                        {entry.foreignSessions > 0 && (
-                          <button
-                            type="button"
-                            disabled={busy.has(entry.host)}
-                            onClick={() => {
-                              void act({ action: "end", host: entry.host });
-                            }}
-                          >
-                            End…
-                          </button>
+                  </form>
+                )}
+                {!awaitingTrust && (
+                  <>
+                    <footer className="host-footer">
+                      <span className="host-count">
+                        {entry.observation ? (
+                          <>
+                            Last checked{" "}
+                            <time dateTime={new Date(entry.observation.checkedAt).toISOString()}>
+                              {new Date(entry.observation.checkedAt).toLocaleString()}
+                            </time>
+                          </>
+                        ) : (
+                          "Not checked"
                         )}
-                      </p>
-                    )}
-                    {entry.result && !entry.result.ok && preflight?.result.ok && (
-                      <p role="status">
-                        <Status tone={failureTone(entry.result.reason)}>
-                          {reasons[entry.result.reason]}
-                        </Status>
-                      </p>
-                    )}
-                    {entry.result?.ok && (
-                      <dl className="host-facts">
-                        {Object.entries({
-                          Daemon: entry.result.facts.version,
-                          "Live sessions": entry.result.facts.sessions,
-                          "CPU cores": entry.result.facts.cores,
-                          "Load average": entry.result.facts.load
-                            .map((value) => value.toFixed(2))
-                            .join(" · "),
-                          "Memory total": `${(entry.result.facts.memoryTotal / 1024 ** 3).toFixed(1)} GiB`,
-                          "Memory available": `${(entry.result.facts.memoryAvailable / 1024 ** 3).toFixed(1)} GiB`,
-                        }).map(([name, value]) => (
-                          <div key={name}>
-                            <dt>{name}</dt>
-                            <dd>{value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    )}
-                  </details>
-                </>
-              )}
-            </fieldset>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy.has(entry.host)}
+                        onClick={() => {
+                          void act({
+                            action: "preflight",
+                            host: entry.host,
+                            codeFolder: entry.codeFolder,
+                          });
+                        }}
+                        className="agent-reload"
+                        aria-label="Check capabilities"
+                        title={`Re-check ${hostDisplayName(entry)}`}
+                      >
+                        <svg
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          aria-hidden="true"
+                        >
+                          <path d="M20 12a8 8 0 1 1-2.6-5.9M20 3v5h-5" />
+                        </svg>
+                      </button>
+                    </footer>
+                    <details className="host-details">
+                      <summary>Host facts</summary>
+                      <button
+                        type="button"
+                        disabled={busy.has(entry.host)}
+                        onClick={() => {
+                          void act({ action: "refresh", host: entry.host });
+                        }}
+                      >
+                        Refresh facts
+                      </button>
+                      {entry.foreignWorktrees !== undefined && (
+                        <p>{entry.foreignWorktrees} other worktrees</p>
+                      )}
+                      {entry.foreignSessions !== undefined && (
+                        <p>
+                          <span>Other profiles or untagged: {entry.foreignSessions}</span>{" "}
+                          {entry.foreignSessions > 0 && (
+                            <button
+                              type="button"
+                              disabled={busy.has(entry.host)}
+                              onClick={() => {
+                                void act({ action: "end", host: entry.host });
+                              }}
+                            >
+                              End…
+                            </button>
+                          )}
+                        </p>
+                      )}
+                      {entry.factsRefreshFailure && (
+                        <p role="status">
+                          <Status tone={failureTone(entry.factsRefreshFailure)}>
+                            {reasons[entry.factsRefreshFailure]}
+                          </Status>
+                        </p>
+                      )}
+                      {entry.result?.ok && (
+                        <dl className="host-facts">
+                          {Object.entries({
+                            Daemon: entry.result.facts.version,
+                            "Live sessions": entry.result.facts.sessions,
+                            "CPU cores": entry.result.facts.cores,
+                            "Load average": entry.result.facts.load
+                              .map((value) => value.toFixed(2))
+                              .join(" · "),
+                            "Memory total": `${(entry.result.facts.memoryTotal / 1024 ** 3).toFixed(1)} GiB`,
+                            "Memory available": `${(entry.result.facts.memoryAvailable / 1024 ** 3).toFixed(1)} GiB`,
+                          }).map(([name, value]) => (
+                            <div key={name}>
+                              <dt>{name}</dt>
+                              <dd>{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
+                      {checkouts.length > 0 && (
+                        <dl className="host-facts host-checkouts">
+                          <dt>Checked out repositories</dt>
+                          <dd>
+                            <ul>
+                              {checkouts.map(({ repository, path }) => (
+                                <li key={repository}>
+                                  {repository.split(/[\\/]/u).at(-1)} · <code>{path}</code>
+                                </li>
+                              ))}
+                            </ul>
+                          </dd>
+                        </dl>
+                      )}
+                    </details>
+                  </>
+                )}
+              </fieldset>
+            </div>
           </section>
         );
       })}

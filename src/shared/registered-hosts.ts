@@ -119,7 +119,9 @@ export function hostObservation(value: unknown): value is HostObservation {
         record(value["lastAgents"]["result"]) &&
         value["lastAgents"]["result"]["ok"] === true)) &&
     record(preflight) &&
-    keys(preflight, ["ssh", "platform", "artifact", "result", "repositories"]) &&
+    keys(preflight, ["ssh", "sshRevision", "platform", "artifact", "result", "repositories"]) &&
+    (preflight["sshRevision"] === undefined ||
+      (Number.isSafeInteger(preflight["sshRevision"]) && Number(preflight["sshRevision"]) >= 0)) &&
     hostCheck(preflight["ssh"]) &&
     hostCheck(preflight["platform"]) &&
     hostCheck(preflight["artifact"]) &&
@@ -526,7 +528,6 @@ export function hostsAction(value: unknown): value is HostsAction {
     value["action"] === "list" ||
     value["action"] === "locations" ||
     value["action"] === "progress" ||
-    value["action"] === "dismiss-output" ||
     value["action"] === "cancel-trust"
   )
     return keys(value, ["action"]);

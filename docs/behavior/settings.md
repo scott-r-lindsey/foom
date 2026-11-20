@@ -366,7 +366,8 @@ offer Trust host key… below Git access to origin in the host card. The user
 verifies the fingerprint and answers SSH in that terminal. Other Git
 access fixes remain user-run instructions. Ready means the host checks and Git
 pass with at least one installed agent; optional missing agents, gh sign-in and
-absent checkouts do not affect readiness. Existing checkouts appear in a read-only list.
+absent checkouts do not affect readiness. Host facts lists existing checkouts as
+**repository · path**, one per line.
 Settings has no Clone here control or per-repository clone status.
 Host checks are language neutral and never execute anything from a checkout.
 Preparing a host to build a repository is left to an agent the user runs on that
@@ -421,8 +422,9 @@ Install and Sign in refresh only their affected tool and sign-in rows. The
 terminal header shows Done or Failed with its exit code. Origin trust, the plugin
 installer and agent sign-in collapse their output on exit. For origin trust, the
 Git access row shows the scoped check result. Tool installs retain
-output until dismissed or replaced. Add and checks retain bounded read-only step
-output, including OpenSSH stderr, in the Add section or host card. **Last checked** records full checks only.
+output until dismissed or replaced. Add host shows progress and enrollment errors
+in the form. The host card shows check progress in its header and fixed failures
+on the affected rows. **Last checked** records full checks only.
 Each checklist row has a reload icon on hover and keyboard focus, with a name
 that identifies the row. Reload shows a spinner only on that row, preserves other
 results and leaves other rows usable. A row that cannot display its result without
@@ -455,33 +457,30 @@ provider ID or null and applies live.
 
 An unknown SSH key shows **Host key not trusted** and the primary **Trust host key…** action in Hosts.
 While the key is untrusted, the expanded card shows only its host header, address,
-folder and Remove line, check output, and the SSH row with amber text and the
+folder and Remove line, and the SSH row with amber text and the
 steady needs-you halo. Platform, daemon, folder checks, tools, agents, Git access,
 checked out repositories, Last checked/refresh and Host facts are absent, including
 any older dependent failures. Accepting the key restores the full card as the
 normal first check runs. Changed
 keys and other real SSH failures remain magenta. Add and folder-change notices
-use the same marker and tone for that reason. While host-key trust is pending,
-the read-only output panel has an amber **Host key not trusted** header and no
-Dismiss button. Changed keys, rejected login and unreachable hosts retain the
-magenta **Failed** header and Dismiss. Dialog-opening trust actions, including Git
+use the same marker and tone for that reason. Dialog-opening trust actions, including Git
 access and launch-failure guidance, read **Trust host key…**; the dialog's own
 accept button remains **Trust host key**. The card action uses the existing primary
 button style; no new style or status color is introduced.
 The trusted confirmation shows the host, key type and fingerprint. Verify it
 against a trusted source before choosing **Trust host key**. Cancel is focused;
 Cancel, Escape and close decline. OpenSSH saves an accepted key, then Foom reruns
-the first check automatically for a host that has never passed. Check output
-appears in the existing read-only panel. Established hosts require an explicit
-Check capabilities after trust. Declining keeps the needs-you state.
+the first check automatically for a host that has never passed. Progress appears
+in the card header. Established hosts require an explicit Check capabilities
+after trust. Declining keeps the needs-you state.
 
 Changed keys show **Host key changed** with no trust action; repair those manually.
 Authentication failures show **Login rejected**; other failures show **Host
 unreachable**. On unsupported SSH clients or Windows, copy `ssh HOST` and verify
 the key in a terminal. Foom never handles passwords or writes known_hosts itself.
 
-Trust never fails silently: when no confirmation can be shown, the check output
-panel shows **Unable to trust host key** with a fixed reason code. Codes distinguish
+When no confirmation can be shown, the SSH row shows **Unable to trust host key**
+with a fixed reason code. Codes distinguish
 trust-not-eligible, invalid-alias, ssh-config-failed, ssh-config-invalid, socket-path-too-long,
 askpass-prompt-rejected, prompt-host-mismatch, ssh-exited-without-prompt,
 trust-timeout, ssh-start-failed, dialog-unavailable and trust-unavailable.

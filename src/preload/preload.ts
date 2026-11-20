@@ -581,7 +581,7 @@ const validHostResult: Validator<HostResult> = either(
     ),
   }),
 );
-const validHostPreflight = shape({
+const hostPreflightFields = {
   ssh: validHostCheck,
   platform: validHostCheck,
   artifact: validHostCheck,
@@ -589,7 +589,9 @@ const validHostPreflight = shape({
   repositories: array(
     shape({ repository: text, origin: validHostCheck, checkout: validHostResult }),
   ),
-});
+};
+const validHostPreflight = shape({ ...hostPreflightFields, sshRevision: either(absent, count) });
+const validLiveHostPreflight = shape({ ...hostPreflightFields, sshRevision: count });
 const validHostObservation = shape({
   lastAgents: either(
     absent,
@@ -630,17 +632,9 @@ const validHostsState: Validator<HostsState> = shape({
       }),
     ),
   ),
-  preflight: either(absent, validHostPreflight),
+  preflight: either(absent, validLiveHostPreflight),
+  preflightSaveFailed: either(absent, literal(true)),
   recipeSession: either(absent, (value): value is string => nonempty(value) && value.length <= 200),
-  output: either(
-    absent,
-    shape({
-      host: hostAlias,
-      text: (value): value is string => typeof value === "string" && value.length <= 65536,
-      running: boolean,
-      failed: boolean,
-    }),
-  ),
   recipeFailure: either(absent, literal("recipe-unavailable")),
   hosts: array(
     shape({
@@ -648,6 +642,10 @@ const validHostsState: Validator<HostsState> = shape({
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,
       observation: either(absent, validHostObservation),
+      checklist: either(
+        absent,
+        shape({ preflight: validLiveHostPreflight, saveFailed: either(absent, literal(true)) }),
+      ),
       rowFailures: either(
         absent,
         array(
@@ -658,6 +656,24 @@ const validHostsState: Validator<HostsState> = shape({
         ),
       ),
       result: either(absent, validHostResult),
+      factsRefreshFailure: either(absent, validHostFailure),
+      hostKeyTrustFailure: either(
+        absent,
+        literal(
+          "trust-not-eligible",
+          "invalid-alias",
+          "ssh-config-failed",
+          "ssh-config-invalid",
+          "socket-path-too-long",
+          "askpass-prompt-rejected",
+          "prompt-host-mismatch",
+          "ssh-exited-without-prompt",
+          "trust-timeout",
+          "ssh-start-failed",
+          "dialog-unavailable",
+          "trust-unavailable",
+        ),
+      ),
       hostKeyTrust: either(absent, literal("askpass", "manual")),
       recipes: either(
         absent,

@@ -76,7 +76,7 @@ test("unknown keys offer trust for registered hosts and accepted new hosts run t
     expect.any(Function),
   );
   expect(settings.registeredHosts?.[0]?.observation?.preflight.result.ok).toBe(true);
-  expect(state.output).toMatchObject({ running: false, failed: false });
+  expect(state.hosts[0]?.hostKeyTrustFailure).toBeUndefined();
   expect(hosts.copyValue({ kind: "copy-host-ssh-command", host: "box" })).toBe("ssh box");
 });
 
@@ -241,7 +241,7 @@ test.each(["host-key-unknown", "host-key-changed", "login-rejected", "unreachabl
   },
 );
 
-test("trust failures publish only a fixed reason in the check output panel", async () => {
+test("trust failures publish a fixed reason on the host and clear on recheck", async () => {
   await enroll();
   mock.trust.mockImplementationOnce(
     (
@@ -256,13 +256,17 @@ test("trust failures publish only a fixed reason in the check output panel", asy
     },
   );
   const state = await trust();
-  expect(state.output).toEqual({
-    host: "box",
-    text: "Unable to trust host key · prompt-host-mismatch\n",
-    running: false,
-    failed: true,
-  });
+  expect(state.hosts[0]?.hostKeyTrustFailure).toBe("prompt-host-mismatch");
   expect(state.hosts[0]?.result).toEqual(unknownKey);
+  expect((await hosts.action({ action: "list" })).hosts[0]?.hostKeyTrustFailure).toBe(
+    "prompt-host-mismatch",
+  );
+  const checked = await hosts.action({
+    action: "preflight",
+    host: "box",
+    codeFolder: "/code",
+  });
+  expect(checked.hosts[0]?.hostKeyTrustFailure).toBeUndefined();
 });
 
 test("background inventory cannot replace a waiting SSH trust observation with a local artifact failure", async () => {
@@ -275,7 +279,7 @@ test("background inventory cannot replace a waiting SSH trust observation with a
   expect(mock.trust).toHaveBeenCalledOnce();
 });
 
-test("a delayed trust failure cannot replace a newer host check's output", async () => {
+test("a concurrent check on another host preserves the trust failure", async () => {
   await enroll();
   const ready = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
@@ -301,9 +305,9 @@ test("a delayed trust failure cannot replace a newer host check's output", async
     host: "other",
     codeFolder: "/code",
   });
-  expect(checked.output).toMatchObject({ host: "other", failed: false, running: false });
+  expect(checked.preflight?.result.ok).toBe(true);
   release.resolve(undefined);
-  expect((await pending).output).toEqual(checked.output);
+  expect((await pending).hosts[0]?.hostKeyTrustFailure).toBe("prompt-host-mismatch");
 });
 
 test("subscribed host views prime saved trust and sealed-build display state without remote work", async () => {

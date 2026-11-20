@@ -679,11 +679,14 @@ test.each(["artifact-unavailable", "unreachable", "version-mismatch", "invalid-r
       target: { kind: "artifact" },
     });
     const reopened = await hosts.action({ action: "list" });
-    expect(reload.preflight).toEqual(full.preflight);
-    expect(reopened.hosts[0]?.observation?.preflight).toEqual(full.preflight);
+    expect(reload.preflight?.sshRevision).toBeGreaterThan(full.preflight?.sshRevision ?? 0);
+    expect(reload.preflight).toEqual({
+      ...full.preflight,
+      sshRevision: reload.preflight?.sshRevision,
+    });
+    expect(reopened.hosts[0]?.observation?.preflight).toEqual(reload.preflight);
     expect(full.preflight?.repositories).toEqual([]);
     expect(execute.mock.calls.every(([, request]) => request.operation === "inspect")).toBe(true);
-    expect(reload.output?.failed).toBe(reason !== "artifact-unavailable");
   },
 );
 
@@ -793,7 +796,11 @@ test("saved Settings views overlay explicit resource refresh success and failure
   await hosts.action({ action: "refresh", host: "fixture" });
   const saved = hosts.state(undefined, true).hosts[0];
   expect(saved?.result).toEqual({ ok: false, reason: "unreachable" });
+  expect(saved?.factsRefreshFailure).toBe("unreachable");
   expect(saved?.observation?.preflight.result).toMatchObject({ ok: true, facts: { cores: 8 } });
+  execute.mockResolvedValue({ ok: true, facts });
+  await hosts.action({ action: "refresh", host: "fixture" });
+  expect(hosts.state(undefined, true).hosts[0]?.factsRefreshFailure).toBeUndefined();
 });
 
 test("saved Settings views exclude unsolicited inventory failures", async () => {

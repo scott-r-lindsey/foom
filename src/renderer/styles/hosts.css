@@ -12,17 +12,6 @@
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
 }
-.host-terminal > pre {
-  max-height: 240px;
-  min-height: 100px;
-  margin: 0;
-  padding: 10px;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: var(--type-weight, 400) calc(12px * var(--type-scale, 1)) / 1.5 var(--font-mono);
-  user-select: text;
-}
 .host-terminal-view {
   height: 240px;
   padding: 8px;

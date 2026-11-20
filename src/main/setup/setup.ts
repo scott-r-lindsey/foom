@@ -162,11 +162,10 @@ export class Setup {
         this.deps.confirmHostKey,
       )
       .then((state) => {
+        if (state.preflightSaveFailed) return state;
         if (hostsAction(input)) {
           if (input.action === "rename") this.refresh();
-          if (
-            !["progress", "dismiss-output", "cancel-trust", "list", "reload"].includes(input.action)
-          )
+          if (!["progress", "cancel-trust", "list", "reload"].includes(input.action))
             this.deps.hostsChanged?.();
         }
         return state;

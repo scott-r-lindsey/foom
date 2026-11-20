@@ -813,6 +813,7 @@ export class WorkspaceContext {
       !(await this.deps.dialog?.(
         {
           userAction: true,
+          localOnly: true,
           title: "Forget session?",
           accept: "Forget",
           subject: id,

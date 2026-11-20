@@ -28,12 +28,12 @@ Add host accepts an optional nickname with the same validation and inline errors
 main validates it again and saves it only together with a successful enrollment. Folder changes and canonical expansion preserve nicknames.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, progress, dismiss-output, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
+list, progress, test, add, rename, preflight, draft-preflight, create-folder, change-folder, refresh, remove, locations, clone, trust-origin, trust-host-key, cancel-trust, end, recipe or reload. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
-validated in preload and rebuilt from declared fields. Failures retain fixed states/reasons. Explicit Add and check actions additionally
-expose bounded, display-only SSH output as described below; Git and agent probe
-output remain private. Artifact absence, version/handshake
+validated in preload and rebuilt from declared fields. Failures retain fixed
+states and reasons. SSH, Git and agent probe output remain private.
+Artifact absence, version/handshake
 mismatch, provider validation, changed agent configuration, invalid replies and
 cancellation have distinct reasons; only connection failures report unreachable.
 The local `progress` read bypasses the action queues and returns an array of active
@@ -137,8 +137,11 @@ origins are accepted; local paths, command protocols and URL passwords are refus
 The checkout directory is `repository-` plus 24 hex characters of the origin's
 SHA-256, directly beneath the approved folder. Existing destinations must be
 owned, non-writable by other users, canonical directories with matching origin
-and Git top level. Settings shows only read-only lists of existing checkouts, without clone controls, absent rows or per-repository clone status. A checkout must have
-a valid HEAD commit; an initialized repository with an unborn HEAD is refused.
+and Git top level. Settings lists existing checkouts as read-only facts. In
+Settings → Hosts, **Host facts** shows one line per checkout as **repository · path**.
+The lists omit clone controls, absent rows and per-repository clone status.
+A checkout must have a valid HEAD commit. Foom refuses initialized repositories
+with an unborn HEAD.
 
 First-use repository launch and worktree creation prepare a missing checkout automatically. Main shares concurrent preparation for the same registered host, folder and origin; existing valid checkouts are reused. Clone authorization rechecks the current host, approved folder and repository membership after origin reads and provider preparation, synchronously immediately before remote dispatch. A changed registration refuses without a remote mutation. Preparation runs Git with an argument array on the host, with the host's own login
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
@@ -611,9 +614,12 @@ and runs the full preflight. Ordinary opening of Hosts reads saved state only, w
 including session and worktree inventory. Recipes refresh only their affected
 rows as described under [refresh scope](#checklist-refresh-scope-1061). Each host's Check capabilities runs the
 full preflight, repositories and session/worktree inventory, saving a Last checked
-timestamp and the closed observations in its profile registration. Never-checked
-hosts say Not checked. Saved observations contain no secrets, terminal output,
-session identities or worktree authority; removal deletes them. They remain
+timestamp and the closed observations in its profile registration. If saving
+the checklist fails, main publishes the completed checks and the save failure to
+every open Hosts view. A completed SSH check supersedes older SSH row errors
+even if saving the checklist fails. Never-checked hosts say Not checked.
+Saved observations contain no secrets, terminal output, session identities or
+worktree authority; removal deletes them. They remain
 visible across restarts even when stale and never populate authorization caches.
 Saved requirements also restore Install and Sign in availability for display; missing or
 invalid requirements offer no recipes. Clicking an action selects its recipe from a
@@ -621,8 +627,10 @@ fresh inspection, never from saved observations. Host facts offers a separate
 session/worktree inventory refresh.
 
 Each host is a compact name, OS, status and chevron row, opening by default only
-when it needs attention. Expanding exposes all controls and observations. Ready Git-access checks collapse to a count; failed origin checks remain visible. Checked-out repositories appear in a separate read-only list. Busy state belongs to each host; checking
-one never disables another. Add host is enabled during loading and checks and is
+when it needs attention. Expanding exposes all controls and observations. Ready
+Git-access checks collapse to a count. Failed origin checks remain visible.
+Checked-out repositories appear with their paths under Host facts. Checking one
+host leaves other hosts' controls available. Add host is enabled during loading and checks and is
 disabled only while an add is running. An added host and its own check cannot be
 replaced by an older check reply. The grouped checklist keeps
 Host, Tools, Agents, each repository and macOS Power observations independent.
@@ -691,7 +699,7 @@ A host is Ready when SSH, platform, daemon, code folder and Git pass and at leas
 one enabled agent is installed and probeable. Optional missing agents, gh sign-in, absent checkouts and nonblocking macOS
 folder/power warnings are neutral. Install and Sign in remain available. Repository access failures keep
 their fixed failure rows without making an otherwise usable host unavailable.
-Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready; existing checkouts are a read-only list.
+Checkout creation belongs to first-use launch/worktree preparation (#1074), not Settings. The summary says Ready. Existing checkouts are a read-only list in Host facts.
 
 An origin-host-key failure offers **Trust host key…**. Main re-reads the registered
 repository's validated SSH origin and opens a human-owned terminal just below
@@ -699,7 +707,9 @@ its Git access to origin row in Settings (#1260). The fixed command is ssh -T wi
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint
-and answers SSH; Foom never supplies an answer or accepts a key. On exit the
+and answers SSH; Foom never supplies an answer or accepts a key. Starting origin
+trust brings the terminal into view. It stays attached during a capability check.
+The user can answer the prompt or use Stop while the check runs. On exit the
 terminal collapses and the card automatically rechecks that origin and checkout.
 The Git access row shows the scoped check result. SSH may exit 1 after
 successful authentication, so its process exit status does not determine the
@@ -733,8 +743,9 @@ hosts remain visible, and failed profile writes show Unable to save in the affec
 row's existing failure state. Known row results are retained for persistence-only
 retry without another remote inspection; one row's failure never blocks another.
 An explicit row reload invalidates that target's older queued observation before
-checking it. If saving the reload fails, reopening Hosts inspects that row again
-rather than persisting the superseded result.
+checking it. If saving an SSH observation fails, main publishes the observed
+result with its save failure and retries that save only while the observation
+is current. Other explicit reloads retain their existing row recheck on reopen.
 Recipes on the same host merge and deduplicate pending targets, including recipes
 launched from already-open Hosts views in different windows.
 A refused replacement folder leaves the registered
@@ -751,9 +762,9 @@ sign-in and origin checks can contact the network. Read-only partial inspection
 accepts a closed `target` selector. Hello advertises `hostRowCheck: 1`; compatible
 older daemons without it refuse scoped inspection and folder creation with `facts-unavailable`,
 without falling back to a full check. Scoped results update saved presentation
-without granting launch authority or advancing the full-check timestamp. Transient
-checklists are replaced or cleared by each newer action reply; they never mask
-newer live folder state.
+without granting launch authority or advancing the full-check timestamp. Main
+applies scoped folder and other row updates independently of the current SSH
+revision, including on an unsaved checklist.
 Scoped reload replies do not publish a broad board inventory refresh. Folder and
 clone replies may seed the sidebar's location view from the action's own observations
 only when every registered host/repository pair is represented, including the acting
@@ -766,8 +777,20 @@ A partial seed never stands in for the full location inventory. Scoped
 observations may update only the corresponding fields of an existing live
 inventory, without renewing its freshness; saved observations never populate it.
 Resource refresh replies remain separate from the launch inventory when no live
-inventory exists or a full read is pending. A failed resource refresh reports its
-failure under Host facts while retaining the checklist observations.
+inventory exists or a full read is pending. Main owns the latest SSH checklist
+observation per host and advances its revision independently of Last checked.
+Guarded profile patches contain only registered hosts. They recheck the revision
+at atomic replacement, and pending retries
+drop superseded SSH results. An unsaved checklist retains its save warning until
+that revision or a newer one is committed. SSH row write failures without a
+key observation remain visible as row errors. Preload requires
+a revision on live checklist replies and accepts older saved profiles without
+one. Refresh facts preserves the checklist. A resource refresh failure
+appears under Host facts, including when the checklist shows the same reason.
+Refresh facts inspects resources before reading session and worktree
+inventories. If scoped facts require a daemon
+update, Foom shows that reason and still tries both inventory endpoints. Other
+inspection failures end the refresh after recording the reason.
 
 ## Settings agent scopes (#1070)
 
@@ -851,15 +874,11 @@ replaced. Foom chrome shows the outcome independently of the process output. The
 creation; exits received while launch settles pass through the existing workspace
 exit lifecycle before the view is returned.
 
-Add and explicit checks show a read-only output panel inside Add host or the
-host card. Main retains the latest 65,536 UTF-16 units in memory, including
-connection/platform steps, artifact verification, daemon upload/readiness and
-OpenSSH stderr. Progress reads reuse the existing local progress channel during
-an action; no idle polling or remote request is added. Raw text is inert display
-content, never instructions, parsed facts, error diagnostics or a saved profile
-field. Background inventory and repository/agent probe output are excluded.
-Completion retains output until dismissed or the next check; failures retain
-the fixed failure state alongside the output.
+Add host shows an inline status during enrollment and a fixed error in the
+form if enrollment is refused. Host cards show progress in the header during a
+check. Completed checks show fixed failure text on the affected rows. A failed
+facts refresh appears under Host facts. OpenSSH diagnostics stay in main for
+classification. Progress reads use the existing local channel during an action.
 
 ## GitHub device sign-in (#1067)
 
@@ -950,7 +969,7 @@ checkout requests run and no dependent failures are synthesized. An unavailable
 local artifact catalog is reported only after SSH and platform checks succeed.
 While SSH reports host-key-unknown, Settings hides every dependent section,
 including stale repository failures, tools/agents, checkout rows, Last checked and
-Host facts. Only the header, address/folder/Remove line, output and SSH trust row
+Host facts. Only the header, address/folder/Remove line and SSH trust row
 remain. The full card returns when the accepted key's normal first check runs.
 Changed-key and other SSH failures retain their current presentation, but likewise
 skip dependent repository checks because no connection was established.
@@ -990,15 +1009,16 @@ See [8.4 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_
 and [8.5 source](https://raw.githubusercontent.com/openssh/openssh-portable/V_8_5_P1/sshconnect.c).
 Unexpected OpenSSH question variants are refused rather than displayed verbatim.
 An authenticated helper rejection reports only a fixed code, without forwarding
-the rejected prompt. Non-decline failures publish fixed trust reason codes in the
-check output panel; raw SSH prompts, host-file entries and exceptions are excluded.
+the rejected prompt. Non-decline failures show a fixed trust reason code on the
+SSH row. The current SSH status stays visible alongside a rejected trust
+attempt. Raw SSH prompts, host-file entries and exceptions stay private.
 Only one question can receive an answer per run. Cancel is focused by default;
 Cancel, Escape and close decline. No renderer payload can provide the answer.
 
 The run expires after two minutes. Cancellation, Settings section exit, board
 navigation/loss, window disposal and quit abort the dialog and kill the detached
 SSH group, revoke its credential and remove its directory. Accepted first-time
-hosts rerun their first full check automatically, using the existing output panel.
+hosts rerun their first full check automatically, with progress in the card header.
 An earlier successful observation (including retained lastAgents) prevents an
 automatic full check; Check capabilities remains explicit for established hosts.
 Declining preserves the failed observation. Changed keys require manual repair.

@@ -110,6 +110,10 @@ export function AgentsScopes(
       for (const action of "action" in request ? [request] : request) {
         const next = await api?.(action);
         if (next) {
+          if (next.preflightSaveFailed) {
+            setError("Unable to check agent settings");
+            return;
+          }
           if (!source?.views && !next.recipeFailure) hostsQuery.setData(next);
           if (next.recipeFailure) setError("Recipe unavailable for this host");
         }

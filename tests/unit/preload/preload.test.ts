@@ -1707,6 +1707,7 @@ test("preflight bridge validates and rebuilds every partial observation", async 
     locations: [],
     preflight: {
       ssh: { state: "pass" },
+      sshRevision: 2,
       platform: { state: "not-checked" },
       artifact: check,
       result,
@@ -1719,8 +1720,19 @@ test("preflight bridge validates and rebuilds every partial observation", async 
   await expect(
     api.hosts({ action: "preflight", host: "worker", codeFolder: "~/code" }),
   ).resolves.toEqual(value);
+  const legacy = { ...value.preflight, sshRevision: undefined };
+  const saved = { ...value.hosts[0], observation: { checkedAt: 1, preflight: legacy } };
+  mock.invoke.mockResolvedValue({ hosts: [saved], locations: [] });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({ hosts: [saved] });
+  mock.invoke.mockResolvedValue({
+    hosts: [{ ...saved, checklist: { preflight: legacy } }],
+    locations: [],
+  });
+  await expect(api.hosts({ action: "list" })).rejects.toThrow();
   for (const bad of [
+    legacy,
     { ...value.preflight, ssh: { state: "raw" } },
+    { ...value.preflight, sshRevision: -1 },
     { ...value.preflight, artifact: { state: "fail", reason: "secret" } },
     {
       ...value.preflight,
@@ -1994,27 +2006,26 @@ test("agent display details are bounded, copied and never expose undeclared meta
   await expect(api.hosts({ action: "list" })).rejects.toThrow();
 });
 
-test("host setup output and recipe IDs are bounded display-only reply fields", async () => {
+test("host setup validates fixed host failure reasons and bounded recipe IDs", async () => {
   const api = await bridge();
-  const output = {
+  const host = {
     host: "worker",
-    text: "SSH stderr\n<script>inert</script>",
-    running: false,
-    failed: true,
+    codeFolder: "/code",
+    hostKeyTrustFailure: "askpass-prompt-rejected",
+    factsRefreshFailure: "facts-unavailable",
   };
-  mock.invoke.mockResolvedValue({ hosts: [], locations: [], output, recipeSession: "recipe" });
-  await expect(api.hosts({ action: "progress" })).resolves.toMatchObject({
-    output,
+  mock.invoke.mockResolvedValue({ hosts: [host], locations: [], recipeSession: "recipe" });
+  await expect(api.hosts({ action: "list" })).resolves.toMatchObject({
+    hosts: [host],
     recipeSession: "recipe",
   });
   for (const invalid of [
-    { ...output, text: "x".repeat(65537) },
-    { ...output, running: 1 },
-    { ...output, failed: "no" },
-    { ...output, host: "-oCommand" },
+    { ...host, hostKeyTrustFailure: "raw SSH prompt" },
+    { ...host, hostKeyTrustFailure: 1 },
+    { ...host, factsRefreshFailure: "raw refresh error" },
   ]) {
-    mock.invoke.mockResolvedValue({ hosts: [], locations: [], output: invalid });
-    await expect(api.hosts({ action: "progress" })).rejects.toThrow();
+    mock.invoke.mockResolvedValue({ hosts: [invalid], locations: [] });
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
   for (const recipeSession of ["", "x".repeat(201), 1]) {
     mock.invoke.mockResolvedValue({ hosts: [], locations: [], recipeSession });

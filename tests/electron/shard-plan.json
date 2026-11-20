@@ -334,10 +334,12 @@
         "Hosts opens saved checks without SSH and keeps ready repositories compact": [
           7.868, 0, 9.662
         ],
-        "Hosts retains SSH client diagnostics when a check connection fails after discovery": [
+        "Hosts shows a fixed SSH failure when the client disconnects after discovery": [
           4.49, 0, 4.747
         ],
-        "Hosts retains failed Add stderr in a read-only panel": [8.32, 0, 13.727],
+        "Hosts shows Add progress and fixed failures without a check output panel": [
+          8.32, 0, 13.727
+        ],
         "Hosts shows a fixed trust failure when askpass refuses an unrecognized prompt": [
           3.64, 0, 8.168
         ],
@@ -1150,7 +1152,9 @@
         "Hosts removal prunes saved session rows and startup repairs already forgotten hosts": [
           9.064, 0, 15.035
         ],
-        "Hosts retains failed Add stderr in a read-only panel": [8.32, 0, 13.727],
+        "Hosts shows Add progress and fixed failures without a check output panel": [
+          8.32, 0, 13.727
+        ],
         "Hosts shows a fixed trust failure when askpass refuses an unrecognized prompt": [
           3.64, 0, 8.168
         ],
@@ -1360,7 +1364,7 @@
         "Hosts keeps an accepted key when the first recheck rejects login and offers the old-client fallback": [
           3.512, 0, 5.968
         ],
-        "Hosts retains SSH client diagnostics when a check connection fails after discovery": [
+        "Hosts shows a fixed SSH failure when the client disconnects after discovery": [
           4.49, 0, 4.747
         ],
         "Hosts status classification stays consistent with sealed catalog omission": [
@@ -2678,7 +2682,7 @@
         "Hosts opens saved checks without SSH and keeps ready repositories compact": [
           7.868, 0, 9.662
         ],
-        "Hosts retains SSH client diagnostics when a check connection fails after discovery": [
+        "Hosts shows a fixed SSH failure when the client disconnects after discovery": [
           4.49, 0, 4.747
         ],
         "Pi fixed per-launch extension observes lifecycle, filters role tools and removes its private files": [
@@ -3016,7 +3020,9 @@
         "Hosts removal prunes saved session rows and startup repairs already forgotten hosts": [
           9.064, 0, 15.035
         ],
-        "Hosts retains failed Add stderr in a read-only panel": [8.32, 0, 13.727],
+        "Hosts shows Add progress and fixed failures without a check output panel": [
+          8.32, 0, 13.727
+        ],
         "Markdown previews render hostile documents safely, follow native theme and navigate to a sibling": [
           6.597, 14.132, 5.447
         ],

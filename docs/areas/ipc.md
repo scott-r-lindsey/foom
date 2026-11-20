@@ -163,8 +163,8 @@ Copying reads no file bytes, clipboard contents, credentials or provider state.
 Main resolves registrations and the last validated location observation without
 SSH or network work, refuses absent observations and unregistered objects, and
 checks that remote checkout paths remain under the registered code folder.
-Checkout paths appear in Settings → Repositories → Locations; Hosts contains
-aliases and code folders.
+Checkout paths appear in Settings → Repositories → Locations and under Host
+facts in Settings → Hosts. The checkout-path copy control is in Locations.
 
 `preview:copy-path` invokes a void capability with one preview ID. The registered
 owning board main frame is checked by the window router. Main resolves the full
