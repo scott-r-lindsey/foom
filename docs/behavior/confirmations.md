@@ -90,9 +90,11 @@ the available board/display area. Its title and the sidebar show the live count.
 
 Worktree removal rows show the path once as a wrapping title with a copy control.
 One line names the state, branch retention and requester. Rows with changes
-show the number of files to discard in amber and retain the file list.
-**Discard and remove** is enabled only while the whole file list is visible
-and the individual decision is ready.
+show the number of unique files to discard in amber and put the file list in a
+keyboard-focusable scroll box above the decision buttons. **Discard and remove**
+requires the summary, box and button to be fully visible and the decision to be
+ready. If the list scrolls, reach its end once to enable the action. A change to
+the listed files resets the review.
 
 **Approve all clean removals (N)** counts every pending, ready removal with no
 tracked changes or untracked files, including off-screen rows (#1293). The primary

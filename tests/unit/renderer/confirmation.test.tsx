@@ -1106,7 +1106,7 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
       ...(kind === "Worktree removal"
         ? {
             worktreePath: `/fixture/${id}`,
-            changes: id === "c" ? "?? notes.txt\0" : "",
+            changes: id === "c" ? "D  notes.txt\0?? notes.txt\0" : "",
             ...(id === "a" ? { facts: [{ label: "PR", value: "#123 · OPEN" }] } : {}),
           }
         : {}),
@@ -1180,18 +1180,16 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   });
   expect(view.getByRole("group", { name: "/fixture/a" })).toBe(a);
   const c = view.getByRole("group", { name: "/fixture/c" });
-  expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain(
-    "notes.txt",
-  );
+  const files = within(c).getByRole("list", { name: "Uncommitted changes" });
+  expect(within(files).getAllByText("notes.txt")).toHaveLength(2);
+  expect(within(files).getByText("deleted")).toBeTruthy();
+  expect(within(files).getByText("untracked")).toBeTruthy();
   const discard = within(c).getByRole("button", { name: "Discard and remove" });
   expect(discard).toHaveProperty("disabled", true);
   expect(within(c).getByText("Discards 1 file")).toBeTruthy();
   const viewport = view.getByRole("region", { name: "Pending approvals" });
   vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 500, 500));
-  const fileBounds = vi.spyOn(
-    within(c).getByRole("list", { name: "Uncommitted changes" }),
-    "getBoundingClientRect",
-  );
+  const fileBounds = vi.spyOn(c, "getBoundingClientRect");
   fileBounds.mockReturnValue(new DOMRect(20, 490, 400, 20));
   await act(async () => {
     receive({ ...request, approvals: [row("a"), row("b", "Authority"), row("c")] });
@@ -1200,6 +1198,19 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   expect(discard).toHaveProperty("disabled", true);
   fileBounds.mockReturnValue(new DOMRect(20, 470, 400, 20));
   fireEvent.scroll(viewport);
+  expect(discard).toHaveProperty("disabled", false);
+  const box = within(c).getByRole("region", { name: "Review files to discard" });
+  vi.spyOn(box, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 471, 400, 17));
+  vi.spyOn(box, "scrollHeight", "get").mockReturnValue(60);
+  vi.spyOn(box, "clientHeight", "get").mockReturnValue(20);
+  box.scrollTop = 20;
+  fireEvent.scroll(box);
+  expect(discard).toHaveProperty("disabled", true);
+  box.scrollTop = 40;
+  fireEvent.scroll(box);
+  expect(discard).toHaveProperty("disabled", false);
+  box.scrollTop = 0;
+  fireEvent.scroll(box);
   expect(discard).toHaveProperty("disabled", false);
   fireEvent.click(discard);
   expect(answer).not.toHaveBeenCalled();

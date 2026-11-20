@@ -304,37 +304,49 @@ test("dirty removal file lists must be visible before trusted discard", {
 }, async (context) => {
   const { app, board } = await launchApprovalFixture(context);
   const leading = Array.from({ length: 16 }, (_, index) => `scroll-${index}`);
-  const clean = ["one", "two", ...leading, "after-dirty"];
+  const clean = [
+    "one",
+    "two",
+    ...leading,
+    "after-dirty",
+    ...Array.from({ length: 9 }, (_, index) => `tail-${index}`),
+  ];
   await app.evaluate((_, leading) => {
     const fixture = globalThis.approvalFixture;
     for (const id of leading) fixture.add(id);
-    fixture.add("dirty", "Worktree removal", undefined, " M sidebar.tsx\0?? notes.txt\0");
+    fixture.add(
+      "dirty",
+      "Worktree removal",
+      undefined,
+      " M sidebar.tsx\0?? notes.txt\0?? review.txt\0",
+    );
     fixture.add("after-dirty");
+    for (let index = 0; index < 9; index++) fixture.add(`tail-${index}`);
   }, leading);
   const { dialog, native, row, approve } = await openFixtureDialog(app, board);
   try {
     const dirty = row("dirty");
     const discard = dirty.getByRole("button", { name: "Discard and remove", exact: true });
     await expect(discard).toHaveText("Discard and remove");
-    await expect(dirty.getByText("Discards 2 files", { exact: true })).toBeVisible();
+    await expect(dirty.getByText("Discards 3 files", { exact: true })).toBeVisible();
     await discard.evaluate((button) => {
       const viewport = button.closest(".approval-scroll");
       viewport.scrollTop +=
-        button.getBoundingClientRect().bottom - viewport.getBoundingClientRect().bottom + 1;
+        button.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 1;
     });
     const clipped = await dirty.evaluate((element) => {
       const viewport = element.closest(".approval-scroll").getBoundingClientRect();
       const button = element.querySelector("[data-approval-discard]").getBoundingClientRect();
-      const files = element.querySelector("ul").getBoundingClientRect();
+      const files = element.querySelector(".approval-file-review").getBoundingClientRect();
       const summary = element.querySelector(".approval-discard-warning").getBoundingClientRect();
       return (
         button.top >= viewport.top &&
         button.bottom <= viewport.bottom &&
-        summary.bottom <= viewport.bottom &&
-        files.top >= viewport.bottom
+        summary.bottom <= viewport.top &&
+        files.bottom <= viewport.top
       );
     });
-    assert.ok(clipped, "The consequence and button are in view while every file is off-screen");
+    assert.ok(clipped, "The button is in view while the summary and file box are off-screen");
     // An off-screen clean control still enables after the movement guard settles.
     await expect(approve("one")).not.toBeInViewport();
     await expect(approve("one")).toBeEnabled();
@@ -386,7 +398,89 @@ test("dirty removal file lists must be visible before trusted discard", {
   } finally {
     await native.dispose();
   }
+  await verifyLongRemovalLists(app, board);
 });
+
+async function verifyLongRemovalLists(app, board) {
+  const changes = (count) =>
+    Array.from({ length: count }, (_, index) => `?? src/review/file-${index + 1}.ts\0`).join("");
+  await app.evaluate(
+    (_, lists) => {
+      const fixture = globalThis.approvalFixture;
+      for (const [id, changes] of lists) fixture.add(id, "Worktree removal", undefined, changes);
+    },
+    [
+      ["fifteen", changes(15)],
+      ["forty", changes(40)],
+    ],
+  );
+  const { dialog, native, row } = await openFixtureDialog(app, board);
+  try {
+    for (const [id, count] of [
+      ["fifteen", 15],
+      ["forty", 40],
+    ]) {
+      const target = row(id);
+      const box = target.getByRole("region", { name: "Review files to discard" });
+      const discard = target.getByRole("button", { name: "Discard and remove", exact: true });
+      await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+      await target.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      await expect(target.getByRole("button", { name: "Decline", exact: true })).toBeEnabled();
+      await expect(target.getByText(`Discards ${count} files`, { exact: true })).toBeVisible();
+      await expect(box).toBeInViewport({ ratio: 1 });
+      await expect(discard).toBeInViewport({ ratio: 1 });
+      await expect(discard).toBeDisabled();
+      assert.ok(await box.evaluate((element) => element.scrollHeight > element.clientHeight));
+
+      if (count === 40 && process.env.FOOM_CONFIRMATION_SCREENSHOTS === "1") {
+        const image = await native.evaluate(async (window) =>
+          (await window.webContents.capturePage()).toPNG().toString("base64"),
+        );
+        await writeFile(evidencePath("1293/long-40-light.png"), Buffer.from(image, "base64"));
+      }
+      const tabIntoFiles = async () => {
+        await target.getByRole("heading").getByRole("button", { name: "Copy path" }).focus();
+        await dialog.keyboard.press("Tab");
+        await expect(box).toBeFocused();
+      };
+      await tabIntoFiles();
+      await dialog.keyboard.press(count === 15 ? "PageDown" : "End");
+      if (count === 15) await dialog.keyboard.press("PageDown");
+      await expect(discard).toBeEnabled();
+
+      if (count === 40) {
+        await app.evaluate((_, changes) => {
+          // Exercise a new display snapshot for the same ID. This fixture has no Git effect.
+          const queue = globalThis.approvalFixture.queue;
+          const entry = [...queue.entries.values()].find(
+            (entry) => entry.content.removal?.item.id === "forty",
+          );
+          entry.row = { ...entry.row, request: { ...entry.row.request, changes } };
+          queue.changed();
+        }, changes(41));
+        await expect(target.getByText("Discards 41 files", { exact: true })).toBeVisible();
+        assert.equal(await box.evaluate((element) => element.scrollTop), 0);
+        await expect(target.getByRole("button", { name: "Decline", exact: true })).toBeEnabled();
+        await expect(discard).toBeDisabled();
+        await tabIntoFiles();
+        await dialog.keyboard.press("End");
+        await expect(discard).toBeEnabled();
+      }
+      // File paths retain their keyboard copy controls ahead of the decision.
+      for (let index = 0; index < count + 4; index++) {
+        if (await discard.evaluate((element) => element === document.activeElement)) break;
+        await dialog.keyboard.press("Tab");
+      }
+      await expect(discard).toBeFocused();
+      await dialog.keyboard.press("Enter");
+      await expect
+        .poll(() => app.evaluate((_, id) => globalThis.approvalFixture.results[id], id))
+        .toBe(true);
+    }
+  } finally {
+    await native.dispose();
+  }
+}
 
 test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals and synthetic decisions grant nothing", {
   timeout: deadline(60000),

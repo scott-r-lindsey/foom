@@ -111,18 +111,18 @@ function ChangeList({
   items,
   omitted = 0,
   prefix = "change",
-  listRef,
+  fileCount = items.length,
 }: {
   items: ReturnType<typeof parseChanges>;
   omitted?: number | undefined;
   prefix?: string | undefined;
-  listRef?: React.Ref<HTMLUListElement>;
+  fileCount?: number;
 }) {
   return (
-    <Section label="Discarded" count={items.length + omitted}>
-      <ul className="well" aria-label="Uncommitted changes" ref={listRef}>
+    <Section label="Discarded" count={fileCount + omitted}>
+      <ul className="well" aria-label="Uncommitted changes">
         {items.map((item) => (
-          <li className="row change" key={item.path}>
+          <li className="row change" key={`${String(item.index)}:${item.path}`}>
             <span className="chip">{item.label}</span>
             <span className="name">
               <CopyPath value={item.path} pathId={`${prefix}:${String(item.index)}`} />
@@ -151,17 +151,136 @@ function Changes({
   return <ChangeList items={parseChanges(value)} omitted={omitted} prefix={prefix} />;
 }
 
-function fullyVisibleChanges(list: HTMLUListElement | null): boolean {
-  const viewport = list?.closest(".approval-scroll");
-  if (!list || !viewport) return false;
+function visibleInQueue(element: Element | null | undefined): boolean {
+  const viewport = element?.closest(".approval-scroll");
+  if (!element || !viewport) return false;
   const bounds = viewport.getBoundingClientRect();
-  const files = list.getBoundingClientRect();
+  const content = element.getBoundingClientRect();
   return (
-    files.height > 0 &&
-    files.top >= bounds.top &&
-    files.bottom <= bounds.bottom &&
-    files.left >= bounds.left &&
-    files.right <= bounds.right
+    content.height > 0 &&
+    content.top >= bounds.top &&
+    content.bottom <= bounds.bottom &&
+    content.left >= bounds.left &&
+    content.right <= bounds.right
+  );
+}
+
+type RemovalDecision = (event: React.MouseEvent<HTMLButtonElement>, accepted: boolean) => void;
+
+function RemovalActions({
+  id,
+  disabled,
+  accept,
+  decide,
+  discard,
+}: {
+  id: string;
+  disabled: boolean;
+  accept: string;
+  decide: RemovalDecision;
+  discard?: { ready: boolean; check(): boolean };
+}) {
+  return (
+    <footer>
+      <button
+        type="button"
+        disabled={disabled}
+        data-approval-decision={id}
+        onClick={(event) => {
+          decide(event, false);
+        }}
+      >
+        Decline
+      </button>
+      <button
+        type="button"
+        disabled={disabled || (discard !== undefined && !discard.ready)}
+        className="confirmation-accept"
+        aria-label={discard ? undefined : `Approve · ${accept}`}
+        data-approval-decision={id}
+        data-approval-discard={discard ? "" : undefined}
+        onClick={(event) => {
+          if (!discard || discard.check()) decide(event, true);
+        }}
+      >
+        {discard ? "Discard and remove" : "Approve"}
+      </button>
+    </footer>
+  );
+}
+
+function canDiscard(box: HTMLDivElement | null, reachedEnd: boolean): boolean {
+  return (
+    box !== null &&
+    visibleInQueue(box.closest(".approval-removal")) &&
+    (reachedEnd || box.scrollHeight <= box.clientHeight)
+  );
+}
+
+function DiscardReview({
+  request,
+  items,
+  fileCount,
+  disabled,
+  decide,
+}: {
+  request: DialogRequest;
+  items: ReturnType<typeof parseChanges>;
+  fileCount: number;
+  disabled: boolean;
+  decide: RemovalDecision;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const reachedEndRef = useRef(false);
+  const [ready, setReady] = useState(false);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const row = box?.closest(".approval-removal");
+    const viewport = row?.closest(".approval-scroll");
+    if (!box || !row || !viewport) return;
+    const update = () => {
+      setReady(canDiscard(box, reachedEndRef.current));
+    };
+    const intersection = new IntersectionObserver(update, { root: viewport, threshold: 1 });
+    intersection.observe(row);
+    const resize = new ResizeObserver(update);
+    resize.observe(box);
+    if (box.firstElementChild) resize.observe(box.firstElementChild);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      intersection.disconnect();
+      resize.disconnect();
+      viewport.removeEventListener("scroll", update);
+    };
+  }, []);
+  return (
+    <>
+      <div
+        className="approval-file-review"
+        aria-label="Review files to discard"
+        role="region"
+        tabIndex={0}
+        ref={boxRef}
+        onScroll={(event) => {
+          const box = event.currentTarget;
+          const end = box.scrollHeight - box.clientHeight;
+          // The reported scroll position can be fractional at interface zoom.
+          if (end > 0 && end - box.scrollTop <= 1 && visibleInQueue(box))
+            reachedEndRef.current = true;
+          setReady(canDiscard(box, reachedEndRef.current));
+        }}
+      >
+        <ChangeList items={items} fileCount={fileCount} />
+      </div>
+      {request.detail && <p className="prose">{request.detail}</p>}
+      <RemovalActions
+        id={request.id}
+        accept={request.accept}
+        disabled={disabled}
+        decide={decide}
+        discard={{ ready, check: () => canDiscard(boxRef.current, reachedEndRef.current) }}
+      />
+    </>
   );
 }
 function Worktrees({
@@ -260,25 +379,6 @@ export function ConfirmationCard({
   const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
-  const changesRef = useRef<HTMLUListElement>(null);
-  const [filesVisible, setFilesVisible] = useState(false);
-  const hasRemovalChanges = Boolean(removal && request?.changes);
-  useLayoutEffect(() => {
-    if (!hasRemovalChanges) return;
-    const list = changesRef.current;
-    const viewport = list?.closest(".approval-scroll");
-    if (!list || !viewport) return;
-    const update = () => {
-      setFilesVisible(fullyVisibleChanges(list));
-    };
-    const observer = new IntersectionObserver(update, { root: viewport, threshold: 1 });
-    observer.observe(list);
-    viewport.addEventListener("scroll", update);
-    return () => {
-      observer.disconnect();
-      viewport.removeEventListener("scroll", update);
-    };
-  }, [hasRemovalChanges]);
   const [closeWhenCompleted, setCloseWhenCompleted] = useState(true);
   const closedIdRef = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState<readonly string[]>([]);
@@ -449,6 +549,7 @@ export function ConfirmationCard({
   const copyPath = (pathId: string) => window.confirmation.copyPath(request.id, pathId);
   if (removal && request.worktreePath && request.changes !== undefined) {
     const changes = request.changes ? parseChanges(request.changes) : undefined;
+    const discardCount = new Set(changes?.map((item) => item.path)).size;
     return (
       <CopyPathContext value={copyPath}>
         <section
@@ -465,7 +566,7 @@ export function ConfirmationCard({
               <p>
                 {changes ? (
                   <strong className="approval-discard-warning">
-                    Discards {changes.length} {changes.length === 1 ? "file" : "files"}
+                    Discards {discardCount} {discardCount === 1 ? "file" : "files"}
                   </strong>
                 ) : (
                   "Clean"
@@ -482,35 +583,27 @@ export function ConfirmationCard({
                 )}
               </p>
             </header>
-            <footer>
-              <button
-                type="button"
+            {!changes && (
+              <RemovalActions
+                id={request.id}
+                accept={request.accept}
                 disabled={disabled}
-                data-approval-decision={request.id}
-                onClick={(event) => {
-                  decide(event, false);
-                }}
-              >
-                Decline
-              </button>
-              <button
-                type="button"
-                disabled={disabled || (hasRemovalChanges && !filesVisible)}
-                className="confirmation-accept"
-                aria-label={changes ? undefined : `Approve · ${request.accept}`}
-                data-approval-decision={request.id}
-                data-approval-discard={changes ? "" : undefined}
-                onClick={(event) => {
-                  if (hasRemovalChanges && !fullyVisibleChanges(changesRef.current)) return;
-                  decide(event, true);
-                }}
-              >
-                {changes ? "Discard and remove" : "Approve"}
-              </button>
-            </footer>
+                decide={decide}
+              />
+            )}
           </div>
-          {changes && <ChangeList items={changes} listRef={changesRef} />}
-          {request.detail && <p className="prose">{request.detail}</p>}
+          {changes ? (
+            <DiscardReview
+              key={request.changes}
+              request={request}
+              items={changes}
+              fileCount={discardCount}
+              disabled={disabled}
+              decide={decide}
+            />
+          ) : (
+            request.detail && <p className="prose">{request.detail}</p>
+          )}
         </section>
       </CopyPathContext>
     );
