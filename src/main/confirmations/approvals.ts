@@ -7,6 +7,22 @@ import type {
 } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
+/** Keep a prefix of whole display records, including both paths of renames and copies. */
+function removalDisplay(changes: string) {
+  const fields = changes.split("\0").filter(Boolean);
+  let display = "";
+  let omittedChanges = 0;
+  for (let index = 0; index < fields.length; index++) {
+    const record = fields[index];
+    if (!record) continue;
+    const source = /[RC]/u.test(record.slice(0, 2)) ? fields[++index] : undefined;
+    const line = source ? `${record}\0${source}\0` : `${record}\0`;
+    if (omittedChanges || display.length + line.length > 4096) omittedChanges++;
+    else display += line;
+  }
+  return { changes: display, omittedChanges };
+}
+
 type Caller = { resolve(outcome: DialogOutcome): void; cleanup(): void };
 interface Entry {
   key: string;
@@ -145,7 +161,7 @@ export class Approvals {
         ...(item
           ? {
               worktreePath: item.path,
-              changes: item.changes,
+              ...removalDisplay(item.changes),
               ...(item.fileCount === undefined ? {} : { discardCount: item.fileCount }),
               accept: item.changes ? "Discard changes and remove" : "Remove worktree",
               ...(item.pullRequest

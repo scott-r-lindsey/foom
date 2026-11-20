@@ -35,7 +35,9 @@ async function launchApprovalFixture(context) {
     const { resolveInterfaceTheme } = load(
       path.join(app.getAppPath(), "build/shared/interface-themes.js"),
     );
-    const { removalStatus } = load("./build/main/workspace/worktree-operations.js");
+    const { removalStatus, remoteRemovalStatus } = load(
+      "./build/main/workspace/worktree-operations.js",
+    );
     const parent = BrowserWindow.getAllWindows().find(
       (w) => w.webContents.getURL() === "app://bundle/index.html",
     );
@@ -61,7 +63,7 @@ async function launchApprovalFixture(context) {
     fixture.off = fixture.queue.feed.subscribe(() =>
       parent.webContents.send("approval:count", fixture.queue.feed.current().length),
     );
-    fixture.add = (id, kind = "Worktree removal", expiresAt, changes = "") => {
+    fixture.add = (id, kind = "Worktree removal", expiresAt, changes = "", remote = false) => {
       const controller = new AbortController();
       fixture.abort[id] = controller;
       const content = {
@@ -84,7 +86,9 @@ async function launchApprovalFixture(context) {
             id,
             branch: id,
             path: `/fixture/${id}`,
-            ...removalStatus(Buffer.from(changes).toString("latin1")),
+            ...(remote
+              ? remoteRemovalStatus(changes, (value) => value)
+              : removalStatus(Buffer.from(changes).toString("latin1"))),
           },
         };
       }
@@ -114,7 +118,7 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
   await app.evaluate(() => globalThis.approvalFixture.abort["while-typing"].abort());
   await app.evaluate(() => globalThis.approvalFixture.add("two"));
   await expect(board.getByRole("button", { name: "2 approvals waiting" })).toBeVisible();
-  const { dialog, native, approve } = await openFixtureDialog(app, board);
+  const { dialog, native, approve, row } = await openFixtureDialog(app, board);
   try {
     await expect
       .poll(() => native.evaluate((window) => window.isVisible() && window.isFocused()))
@@ -159,8 +163,24 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
       const f = globalThis.approvalFixture;
       f.add("later");
       f.add("authority", "Authority");
+      const changes = Array.from(
+        { length: 300 },
+        (_, index) => `?? file-${String(index).padStart(3, "0")}-${"x".repeat(86)}.txt\n`,
+      ).join("");
+      f.add("remote-300", "Worktree removal", undefined, changes, true);
     });
     await app.evaluate(() => globalThis.approvalFixture.dialog.openApprovals());
+    await expect(dialog.locator(".approval-row")).toHaveCount(3);
+    const remote = row("remote-300");
+    await expect(remote.getByRole("button", { name: "Discard 300 files and remove" })).toHaveText(
+      "Discard 300 files and remove",
+    );
+    const records = remote.getByRole("list", { name: "Uncommitted changes" });
+    await expect(records.getByRole("listitem")).toHaveCount(39);
+    await expect(records.getByRole("listitem").first()).toContainText("file-000-");
+    await expect(remote.getByText("and 261 more", { exact: true })).toBeVisible();
+    await expect(approve("later")).toBeEnabled();
+    await app.evaluate(() => globalThis.approvalFixture.abort["remote-300"].abort());
     await expect(dialog.locator(".approval-row")).toHaveCount(2);
     await expect(approve("later")).toBeEnabled();
     await approve("later").click();

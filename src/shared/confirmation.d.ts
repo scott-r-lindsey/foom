@@ -116,6 +116,7 @@ export interface DialogContent {
   worktreePath?: string;
   changes?: string;
   discardCount?: number;
+  omittedChanges?: number;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
 export interface DialogRequest

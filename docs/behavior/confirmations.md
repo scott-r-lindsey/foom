@@ -92,8 +92,9 @@ Worktree removal rows show the path once as a wrapping title with a copy control
 One line names the state, branch retention and requester. Rows with changes
 show the number of distinct Git paths in an amber summary beside **Discard N files
 and remove** (or **Discard 1 file and remove**). The file list is in a bounded,
-keyboard-focusable scroll box above the buttons. The summary and action must both
-be fully visible and the decision must be ready.
+keyboard-focusable scroll box above the buttons. If the status list exceeds its
+display budget, it shows the first records and how many more there are. The
+summary and action must both be fully visible and the decision must be ready.
 
 **Approve all clean removals (N)** counts every pending, ready removal with no
 tracked changes or untracked files, including off-screen rows (#1293). The primary

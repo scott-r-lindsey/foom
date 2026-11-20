@@ -383,7 +383,8 @@ const dialogFields = {
   ),
   worktreePath: either(absent, nonempty),
   changes: either(absent, boundedChanges),
-  discardCount: either(absent, range(0, 25_050, true)),
+  discardCount: either(absent, count),
+  omittedChanges: either(absent, count),
   sessions: either(
     absent,
     array(

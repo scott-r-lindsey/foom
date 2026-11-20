@@ -309,7 +309,9 @@ Inspection, snapshots and confirmed removal validate the canonical clone and wor
 one management request. The hub derives the clone path from the registered origin;
 it does not open a separate repository-preflight SSH connection for these operations.
 The daemon still checks clone origin, HEAD, membership, provenance and identity.
-Removal still compares the confirmed changes and identity again before deletion.
+Worktree status reads for inspection and removal disable Git's FSMonitor and
+untracked cache and include all untracked files. Removal compares the full
+confirmed status and identity again before deletion.
 Creation retains its repository preflight and indeterminate-result handling.
 
 

@@ -276,10 +276,13 @@ test("publishes only validated confirmation fields, including buffered and live 
   expect(render).toHaveBeenLastCalledWith({ ...dialog, worktrees: [{ branch: "merged-branch" }] });
   listener({}, { ...dialog, worktrees: [{ branch: "merged-branch", reason: {} }] });
   expect(render).toHaveBeenLastCalledWith(null);
-  listener({}, { ...dialog, discardCount: 2 });
-  expect(render).toHaveBeenLastCalledWith({ ...dialog, discardCount: 2 });
-  for (const discardCount of [-1, 0.5, 25_051, "2"]) {
-    listener({}, { ...dialog, discardCount });
+  const removal = { ...dialog, discardCount: 300, omittedChanges: 261 };
+  listener({}, removal);
+  expect(render).toHaveBeenLastCalledWith(removal);
+  for (const invalid of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, "2"]) {
+    listener({}, { ...removal, discardCount: invalid });
+    expect(render).toHaveBeenLastCalledWith(null);
+    listener({}, { ...removal, omittedChanges: invalid });
     expect(render).toHaveBeenLastCalledWith(null);
   }
 });

@@ -58,6 +58,8 @@ dirty removal, the trusted page requires the consequence summary and the discard
 button to be fully visible in the queue and checks both again on approval. The
 bounded file box is available for inspection. Main counts distinct raw Git paths
 before display decoding and passes the validated count with the displayed snapshot.
+Each row shows a prefix of whole Git status records within 4,096 characters and
+reports how many records were omitted.
 The removal owner compares the byte-exact status again immediately before Git. Bulk
 answers contain an explicit ID snapshot of all pending, ready worktree removal
 rows whose captured Git status is clean, including rows outside the scroll

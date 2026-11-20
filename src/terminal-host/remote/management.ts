@@ -412,6 +412,10 @@ export async function manageHost(
       return { ok: true, facts, inventory: { own, other } };
     }
     const path = join(folder, request.directory);
+    const worktreeStatus =
+      request.operation === "inspect-worktree" ||
+      request.operation === "snapshot-worktree" ||
+      request.operation === "remove-worktree";
     let exists = true;
     try {
       await lstat(path);
@@ -463,7 +467,7 @@ export async function manageHost(
       } finally {
         await rm(temporary, { recursive: true, force: true });
       }
-    } else status = await checkout(path, request.origin);
+    } else status = await checkout(path, request.origin, undefined, !worktreeStatus);
     if (request.operation === "create-worktree") {
       await git(["check-ref-format", "--branch", request.branch], path);
       const refs = await git(
@@ -522,11 +526,7 @@ export async function manageHost(
         worktree: { path: destination, branch: request.branch, identity, changes: "" },
       };
     }
-    if (
-      request.operation === "inspect-worktree" ||
-      request.operation === "snapshot-worktree" ||
-      request.operation === "remove-worktree"
-    ) {
+    if (worktreeStatus) {
       if (
         request.path === path ||
         !request.path.startsWith(`${folder}/.foom-worktree-`) ||
@@ -559,7 +559,17 @@ export async function manageHost(
       // Keep Git's C-quoted byte spelling in the existing wire snapshot.
       const readChanges = () =>
         git(
-          ["-c", "core.quotePath=true", "status", "--porcelain", "--untracked-files=all"],
+          [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.untrackedCache=false",
+            "-c",
+            "core.quotePath=true",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+          ],
           request.path,
         );
       const changes = await readChanges();

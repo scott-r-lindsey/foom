@@ -124,6 +124,33 @@ test("a dirty removal requires a main-owned count", async () => {
   }
   expect(queue.feed.current()).toEqual([]);
 });
+test("removal display preserves whole records and counts omissions without changing bulk eligibility", async () => {
+  const { queue, content } = setup();
+  const first = " M tracked.txt\0";
+  const largeRename = `R  ${"t".repeat(3000)}\0${"s".repeat(3000)}\0`;
+  const partial = content("partial", `${first}${largeRename}?? later.txt\0`);
+  const requests = [
+    queue.request({
+      ...partial,
+      removal: { ...partial.removal, item: { ...partial.removal.item, fileCount: 3 } },
+    }),
+    queue.request(content("empty-display", largeRename)),
+    queue.request(content("clean")),
+  ];
+  const rows = queue.feed.current();
+  expect(rows.map((row) => row.request.changes)).toEqual([first, "", ""]);
+  expect(rows.map((row) => row.request.omittedChanges)).toEqual([2, 1, 0]);
+  expect(rows.map((row) => row.request.discardCount)).toEqual([3, 1, 0]);
+  queue.feed.presented(true);
+  await vi.advanceTimersByTimeAsync(900);
+  const ids = rows.map((row) => row.request.id);
+  queue.feed.answer("queue", ids.slice(1));
+  expect(queue.feed.current()).toHaveLength(3);
+  queue.feed.answer("queue", ids.slice(2));
+  queue.feed.answer(ids[0] ?? "", false);
+  queue.feed.answer(ids[1] ?? "", false);
+  await expect(Promise.all(requests)).resolves.toEqual([false, false, true]);
+});
 test("duplicates share one row, each withdrawal releases only its caller, expiry removes requests", async () => {
   const { queue, content } = setup();
   const cancel = new AbortController();

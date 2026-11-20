@@ -111,15 +111,15 @@ function ChangeList({
   items,
   omitted = 0,
   prefix = "change",
-  fileCount = items.length,
+  fileCount,
 }: {
   items: ReturnType<typeof parseChanges>;
   omitted?: number | undefined;
   prefix?: string | undefined;
-  fileCount?: number;
+  fileCount?: number | undefined;
 }) {
   return (
-    <Section label="Discarded" count={fileCount + omitted}>
+    <Section label="Discarded" count={fileCount ?? items.length + omitted}>
       <ul className="well" aria-label="Uncommitted changes">
         {items.map((item) => (
           <li className="row change" key={`${String(item.index)}:${item.path}`}>
@@ -135,7 +135,13 @@ function ChangeList({
           </li>
         ))}
       </ul>
-      {omitted > 0 && <p className="sub">{omitted} more paths</p>}
+      {omitted > 0 && (
+        <p className="sub">
+          {fileCount === undefined
+            ? `${String(omitted)} more paths`
+            : `and ${String(omitted)} more`}
+        </p>
+      )}
     </Section>
   );
 }
@@ -498,8 +504,8 @@ export function ConfirmationCard({
   };
   const copyPath = (pathId: string) => window.confirmation.copyPath(request.id, pathId);
   if (removal && request.worktreePath && request.changes !== undefined) {
-    const changes = request.changes ? parseChanges(request.changes) : undefined;
     const discardCount = request.discardCount;
+    const changes = request.changes || discardCount ? parseChanges(request.changes) : undefined;
     const files =
       discardCount === undefined
         ? "files"
@@ -548,7 +554,11 @@ export function ConfirmationCard({
               aria-label="Review files to discard"
               tabIndex={0}
             >
-              <ChangeList items={changes} fileCount={discardCount ?? 0} />
+              <ChangeList
+                items={changes}
+                fileCount={discardCount}
+                omitted={request.omittedChanges}
+              />
             </div>
           )}
           {request.detail && <p className="prose">{request.detail}</p>}
@@ -1034,7 +1044,13 @@ export function ApprovalQueue({
   // Individual controls re-arm on scroll. Bulk acts from its own stationary control.
   const clean = new Set(
     rows
-      .filter((row) => isRemoval(row) && row.request.presented && row.request.changes === "")
+      .filter(
+        (row) =>
+          isRemoval(row) &&
+          row.request.presented &&
+          row.request.changes === "" &&
+          !row.request.discardCount,
+      )
       .map((row) => row.request.id),
   );
   const hideRef = useRef<HTMLButtonElement>(null);
