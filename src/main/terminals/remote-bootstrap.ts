@@ -286,6 +286,7 @@ async function platformProbe(
   signal?: AbortSignal,
   output?: (text: string) => void,
   retain?: (child: ChildProcessWithoutNullStreams) => void,
+  observeSsh?: (result: HostCheck) => void,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "foom-ssh-probe-"));
   const diagnostic = join(directory, "ssh.log");
@@ -318,7 +319,7 @@ async function platformProbe(
           "LogLevel=ERROR",
           "-o",
           "StrictHostKeyChecking=yes",
-          ...(retain
+          ...(retain || observeSsh
             ? ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
             : []),
           ...sshArguments(host),
@@ -411,6 +412,7 @@ async function platformProbe(
             child.stdout.removeAllListeners("data");
             child.stderr.removeAllListeners("data");
             retain(child);
+            observeSsh?.({ state: "pass" });
             resolve({ stdout: `${lines[0] ?? ""}\n${lines[1] ?? ""}\n`, libc: lines[2] ?? "" });
           }
         }
@@ -445,12 +447,13 @@ async function platformProbe(
             reject(new InvalidRemoteProbe("Invalid check prelude"));
           } else if (failed || code !== 0) {
             if (text) output?.(text.toString("utf8"));
-            reject(
-              new SshConnectionFailure(
-                sshFailure(!failed && code === 255 ? text?.toString("utf8") : undefined),
-              ),
-            );
-          } else resolve({ stdout: stdout.join("") });
+            const reason = sshFailure(!failed && code === 255 ? text?.toString("utf8") : undefined);
+            observeSsh?.({ state: "fail", reason });
+            reject(new SshConnectionFailure(reason));
+          } else {
+            observeSsh?.({ state: "pass" });
+            resolve({ stdout: stdout.join("") });
+          }
         })();
       });
       if (signal?.aborted) fail();
@@ -514,6 +517,7 @@ export async function selectHostArtifact(
   observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
   output?: (text: string, startLine?: boolean) => void,
   retain?: (child: ChildProcessWithoutNullStreams) => void,
+  observeSsh?: (result: HostCheck) => void,
 ) {
   let missingArtifact = false;
   let expectedSource: string | undefined;
@@ -530,6 +534,7 @@ export async function selectHostArtifact(
     signal,
     output,
     retain,
+    observeSsh,
   ).catch((error: unknown) => {
     if (error instanceof InvalidRemoteProbe) {
       observe?.("ssh", { state: "pass" });

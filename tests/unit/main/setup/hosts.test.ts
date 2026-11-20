@@ -185,66 +185,6 @@ test("new background SSH key failures fence setup even with a saved passing chec
   await expect(hosts.startSetupAgent(input, launch)).resolves.toBeTypeOf("string");
 });
 
-test("an older inventory reply cannot replace a newer setup trust decision", async () => {
-  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
-  const dispatched = Promise.withResolvers<undefined>();
-  const inventoryResult = Promise.withResolvers<HostResult>();
-  run.mockImplementationOnce(() => {
-    dispatched.resolve(undefined);
-    return inventoryResult.promise;
-  });
-  const inventory = hosts.inventory("worker");
-  await dispatched.promise;
-  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
-  inventoryResult.resolve({ ok: false, reason: "host-key-changed" });
-  await inventory;
-  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(false);
-});
-
-test("repository requests on an older checklist SSH stream cannot clear a newer changed key", async () => {
-  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
-  hosts = new Hosts(store, () => repositories, "0.1.0");
-  const connected = Promise.withResolvers<undefined>();
-  const inspection = Promise.withResolvers<HostResult>();
-  const passing: HostResult = {
-    ok: true,
-    facts,
-    connection: {
-      ssh: { state: "pass" },
-      platform: { state: "pass" },
-      artifact: { state: "pass" },
-    },
-  };
-  mock.remote.mockReset().mockImplementation((_target, _version, request) => {
-    if (request.operation !== "inspect") return Promise.resolve(passing);
-    if (!request.agentDetails) return Promise.resolve({ ok: false, reason: "host-key-changed" });
-    connected.resolve(undefined);
-    return inspection.promise;
-  });
-  const check = hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
-  await connected.promise;
-  expect(await hosts.inventory("worker")).toMatchObject({ reason: "host-key-changed" });
-  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(true);
-  inspection.resolve(passing);
-  const finished = await check;
-  expect(mock.remote.mock.calls.map(([, , request]) => request.operation)).toEqual([
-    "inspect",
-    "inspect",
-    "origin",
-    "repository",
-  ]);
-  expect(finished.preflight?.ssh.state).toBe("pass");
-  expect(finished.hosts[0]?.setupKeyUntrusted).toBe(true);
-  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
-  await expect(
-    hosts.startSetupAgent(
-      { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
-      launch,
-    ),
-  ).rejects.toThrow("Setup agent unavailable");
-  expect(launch).not.toHaveBeenCalled();
-});
-
 test("a replacement registration can start setup before the removed host's tile exits", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   const input = {
@@ -417,6 +357,8 @@ test("windows share the same serialized registration owner and production transp
     "0.1.0",
     expect.objectContaining({ type: "manage" }),
     expect.any(AbortSignal),
+    undefined,
+    undefined,
   );
   expect(new Hosts(store, () => repositories, "0.1.0").state().hosts).toHaveLength(1);
 });

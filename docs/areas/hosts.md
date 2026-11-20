@@ -1036,8 +1036,10 @@ Each registered SSH host card offers **Set up with an agent…** beside its
 status, including while collapsed. The action is secondary on a Ready host
 and primary otherwise. The latest key evidence from host checks or background
 inventory hides the action when the SSH host key is unknown or changed.
-Requests on a shared checklist stream retain the order of its original SSH
-connection. A running setup agent also hides the action.
+The strict SSH probe records key evidence when it confirms authentication or
+classifies a key failure. Management replies on a shared checklist stream
+retain that evidence without refreshing it. A running setup agent also hides
+the action.
 
 The dialog focuses the local Agent picker and preselects the configured default
 when it is enabled, installed and accepts an initial prompt. The user selects

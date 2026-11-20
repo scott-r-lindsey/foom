@@ -203,9 +203,18 @@ export class Hosts {
   private setupKeyUntrusted(host: RegisteredHost): boolean {
     const preflight = this.checklists.get(host.host)?.preflight ?? host.observation?.preflight;
     return (
-      this.setupSshTrust.get(host.host)?.untrusted ??
+      this.setupSshTrust.get(host.host) ??
       (hostKeyUntrusted(preflight?.ssh) || untrustedSetupKey(this.results.get(host.host)))
     );
+  }
+
+  private recordSetupSshTrust(host: string, registration: symbol, ssh: HostCheck): void {
+    if (this.cancellation.signal.aborted || this.registrationIds.get(host) !== registration) return;
+    const untrusted = hostKeyUntrusted(ssh);
+    if (ssh.state !== "pass" && !untrusted) return;
+    if (this.setupSshTrust.get(host) === untrusted) return;
+    this.setupSshTrust.set(host, untrusted);
+    viewChanges.publish("hosts");
   }
 
   setupAgentId(host: string): string | undefined {
@@ -771,9 +780,7 @@ export class Hosts {
   }
   private readonly results = new HostObservations<string, HostResult>();
   // Setup authorization follows direct SSH evidence independently of display snapshots.
-  private readonly setupSshTrust = new Map<string, { order: number; untrusted: boolean }>();
-  private readonly checkConnectionOrders = new WeakMap<RemoteCheckConnection, number>();
-  private sshConnectionOrder = 0;
+  private readonly setupSshTrust = new Map<string, boolean>();
   /** Display-only resource replies never seed the launch inventory. */
   private readonly resourceResults = new HostObservations<string, HostResult>();
   private readonly progress = new Map<string, HostCheckProgress>();
@@ -1678,12 +1685,20 @@ export class Hosts {
             repositories: this.repositories().map((repo) => ({ repository: repo.path })),
           });
           if (registration) this.hostKeyTrustFailures.delete(input.host);
+          const registrationId = registration ? this.registrationId(input.host) : undefined;
+          const host = input.host;
           const connection = this.execute
             ? undefined
             : new RemoteCheckConnection(
                 { host: input.host },
                 this.version,
                 this.cancellation.signal,
+                undefined,
+                registrationId === undefined
+                  ? undefined
+                  : (ssh) => {
+                      this.recordSetupSshTrust(host, registrationId, ssh);
+                    },
               );
           try {
             const preflight = await this.preflight(
@@ -2086,12 +2101,7 @@ export class Hosts {
       let result: unknown;
       // Provider preparation can await. Revoke stale mutation authority before dispatch.
       if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
-      // A checklist opens SSH on its first request. Later requests reuse its
-      // authentication and cannot supply newer key evidence.
       const connection = options.connection;
-      const order =
-        (connection && this.checkConnectionOrders.get(connection)) ?? ++this.sshConnectionOrder;
-      if (connection) this.checkConnectionOrders.set(connection, order);
       try {
         const requestWithAgents = { ...request, agents: probes };
         result = this.execute
@@ -2103,6 +2113,12 @@ export class Hosts {
                   this.version,
                   requestWithAgents,
                   this.cancellation.signal,
+                  undefined,
+                  registration === undefined
+                    ? undefined
+                    : (ssh) => {
+                        this.recordSetupSshTrust(host, registration, ssh);
+                      },
                 ));
       } catch {
         return cancelled()
@@ -2117,19 +2133,15 @@ export class Hosts {
           result.facts.codeFolder !== request.codeFolder)
       )
         return failed("invalid-reply", "reply");
-      if (registration && this.registrationIds.get(host) === registration) {
-        const untrusted = untrustedSetupKey(result);
-        const previous = this.setupSshTrust.get(host);
-        // A newer successful connection clears a key failure. An unrelated failure
-        // (for example, an unreachable host) provides no evidence about its key.
-        if (
-          (untrusted || connectionChecks(result).ssh.state === "pass") &&
-          order > (previous?.order ?? 0)
-        ) {
-          this.setupSshTrust.set(host, { order, untrusted });
-          if (previous?.untrusted !== untrusted) viewChanges.publish("hosts");
-        }
-      }
+      // The injected executor models SSH and management as one observation.
+      if (this.execute && registration)
+        this.recordSetupSshTrust(
+          host,
+          registration,
+          untrustedSetupKey(result)
+            ? { state: "fail", reason: "host-key-changed" }
+            : connectionChecks(result).ssh,
+        );
       if (!result.ok)
         return {
           ...failed(result.reason, "connection"),

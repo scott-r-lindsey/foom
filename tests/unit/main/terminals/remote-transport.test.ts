@@ -16,8 +16,26 @@ import {
   RemoteFrames,
 } from "../../../../src/shared/remote-host-protocol";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
+import type { selectHostArtifact } from "../../../../src/main/terminals/remote-bootstrap";
+import { Hosts } from "../../../../src/main/setup/hosts";
+import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
+import type { Settings } from "../../../../src/shared/setup";
+import type * as childProcess from "node:child_process";
 const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
-vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
+vi.mock("node:child_process", async (original) => ({
+  ...(await original<typeof childProcess>()),
+  spawn: mock.spawn,
+  execFile: Object.assign(vi.fn(), {
+    [Symbol.for("nodejs.util.promisify.custom")]: () =>
+      Promise.resolve({ stdout: "git@forge.test:team/project.git\n" }),
+  }),
+}));
+vi.mock("../../../../src/main/agents/agents", () => ({
+  loginPath: () => Promise.resolve({ path: "/fixture" }),
+}));
+vi.mock("../../../../src/main/control/forge-process", () => ({
+  resolveForgeExecutable: () => Promise.resolve({ executable: "git" }),
+}));
 vi.mock("../../../../src/main/terminals/remote-bootstrap", () => ({
   UnsupportedRemotePlatform: class extends Error {},
   InvalidRemoteProbe: class extends Error {},
@@ -2077,6 +2095,120 @@ const checkInspect = {
   readOnly: true,
   partial: true,
 } as const;
+
+test.each([true, false])(
+  "setup trust follows SSH authentication rather than request order (check authenticates first: %s)",
+  async (authenticateFirst) => {
+    await Promise.resolve();
+    transport.kill();
+    child = new Child();
+    mock.spawn.mockClear().mockReturnValue(child);
+    const selecting = Promise.withResolvers<undefined>();
+    const authenticate = Promise.withResolvers<undefined>();
+    const artifact = {
+      bytes: Buffer.from("artifact"),
+      upload: Buffer.from("artifact"),
+      platform: "linux" as const,
+      arch: "x64" as const,
+      version: "0.1.0",
+      sha256: "a".repeat(64),
+    };
+    mock.artifact.mockImplementation(async (...args: Parameters<typeof selectHostArtifact>) => {
+      const [, , , , , observe, , retain, observeSsh] = args;
+      if (!retain) {
+        const failure = { state: "fail", reason: "host-key-changed" } as const;
+        observeSsh?.(failure);
+        throw new SshConnectionFailure(failure.reason);
+      }
+      selecting.resolve(undefined);
+      await authenticate.promise;
+      const pass = { state: "pass" } as const;
+      observeSsh?.(pass);
+      observe?.("ssh", pass);
+      observe?.("platform", pass);
+      observe?.("artifact", pass);
+      return artifact;
+    });
+    let settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      agents: { codex: true },
+      registeredHosts: [{ host: "fixture", codeFolder: "/code" }],
+    };
+    const repository = { name: "project", path: "/local/project" };
+    const hosts = new Hosts(
+      {
+        get: () => settings,
+        update: (patch) => {
+          settings = { ...settings, ...patch };
+          return Promise.resolve(settings);
+        },
+      },
+      () => [repository],
+      artifact.version,
+    );
+    const check = hosts.action({ action: "preflight", host: "fixture", codeFolder: "/code" });
+    try {
+      await selecting.promise;
+      const ready = async () => {
+        authenticate.resolve(undefined);
+        await vi.waitFor(() => {
+          expect(mock.spawn).toHaveBeenCalledOnce();
+        });
+        child.header();
+        child.message({
+          type: "hello",
+          build: artifact.sha256,
+          hostCheckConnection: 1,
+          agentSettings: 1,
+        });
+        expect(child.messages.at(-1)).toMatchObject({ operation: "inspect" });
+      };
+      if (authenticateFirst) await ready();
+      expect(await hosts.inventory("fixture")).toMatchObject({ reason: "host-key-changed" });
+      expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(true);
+      if (!authenticateFirst) await ready();
+      const facts = {
+        codeFolder: "/code",
+        version: artifact.version,
+        sessions: 0,
+        cores: 4,
+        load: [0, 0, 0],
+        memoryTotal: 8000,
+        memoryAvailable: 4000,
+        agents: [],
+      } as const;
+      child.message({ type: "managed", result: { ok: true, facts } });
+      await vi.waitFor(() => {
+        expect(child.messages.at(-1)).toMatchObject({ operation: "origin" });
+      });
+      child.message({ type: "managed", result: { ok: true, facts } });
+      await vi.waitFor(() => {
+        expect(child.messages.at(-1)).toMatchObject({ operation: "repository" });
+      });
+      child.message({ type: "managed", result: { ok: true, facts } });
+      const finished = await check;
+      expect(finished.preflight?.ssh.state).toBe("pass");
+      expect(finished.hosts[0]?.setupKeyUntrusted).toBe(authenticateFirst);
+      expect(mock.spawn).toHaveBeenCalledOnce();
+      const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+      const start = hosts.startSetupAgent(
+        { action: "setup-agent", host: "fixture", agent: "codex", repositories: [repository.path] },
+        launch,
+      );
+      if (authenticateFirst) {
+        await expect(start).rejects.toThrow("Setup agent unavailable");
+        expect(launch).not.toHaveBeenCalled();
+      } else {
+        await expect(start).resolves.toBeTypeOf("string");
+        expect(launch).toHaveBeenCalledOnce();
+      }
+    } finally {
+      authenticate.resolve(undefined);
+      hosts.dispose();
+      await check.catch(() => undefined);
+    }
+  },
+);
 
 test("a capability check reuses one stream for management and profile inventory and closes explicitly", async () => {
   const { connection } = await checkFixture();

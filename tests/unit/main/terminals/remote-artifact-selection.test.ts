@@ -97,7 +97,20 @@ test("uses bounded SSH discovery and a fixed catalog path, validates version and
   vi.stubEnv("FOOM_CONTROL_TOKEN", "never send");
   vi.stubEnv("SSH_AUTH_SOCK", "/fixture/agent");
   const target = { host: "fixture" };
-  expect((await selectHostArtifact(target, "0.1.0", f.root, f.metadata)).platform).toBe("linux");
+  const observeSsh = vi.fn();
+  const artifact = await selectHostArtifact(
+    target,
+    "0.1.0",
+    f.root,
+    f.metadata,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    observeSsh,
+  );
+  expect(artifact.platform).toBe("linux");
+  expect(observeSsh).toHaveBeenCalledExactlyOnceWith({ state: "pass" });
   expect(mock.spawn).toHaveBeenLastCalledWith(
     "ssh",
     expect.arrayContaining(["--", "fixture", "uname -s; uname -m"]),
@@ -332,12 +345,14 @@ test.each([
     );
     const observe = vi.fn();
     const output = vi.fn();
+    const observeSsh = vi.fn();
     const text =
       "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.\n";
     let diagnostic = "";
     mock.spawn.mockImplementation((_file: string, args: string[]) => {
       expect(args).toContain("LogLevel=ERROR");
       expect(args).toContain("StrictHostKeyChecking=yes");
+      expect(args).toContain("ControlPath=none");
       diagnostic = args[args.indexOf("-E") + 1] ?? "";
       const child = probeChild();
       void (async () => {
@@ -359,9 +374,12 @@ test.each([
         undefined,
         observe,
         output,
+        undefined,
+        observeSsh,
       ),
     ).rejects.toMatchObject({ failure: expected });
     expect(observe.mock.calls).toEqual([["ssh", { state: "fail", reason: expected }]]);
+    expect(observeSsh).toHaveBeenCalledExactlyOnceWith({ state: "fail", reason: expected });
     if (source === "client") expect(output).toHaveBeenCalledWith(text);
     await expect(access(diagnostic)).rejects.toThrow();
   },
@@ -552,6 +570,7 @@ test.each(["FOOM-LIBC-OK", "FOOM-LIBC-TOO-OLD", "FOOM-LIBC-UNSUPPORTED", "unexpe
     const retain = vi.fn();
     const observe = vi.fn();
     const output = vi.fn();
+    const observeSsh = vi.fn();
     try {
       const selected = selectHostArtifact(
         { host: "fixture" },
@@ -562,11 +581,13 @@ test.each(["FOOM-LIBC-OK", "FOOM-LIBC-TOO-OLD", "FOOM-LIBC-UNSUPPORTED", "unexpe
         observe,
         output,
         retain,
+        observeSsh,
       );
       if (libc === "FOOM-LIBC-OK")
         await expect(selected).resolves.toMatchObject({ platform: "linux" });
       else await expect(selected).rejects.toThrow();
       expect(retain).toHaveBeenCalledWith(child);
+      expect(observeSsh).toHaveBeenCalledExactlyOnceWith({ state: "pass" });
       expect(output).toHaveBeenCalledWith("Linux\nx86_64\n");
       expect(JSON.stringify(output.mock.calls)).not.toContain("FOOM-PROBED");
       expect(mock.spawn).toHaveBeenCalledTimes(1);
