@@ -49,14 +49,20 @@ const SSH_LOG_LIMIT = 16 * 1024;
 
 /** OpenSSH's local diagnostics must never be inferred from remote stderr. */
 function bootstrapSshLog() {
-  const directory = mkdtempSync(join(tmpdir(), "foom-ssh-bootstrap-"));
-  const path = join(directory, "ssh.log");
+  let remove: (() => void) | undefined;
   try {
+    const directory = mkdtempSync(join(tmpdir(), "foom-ssh-bootstrap-"));
+    const path = join(directory, "ssh.log");
+    const removeDirectory = () => {
+      rmSync(directory, { recursive: true, force: true });
+    };
+    remove = removeDirectory;
     const fd = openSync(path, "wx+", 0o600);
     return {
       path,
-      withinLimit: () => fstatSync(fd).size <= SSH_LOG_LIMIT,
+      remove: removeDirectory,
       failure(): ReturnType<typeof sshFailure> {
+        // Apply the bound when classifying a refusal. Successful replies need no diagnostic read.
         const size = fstatSync(fd).size;
         if (size > SSH_LOG_LIMIT) return "unreachable";
         const bytes = Buffer.alloc(size);
@@ -67,12 +73,16 @@ function bootstrapSshLog() {
         try {
           closeSync(fd);
         } finally {
-          rmSync(directory, { recursive: true, force: true });
+          removeDirectory();
         }
       },
     };
   } catch {
-    rmSync(directory, { recursive: true, force: true });
+    try {
+      remove?.();
+    } catch {
+      console.warn("Unable to remove SSH bootstrap diagnostics");
+    }
     throw new SshConnectionFailure("unreachable");
   }
 }
@@ -404,20 +414,22 @@ export class RemoteTransport extends EventEmitter {
       sentThemeKey: undefined,
     };
     if (diagnostic) {
-      const monitor = setInterval(() => {
-        try {
-          if (diagnostic.withinLimit()) return;
-        } catch {
-          // A failed diagnostic read also retires the connection.
-        }
-        this.retireConnection(connection, "failure");
-      }, 10);
       connection.disposeDiagnostic = () => {
-        clearInterval(monitor);
+        delete connection.disposeDiagnostic;
         try {
           diagnostic.dispose();
         } catch {
-          console.warn("Unable to remove SSH bootstrap diagnostics");
+          if (connection.closed) console.warn("Unable to remove SSH bootstrap diagnostics");
+          else {
+            // A client with the log open may prevent deletion until close.
+            child.once("close", () => {
+              try {
+                diagnostic.remove();
+              } catch {
+                console.warn("Unable to remove SSH bootstrap diagnostics");
+              }
+            });
+          }
         }
       };
     }
@@ -467,6 +479,7 @@ export class RemoteTransport extends EventEmitter {
             if (line !== "FOOM-READY") throw new Error("Invalid bootstrap");
             this.output?.("Daemon ready · Inspecting…\n", true);
             bootstrapped = true;
+            connection.disposeDiagnostic?.();
             this.send({ type: "hello", build: artifact.sha256 });
             bytes = header;
             header = Buffer.alloc(0);

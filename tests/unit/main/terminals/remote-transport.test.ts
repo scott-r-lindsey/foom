@@ -1,4 +1,6 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import { ApplicationError } from "../../../../src/shared/application-errors";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
@@ -36,6 +38,7 @@ import {
   RemoteTransport,
   RemoteCheckConnection,
   remoteManagement,
+  remoteInventory,
 } from "../../../../src/main/terminals/remote-transport";
 class Child extends EventEmitter {
   stdin = new PassThrough();
@@ -1958,6 +1961,77 @@ test.each(
   }
 });
 
+function bootstrapLogPath(): string {
+  const argv: unknown = mock.spawn.mock.calls.at(-1)?.[1];
+  if (!Array.isArray(argv)) throw new Error("Missing SSH arguments");
+  const log: unknown = argv[argv.indexOf("-E") + 1];
+  if (!argv.includes("-E") || typeof log !== "string") throw new Error("Missing private SSH log");
+  return log;
+}
+
+test("a missing diagnostic temp directory reports an unreachable management connection", async () => {
+  transport.kill();
+  mock.spawn.mockClear();
+  const scratch = mkdtempSync(join(tmpdir(), "foom-bootstrap-test-"));
+  try {
+    const missing = join(scratch, "missing");
+    for (const variable of ["TMPDIR", "TEMP", "TMP"]) vi.stubEnv(variable, missing);
+    await expect(
+      remoteManagement({ host: "fixture" }, "0.1.0", checkInspect),
+    ).resolves.toMatchObject({ ok: false, reason: "unreachable" });
+    expect(mock.spawn).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test.each(["reply", "inventory", "dispose"] as const)(
+  "bootstrap diagnostics are removed on %s without reading an oversized log",
+  async (mode) => {
+    transport.kill();
+    const cancellation = new AbortController();
+    const target = { host: "fixture" };
+    const pending =
+      mode === "inventory"
+        ? remoteInventory(target, "0.1.0", { type: "inventory", profile: "a".repeat(32) })
+        : remoteManagement(target, "0.1.0", checkInspect, cancellation.signal);
+    await Promise.resolve();
+    const log = bootstrapLogPath();
+    writeFileSync(log, Buffer.alloc(16385));
+    await vi.advanceTimersByTimeAsync(10);
+    if (mode === "dispose") {
+      cancellation.abort();
+      await expect(pending).resolves.toMatchObject({ ok: false, reason: "cancelled" });
+    } else {
+      child.greet();
+      const reply =
+        mode === "inventory"
+          ? { type: "inventory-result" as const, own: [], foreign: [] }
+          : {
+              type: "managed" as const,
+              result: {
+                ok: true as const,
+                facts: {
+                  codeFolder: "/code",
+                  version: "0.1.0",
+                  sessions: 0,
+                  cores: 1,
+                  load: [0, 0, 0],
+                  memoryTotal: 1,
+                  memoryAvailable: 1,
+                  agents: [],
+                },
+              },
+            };
+      child.message(reply);
+      await expect(pending).resolves.toMatchObject("result" in reply ? reply.result : reply);
+    }
+    expect(existsSync(log)).toBe(false);
+    expect(existsSync(dirname(log))).toBe(false);
+  },
+);
+
 const changedKeyDiagnostic =
   "@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\nHost key verification failed.\n";
 
@@ -2006,10 +2080,7 @@ test.each([
       target: { kind: "ssh" },
     });
     await Promise.resolve();
-    const argv: unknown = mock.spawn.mock.calls.at(-1)?.[1];
-    if (!Array.isArray(argv)) throw new Error("Missing SSH arguments");
-    const log: unknown = argv[argv.indexOf("-E") + 1];
-    if (!argv.includes("-E") || typeof log !== "string") throw new Error("Missing private SSH log");
+    const log = bootstrapLogPath();
     writeFileSync(log, diagnostic);
     child.stderr.write(changedKeyDiagnostic);
     child.emit("exit", exit);
