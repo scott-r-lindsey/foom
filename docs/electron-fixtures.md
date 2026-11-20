@@ -201,7 +201,7 @@ The click's implicit scroll then correctly triggers the movement guard. The help
 changes deadlines, or submits answers through the bridge. Immediate human actions,
 including launch-bypass consent, continue to use `confirmationPage`. The queue
 fixture scales its parent to fit the full 720 CSS-pixel cap on short desktops,
-preserving the assertion that two rows are fully visible. Native screen-point
+so tests can compare compact row heights and exercise a scrollable queue. Native screen-point
 checks convert CSS coordinates using the actual zoom factor. Tooling rejects direct
 clicks on queue-prefixed decisions outside the dedicated security suite, whose raw
 mouse/keyboard/synthetic input intentionally exercises the guard. Ordinary CLI,

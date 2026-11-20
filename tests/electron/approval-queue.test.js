@@ -1,7 +1,7 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { mkdir, writeFile } = require("node:fs/promises");
-const path = require("node:path");
+const { writeFile } = require("node:fs/promises");
+const { evidencePath } = require("../helpers/evidence.js");
 const { deadline, expect } = require("./test-policy.js");
 const { launchApp, boardPage } = require("./harness.js");
 
@@ -59,7 +59,7 @@ async function launchApprovalFixture(context) {
     fixture.off = fixture.queue.feed.subscribe(() =>
       parent.webContents.send("approval:count", fixture.queue.feed.current().length),
     );
-    fixture.add = (id, kind = "Worktree removal", expiresAt) => {
+    fixture.add = (id, kind = "Worktree removal", expiresAt, changes = "") => {
       const controller = new AbortController();
       fixture.abort[id] = controller;
       const content = {
@@ -78,12 +78,12 @@ async function launchApprovalFixture(context) {
         delete content.detail;
         content.removal = {
           group: "fixture",
-          item: { id, branch: id, path: `/fixture/${id}`, changes: "" },
+          item: { id, branch: id, path: `/fixture/${id}`, changes },
         };
       }
-      void fixture.queue
-        .request(content, controller.signal)
-        .then((result) => (fixture.results[id] = result));
+      void fixture.queue.request(content, controller.signal).then((result) => {
+        if (!fixture.screenshots?.has(id)) fixture.results[id] = result;
+      });
     };
     fixture.add("one");
     fixture.add("two");
@@ -107,35 +107,12 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
   await app.evaluate(() => globalThis.approvalFixture.abort["while-typing"].abort());
   await app.evaluate(() => globalThis.approvalFixture.add("two"));
   await expect(board.getByRole("button", { name: "2 approvals waiting" })).toBeVisible();
-  // Open with an explicit user click. The board capability is production-owned;
-  // the fixture keeps its own presenter so it can exercise cancellation directly.
-  await board.getByRole("button", { name: "2 approvals waiting" }).click();
-  await app.evaluate(() => globalThis.approvalFixture.dialog.openApprovals());
-  let dialog;
-  await expect
-    .poll(async () => {
-      for (const page of app.windows())
-        if (
-          page.url() === "app://confirmation/confirmation.html" &&
-          (await page.locator(".approval-queue").count())
-        ) {
-          dialog = page;
-          return true;
-        }
-      return false;
-    })
-    .toBe(true);
-  const native = await app.browserWindow(dialog);
-  const row = (id) =>
-    dialog.locator(".approval-row").filter({
-      has: dialog.locator(".subject b", { hasText: new RegExp(`^(?:fixture/)?${id}$`) }),
-    });
-  const approve = (id) => row(id).getByRole("button", { name: /^Approve ·/ });
+  const { dialog, native, approve } = await openFixtureDialog(app, board);
   try {
     await expect
       .poll(() => native.evaluate((window) => window.isVisible() && window.isFocused()))
       .toBe(true);
-    await expect(dialog.getByText("Repeated 2 times · one decision")).toBeVisible();
+    await expect(dialog.getByText(/Repeated 2 times · one decision/)).toBeVisible();
     await expect(dialog.locator(".approval-row")).toHaveCount(2);
     assert.equal(
       await app.evaluate(
@@ -160,39 +137,13 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
     await app.evaluate(() => globalThis.approvalFixture.abort.three.abort());
     await expect(dialog.locator(".approval-row")).toHaveCount(2);
     await expect(
-      dialog.getByRole("button", { name: "Approve all visible removals (2)", exact: true }),
+      dialog.getByRole("button", { name: "Approve all clean removals (2)", exact: true }),
     ).toBeEnabled();
     await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
-    if (process.env.FOOM_CONFIRMATION_SCREENSHOTS === "1") {
-      await mkdir("test-results/1105-electron", { recursive: true });
-      for (const dark of [false, true]) {
-        await app.evaluate(({ app }, dark) => {
-          const load = process
-            .getBuiltinModule("node:module")
-            .createRequire(app.getAppPath() + "/package.json");
-          const path = load("node:path");
-          const { resolveInterfaceTheme } = load(
-            path.join(app.getAppPath(), "build/shared/interface-themes.js"),
-          );
-          const f = globalThis.approvalFixture;
-          f.theme = resolveInterfaceTheme("follow", dark);
-          f.dialog.refresh();
-        }, dark);
-        await expect
-          .poll(() => dialog.evaluate(() => getComputedStyle(document.body).color))
-          .toBe(dark ? "rgb(244, 239, 255)" : "rgb(20, 16, 31)");
-        await dialog.evaluate(() => new Promise(requestAnimationFrame));
-        const image = await native.evaluate(async (window) =>
-          (await window.webContents.capturePage()).toPNG().toString("base64"),
-        );
-        await writeFile(
-          path.resolve(`test-results/1105-electron/approvals-${dark ? "dark" : "light"}.png`),
-          Buffer.from(image, "base64"),
-        );
-      }
-    }
+    if (process.env.FOOM_CONFIRMATION_SCREENSHOTS === "1")
+      await captureRemovalQueue(app, dialog, native);
     await dialog
-      .getByRole("button", { name: "Approve all visible removals (2)", exact: true })
+      .getByRole("button", { name: "Approve all clean removals (2)", exact: true })
       .click();
     await expect
       .poll(() => app.evaluate(() => globalThis.approvalFixture.results))
@@ -208,7 +159,7 @@ test("one trusted approval queue appends, merges, withdraws and snapshots decisi
     await approve("later").click();
     await expect(dialog.locator(".approval-row")).toHaveCount(1);
     await expect(
-      dialog.getByRole("button", { name: "Approve all visible removals (0)", exact: true }),
+      dialog.getByRole("button", { name: "Approve all clean removals (0)", exact: true }),
     ).toBeDisabled();
     await dialog.getByRole("button", { name: "Decline", exact: true }).click();
     await expect
@@ -257,7 +208,7 @@ async function openFixtureDialog(app, board) {
     .toBe(true);
   const row = (id) =>
     dialog.locator(".approval-row").filter({
-      has: dialog.locator(".subject b", { hasText: new RegExp(`^(?:fixture/)?${id}$`) }),
+      has: dialog.getByRole("heading", { name: new RegExp(`^(?:/fixture/|Review )${id}$`) }),
     });
   return {
     dialog,
@@ -267,13 +218,82 @@ async function openFixtureDialog(app, board) {
   };
 }
 
+async function captureRemovalQueue(app, dialog, native) {
+  const shot = async (name, dark) => {
+    await app.evaluate(({ app }, dark) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { resolveInterfaceTheme } = load("./build/shared/interface-themes.js");
+      const fixture = globalThis.approvalFixture;
+      fixture.theme = resolveInterfaceTheme("follow", dark);
+      fixture.dialog.refresh();
+    }, dark);
+    await expect
+      .poll(() => dialog.evaluate(() => getComputedStyle(document.body).color))
+      .toBe(dark ? "rgb(244, 239, 255)" : "rgb(20, 16, 31)");
+    await expect(dialog.getByRole("button", { name: /Approve all clean removals/ })).toBeEnabled();
+    const image = await native.evaluate(async (window) =>
+      (await window.webContents.capturePage()).toPNG().toString("base64"),
+    );
+    await writeFile(evidencePath(`1293/${name}.png`), Buffer.from(image, "base64"));
+  };
+  await shot("after-two-rows-light", false);
+  const extra = [
+    "fix-toolbar",
+    "review-keyboard-navigation",
+    "update-test-fixtures",
+    "simplify-theme-tokens",
+  ];
+  await app.evaluate((_, extra) => {
+    for (const id of extra) globalThis.approvalFixture.add(id);
+  }, extra);
+  await expect(
+    dialog.getByRole("button", { name: "Approve all clean removals (6)" }),
+  ).toBeEnabled();
+  await shot("clean-light", false);
+  await shot("clean-dark", true);
+  const dirty = "review-local-changes";
+  await app.evaluate((_, id) => {
+    globalThis.approvalFixture.add(
+      id,
+      "Worktree removal",
+      undefined,
+      " M src/sidebar.tsx\0?? notes.txt\0",
+    );
+  }, dirty);
+  await dialog.getByText("notes.txt", { exact: true }).scrollIntoViewIfNeeded();
+  await dialog.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Approve · Discard changes and remove" }),
+  ).toBeEnabled();
+  await expect(
+    dialog.getByRole("button", { name: "Approve all clean removals (6)" }),
+  ).toBeEnabled();
+  await shot("mixed-light", false);
+  await app.evaluate(
+    (_, ids) => {
+      for (const id of ids) {
+        const fixture = globalThis.approvalFixture;
+        fixture.screenshots ??= new Set();
+        fixture.screenshots.add(id);
+        fixture.abort[id].abort();
+      }
+    },
+    [...extra, dirty],
+  );
+  await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
+}
+
 test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals and synthetic decisions grant nothing", {
   timeout: deadline(60000),
 }, async (context) => {
   const { app, board } = await launchApprovalFixture(context);
   const { dialog, native, row, approve } = await openFixtureDialog(app, board);
   const result = (id) => app.evaluate((_, id) => globalThis.approvalFixture.results[id], id);
-  const bulk = () => dialog.getByRole("button", { name: /Approve all visible removals/ });
+  const bulk = () => dialog.getByRole("button", { name: /Approve all clean removals/ });
   const add = (id, kind = "Worktree removal") =>
     app.evaluate((_, { id, kind }) => globalThis.approvalFixture.add(id, kind), { id, kind });
   const abort = (id) => app.evaluate((_, id) => globalThis.approvalFixture.abort[id].abort(), id);

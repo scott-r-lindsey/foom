@@ -10,12 +10,13 @@ function setup() {
     () => new Promise(() => {}),
   );
   const queue = new Approvals(present, theme, () => Date.now());
-  const content = (id: string): DialogContent => ({
-    title: "Remove?",
-    accept: "Remove",
-    approval: { kind: "Worktree removal", origin: "Claude · Tile 1 · repo" },
-    removal: { group: "generation", item: { id, branch: id, path: `/repo/${id}`, changes: "" } },
-  });
+  const content = (id: string, changes = "") =>
+    ({
+      title: "Remove?",
+      accept: "Remove",
+      approval: { kind: "Worktree removal", origin: "Claude · Tile 1 · repo" },
+      removal: { group: "generation", item: { id, branch: id, path: `/repo/${id}`, changes } },
+    }) satisfies DialogContent;
   return { queue, present, content };
 }
 test("one presentation contains ordered independent decisions, including different kinds", async () => {
@@ -84,6 +85,28 @@ test("bulk consumes only the captured removal IDs and refuses mixed, stale, dupl
   queue.feed.answer(row?.request.id ?? "", false);
   expect(await trust).toBe(false);
 });
+test.each([" M tracked.txt\0", "?? untracked.txt\0"])(
+  "bulk rejects a snapshot containing a non-clean removal: %s",
+  async (changes) => {
+    const { queue, content } = setup();
+    const clean = queue.request(content("clean"));
+    const dirty = queue.request(content("dirty", changes));
+    queue.feed.presented(true);
+    await vi.advanceTimersByTimeAsync(900);
+    const rows = queue.feed.current();
+    expect(rows.map((row) => row.request.changes)).toEqual(["", changes]);
+    queue.feed.answer(
+      "queue",
+      rows.map((row) => row.request.id),
+    );
+    expect(queue.feed.current()).toEqual(rows);
+    const [cleanId, dirtyId] = rows.map((row) => row.request.id);
+    queue.feed.answer("queue", [cleanId ?? ""]);
+    queue.feed.answer(dirtyId ?? "", true);
+    await expect(clean).resolves.toBe(true);
+    await expect(dirty).resolves.toBe(true);
+  },
+);
 test("duplicates share one row, each withdrawal releases only its caller, expiry removes requests", async () => {
   const { queue, content } = setup();
   const cancel = new AbortController();
@@ -242,11 +265,20 @@ test("bulk cannot consume plugin or credential content even with removal metadat
 test("withdrawal during a captured bulk decision never replays consent to a withdrawn row", async () => {
   const { queue, content } = setup();
   const abort = new AbortController();
-  const first = queue.request({ ...content("a"), detail: "Extra caller disclosure" });
+  const request = content("a");
+  const first = queue.request({
+    ...request,
+    detail: "Extra caller disclosure",
+    removal: {
+      ...request.removal,
+      item: { ...request.removal.item, pullRequest: { number: 42, state: "MERGED" } },
+    },
+  });
   const second = queue.request(content("b"), abort.signal);
-  expect(queue.feed.current()[0]?.request.detail).toContain(
-    "Keep its branch.\n\nExtra caller disclosure",
-  );
+  expect(queue.feed.current()[0]?.request).toMatchObject({
+    detail: "Extra caller disclosure",
+    facts: [{ label: "PR", value: "#42 · MERGED" }],
+  });
   queue.feed.presented(true);
   await vi.advanceTimersByTimeAsync(900);
   let armed = false;

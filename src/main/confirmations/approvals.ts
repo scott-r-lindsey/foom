@@ -6,7 +6,6 @@ import type {
   DialogOutcome,
 } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
-import { removalContent } from "./removal-review";
 
 type Caller = { resolve(outcome: DialogOutcome): void; cleanup(): void };
 interface Entry {
@@ -43,7 +42,7 @@ export class Approvals {
     },
     answer: (id, accepted) => {
       if (Array.isArray(accepted)) {
-        // Only an explicit snapshot of one removal kind is bulk eligible.
+        // Validate the whole snapshot against main-owned removal status before resolving any caller.
         if (!accepted.length || new Set(accepted).size !== accepted.length) return;
         const entries = accepted.map((id: unknown) =>
           typeof id === "string" ? this.entries.get(id) : undefined,
@@ -53,7 +52,7 @@ export class Approvals {
             (entry) =>
               !entry ||
               entry.row.kind !== "Worktree removal" ||
-              !entry.content.removal ||
+              entry.content.removal?.item.changes !== "" ||
               entry.content.pluginFeed !== undefined ||
               entry.content.pairing !== undefined ||
               !this.ready(entry),
@@ -133,19 +132,27 @@ export class Approvals {
     let entry = [...this.entries.values()].find((entry) => entry.key === key);
     if (entry) entry.row = { ...entry.row, repeats: entry.row.repeats + 1 };
     else {
+      const kind = approval?.kind ?? (removal ? "Worktree removal" : "Background");
+      const item =
+        kind === "Worktree removal" && !pluginFeed && !plain.pairing ? removal?.item : undefined;
       const request = {
         ...plain,
-        ...(removal
+        ...(item
           ? {
-              ...removalContent([removal.item]),
-              detail: [
-                removal.item.changes
-                  ? "Discard the listed uncommitted changes and remove this worktree. Keep its branch."
-                  : "Remove this clean worktree. Keep its branch.",
-                plain.detail,
-              ]
-                .filter((value) => value !== undefined)
-                .join("\n\n"),
+              worktreePath: item.path,
+              changes: item.changes,
+              accept: item.changes ? "Discard changes and remove" : "Remove worktree",
+              ...(item.pullRequest
+                ? {
+                    facts: [
+                      ...(plain.facts ?? []),
+                      {
+                        label: "PR",
+                        value: `#${String(item.pullRequest.number)} · ${item.pullRequest.state}`,
+                      },
+                    ],
+                  }
+                : {}),
             }
           : {}),
         id: randomUUID(),
@@ -157,8 +164,10 @@ export class Approvals {
         content,
         row: {
           request,
-          kind: approval?.kind ?? (removal ? "Worktree removal" : "Background"),
-          origin: (approval?.origin ?? "Foom · background · no tile")
+          kind,
+          origin: (
+            approval?.origin ?? (item ? "Background cleanup" : "Foom · background · no tile")
+          )
             .replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/gu, " ")
             .slice(0, 8192),
           repeats: 1,

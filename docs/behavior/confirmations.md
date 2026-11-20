@@ -88,11 +88,16 @@ Removing a focused decision moves focus to Hide. Empty queues close.
 The window grows down from a fixed top edge to 720 CSS pixels, then scrolls within
 the available board/display area. Its title and the sidebar show the live count.
 
-**Approve all visible removals (N)** captures only fully visible, ready worktree
-removal rows when the primary pointer or Enter/Space key is pressed. Release
-approves only captured rows that are still visible and ready. Later arrivals,
-withdrawn requests and clipped/off-screen rows are excluded. Synthetic clicks or
-keyboard events never make a decision in any trusted confirmation.
+Worktree removal rows show the path once as a wrapping title with a copy control.
+One quiet line names the state, branch retention and requester. Rows with changes
+retain the file list and require individual approval.
+
+**Approve all clean removals (N)** counts every pending, ready removal with no
+tracked changes or untracked files, including off-screen rows (#1293). The primary
+pointer press or initial Enter/Space key-down captures those IDs. Release approves
+only captured rows that are still pending, ready and clean. Main rechecks each
+checkout before removal. Synthetic clicks and keyboard events never make a
+decision in any trusted confirmation.
 Authority, plugin trust, host trust and credential grants always require individual
 approval. Full plugin disclosures and progress remain in their own row. User-started
 link-open, tile-close, quit and merged-cleanup confirmations retain their existing

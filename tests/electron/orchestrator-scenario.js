@@ -1553,9 +1553,7 @@ process.stdout.write("FOOM_AGENT_READY`,
           .result.status,
         "pending_confirmation",
       );
-      await expect(
-        confirmation.getByRole("heading", { name: "Remove worktrees?" }),
-      ).not.toBeVisible();
+      await expect(confirmation.getByRole("heading", { name: /auto-merged$/ })).not.toBeVisible();
       const dirtyAuto = await call(parent.controlToken, "create_worktree", {
         idempotencyKey: "auto-dirty-tree",
         branch: "auto-dirty",
@@ -1572,7 +1570,7 @@ process.stdout.write("FOOM_AGENT_READY`,
         worktreeId: dirtyAuto.body.result.resultId,
       });
       await expect(
-        confirmation.getByRole("heading", { name: "Remove worktree with uncommitted changes?" }),
+        confirmation.getByRole("heading", { name: dirtyAutoTree.path, exact: true }),
       ).toBeVisible();
       await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
         "untracked.txt",
@@ -1629,9 +1627,7 @@ process.stdout.write("FOOM_AGENT_READY`,
         worktreeId: tree.body.result.resultId,
       });
       assert.equal(removal.body.result.status, "pending_confirmation");
-      await expect(
-        confirmation.getByRole("heading", { name: "Remove worktree?", exact: true }),
-      ).toBeVisible();
+      await expect(confirmation.getByRole("heading", { name: /child-one$/ })).toBeVisible();
       for (const tree of extraTrees) {
         const queued = await call(parent.controlToken, "remove_worktree", {
           idempotencyKey: `remove-${tree.branch}`,
@@ -1643,7 +1639,7 @@ process.stdout.write("FOOM_AGENT_READY`,
       const removalRow = (branch) =>
         confirmation
           .locator(".approval-row")
-          .filter({ has: confirmation.locator(".subject", { hasText: branch }) });
+          .filter({ has: confirmation.getByRole("heading", { name: new RegExp(`${branch}$`) }) });
       await expect(removalRow("child-one")).toContainText("Clean");
       await assertAccessible(confirmation);
       await confirmation.screenshot({
@@ -1720,16 +1716,20 @@ process.stdout.write("FOOM_AGENT_READY`,
           });
         }
         await expect(confirmation.locator(".approval-row")).toHaveCount(2);
-        // Rows can exceed the native viewport; individual decisions preserve the
-        // exact visible-only bulk rule while exercising both operation outcomes.
-        for (const tree of batch) {
-          const row = confirmation
-            .locator(".approval-row")
-            .filter({ has: confirmation.locator(".subject", { hasText: tree.branch }) });
+        if (approve) {
           await clickApproval(
             confirmation,
-            row.getByRole("button", { name: approve ? /^Approve ·/ : "Decline", exact: !approve }),
+            confirmation.getByRole("button", {
+              name: "Approve all clean removals (2)",
+              exact: true,
+            }),
           );
+        } else {
+          for (const tree of batch)
+            await clickApproval(
+              confirmation,
+              removalRow(tree.branch).getByRole("button", { name: "Decline", exact: true }),
+            );
         }
         for (const tree of batch) {
           await expect

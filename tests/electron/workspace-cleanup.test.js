@@ -620,6 +620,7 @@ for (const { front, queued, sameBoard, checking, background } of [
         const load = process
           .getBuiltinModule("node:module")
           .createRequire(app.getAppPath() + "/package.json");
+        const { basename } = load("node:path");
         if (checking) {
           const { WorktreeService } = load("./build/main/workspace/worktrees.js");
           const fetch = WorktreeService.prototype.mergedDefault;
@@ -649,9 +650,11 @@ for (const { front, queued, sameBoard, checking, background } of [
           if (this.window) globalThis.overlapTrackVisible?.(this.window);
           if (content.approvalFeed) {
             const record = () => {
-              for (const row of content.approvalFeed.current())
-                if (["orchestrator", "review"].includes(row.request.subject))
-                  globalThis.overlapRequests.add(row.request.subject);
+              for (const row of content.approvalFeed.current()) {
+                const source = basename(row.request.worktreePath ?? "");
+                if (["orchestrator", "review"].includes(source))
+                  globalThis.overlapRequests.add(source);
+              }
             };
             globalThis.overlapOff.add(content.approvalFeed.subscribe(record));
             record();
@@ -772,9 +775,9 @@ for (const { front, queued, sameBoard, checking, background } of [
       if (background) {
         const page = await approvalPage(app);
         await expect(
-          page
-            .locator(".approval-row")
-            .filter({ has: page.locator(".subject b", { hasText: new RegExp(`^${source}$`) }) }),
+          page.locator(".approval-row").filter({
+            has: page.getByRole("heading", { name: path.join(root, source), exact: true }),
+          }),
         ).toHaveCount(1);
         return page;
       }
@@ -805,7 +808,7 @@ for (const { front, queued, sameBoard, checking, background } of [
     const rowFor = (page, source) =>
       page
         .locator(".approval-row")
-        .filter({ has: page.locator(".subject b", { hasText: new RegExp(`^${source}$`) }) });
+        .filter({ has: page.getByRole("heading", { name: path.join(root, source), exact: true }) });
     const frontButton = background
       ? rowFor(frontPage, front).getByRole("button", {
           name: "Approve · Remove worktree",
@@ -1264,9 +1267,7 @@ test("detached removals share one review per checkout and approve independently"
   }, repo);
   await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "one"), paths[0]);
   const dialog = await approvalPage(app);
-  await expect(
-    dialog.getByRole("heading", { name: "Remove worktree?", exact: true }),
-  ).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: paths[0], exact: true })).toBeVisible();
   await app.evaluate((_, paths) => {
     globalThis.startDetachedRemoval(paths[0], "duplicate");
     globalThis.startDetachedRemoval(paths[1], "two");
@@ -1296,13 +1297,99 @@ test("detached removals share one review per checkout and approve independently"
   // The declined checkout has released its reservation and can be reviewed again.
   await app.evaluate((_, tree) => globalThis.startDetachedRemoval(tree, "retry"), paths[1]);
   const retry = await approvalPage(app);
-  await expect(retry.getByRole("heading", { name: "Remove worktree?", exact: true })).toBeVisible();
+  await expect(retry.getByRole("heading", { name: paths[1], exact: true })).toBeVisible();
   await clickApproval(
     retry,
     retry.getByRole("button", { name: "Approve · Remove worktree", exact: true }),
   );
   await expect.poll(() => app.evaluate(() => globalThis.detachedAnswers.retry)).toBe(true);
   assert.equal(require("node:fs").existsSync(paths[1]), false);
+  // Distinct branches can all hold independent removal reservations at once.
+  const cleanBranches = Array.from({ length: 16 }, (_, index) => `bulk-${String(index + 1)}`);
+  const untracked = "with-notes";
+  const changedLate = cleanBranches.at(-1);
+  for (const branch of [...cleanBranches, untracked])
+    git("worktree", "add", "-b", branch, path.join(root, branch));
+  await writeFile(path.join(root, untracked, "notes.txt"), "keep me");
+  await app.evaluate(
+    ({ app }, { root, branches, changedLate }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const path = load("node:path");
+      const { writeFile } = load("node:fs/promises");
+      const worktrees = globalThis.detachedOwner.cleanup.deps.worktrees;
+      const remove = worktrees.removeWorktree.bind(worktrees);
+      worktrees.removeWorktree = (repository, tree, force, identity, beforeRemove) =>
+        remove(
+          repository,
+          tree,
+          force,
+          identity,
+          tree === path.join(root, changedLate)
+            ? async () => {
+                // Leave the earlier status reads intact and change the checkout at the final guard.
+                await writeFile(path.join(tree, "late.txt"), "changed after consent");
+                await beforeRemove();
+              }
+            : beforeRemove,
+        );
+      for (const branch of branches)
+        globalThis.startDetachedRemoval(path.join(root, branch), branch);
+    },
+    { root, branches: [...cleanBranches, untracked], changedLate },
+  );
+  const queue = await approvalPage(app);
+  const viewport = queue.getByRole("region", { name: "Pending approvals" });
+  const bulk = queue.getByRole("button", {
+    name: `Approve all clean removals (${cleanBranches.length})`,
+    exact: true,
+  });
+  await expect(
+    queue.getByRole("button", { name: "Approve · Discard changes and remove", exact: true }),
+  ).toBeEnabled();
+  await expect(bulk).toBeEnabled();
+  await expect(queue.getByText("notes.txt", { exact: true })).toHaveCount(1);
+  assert.ok(
+    await viewport.evaluate((element) => {
+      element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
+      const bounds = element.getBoundingClientRect();
+      const rows = Array.from(element.querySelectorAll(".approval-row"));
+      return (
+        element.scrollTop > 0 &&
+        rows.filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+        }).length <
+          rows.length / 2
+      );
+    }),
+    "Most removal rows must be outside the visible queue",
+  );
+  await bulk.click();
+  await expect(
+    queue.getByRole("button", { name: "Approve all clean removals (0)", exact: true }),
+  ).toBeDisabled();
+  for (const branch of cleanBranches) {
+    const answer = () => app.evaluate((_, id) => globalThis.detachedAnswers[id], branch);
+    if (branch === changedLate) {
+      await expect.poll(answer).toContain("Worktree changes have changed");
+      assert.equal(
+        await readFile(path.join(root, branch, "late.txt"), "utf8"),
+        "changed after consent",
+      );
+    } else {
+      await expect.poll(answer).toBe(true);
+      await assert.rejects(realpath(path.join(root, branch)), { code: "ENOENT" });
+    }
+    assert.ok(String(git("branch", "--list", branch)).trim(), `Branch ${branch} must survive`);
+  }
+  await expect(queue.locator(".approval-row")).toHaveCount(1);
+  await expect(
+    queue.getByRole("heading", { name: path.join(root, untracked), exact: true }),
+  ).toBeVisible();
+  assert.equal(await app.evaluate((_, id) => globalThis.detachedAnswers[id], untracked), undefined);
+  assert.equal(await readFile(path.join(root, untracked, "notes.txt"), "utf8"), "keep me");
 });
 
 test("Close hides a review session before slow worktree removal finishes", {

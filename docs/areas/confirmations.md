@@ -54,14 +54,17 @@ use the same measurement and native geometry checks as other trusted windows.
 Every row answer requires its current ID, exact trusted main frame, native focus,
 visibility and complete reachable bounds. Main also enforces a monotonic 900 ms
 per-row delay after presentation; both buttons are disabled until ready. Bulk
-answers contain an explicit ID snapshot of fully visible, ready rows measured in
-the trusted page at a trusted primary pointer-down or initial Enter/Space key-down.
-Release can only narrow this snapshot to IDs still visible and ready; it cannot
-add arrivals or substitute other IDs. Cancellation or focus loss clears the
-gesture, and keyboard repeats cannot replace it. Main refuses empty, duplicate, unknown, unready or
-mixed-kind IDs atomically. Only worktree removals are bulk eligible. Later rows
-cannot enter the captured set. Caller identity/status revalidation still runs
-before execution. Per-row plugin progress keeps the existing fixed-command and
+answers contain an explicit ID snapshot of all pending, ready worktree removal
+rows whose captured Git status is clean, including rows outside the scroll
+viewport (#1293). The trusted page captures the snapshot at a trusted primary
+pointer-down or initial Enter/Space key-down. Release can only narrow it to IDs
+still pending, ready and clean. Cancellation or focus loss clears the gesture,
+and keyboard repeats cannot replace it. Scrolling re-arms moved individual
+buttons without changing eligibility for the stationary bulk button. Main refuses
+empty, duplicate, unknown, unready, mixed-kind or non-clean IDs atomically using
+its own request snapshots. Each removal still rechecks caller identity, checkout
+identity and the approved status, including immediately before Git removal.
+Per-row plugin progress keeps the existing fixed-command and
 receipt lifecycle and cannot accept a second mutation while running. All
 renderer decision handlers, including legacy dialogs, decline/cancel, selected
 removals and keyboard activation, require `event.isTrusted`; synthetic DOM clicks
