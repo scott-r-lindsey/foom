@@ -426,12 +426,38 @@ test("install recipes stay in Settings and native exit refreshes their rows once
   expect(mock.window.webContents.send).not.toHaveBeenCalledWith("app-menu:session", "recipe");
   mock.workspace.isSettingsTerminal.mockImplementation((id) => id === "recipe");
   expect(mock.allowView(mock.window.webContents, "recipe")).toBe(true);
-  const listener = mock.terminals.onExit.mock.calls[0]?.[0];
+  const listener = mock.terminals.onExit.mock.calls.at(-1)?.[0];
   listener?.("other", 0);
   expect(finished).not.toHaveBeenCalled();
   listener?.("recipe", 17);
   expect(finished).toHaveBeenCalledOnce();
   expect(off).toHaveBeenCalledOnce();
+});
+
+test("host setup routes ordinary tile placement through its window and observes native exit", async () => {
+  await start();
+  const { Hosts } = await import("../../../src/main/setup/hosts");
+  const exited = vi.spyOn(Hosts.prototype, "setupAgentExited").mockResolvedValue(undefined);
+  try {
+    const validate = vi.fn();
+    await mock.setup.deps?.launchHostSetupAgent?.("setup-id", "codex", "Fixed brief", validate);
+    expect(mock.workspace.startHostSetupAgent).toHaveBeenCalledWith(
+      "setup-id",
+      "codex",
+      "Fixed brief",
+      validate,
+    );
+    mock.setup.deps?.placeHostSetupAgent?.("setup-id", true);
+    expect(mock.window.webContents.send).toHaveBeenLastCalledWith(
+      "app-menu:session",
+      "setup-id",
+      true,
+    );
+    mock.terminals.onExit.mock.calls[0]?.[0]("setup-id", 0);
+    expect(exited).toHaveBeenCalledWith("setup-id", true);
+  } finally {
+    exited.mockRestore();
+  }
 });
 
 test.each([
@@ -542,7 +568,7 @@ test.each([false, true])(
     const off = vi.fn();
     mock.terminals.onExit.mockReturnValue(off);
     mock.workspace.startHostRecipe.mockImplementationOnce(() => {
-      const exit = mock.terminals.onExit.mock.calls[0]?.[0];
+      const exit = mock.terminals.onExit.mock.calls.at(-1)?.[0];
       for (let index = 0; index < 260; index++) exit?.(`other-${String(index)}`, 1);
       exit?.("recipe", 0);
       return Promise.resolve("recipe");

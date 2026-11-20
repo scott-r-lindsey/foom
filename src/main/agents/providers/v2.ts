@@ -78,6 +78,7 @@ export function v2Provider(
         hooksEnabled: true,
         healthTrusted: false,
       });
+      const promptFacts = discoveryFacts(model, version, help, { hasPrompt: true });
       const healthChannel = model.hooks?.channels.find(
         (channel) => channel.id === model.health?.channel,
       );
@@ -86,6 +87,10 @@ export function v2Provider(
         path,
         version: version || null,
         hooks: hookCapability(model, version, help),
+        initialPrompt: Boolean(
+          model.launch.prompt &&
+            (!model.launch.prompt.requires || promptFacts[model.launch.prompt.requires] === true),
+        ),
         inline: Boolean(model.launch.display && selected(model.launch.display.when, facts)),
         healthSupported: Boolean(healthChannel && selected(healthChannel.when, facts)),
         ...(model.health ? { healthInstructions: model.health.instructions } : {}),
@@ -211,7 +216,8 @@ export function v2Provider(
         userDefaults = collected.args;
         prompts.push(...collected.values);
       }
-      if (request.prompt !== undefined) prompts.push(`${CHILD_PROMPT}\n\n${request.prompt}`);
+      if (request.prompt !== undefined)
+        prompts.push(request.humanHome ? request.prompt : `${CHILD_PROMPT}\n\n${request.prompt}`);
       if (configGreeting && promptSupported) prompts.push(CONFIG_PROMPT);
       else if (guidance) prompts.push(CLI_GUIDANCE);
       const newId =

@@ -179,6 +179,33 @@ test("an explicit SSH row reload offers trust while preserving the successful fu
   expect(run).not.toHaveBeenCalled();
 });
 
+test("a late healthy inventory cannot override completed SSH trust eligibility", async () => {
+  run.mockResolvedValue(good);
+  await enroll();
+  await hosts.action({ action: "preflight", host: "box", codeFolder: "/code" });
+  const started = Promise.withResolvers<undefined>();
+  const stale = Promise.withResolvers<HostResult>();
+  run.mockImplementationOnce(() => {
+    started.resolve(undefined);
+    return stale.promise;
+  });
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+  const inventory = hosts.inventory("box");
+  now.mockRestore();
+  await started.promise;
+  run.mockResolvedValueOnce(unknownKey);
+  await hosts.action({ action: "reload", host: "box", target: { kind: "ssh" } });
+  stale.resolve(good);
+  await inventory;
+  const row = hosts.state().hosts[0];
+  expect(row?.result?.ok).toBe(true);
+  expect(row?.observation?.preflight.ssh).toEqual(unknownKey.connection?.ssh);
+  expect(row?.hostKeyTrust).toBe("askpass");
+  mock.trust.mockResolvedValueOnce(false);
+  expect((await trust()).hosts[0]?.hostKeyTrustFailure).toBeUndefined();
+  expect(mock.trust).toHaveBeenCalledOnce();
+});
+
 test("a cancelled trust request cannot start another capability read while building its reply", async () => {
   await enroll();
   mock.supported.mockClear();

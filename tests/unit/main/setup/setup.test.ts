@@ -602,6 +602,36 @@ test("successful nickname updates publish current profile settings; reads and fa
   deps.hosts.dispose();
 });
 
+test("setup agent IPC places the owned tile in the background and reveals it only on request", async () => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  const hosts = new Hosts(deps.store, () => [], "0.1.0");
+  vi.spyOn(hosts, "startSetupAgent").mockResolvedValue("setup-id");
+  const running = vi.spyOn(hosts, "setupAgentId").mockReturnValue(undefined);
+  const place = vi.fn();
+  const input = { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/repo"] };
+  await expect(new Setup({ ...deps, hosts }).hosts(input)).rejects.toThrow(
+    "Setup agent unavailable",
+  );
+  const setup = new Setup({
+    ...deps,
+    hosts,
+    launchHostSetupAgent: vi.fn(),
+    placeHostSetupAgent: place,
+  });
+  await expect(setup.hosts({ ...input, prompt: "untrusted" })).rejects.toThrow(
+    "Invalid host action",
+  );
+  await setup.hosts(input);
+  expect(place).toHaveBeenCalledExactlyOnceWith("setup-id", true);
+  await setup.hosts({ action: "show-setup-agent", host: "worker", id: "setup-id" });
+  expect(place).toHaveBeenCalledTimes(1);
+  running.mockReturnValue("setup-id");
+  await setup.hosts({ action: "show-setup-agent", host: "worker", id: "stale-id" });
+  expect(place).toHaveBeenCalledTimes(1);
+  await setup.hosts({ action: "show-setup-agent", host: "worker", id: "setup-id" });
+  expect(place).toHaveBeenLastCalledWith("setup-id", false);
+});
+
 test("local install delegation has no fallback when the capability is absent", async () => {
   const setup = new Setup(deps);
   expect(() => setup.localAgentInstall(undefined)).toThrow("unavailable");

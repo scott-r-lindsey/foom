@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import { ApplicationError } from "../../../../src/shared/application-errors";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
@@ -15,6 +18,7 @@ import {
   remoteResponseFrames,
   RemoteFrames,
 } from "../../../../src/shared/remote-host-protocol";
+import type { HostConnectionChecks, HostCheck } from "../../../../src/shared/registered-hosts.d";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
@@ -34,6 +38,7 @@ import {
   RemoteTransport,
   RemoteCheckConnection,
   remoteManagement,
+  remoteInventory,
 } from "../../../../src/main/terminals/remote-transport";
 class Child extends EventEmitter {
   stdin = new PassThrough();
@@ -1982,6 +1987,141 @@ test.each(
     expect(transport.launchFailure).toBeUndefined();
   }
 });
+
+function bootstrapLogPath(): string {
+  const argv: unknown = mock.spawn.mock.calls.at(-1)?.[1];
+  if (!Array.isArray(argv)) throw new Error("Missing SSH arguments");
+  const log: unknown = argv[argv.indexOf("-E") + 1];
+  if (!argv.includes("-E") || typeof log !== "string") throw new Error("Missing private SSH log");
+  return log;
+}
+
+test("a missing diagnostic temp directory reports an unreachable management connection", async () => {
+  transport.kill();
+  mock.spawn.mockClear();
+  const scratch = mkdtempSync(join(tmpdir(), "foom-bootstrap-test-"));
+  try {
+    const missing = join(scratch, "missing");
+    for (const variable of ["TMPDIR", "TEMP", "TMP"]) vi.stubEnv(variable, missing);
+    await expect(
+      remoteManagement({ host: "fixture" }, "0.1.0", checkInspect),
+    ).resolves.toMatchObject({ ok: false, reason: "unreachable" });
+    expect(mock.spawn).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test.each(["reply", "inventory", "dispose"] as const)(
+  "bootstrap diagnostics are removed on %s without reading an oversized log",
+  async (mode) => {
+    transport.kill();
+    const cancellation = new AbortController();
+    const target = { host: "fixture" };
+    const pending =
+      mode === "inventory"
+        ? remoteInventory(target, "0.1.0", { type: "inventory", profile: "a".repeat(32) })
+        : remoteManagement(target, "0.1.0", checkInspect, cancellation.signal);
+    await Promise.resolve();
+    const log = bootstrapLogPath();
+    writeFileSync(log, Buffer.alloc(16385));
+    await vi.advanceTimersByTimeAsync(10);
+    if (mode === "dispose") {
+      cancellation.abort();
+      await expect(pending).resolves.toMatchObject({ ok: false, reason: "cancelled" });
+    } else {
+      child.greet();
+      const reply =
+        mode === "inventory"
+          ? { type: "inventory-result" as const, own: [], foreign: [] }
+          : {
+              type: "managed" as const,
+              result: {
+                ok: true as const,
+                facts: {
+                  codeFolder: "/code",
+                  version: "0.1.0",
+                  sessions: 0,
+                  cores: 1,
+                  load: [0, 0, 0],
+                  memoryTotal: 1,
+                  memoryAvailable: 1,
+                  agents: [],
+                },
+              },
+            };
+      child.message(reply);
+      await expect(pending).resolves.toMatchObject("result" in reply ? reply.result : reply);
+    }
+    expect(existsSync(log)).toBe(false);
+    expect(existsSync(dirname(log))).toBe(false);
+  },
+);
+
+const changedKeyDiagnostic =
+  "@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\nHost key verification failed.\n";
+
+test.each([
+  { diagnostic: changedKeyDiagnostic, exit: 255, expected: "host-key-changed" },
+  {
+    diagnostic:
+      "No ED25519 host key is known for fixture and you have requested strict checking.\nHost key verification failed.\n",
+    exit: 255,
+    expected: "host-key-unknown",
+  },
+  { diagnostic: "", exit: 255, expected: "unreachable" },
+  { diagnostic: changedKeyDiagnostic, exit: 1, expected: "unreachable" },
+  { diagnostic: "x".repeat(16385) + changedKeyDiagnostic, exit: 255, expected: "unreachable" },
+])(
+  "a separate management bootstrap classifies only bounded client diagnostics ($expected, exit $exit)",
+  async ({ diagnostic, exit, expected }) => {
+    transport.kill();
+    mock.artifact.mockImplementationOnce(
+      (
+        _target,
+        _version,
+        _catalog,
+        _metadata,
+        _signal,
+        observe: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
+      ) => {
+        for (const stage of ["ssh", "platform", "artifact"] as const)
+          observe(stage, { state: "pass" });
+        return Promise.resolve({
+          bytes: Buffer.from("artifact"),
+          upload: Buffer.from("artifact"),
+          platform: "linux",
+          arch: "x64",
+          version: "0.1.0",
+          sha256: "a".repeat(64),
+        });
+      },
+    );
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+      type: "manage",
+      operation: "inspect",
+      readOnly: true,
+      partial: true,
+      codeFolder: "~/code",
+      target: { kind: "ssh" },
+    });
+    await Promise.resolve();
+    const log = bootstrapLogPath();
+    writeFileSync(log, diagnostic);
+    child.stderr.write(changedKeyDiagnostic);
+    child.emit("exit", exit);
+    child.emit("close", exit);
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      reason: expected,
+      connection: {
+        ssh: expected === "unreachable" ? { state: "pass" } : { state: "fail", reason: expected },
+      },
+    });
+    expect(existsSync(log)).toBe(false);
+  },
+);
 
 test("explicit management output observes upload steps and stderr without exposing protocol frames", async () => {
   transport.kill();

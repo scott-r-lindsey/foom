@@ -355,6 +355,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
       ],
     });
     startHostRecipe = mock.workspace.startHostRecipe;
+    startHostSetupAgent = mock.workspace.startHostSetupAgent;
     startLocalAgentInstall = mock.workspace.startLocalAgentInstall;
     output = mock.workspace.output;
     evidence = mock.workspace.evidence;
@@ -545,6 +546,9 @@ const mock = vi.hoisted(() => {
     startHostRecipe: vi.fn<(target: RemoteTarget) => Promise<string>>(() =>
       Promise.resolve("recipe"),
     ),
+    startHostSetupAgent: vi.fn<
+      (id: string, agent: string, prompt: string, validate: () => void) => Promise<void>
+    >(() => Promise.resolve()),
     output: vi.fn(),
     evidence: vi.fn(),
     foreground: vi.fn(),

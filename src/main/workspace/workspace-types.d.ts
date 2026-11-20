@@ -108,10 +108,11 @@ export interface WorkspaceMethods {
     location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
     conversation?: string,
     confirm?: ConfirmWorkspace,
-    validateLaunch?: () => void,
+    validateLaunch?: (dispatch?: true) => void,
     signal?: AbortSignal,
     heldReservation?: string,
     parentHold?: CheckoutHold,
+    setup?: { id: string; prompt: string },
   ): Promise<string | undefined>;
   startHomeShell(
     restoreId?: string,

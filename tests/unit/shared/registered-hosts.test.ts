@@ -9,6 +9,7 @@ import {
   hostManagement,
   hostResult,
   hostsAction,
+  hostKeyUntrusted,
 } from "../../../src/shared/registered-hosts";
 import { remoteRequest, remoteResponse } from "../../../src/shared/remote-host-protocol";
 export const facts = {
@@ -21,6 +22,21 @@ export const facts = {
   memoryAvailable: 4000000,
   agents: [{ id: "claude", state: "ready" as const }],
 };
+
+test("setup accepts only bounded unique repository selectors and registered-host action fields", () => {
+  const action = { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/repo"] };
+  expect(hostsAction(action)).toBe(true);
+  expect(hostsAction({ action: "show-setup-agent", host: "worker", id: "setup-id" })).toBe(true);
+  expect(hostsAction({ action: "show-setup-agent", host: "worker" })).toBe(false);
+  expect(hostsAction({ ...action, prompt: "renderer text" })).toBe(false);
+  expect(hostsAction({ ...action, agent: "shell -c" })).toBe(false);
+  for (const repositories of [null, [], ["/repo", "/repo"], ["/a\nb"], ["/".repeat(4097)], [null]])
+    expect(hostsAction({ ...action, repositories })).toBe(false);
+  expect(hostKeyUntrusted({ state: "fail", reason: "host-key-unknown" })).toBe(true);
+  expect(hostKeyUntrusted({ state: "fail", reason: "host-key-changed" })).toBe(true);
+  expect(hostKeyUntrusted({ state: "fail", reason: "unreachable" })).toBe(false);
+  expect(hostKeyUntrusted({ state: "not-checked" })).toBe(false);
+});
 test("host settings reject options, shell syntax, path traversal and duplicate authorizations", () => {
   for (const host of ["worker", "me@worker.test", "127.0.0.1"]) expect(hostAlias(host)).toBe(true);
   for (const host of [

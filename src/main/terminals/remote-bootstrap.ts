@@ -134,6 +134,7 @@ export function bootstrapArguments(
   uploadSize: number,
   platform: string,
   arch: string,
+  freshConnection = false,
 ): string[] {
   if (
     !remoteHost(host) ||
@@ -197,7 +198,12 @@ else
 fi
 umask "$login_umask"
 exec "$f" --connect`;
-  return [...sshArguments(host), "sh", "-c", `'${script.replaceAll("'", "'\\''")}'`];
+  return [
+    ...sshArguments(host, freshConnection ? "fresh" : "default"),
+    "sh",
+    "-c",
+    `'${script.replaceAll("'", "'\\''")}'`,
+  ];
 }
 
 /** Explicit main-process argv only; never accepted from IPC or saved settings. */
@@ -217,9 +223,16 @@ export function remoteSpikeTarget(argv: readonly string[]): RemoteTarget | undef
   return { host, ...(artifact ? { artifact } : {}) };
 }
 
-export function sshArguments(host: string): string[] {
+export function sshArguments(
+  host: string,
+  policy: "default" | "strict" | "fresh" = "default",
+): string[] {
   if (!remoteHost(host)) throw new Error("Invalid SSH host");
   return [
+    ...(policy === "default" ? [] : ["-o", "StrictHostKeyChecking=yes"]),
+    ...(policy === "fresh"
+      ? ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
+      : []),
     "-T",
     "-o",
     "BatchMode=yes",
@@ -281,11 +294,13 @@ test "$size" -le 65536 && test "$size" -gt 0 || exit 1
 script=$(head -c "$size") || exit 1
 exec sh -c "$script"`;
 
-async function platformProbe(
+async function probeSsh(
   host: string,
   signal?: AbortSignal,
   output?: (text: string) => void,
   retain?: (child: ChildProcessWithoutNullStreams) => void,
+  freshConnection = false,
+  command: "platform" | "libc" = "platform",
 ) {
   const directory = await mkdtemp(join(tmpdir(), "foom-ssh-probe-"));
   const diagnostic = join(directory, "ssh.log");
@@ -316,15 +331,12 @@ async function platformProbe(
           diagnostic,
           "-o",
           "LogLevel=ERROR",
-          "-o",
-          "StrictHostKeyChecking=yes",
-          ...(retain
-            ? ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
-            : []),
-          ...sshArguments(host),
+          ...sshArguments(host, retain || freshConnection ? "fresh" : "strict"),
           ...(retain
             ? ["sh", "-c", `'${CHECK_PRELUDE.replaceAll("'", "'\\''")}'`]
-            : ["uname -s; uname -m"]),
+            : command === "libc"
+              ? ["sh", "-c", `'${LINUX_LIBC_CHECK.replaceAll("'", "'\\''")}'`]
+              : ["uname -s; uname -m"]),
         ],
         {
           env: { ...sshEnvironment(), LC_ALL: "C" },
@@ -340,6 +352,7 @@ async function platformProbe(
       let cleanup: Promise<void> | undefined;
       const stdout: string[] = [];
       const sizes = { stdout: 0, stderr: 0 };
+      const outputLimit = command === "libc" ? 256 : 16384;
       const stop = () => {
         if (stopped) return;
         stopped = true;
@@ -392,7 +405,7 @@ async function platformProbe(
       signal?.addEventListener("abort", fail, { once: true });
       const collect = (stream: "stdout" | "stderr", data: string) => {
         sizes[stream] += Buffer.byteLength(data);
-        if (sizes[stream] > 16384) fail();
+        if (sizes[stream] > outputLimit) fail();
         else {
           if (stream === "stdout") stdout.push(data);
           if (!retain || stream === "stderr") output?.(data);
@@ -443,7 +456,15 @@ async function platformProbe(
           }
           if (invalid || (retain && !failed && code === 0)) {
             reject(new InvalidRemoteProbe("Invalid check prelude"));
-          } else if (failed || code !== 0) {
+          } else if (
+            failed ||
+            (code !== 0 &&
+              !(
+                command === "libc" &&
+                code === 1 &&
+                ["FOOM-LIBC-TOO-OLD", "FOOM-LIBC-UNSUPPORTED"].includes(stdout.join("").trim())
+              ))
+          ) {
             if (text) output?.(text.toString("utf8"));
             reject(
               new SshConnectionFailure(
@@ -502,6 +523,22 @@ async function remoteHostSource(metadata: string): Promise<string | undefined> {
   return undefined;
 }
 
+/** Authorize setup with a standalone strict SSH probe, outside any multiplexed session. */
+export async function probeHostSsh(
+  host: string,
+  signal: AbortSignal,
+): Promise<Exclude<HostCheck, { state: "not-checked" }>> {
+  try {
+    await probeSsh(host, signal, undefined, undefined, true);
+    return { state: "pass" };
+  } catch (error) {
+    return {
+      state: "fail",
+      reason: error instanceof SshConnectionFailure ? error.failure : "unreachable",
+    };
+  }
+}
+
 export async function selectHostArtifact(
   target: RemoteTarget,
   expectedVersion: string,
@@ -514,6 +551,7 @@ export async function selectHostArtifact(
   observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
   output?: (text: string, startLine?: boolean) => void,
   retain?: (child: ChildProcessWithoutNullStreams) => void,
+  freshConnection = false,
 ) {
   let missingArtifact = false;
   let expectedSource: string | undefined;
@@ -525,11 +563,12 @@ export async function selectHostArtifact(
     }
   }
   output?.("Connecting…\nPlatform\n", true);
-  const { stdout, libc: combinedLibc } = await platformProbe(
+  const { stdout, libc: combinedLibc } = await probeSsh(
     target.host,
     signal,
     output,
     retain,
+    freshConnection || observe !== undefined,
   ).catch((error: unknown) => {
     if (error instanceof InvalidRemoteProbe) {
       observe?.("ssh", { state: "pass" });
@@ -548,44 +587,23 @@ export async function selectHostArtifact(
     throw error;
   }
   if (observe && remote.platform === "linux") {
-    const libc = retain
-      ? combinedLibc === "FOOM-LIBC-OK"
-        ? undefined
-        : combinedLibc === "FOOM-LIBC-TOO-OLD"
-          ? "libc-too-old"
-          : combinedLibc === "FOOM-LIBC-UNSUPPORTED"
-            ? "libc-unsupported"
-            : "unreachable"
-      : await promisify(execFile)(
-          "ssh",
-          [
-            ...sshArguments(target.host),
-            "sh",
-            "-c",
-            `'${LINUX_LIBC_CHECK.replaceAll("'", "'\\''")}'`,
-          ],
-          {
-            env: sshEnvironment(),
-            shell: false,
-            timeout: 10000,
-            maxBuffer: 256,
-            encoding: "utf8",
-            ...(signal ? { signal } : {}),
-          },
-        )
-          .then(() => undefined)
+    const rawLibc = retain
+      ? combinedLibc
+      : await probeSsh(target.host, signal, undefined, undefined, true, "libc")
+          .then(({ stdout }) => stdout.trim())
           .catch((error: unknown) => {
-            const output =
-              error instanceof Error && "stdout" in error && typeof error.stdout === "string"
-                ? error.stdout
-                : "";
-            return output.includes("FOOM-LIBC-TOO-OLD")
-              ? ("libc-too-old" as const)
-              : output.includes("FOOM-LIBC-UNSUPPORTED")
-                ? ("libc-unsupported" as const)
-                : ("unreachable" as const);
+            const reason = error instanceof SshConnectionFailure ? error.failure : "unreachable";
+            observe("ssh", { state: "fail", reason });
+            observe("platform", { state: "not-checked" });
+            throw new SshConnectionFailure(reason);
           });
-    if (libc === "unreachable") {
+    const libc =
+      rawLibc === "FOOM-LIBC-TOO-OLD"
+        ? "libc-too-old"
+        : rawLibc === "FOOM-LIBC-UNSUPPORTED"
+          ? "libc-unsupported"
+          : undefined;
+    if (!libc && rawLibc !== (retain ? "FOOM-LIBC-OK" : "")) {
       observe("ssh", { state: "fail", reason: "unreachable" });
       observe("platform", { state: "not-checked" });
       throw new LaunchFailure("remote_host_unreachable");

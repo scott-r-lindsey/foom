@@ -22,6 +22,14 @@ export async function initializeWorkspace(
   wiring: ApplicationWiring,
   window: BrowserWindow,
 ): Promise<void> {
+  const hosts = hostsForStore(
+    wiring.settings,
+    wiring.worktrees.listRepositories.bind(wiring.worktrees),
+    app.getVersion(),
+    (dispose) => {
+      app.once("will-quit", dispose);
+    },
+  );
   // Terminal events and state updates only arrive after both objects exist.
   if (!wiring.initialized)
     wiring.terminals = attachTerminal(
@@ -47,6 +55,7 @@ export async function initializeWorkspace(
         onRemoved: (id) => {
           wiring.views.forgetSettings(id);
           wiring.workspace.removed(id);
+          void hosts.setupAgentExited(id, !wiring.quitting);
         },
       },
       (contents, id) => {
@@ -71,6 +80,10 @@ export async function initializeWorkspace(
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {
+    // A process can exit before its creation reply registers workspace ownership.
+    wiring.terminals.onExit((id) => {
+      void hosts.setupAgentExited(id, !wiring.quitting);
+    });
     wiring.audio.setWakeChanged(() => {
       wiring.terminals.recheckWake(true);
     });
@@ -178,14 +191,7 @@ export async function initializeWorkspace(
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
-      hosts: hostsForStore(
-        wiring.settings,
-        wiring.worktrees.listRepositories.bind(wiring.worktrees),
-        app.getVersion(),
-        (dispose) => {
-          app.once("will-quit", dispose);
-        },
-      ),
+      hosts,
       worktrees: wiring.worktrees,
       watcher: new InventoryWatch(
         (repository) => wiring.worktrees.watchPaths(repository),

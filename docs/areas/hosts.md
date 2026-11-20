@@ -799,8 +799,10 @@ drop superseded SSH results. An unsaved checklist retains its save warning until
 that revision or a newer one is committed. SSH row write failures without a
 key observation remain visible as row errors. Preload requires
 a revision on live checklist replies and accepts older saved profiles without
-one. Refresh facts preserves the checklist. A resource refresh failure
-appears under Host facts, including when the checklist shows the same reason.
+one. Host management, including repository row reloads, opens SSH connections
+with strict host-key checking and multiplexing disabled. Refresh facts preserves
+the checklist. A resource refresh
+failure appears under Host facts, including when the checklist shows the same reason.
 Refresh facts inspects resources before reading session and worktree
 inventories. If scoped facts require a daemon
 update, Foom shows that reason and still tries both inventory endpoints. Other
@@ -958,11 +960,15 @@ and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).
 
 ## Accepting a new SSH host key (#1059)
 
-Add and Check capabilities retain BatchMode=yes. The bounded platform probe uses
-StrictHostKeyChecking=yes and the C locale so OpenSSH reports an unknown key
-explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
+Add and Check capabilities retain BatchMode=yes. The bounded platform and
+standalone Linux libc probes use StrictHostKeyChecking=yes and the C locale
+so OpenSSH reports an unknown key explicitly. A separate management bootstrap
+also classifies client key refusals and updates the completed SSH row. It reads
+at most 16 KiB when classifying a refusal and discards the diagnostic file
+without reading it after a successful bootstrap.
+OpenSSH's local diagnostics go through `-E` into a private per-run
 0600 file beneath a 0700 temporary directory, removed on completion or failure.
-The open file's size is checked every 10 ms while SSH runs and again on exit,
+The platform and libc probes check the file's size every 10 ms and again on exit,
 including successful exits. Exceeding 16 KiB kills the detached SSH process group
 (Windows uses the fixed OS tree terminator) and permanently fails the probe;
 overflowed text can never enable trust. Polling can allow a burst between checks,
@@ -989,8 +995,11 @@ Changed-key and other SSH failures retain their current presentation, but likewi
 skip dependent repository checks because no connection was established.
 
 Only a registered host whose latest SSH observation is host-key-unknown can
-request trust-host-key. Main checks OpenSSH >= 8.4 and the bundled console helper
-using detached, bounded reads that share cancellation with the requesting run;
+request trust-host-key. The Settings affordance and main's eligibility check
+use the completed SSH row, including when a successful facts refresh or an
+older inventory reply reports a healthy connection.
+Main checks OpenSSH >= 8.4 and the bundled console helper using detached,
+bounded reads that share cancellation with the requesting run;
 Windows and unsupported clients show a copyable `ssh HOST` fallback. No other
 SSH call receives askpass variables or changes its environment allowlist.
 
@@ -1043,6 +1052,40 @@ host must be verified manually before merge because automated tests use fixtures
 
 [#1262](https://github.com/scott-r-lindsey/foom/issues/1262) removed the #1080 setup list and its approvals, checks and recipes.
 Host capability checks and repository checkout controls continue to operate independently.
+
+## Set up with an agent (#1263)
+
+Each registered SSH host card offers **Set up with an agent…** beside its
+status, including while collapsed. The action is secondary on a Ready host
+and primary otherwise. It is hidden while an agent is running or the SSH row
+shows an unknown or changed host key. The row and button use the same completed
+checklist snapshot, including saved results and completed SSH row reloads.
+Background inventory updates host facts independently of that snapshot.
+
+The dialog focuses the local Agent picker and preselects the configured default
+when it is enabled, installed and accepts an initial prompt. The user selects
+registered repositories. Checked repositories stay visible while filtering.
+Escape, Cancel and the backdrop dismiss the dialog. Enter in the filter keeps
+the dialog open. Recorded requirements are managed in Settings → Repositories.
+
+**Start agent** queues one fresh, strict SSH connection check for the
+registration, with connection reuse disabled. Main opens the local tile only
+if that check connects. Closing the requesting window cancels pending origin
+discovery and SSH checks. It releases the setup reservation until the agent
+reaches its spawn guard, including while agent discovery is pending.
+An SSH refusal updates the checklist's SSH row and the dialog shows **Unable to
+start setup agent**. The tile opens in the background and Settings stays open.
+The card shows **Setting up · AGENT** while the invocation runs.
+**Show agent** opens the tile on explicit request. Questions use the tile's
+ordinary **Needs you** state. Main permits one active setup invocation per registration
+across windows and performs a full capability check when that invocation exits,
+even if Settings has closed. The check uses the code folder after any earlier
+queued changes. Removing a host leaves its agent tile running, releases its
+setup slot and skips the exit recheck for that registration.
+
+The [host setup brief](agent-launch.md#local-host-setup-agent-1263) uses main-owned
+registration and origin data. Agent output and reports have no authority over
+saved facts or the exit recheck.
 
 ## Recorded repository requirements (#1264)
 

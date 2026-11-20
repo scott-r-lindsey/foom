@@ -2,8 +2,11 @@ import { RepositoryRequirementsCards } from "./repository-requirements";
 import { GithubSignInPanel } from "./github-sign-in";
 import { useHostsView, useViewState } from "../data/view-hooks";
 import { HostTerminal } from "./host-terminal";
+import { HostSetupDialog } from "./host-setup-dialog";
 import {
   hostDisplayName,
+  completedHostCheck,
+  hostKeyUntrusted,
   hostNicknameError,
   sameGitOriginEndpoint,
 } from "../../shared/registered-hosts";
@@ -23,6 +26,8 @@ import type {
 } from "../../shared/registered-hosts.d";
 import type { SetupSource } from "./setup-source.d";
 import type { Repository } from "../../shared/worktrees";
+import type { AgentInstallation } from "../../shared/agents";
+
 type RegisteredGitOrigin = NonNullable<HostsState["gitOrigins"]>[number];
 type RecipeView = {
   host: string;
@@ -785,11 +790,17 @@ function HostName({
 }
 export function HostsSettings({
   agents,
+  defaultAgent = null,
+  setupAgents,
+  repositories = [],
   openAgents,
   source,
   headingRef,
 }: {
   agents?: Readonly<Record<string, boolean>>;
+  defaultAgent?: string | null;
+  setupAgents?: readonly AgentInstallation[] | undefined;
+  repositories?: readonly Repository[];
   openAgents?: (host: string) => void;
   source: Pick<
     SetupSource,
@@ -808,6 +819,8 @@ export function HostsSettings({
     () => source.hosts?.({ action: "list" }) ?? Promise.resolve(EMPTY_HOSTS),
   );
   const [state, setState] = useViewState(hostsQuery, EMPTY_HOSTS);
+  const [setupHost, setSetupHost] = useState<string>();
+  const setupEntry = state.hosts.find((entry) => entry.host === setupHost);
   const [checks, setChecks] = useState<ReadonlyMap<string, HostPreflight>>(
     () => new Map<string, HostPreflight>(),
   );
@@ -1337,8 +1350,7 @@ export function HostsSettings({
                 : {})}
             />
           ) : undefined;
-        const latest =
-          entry.checklist?.preflight ?? checks.get(entry.host) ?? entry.observation?.preflight;
+        const latest = completedHostCheck(entry, entry.checklist, checks.get(entry.host));
         const sshRevision = latest?.sshRevision ?? 0;
         const preflight = buildPreflight(latest, state.remoteHostsAvailable);
         const hostProgress = progress?.find((item) => item.host === entry.host);
@@ -1350,6 +1362,7 @@ export function HostsSettings({
         );
         const ssh = preflight?.ssh ?? (source.views ? undefined : entry.result?.connection?.ssh);
         const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
+        const untrusted = hostKeyUntrusted(ssh);
         const controlsDisabled =
           resuming || busy.has(entry.host) || pendingFolderViews.has(entry.host);
         if (source.hostTerminal) {
@@ -1367,6 +1380,8 @@ export function HostsSettings({
           }
         }
         const summary = hostSummary(preflight);
+        const setupAgent = entry.setupAgent;
+
         const codexApprovals = preflight?.result.ok
           ? preflight.result.facts.agents.find((agent) => agent.id === "codex")?.codexApprovals
           : undefined;
@@ -1421,8 +1436,14 @@ export function HostsSettings({
                   Codex may prompt for approval
                 </span>
               )}
-              <span className={`host-count ${summary === "Needs you" ? "host-need" : ""}`}>
-                {busy.has(entry.host) ? (
+              <span
+                className={`host-count ${summary === "Needs you" && !setupAgent ? "host-need" : ""}`}
+              >
+                {setupAgent ? (
+                  <span className="host-setup-running" role="status">
+                    <Status tone="work">Setting up · {setupAgent.name}</Status>
+                  </span>
+                ) : busy.has(entry.host) ? (
                   <span className="host-check-progress host-work" role="status">
                     <span className="host-throbber" aria-hidden="true" />
                     {hostProgressText(progress?.find((item) => item.host === entry.host))}
@@ -1431,6 +1452,18 @@ export function HostsSettings({
                   summary
                 )}
               </span>
+              {!setupAgent && !untrusted && (
+                <button
+                  type="button"
+                  className={summary === "Ready" ? undefined : "primary"}
+                  disabled={controlsDisabled}
+                  onClick={() => {
+                    setSetupHost(entry.host);
+                  }}
+                >
+                  Set up with an agent…
+                </button>
+              )}
             </div>
             <div className="host-body" hidden={!open}>
               <fieldset className="host-controls" disabled={controlsDisabled}>
@@ -1453,6 +1486,22 @@ export function HostsSettings({
                       }
                     />
                   </code>
+                  {setupAgent && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void api?.({
+                          action: "show-setup-agent",
+                          host: entry.host,
+                          id: setupAgent.id,
+                        }).catch(() => {
+                          setError("Unable to show setup agent");
+                        });
+                      }}
+                    >
+                      Show agent
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="host-remove"
@@ -1710,6 +1759,28 @@ export function HostsSettings({
           </section>
         );
       })}
+      {api && setupEntry && (
+        <HostSetupDialog
+          host={hostDisplayName(setupEntry)}
+          agents={(setupAgents ?? []).filter(
+            (agent) => agent.path && agent.initialPrompt && agents?.[agent.id] === true,
+          )}
+          defaultAgent={defaultAgent}
+          repositories={repositories}
+          close={() => {
+            setSetupHost(undefined);
+          }}
+          start={async (agent, repositories) => {
+            const next = await api({
+              action: "setup-agent",
+              host: setupEntry.host,
+              agent,
+              repositories,
+            });
+            setState(next);
+          }}
+        />
+      )}
     </div>
   );
 }

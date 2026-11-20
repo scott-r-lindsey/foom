@@ -464,6 +464,11 @@ export async function buildWindow(
     },
     githubSignIn: (id, action) => githubSignIn.action(id, action),
     launchHostRecipe: launchRecipe,
+    launchHostSetupAgent: (id, agent, prompt, validate) =>
+      wiring.workspace.startHostSetupAgent(id, agent, prompt, validate),
+    placeHostSetupAgent: (id, background) => {
+      if (!window.isDestroyed()) window.webContents.send("app-menu:session", id, background);
+    },
     copyText: (text) => clipboard.writeText(text),
     confirmHostKey: (content, signal) =>
       confirmations.requestOutcome(content, signal, { activate: true }),

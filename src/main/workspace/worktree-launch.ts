@@ -421,16 +421,17 @@ export async function startMachine(
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
   confirm?: ConfirmWorkspace,
-  validateLaunch?: () => void,
+  validateLaunch?: (dispatch?: true) => void,
   signal?: AbortSignal,
   heldReservation?: string,
   parentHold?: CheckoutHold,
+  setup?: { id: string; prompt: string },
 ): Promise<string | undefined> {
   let reservation: string | undefined;
   let hold: CheckoutHold | undefined;
   const perform = async (): Promise<string | undefined> => {
-    const ensureOpen = () => {
-      validateLaunch?.();
+    const ensureOpen = (dispatch?: true) => {
+      validateLaunch?.(dispatch);
       if (this.closed) throw new Error("Workspace is closed");
       if (run !== "shell" && this.enabled[run] !== true) throw new LaunchFailure("agent_disabled");
     };
@@ -594,14 +595,23 @@ export async function startMachine(
           repository: homeDirectory,
           worktree: homeDirectory,
           humanHome: true,
-          ...(validateLaunch ? { beforeSpawn: validateLaunch } : {}),
+          ...(setup
+            ? {
+                beforeSpawn: () => {
+                  ensureOpen(true);
+                },
+                prompt: setup.prompt,
+              }
+            : validateLaunch
+              ? { beforeSpawn: validateLaunch }
+              : {}),
           localOnly: true,
           sharedCheckout: true,
           cols: 80,
           rows: 24,
           defaultArguments: args,
           ...(conversation ? { conversationId: conversation } : {}),
-          ...(restoreId ? { terminalId: restoreId } : {}),
+          ...(setup ? { terminalId: setup.id } : restoreId ? { terminalId: restoreId } : {}),
           ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
         });
       }

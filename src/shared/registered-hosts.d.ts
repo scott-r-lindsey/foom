@@ -182,6 +182,7 @@ export type HostKeyTrustFailure =
   | "trust-unavailable";
 
 export interface HostRow extends RegisteredHost {
+  setupAgent?: { id: string; name: string };
   checklist?: LiveHostChecklist;
   hostKeyTrustFailure?: HostKeyTrustFailure;
   /** Failure from the latest explicit facts refresh. */
@@ -232,6 +233,8 @@ export interface HostsState {
   result?: HostResult | undefined;
 }
 export type HostsAction =
+  | { action: "setup-agent"; host: string; agent: string; repositories: readonly string[] }
+  | { action: "show-setup-agent"; host: string; id: string }
   | { action: "trust-host-key"; host: string }
   | { action: "cancel-trust" }
   | { action: "reload"; host: string; target: HostCheckTarget }
