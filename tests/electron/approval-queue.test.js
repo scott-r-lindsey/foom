@@ -287,6 +287,19 @@ async function captureRemovalQueue(app, dialog, native) {
   await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
 }
 
+function assertRetainedFootprint(before, after, message) {
+  assert.ok(before && after, message);
+  const { y: beforeY, ...beforeBounds } = before;
+  const { y: afterY, ...afterBounds } = after;
+  assert.deepEqual(afterBounds, beforeBounds, message);
+  // Applying the measured row height as CSS can round to a different layout
+  // subpixel at fractional zoom. A whole-pixel shift must still fail.
+  assert.ok(
+    Math.abs(afterY - beforeY) <= 1 / 16,
+    `${message}. Vertical position changed from ${beforeY} to ${afterY} CSS px`,
+  );
+}
+
 test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals and synthetic decisions grant nothing", {
   timeout: deadline(60000),
 }, async (context) => {
@@ -307,9 +320,9 @@ test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals 
     await dialog.mouse.move(x, y);
     await abort("one");
     await expect(dialog.locator(".approval-placeholder")).toContainText("Request ended");
-    assert.deepEqual(
-      await approve("two").boundingBox(),
+    assertRetainedFootprint(
       second,
+      await approve("two").boundingBox(),
       "Withdrawal retains its inert footprint",
     );
     await dialog.mouse.click(x, y);
@@ -337,7 +350,11 @@ test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals 
     const expiryBox = await approve("after-expiry").boundingBox();
     await expect.poll(() => result("expires")).toBe(false);
     await expect(dialog.locator(".approval-placeholder")).toHaveCount(1);
-    assert.deepEqual(await approve("after-expiry").boundingBox(), expiryBox);
+    assertRetainedFootprint(
+      expiryBox,
+      await approve("after-expiry").boundingBox(),
+      "Expiry retains its inert footprint",
+    );
     await expect(dialog.locator(".approval-placeholder")).toHaveCount(0);
     await expect(approve("after-expiry")).toBeDisabled();
     await expect(approve("after-expiry")).toBeEnabled();
