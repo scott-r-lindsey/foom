@@ -75,7 +75,7 @@ function CopyPath({ value, pathId }: { value: string; pathId: string }) {
   );
 }
 function parseChanges(value: string) {
-  const records = value.split("\0").filter(Boolean);
+  const records = value.split("\0");
   const items = [];
   for (let index = 0; index < records.length; index++) {
     const record = records[index];
@@ -102,7 +102,7 @@ function parseChanges(value: string) {
       index,
       path: record.slice(3),
       label,
-      old: renamed ? records[++index] : undefined,
+      old: renamed ? records[++index] || undefined : undefined,
     });
   }
   return items;

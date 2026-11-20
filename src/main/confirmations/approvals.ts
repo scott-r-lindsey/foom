@@ -9,14 +9,14 @@ import type { InterfaceTheme } from "../../shared/interface-theme";
 
 /** Keep a prefix of whole display records, including both paths of renames and copies. */
 function removalDisplay(changes: string) {
-  const fields = changes.split("\0").filter(Boolean);
+  const fields = changes.split("\0");
   let display = "";
   let omittedChanges = 0;
   for (let index = 0; index < fields.length; index++) {
     const record = fields[index];
     if (!record) continue;
     const source = /[RC]/u.test(record.slice(0, 2)) ? fields[++index] : undefined;
-    const line = source ? `${record}\0${source}\0` : `${record}\0`;
+    const line = source === undefined ? `${record}\0` : `${record}\0${source}\0`;
     if (omittedChanges || display.length + line.length > 4096) omittedChanges++;
     else display += line;
   }

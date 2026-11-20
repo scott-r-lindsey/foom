@@ -262,7 +262,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
               id: "untracked",
               branch: "screenshots",
               state: "queued",
-              changes: "?? proof.png\0!! .env\0",
+              changes: "R  renamed.txt\0\0?? proof.png\0!! .env\0",
               omittedChanges: 7,
             },
           ],
@@ -270,9 +270,12 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
       },
     });
   });
-  expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain(
-    "proof.png",
-  );
+  const changes = within(view.getByRole("list", { name: "Uncommitted changes" }));
+  expect(changes.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    "renamedrenamed.txt",
+    "untrackedproof.png",
+    "ignored.env",
+  ]);
   expect(view.getByText("ignored", { exact: true })).toBeTruthy();
   expect(view.getByText(".env", { exact: true })).toBeTruthy();
   expect(view.getByText("7 more paths", { exact: true })).toBeTruthy();

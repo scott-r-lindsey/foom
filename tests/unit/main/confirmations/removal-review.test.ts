@@ -137,7 +137,7 @@ test("copy targets are only pending worktree and displayed change paths, includi
     title: "Remove",
     accept: "Remove",
     worktreePath: "/tree",
-    changes: "R  new.txt\0old.txt\0?? extra\0",
+    changes: "R  new.txt\0old.txt\0R  another.txt\0\0?? extra\0",
     removals: [{ id: "one", branch: "feature", path: "/one", changes: "?? file\0" }],
     cleanup: {
       stage: "ready",
@@ -156,7 +156,8 @@ test("copy targets are only pending worktree and displayed change paths, includi
     ["worktree", "/tree"],
     ["change:0", "new.txt"],
     ["change:1", "old.txt"],
-    ["change:2", "extra"],
+    ["change:2", "another.txt"],
+    ["change:4", "extra"],
     ["removal:one", "/one"],
     ["removal-change:one:0", "file"],
     ["cleanup-change:two:0", "ignored"],

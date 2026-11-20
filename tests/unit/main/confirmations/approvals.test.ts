@@ -151,6 +151,19 @@ test("removal display preserves whole records and counts omissions without chang
   queue.feed.answer(ids[1] ?? "", false);
   await expect(Promise.all(requests)).resolves.toEqual([false, false, true]);
 });
+test("removal display preserves empty rename sources and counts following records", async () => {
+  const { queue, content } = setup();
+  const visible = "R  renamed.txt\0\0?? next.txt\0";
+  const omitted = `C  ${"x".repeat(4096)}\0\0?? last.txt\0`;
+  const abort = new AbortController();
+  const request = queue.request(content("dirty", visible + omitted), abort.signal);
+  expect(queue.feed.current()[0]?.request).toMatchObject({
+    changes: visible,
+    omittedChanges: 2,
+  });
+  abort.abort();
+  await expect(request).resolves.toBe(false);
+});
 test("duplicates share one row, each withdrawal releases only its caller, expiry removes requests", async () => {
   const { queue, content } = setup();
   const cancel = new AbortController();
