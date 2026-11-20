@@ -1,3 +1,4 @@
+import { existsSync, writeFileSync } from "node:fs";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import { ApplicationError } from "../../../../src/shared/application-errors";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
@@ -15,6 +16,7 @@ import {
   remoteResponseFrames,
   RemoteFrames,
 } from "../../../../src/shared/remote-host-protocol";
+import type { HostConnectionChecks, HostCheck } from "../../../../src/shared/registered-hosts.d";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
@@ -1955,6 +1957,73 @@ test.each(
     expect(transport.launchFailure).toBeUndefined();
   }
 });
+
+const changedKeyDiagnostic =
+  "@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\nHost key verification failed.\n";
+
+test.each([
+  { diagnostic: changedKeyDiagnostic, exit: 255, expected: "host-key-changed" },
+  {
+    diagnostic:
+      "No ED25519 host key is known for fixture and you have requested strict checking.\nHost key verification failed.\n",
+    exit: 255,
+    expected: "host-key-unknown",
+  },
+  { diagnostic: "", exit: 255, expected: "unreachable" },
+  { diagnostic: changedKeyDiagnostic, exit: 1, expected: "unreachable" },
+  { diagnostic: "x".repeat(16385) + changedKeyDiagnostic, exit: 255, expected: "unreachable" },
+])(
+  "a separate management bootstrap classifies only bounded client diagnostics ($expected, exit $exit)",
+  async ({ diagnostic, exit, expected }) => {
+    transport.kill();
+    mock.artifact.mockImplementationOnce(
+      (
+        _target,
+        _version,
+        _catalog,
+        _metadata,
+        _signal,
+        observe: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
+      ) => {
+        for (const stage of ["ssh", "platform", "artifact"] as const)
+          observe(stage, { state: "pass" });
+        return Promise.resolve({
+          bytes: Buffer.from("artifact"),
+          upload: Buffer.from("artifact"),
+          platform: "linux",
+          arch: "x64",
+          version: "0.1.0",
+          sha256: "a".repeat(64),
+        });
+      },
+    );
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+      type: "manage",
+      operation: "inspect",
+      readOnly: true,
+      partial: true,
+      codeFolder: "~/code",
+      target: { kind: "ssh" },
+    });
+    await Promise.resolve();
+    const argv: unknown = mock.spawn.mock.calls.at(-1)?.[1];
+    if (!Array.isArray(argv)) throw new Error("Missing SSH arguments");
+    const log: unknown = argv[argv.indexOf("-E") + 1];
+    if (!argv.includes("-E") || typeof log !== "string") throw new Error("Missing private SSH log");
+    writeFileSync(log, diagnostic);
+    child.stderr.write(changedKeyDiagnostic);
+    child.emit("exit", exit);
+    child.emit("close", exit);
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      reason: expected,
+      connection: {
+        ssh: expected === "unreachable" ? { state: "pass" } : { state: "fail", reason: expected },
+      },
+    });
+    expect(existsSync(log)).toBe(false);
+  },
+);
 
 test("explicit management output observes upload steps and stderr without exposing protocol frames", async () => {
   transport.kill();

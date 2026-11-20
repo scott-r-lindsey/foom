@@ -421,7 +421,7 @@ export async function startMachine(
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
   confirm?: ConfirmWorkspace,
-  validateLaunch?: () => void,
+  validateLaunch?: (dispatch?: true) => void,
   signal?: AbortSignal,
   heldReservation?: string,
   parentHold?: CheckoutHold,
@@ -430,8 +430,8 @@ export async function startMachine(
   let reservation: string | undefined;
   let hold: CheckoutHold | undefined;
   const perform = async (): Promise<string | undefined> => {
-    const ensureOpen = () => {
-      validateLaunch?.();
+    const ensureOpen = (dispatch?: true) => {
+      validateLaunch?.(dispatch);
       if (this.closed) throw new Error("Workspace is closed");
       if (run !== "shell" && this.enabled[run] !== true) throw new LaunchFailure("agent_disabled");
     };
@@ -596,7 +596,12 @@ export async function startMachine(
           worktree: homeDirectory,
           humanHome: true,
           ...(setup
-            ? { beforeSpawn: ensureOpen, prompt: setup.prompt }
+            ? {
+                beforeSpawn: () => {
+                  ensureOpen(true);
+                },
+                prompt: setup.prompt,
+              }
             : validateLaunch
               ? { beforeSpawn: validateLaunch }
               : {}),

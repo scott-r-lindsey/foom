@@ -60,9 +60,10 @@ export class Workspace {
     id: string,
     agent: string,
     prompt: string,
-    validate: () => void,
+    validate: (dispatch?: true) => void,
   ): Promise<void> {
     const { agents } = await this.owner.scanAgents(false);
+    validate();
     if (!agents.some((entry) => entry.id === agent && entry.path && entry.initialPrompt))
       throw new Error("Agent cannot receive a setup brief");
     await this.owner.startMachine(

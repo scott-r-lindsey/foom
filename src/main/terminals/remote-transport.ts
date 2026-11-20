@@ -1,3 +1,7 @@
+import { closeSync, fstatSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sshFailure } from "../../node-common/ssh-askpass";
 import { createHash, randomBytes } from "node:crypto";
 import { IMAGE_TIMEOUT_MS } from "../../shared/image-paste";
 import type { ImagePut, ImagePutResult } from "../../shared/image-paste.d";
@@ -41,6 +45,38 @@ import {
   sshEnvironment,
 } from "./remote-bootstrap";
 
+const SSH_LOG_LIMIT = 16 * 1024;
+
+/** OpenSSH's local diagnostics must never be inferred from remote stderr. */
+function bootstrapSshLog() {
+  const directory = mkdtempSync(join(tmpdir(), "foom-ssh-bootstrap-"));
+  const path = join(directory, "ssh.log");
+  try {
+    const fd = openSync(path, "wx+", 0o600);
+    return {
+      path,
+      withinLimit: () => fstatSync(fd).size <= SSH_LOG_LIMIT,
+      failure(): ReturnType<typeof sshFailure> {
+        const size = fstatSync(fd).size;
+        if (size > SSH_LOG_LIMIT) return "unreachable";
+        const bytes = Buffer.alloc(size);
+        const count = readSync(fd, bytes, 0, size, 0);
+        return sshFailure(bytes.subarray(0, count).toString("utf8"));
+      },
+      dispose() {
+        try {
+          closeSync(fd);
+        } finally {
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    };
+  } catch {
+    rmSync(directory, { recursive: true, force: true });
+    throw new SshConnectionFailure("unreachable");
+  }
+}
+
 type Connection = {
   child: ChildProcess;
   dead: boolean;
@@ -49,6 +85,7 @@ type Connection = {
   deadline: ReturnType<typeof setTimeout> | undefined;
   grace: ReturnType<typeof setTimeout> | undefined;
   sentThemeKey: string | undefined;
+  disposeDiagnostic?: () => void;
 };
 
 const imageHosts = new Set<string>();
@@ -278,6 +315,7 @@ export class RemoteTransport extends EventEmitter {
     // Detach synchronously, before signalling or notifying callers. Neither a
     // buffered response nor a reentrant/late process event can revive this stream.
     connection.dead = true;
+    connection.disposeDiagnostic?.();
     this.imageOwner = undefined;
     this.imageAbort?.abort();
     clearTimeout(connection.deadline);
@@ -342,8 +380,20 @@ export class RemoteTransport extends EventEmitter {
     );
     const retained = this.probeChild;
     this.probeChild = undefined;
-    const child =
-      retained ?? spawn("ssh", args, { env, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+    const diagnostic = this.freshConnection && !retained ? bootstrapSshLog() : undefined;
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child =
+        retained ??
+        spawn("ssh", diagnostic ? ["-E", diagnostic.path, "-o", "LogLevel=ERROR", ...args] : args, {
+          env: diagnostic ? { ...env, LC_ALL: "C" } : env,
+          shell: false,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+    } catch (error) {
+      diagnostic?.dispose();
+      throw error;
+    }
     const connection: Connection = {
       child,
       dead: false,
@@ -353,6 +403,24 @@ export class RemoteTransport extends EventEmitter {
       grace: undefined,
       sentThemeKey: undefined,
     };
+    if (diagnostic) {
+      const monitor = setInterval(() => {
+        try {
+          if (diagnostic.withinLimit()) return;
+        } catch {
+          // A failed diagnostic read also retires the connection.
+        }
+        this.retireConnection(connection, "failure");
+      }, 10);
+      connection.disposeDiagnostic = () => {
+        clearInterval(monitor);
+        try {
+          diagnostic.dispose();
+        } catch {
+          console.warn("Unable to remove SSH bootstrap diagnostics");
+        }
+      };
+    }
     this.connection = connection;
     let header = Buffer.alloc(0);
     let bootstrapped = false;
@@ -792,15 +860,34 @@ export class RemoteTransport extends EventEmitter {
     child.once("error", () => {
       this.retireConnection(connection, "failure");
     });
-    child.once("exit", () => {
+    const finish = (code: number | null, event: "exit" | "close") => {
       connection.exited = true;
-      this.retireConnection(connection, "exit");
+      if (event === "close") {
+        connection.closed = true;
+        clearTimeout(connection.grace);
+      }
+      if (!connection.dead && !bootstrapped && code === 255 && diagnostic) {
+        try {
+          const reason = diagnostic.failure();
+          if (reason !== "unreachable") {
+            this.managementFailure = reason;
+            if (this.connectionChecks) {
+              this.connectionChecks.ssh = { state: "fail", reason };
+              this.connectionChecks.platform = { state: "not-checked" };
+              this.connectionChecks.artifact = { state: "not-checked" };
+            }
+          }
+        } catch {
+          // Keep the fixed transport failure when diagnostics are unavailable.
+        }
+      }
+      this.retireConnection(connection, event);
+    };
+    child.once("exit", (code) => {
+      finish(code, "exit");
     });
-    child.once("close", () => {
-      connection.exited = true;
-      connection.closed = true;
-      clearTimeout(connection.grace);
-      this.retireConnection(connection, "close");
+    child.once("close", (code) => {
+      finish(code, "close");
     });
     if (retained) {
       const script = args.slice(args.indexOf("--") + 2).join(" ");

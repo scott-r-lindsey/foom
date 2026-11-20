@@ -203,7 +203,12 @@ export class Hosts {
 
   async startSetupAgent(
     input: Extract<HostsAction, { action: "setup-agent" }>,
-    launch: (id: string, agent: string, prompt: string, validate: () => void) => Promise<void>,
+    launch: (
+      id: string,
+      agent: string,
+      prompt: string,
+      validate: (dispatch?: true) => void,
+    ) => Promise<void>,
     windowSignal?: AbortSignal,
   ): Promise<string> {
     const signal = windowSignal
@@ -236,7 +241,7 @@ export class Hosts {
       this.hostPending.get(host) ?? Promise.resolve(),
     ]).then(async () => {
       const registration = this.registered(host);
-      const validate = () => {
+      const validate = (dispatch?: true) => {
         this.registered(host, registration.codeFolder);
         if (
           this.setupAgents.get(host) !== run ||
@@ -246,6 +251,7 @@ export class Hosts {
           repositories.some((path) => !this.repositories().some((repo) => repo.path === path))
         )
           throw new Error("Setup agent unavailable");
+        if (dispatch) stopWatching();
       };
       validate();
       let prompt = [
@@ -292,10 +298,8 @@ export class Hosts {
         }
         throw new Error("Setup agent unavailable");
       }
-      // The spawn callback still validates the signal. Keep the slot once launch
-      // begins so an abort cannot release a tile that has already spawned.
-      stopWatching();
-      await launch(run.id, agent, prompt, validate);
+      // Agent discovery may outlive the window. Only the spawn guard claims the slot.
+      await Promise.race([launch(run.id, agent, prompt, validate), cancelled]);
       run.started = true;
       viewChanges.publish("hosts");
       return run.id;

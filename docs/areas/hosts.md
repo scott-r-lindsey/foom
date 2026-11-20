@@ -948,7 +948,9 @@ and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).
 
 Add and Check capabilities retain BatchMode=yes. The bounded platform and
 standalone Linux libc probes use StrictHostKeyChecking=yes and the C locale
-so OpenSSH reports an unknown key explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
+so OpenSSH reports an unknown key explicitly. A separate management bootstrap
+also classifies client key refusals and updates the completed SSH row.
+OpenSSH's local diagnostics go through `-E` into a private per-run
 0600 file beneath a 0700 temporary directory, removed on completion or failure.
 The open file's size is checked every 10 ms while SSH runs and again on exit,
 including successful exits. Exceeding 16 KiB kills the detached SSH process group
@@ -1054,7 +1056,8 @@ and badges arrive with #1264.
 **Start agent** queues one fresh, strict SSH connection check for the
 registration, with connection reuse disabled. Main opens the local tile only
 if that check connects. Closing the requesting window cancels pending origin
-discovery and SSH checks and releases the setup reservation before dispatch.
+discovery and SSH checks. It releases the setup reservation until the agent
+reaches its spawn guard, including while agent discovery is pending.
 An SSH refusal updates the checklist's SSH row and the dialog shows **Unable to
 start setup agent**. The tile opens in the background and Settings stays open.
 The card shows **Setting up · AGENT** while the invocation runs.

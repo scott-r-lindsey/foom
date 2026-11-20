@@ -380,6 +380,45 @@ test("setup cancellation during Git origin discovery stops the remaining lookups
   ]);
 });
 
+test("closing the setup window releases the reservation while scanAgents is still pending", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const window = new AbortController();
+  const scanning = Promise.withResolvers<undefined>();
+  const scanAgents = Promise.withResolvers<undefined>();
+  const finished = Promise.withResolvers<undefined>();
+  const dispatch = vi.fn();
+  const first: Parameters<Hosts["startSetupAgent"]>[1] = async (id, _agent, _prompt, validate) => {
+    scanning.resolve(undefined);
+    await scanAgents.promise;
+    try {
+      validate();
+      dispatch(id);
+    } finally {
+      finished.resolve(undefined);
+    }
+  };
+  const input = {
+    action: "setup-agent",
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  } as const;
+  const starting = hosts.startSetupAgent(input, first, window.signal);
+  await scanning.promise;
+  window.abort();
+  await expect(starting).rejects.toThrow("Setup agent unavailable");
+
+  const replacement = await hosts.startSetupAgent(input, (id, _agent, _prompt, validate) => {
+    validate(true);
+    dispatch(id);
+    return Promise.resolve();
+  });
+  scanAgents.resolve(undefined);
+  await finished.promise;
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith(replacement);
+  expect(hosts.setupAgentId("worker")).toBe(replacement);
+});
+
 test("a replacement registration can start setup before the removed host's tile exits", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   const input = {

@@ -144,7 +144,7 @@ test("host setup starts a local machine agent with a main-owned, spawn-validated
     }),
   );
   expect(agents.launch.mock.calls[0]?.[0].control).toBeUndefined();
-  expect(validate).toHaveBeenCalled();
+  expect(validate).toHaveBeenCalledWith(true);
   expect(workspace.snapshot().terminals[0]?.placement).toEqual({ kind: "local" });
 });
 
