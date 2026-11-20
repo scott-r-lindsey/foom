@@ -104,7 +104,10 @@ test("repository/worktree and session stores publish their dependent views at co
     commit,
   );
   expect(commit).toHaveBeenCalledOnce();
-  expect(changed).toHaveBeenCalledWith(new Set(["repositories", "worktrees"]), expect.any(Number));
+  expect(changed).toHaveBeenCalledWith(
+    new Set(["repositories", "worktrees", "hosts"]),
+    expect.any(Number),
+  );
   await new SessionStore(directory).save([]);
   expect(changed).toHaveBeenLastCalledWith(new Set(["sessions"]), expect.any(Number));
 });

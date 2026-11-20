@@ -56,7 +56,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `setup:readiness` | renderer → main (invoke) | no arguments → fixed Git/forge readiness and platform enums plus selected repository DNS hostnames; no CLI output or paths |
 | `setup:github-sign-in` | renderer → main (invoke) | requesting window’s gh recipe ID and `read` / `copy` / `open` / `cancel`; main derives a strict device code and opens only the fixed GitHub device URL; returns validated ephemeral state, never clipboard reads |
 | `setup:repository-requirements` | renderer → main (invoke) | `window.desktop.repositoryRequirements` sends one closed read, edit or clear request for a registered repository. Edit and clear carry the visible note revision. Preload validates the bounded note or null reply. |
-| `setup:hosts` | renderer → main (invoke) | one closed host action; main owns registration, approved folders, origin and destination selection; fixed typed host/repository states only; see [Hosts](hosts.md) |
+| `setup:hosts` | renderer → main (invoke) | one closed host action. Main owns registration, approved folders, origin and destination selection. Replies carry typed host/repository states and display-only origin endpoints with host, protocol and port. See [Hosts](hosts.md) |
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
 | `setup:save` | renderer → main (invoke) | settings patch (known fields only), optional offered custom interface palette digest → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |

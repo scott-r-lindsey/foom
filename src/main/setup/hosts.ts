@@ -20,6 +20,8 @@ import { devNull } from "node:os";
 import {
   hostsAction,
   gitOrigin,
+  gitOriginEndpoint,
+  sameGitOriginEndpoint,
   hostResult,
   hostRequirements,
   hostNicknameError,
@@ -27,6 +29,7 @@ import {
 } from "../../shared/registered-hosts";
 import type {
   HostCheckTarget,
+  GitOriginEndpoint,
   HostKeyTrustFailure,
   RegisteredHost,
   HostFailure,
@@ -783,21 +786,46 @@ export class Hosts {
       .find((model) => model.id === tool);
     return selectHostRecipe({ tool, action, distro: system.distro }, system, model?.hostSetup);
   }
+  private gitOrigins: NonNullable<HostsState["gitOrigins"]> = [];
+  private readingGitOrigins: Promise<void> | undefined;
+  private refreshGitOrigins(): Promise<void> {
+    return (this.readingGitOrigins ??= this.readGitOrigins().finally(() => {
+      this.readingGitOrigins = undefined;
+    }));
+  }
+  private async readGitOrigins(): Promise<void> {
+    const origins: NonNullable<HostsState["gitOrigins"]>[number][] = [];
+    for (const { path: repository } of this.repositories()) {
+      try {
+        const origin = await this.readOrigin(repository);
+        const endpoint = gitOriginEndpoint(origin);
+        if (endpoint) origins.push({ repository, ...endpoint });
+      } catch {
+        // Missing or unsupported origins have no display endpoint.
+      }
+    }
+    this.gitOrigins = origins;
+  }
   /** Prime local display capabilities without retrying rows or connecting to a host. */
   async prepareView(): Promise<void> {
     const support = this.remoteHostsAvailable;
     const trust = this.hostKeyTrust;
     if (trust === undefined) await this.trustState(this.state());
     else if (this.buildSupport) this.remoteHostsAvailable = await this.buildSupport();
+    await this.refreshGitOrigins();
     if (support !== this.remoteHostsAvailable || trust !== this.hostKeyTrust)
       viewChanges.publish("hosts", "agents");
   }
   state(result?: HostResult, savedOnly = false, liveInventories = !savedOnly): HostsState {
+    const registeredHosts = this.store.get().registeredHosts ?? [];
+    const repositoryPaths = new Set(this.repositories().map(({ path }) => path));
+    const gitOrigins = this.gitOrigins.filter(({ repository }) => repositoryPaths.has(repository));
     return {
+      ...(registeredHosts.length && gitOrigins.length ? { gitOrigins } : {}),
       ...(this.remoteHostsAvailable === undefined
         ? {}
         : { remoteHostsAvailable: this.remoteHostsAvailable }),
-      hosts: (this.store.get().registeredHosts ?? []).map((host) => {
+      hosts: registeredHosts.map((host) => {
         const checklist = this.checklists.get(host.host);
         const rowFailures = (this.pendingRows.get(host.host) ?? []).flatMap((row) => {
           if (!this.currentRow(host.host, row) || !row.reason) return [];
@@ -1025,28 +1053,51 @@ export class Hosts {
     this.sshRevision = Math.max(this.sshRevision, previous?.sshRevision ?? 0) + 1;
     return this.sshRevision;
   }
+  private async probeOrigin(
+    host: string,
+    codeFolder: string,
+    repository: string,
+    connection?: RemoteCheckConnection,
+  ): Promise<{ result: HostResult; originEndpoint?: GitOriginEndpoint }> {
+    let originEndpoint: GitOriginEndpoint | undefined;
+    try {
+      const origin = await this.origin(repository);
+      originEndpoint = gitOriginEndpoint(origin);
+      const result = await this.run(
+        host,
+        {
+          type: "manage",
+          operation: "origin",
+          codeFolder,
+          origin,
+          directory: `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`,
+        },
+        { connection },
+      );
+      return { result, ...(originEndpoint ? { originEndpoint } : {}) };
+    } catch {
+      return {
+        result: { ok: false, reason: "origin-unavailable" },
+        ...(originEndpoint ? { originEndpoint } : {}),
+      };
+    }
+  }
   private async reloadRow(
     host: string,
     target: HostCheckTarget,
   ): Promise<HostPreflight | undefined> {
     const registration = this.registeredRow(host, target);
     let result: HostResult;
+    let originEndpoint: GitOriginEndpoint | undefined;
     if ("repository" in target) {
       if (target.kind === "checkout") {
         result = await this.repository(host, registration.codeFolder, target.repository, false);
       } else {
-        try {
-          const origin = await this.origin(target.repository);
-          result = await this.run(host, {
-            type: "manage",
-            operation: "origin",
-            codeFolder: registration.codeFolder,
-            origin,
-            directory: `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`,
-          });
-        } catch {
-          result = { ok: false, reason: "origin-unavailable" };
-        }
+        ({ result, originEndpoint } = await this.probeOrigin(
+          host,
+          registration.codeFolder,
+          target.repository,
+        ));
       }
     } else {
       result = await this.run(host, {
@@ -1134,10 +1185,14 @@ export class Hosts {
           ...previous,
           repositories: previous.repositories.map((repo) =>
             repo.repository === target.repository
-              ? {
-                  ...repo,
-                  ...(target.kind === "origin" ? { origin: check } : { checkout: result }),
-                }
+              ? target.kind === "origin"
+                ? {
+                    repository: repo.repository,
+                    checkout: repo.checkout,
+                    origin: check,
+                    ...(originEndpoint ? { originEndpoint } : {}),
+                  }
+                : { ...repo, checkout: result }
               : repo,
           ),
         };
@@ -1329,7 +1384,9 @@ export class Hosts {
     }
     if (input.action === "progress") return Promise.resolve(this.state());
     if (input.action === "list" && !this.pendingRows.size && !this.pendingRecipeRefreshes)
-      return this.trustState(this.state(undefined, true), trustSignal);
+      return this.refreshGitOrigins().then(() =>
+        this.trustState(this.state(undefined, true), trustSignal),
+      );
     if (input.action === "rename")
       return this.updateRegistrations((hosts) => {
         this.registered(input.host);
@@ -1366,6 +1423,7 @@ export class Hosts {
       .then(async () => {
         if (isCheck) release = await this.enterCheck();
         if (input.action === "list") {
+          await this.refreshGitOrigins();
           for (const [host, rows] of [...this.pendingRows]) {
             const retained: PendingHostRow[] = [];
             if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
@@ -1427,7 +1485,12 @@ export class Hosts {
             throw new Error("Repository is not registered");
           const origin = await this.origin(input.repository);
           this.registered(input.host, registration.codeFolder);
-          if (!originSshArgs(origin) || !launchRecipe || !this.profile)
+          if (
+            !sameGitOriginEndpoint(gitOriginEndpoint(origin), input.endpoint) ||
+            !originSshArgs(origin) ||
+            !launchRecipe ||
+            !this.profile
+          )
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
           const targets: HostCheckTarget[] = [
             { kind: "origin", repository: input.repository },
@@ -2062,7 +2125,11 @@ export class Hosts {
               })),
       };
     const planned = this.progress.get(host)?.repositories ?? [];
-    const update = (phase: "origin" | "checkout", repository: string, origin?: HostCheck) => {
+    const update = (
+      phase: "origin" | "checkout",
+      repository: string,
+      check?: Pick<HostPreflight["repositories"][number], "origin" | "originEndpoint">,
+    ) => {
       this.progress.set(host, {
         host,
         phase,
@@ -2070,50 +2137,22 @@ export class Hosts {
         result: { ...result, connection },
         repositories: planned.map((repo) => {
           const completed = repositories.find((item) => item.repository === repo.repository);
-          return (
-            completed ?? (repo.repository === repository && origin ? { ...repo, origin } : repo)
-          );
+          return completed ?? (repo.repository === repository ? { ...repo, ...check } : repo);
         }),
       });
     };
+    const git = result.facts.tools?.find((tool) => tool.id === "git");
     for (const repo of planned) {
       update("origin", repo.repository);
-      let origin: HostCheck;
-      const git = result.facts.tools?.find((tool) => tool.id === "git");
-      try {
-        if (git && git.state !== "ready") {
-          update("checkout", repo.repository, unknown);
-          repositories.push({
-            repository: repo.repository,
-            origin: unknown,
-            checkout: await this.repository(
-              host,
-              result.facts.codeFolder,
-              repo.repository,
-              false,
-              undefined,
-              channel,
-            ),
-          });
-          continue;
-        }
-        const url = await this.origin(repo.repository);
-        const access = await this.run(
-          host,
-          {
-            type: "manage",
-            operation: "origin",
-            codeFolder,
-            origin: url,
-            directory: `repository-${createHash("sha256").update(url).digest("hex").slice(0, 24)}`,
-          },
-          { connection: channel },
-        );
-        origin = access.ok ? pass : fail(access.reason);
-      } catch {
-        origin = fail("origin-unavailable");
-      }
-      update("checkout", repo.repository, origin);
+      const access =
+        git && git.state !== "ready"
+          ? undefined
+          : await this.probeOrigin(host, codeFolder, repo.repository, channel);
+      const check = {
+        origin: access ? (access.result.ok ? pass : fail(access.result.reason)) : unknown,
+        ...(access?.originEndpoint ? { originEndpoint: access.originEndpoint } : {}),
+      };
+      update("checkout", repo.repository, check);
       const checkout = await this.repository(
         host,
         result.facts.codeFolder,
@@ -2122,11 +2161,16 @@ export class Hosts {
         undefined,
         channel,
       );
-      repositories.push({ repository: repo.repository, origin, checkout });
+      repositories.push({ repository: repo.repository, ...check, checkout });
     }
     return { ...observation, repositories };
   }
   private async origin(repository: string): Promise<string> {
+    const origin = await this.readOrigin(repository);
+    this.repositoryOrigins.set(repository, origin);
+    return origin;
+  }
+  private async readOrigin(repository: string): Promise<string> {
     try {
       const { path } = await loginPath();
       const { executable } = await resolveForgeExecutable(["git"], path);
@@ -2150,7 +2194,6 @@ export class Hosts {
       );
       const origin = result.stdout.trim();
       if (!gitOrigin(origin)) throw new Error("Unsupported origin");
-      this.repositoryOrigins.set(repository, origin);
       return origin;
     } catch {
       throw new Error("Origin unavailable");

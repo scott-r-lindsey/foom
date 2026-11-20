@@ -1457,6 +1457,7 @@ test("host bridge validates every nested fact and strips undeclared host data", 
       },
     ],
     remoteHostsAvailable: false,
+    gitOrigins: [{ repository: "/local/repo", host: "forge.test.", protocol: "https", port: 443 }],
     locations: [{ host: "worker", repository: "/local/repo", result }],
     result: { ok: false, reason: "clone-failed" },
   };
@@ -1467,6 +1468,16 @@ test("host bridge validates every nested fact and strips undeclared host data", 
     {},
     { ...value, result: { ok: false, reason: "secret" } },
     { ...value, remoteHostsAvailable: "false" },
+    {
+      ...value,
+      gitOrigins: [{ repository: "/local/repo", host: "forge.test", protocol: "git", port: 22 }],
+    },
+    {
+      ...value,
+      gitOrigins: [
+        { repository: "/local/repo", host: "git@forge.test", protocol: "ssh", port: 22 },
+      ],
+    },
     { ...value, hosts: [{ host: "worker", codeFolder: facts.codeFolder, nickname: "<invalid>" }] },
     {
       ...value,
