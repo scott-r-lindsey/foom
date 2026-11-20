@@ -35,10 +35,15 @@ async function previewStep(name, run) {
   }
 }
 
-async function previewContents(app, id, code, { requireAttached = false } = {}) {
+async function previewContents(
+  app,
+  id,
+  code,
+  { requireAttached = false, allowMissing = requireAttached } = {},
+) {
   return previewStep(`evaluate ${id}: ${code}`, () =>
     app.evaluate(
-      async ({ BrowserWindow, webContents }, { id, code, requireAttached }) => {
+      async ({ BrowserWindow, webContents }, { id, code, requireAttached, allowMissing }) => {
         const current = () =>
           webContents
             .getAllWebContents()
@@ -55,8 +60,8 @@ async function previewContents(app, id, code, { requireAttached = false } = {}) 
           );
         };
         if (!contents) {
-          if (requireAttached) return undefined;
-          throw new Error("Missing preview contents");
+          if (allowMissing) return undefined;
+          throw new Error(`Missing preview contents for ${id}`);
         }
         if (requireAttached && !ready()) return undefined;
         let onDestroyed;
@@ -98,8 +103,18 @@ async function previewContents(app, id, code, { requireAttached = false } = {}) 
           contents.removeListener("did-start-navigation", onNavigation);
         }
       },
-      { id, code, requireAttached },
+      { id, code, requireAttached, allowMissing },
     ),
+  );
+}
+
+function pollPreviewContents(app, id, code, { requireAttached = true } = {}) {
+  const state = requireAttached ? "attached preview contents" : "preview contents";
+  return expect.poll(
+    () => previewContents(app, id, code, { requireAttached, allowMissing: true }),
+    {
+      message: `Waiting for ${state} for ${id} to match: ${code}`,
+    },
   );
 }
 
@@ -279,6 +294,7 @@ module.exports = {
   pickPreviewFile,
   previewStep,
   previewContents,
+  pollPreviewContents,
   previewViewState,
   typeIntoFocusedContents,
   composedPreview,

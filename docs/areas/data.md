@@ -307,10 +307,9 @@ payloads. Other settings and per-feature stores have separate explicit group imp
 described below; all remain in production JSON through phase C.
 The eventual cutover and retirement of JSON writers belong to phase D.
 
-The phase-A report supplies observational timings, **not** agreed cold-start or
-write-to-view budgets. This group records real Electron import/publication timing;
-a CI budget needs an explicit workload and approved limits before it can become
-a performance gate. It does not claim that spike write-to-changes is IPC latency.
+The phase-A report records observational timings for engine operations. The
+[view measurements below](#view-measurements-and-approved-budgets-1246) time
+the real Electron path through renderer delivery.
 
 ### Settings and consents preparation
 
@@ -431,40 +430,48 @@ The named `data SQLite: report cold process to first renderer view and write
 to renderer view measurements` Electron case runs in CI on each desktop platform.
 Repeat locally with `pnpm run test:electron --suite=data-sqlite.test.js
 --test-name-pattern='^data SQLite: report'` (under `xvfb-run -a` on Linux).
-It reports ten independent fixture samples with 1,000 saved repositories, a
-100-row subscribed page and one repository registration per sample. Seed work
-and fixture file creation are outside the timers. The first timer covers spawning a fresh fixture Electron process, loading its
-modules, opening the existing database, creating a sandboxed renderer
-and receiving its first view; the second covers command start through committed
-ViewRegistry publication, renderer DOM update and receipt acknowledgement.
+Each of ten fresh fixture processes opens a separately seeded database with
+1,000 saved repositories and subscribes to a 100-row page. The cold timer covers
+process spawn, module loading, database open, creation of the sandboxed renderer
+and receipt of its first view. OS page caches are retained. Seed work and fixture
+file creation are outside the timers. Ten launches preserve cold-start sampling
+within the existing case deadline. With ten samples, nearest-rank cold p95 is
+the maximum.
 
-Each sample starts a new fixture process with OS page caches retained. It
-measures the prepared SQLite/view path; production Foom startup remains JSON-backed.
-Nearest-rank p50/p95, individual samples, workload, platform and runtime versions
-appear in CI logs and `test-results/data-sqlite-measurements-<platform>.json`.
-The user-approved workload-specific budgets are **p95 ≤ 500 ms** for cold process
-to first renderer view and **p95 ≤ 25 ms** for write to renderer view. They apply
-to the unchanged workload above: 1,000 repositories, page size 100, ten samples
-and one write per sample. With ten samples, nearest-rank p95 is the maximum.
+Each process reuses its database and subscription for two discarded warm-up
+registrations followed by five sequential timed registrations, yielding 50 write
+samples. Each write timer covers command start through committed ViewRegistry
+publication, renderer DOM update and receipt acknowledgement. Nearest-rank
+write p95 is the 48th value in ascending order.
 
-The latest successful CI run for PR #1236,
+CI logs and `test-results/data-sqlite-measurements-<platform>.json` retain
+nearest-rank p50/p95, individual samples, workload, platform and runtime versions.
+All platform/metric pairs report the measured p95, budget and signed gap
+(measured minus budget). The approved targets remain **p95 ≤ 500 ms** for cold
+process to first renderer view on Linux and **p95 ≤ 25 ms** for write to renderer
+view on Linux and macOS.
+
+#1285 makes every budget report-only while the SQLite fixture is isolated.
+Malformed budgets, incomplete or invalid measurements, and fixture process
+failures still fail the test. When SQLite ships in phase B/C, set
+`ENFORCE_SQLITE_VIEW_BUDGETS` in
+[`sqlite-measurements.js`](../../tests/electron/sqlite-measurements.js) to
+`true` to restore enforcement for the approved pairs with the larger write
+sample count.
+
+The historical CI run for PR #1236,
 [44105455993](https://github.com/scott-r-lindsey/foom/actions/runs/44105455993)
 (head `45b88a92b9fa1f6fdacdf22d5fee61cff1c1e01a`), uploaded these baseline
 measurements in the `data-sqlite-measurements-<platform>.json` files inside its
 `electron-results-*` artifacts. All used Electron 44.9.3, Node 24.22.0 and
-SQLite 3.53.4. Values below are rounded to two decimal places; assertions use
-unrounded measurements.
+SQLite 3.53.4. That workload used ten fresh processes with one timed write each.
+Values below are rounded to two decimal places.
 
-| CI platform | Cold p95 | Write p95 | Assertions |
+| CI platform | Cold p95 | Write p95 | Previously enforced |
 | --- | ---: | ---: | --- |
 | Linux x64 (`ubuntu-24.04`) | 361.78 ms | 6.96 ms | Both budgets |
 | macOS arm64 (`macos-15`) | 660.86 ms | 7.95 ms | Write budget only |
 | Windows x64 (`windows-2025`) | 1,293.08 ms | 72.47 ms | Reporting only |
 
-macOS cold p95 exceeds the approved budget by 160.86 ms. Windows cold p95 exceeds
-it by 793.08 ms, and write p95 exceeds its budget by 47.47 ms. Those platform/metric
-pairs keep reporting measurements and gaps pending a user decision; their budgets
-are not increased. Other platforms remain reporting-only until measured. Linux
-asserts both p95 budgets and macOS asserts write p95, with failures naming the
-platform, measured value and approved limit. Logs and JSON retain all measurements
-and the budgets with their enforcement status, including before an assertion fails.
+Against those targets, macOS cold p95 was 160.86 ms higher, and Windows cold and
+write p95 were 793.08 ms and 47.47 ms higher, respectively.
