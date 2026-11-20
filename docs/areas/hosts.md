@@ -631,7 +631,8 @@ when it needs attention. Expanding exposes all controls and observations. Git ac
 forge hostname used by a registered repository’s origin and shows only SSH or
 HTTPS as used. Hosts reads the origin metadata locally for display. Existing origin
 and checkout probes keep their scope. A check applies only when its saved host,
-protocol and port match the repository’s current origin. Legacy results without
+protocol and port match the repository’s current origin. An omitted SSH port
+uses the host’s SSH configuration and has a distinct identity. Legacy results without
 an endpoint and results for changed endpoints appear as Not checked. A protocol
 shows a checked failure if one was observed, otherwise one successful check is
 enough to show a pass.
@@ -713,7 +714,7 @@ An origin-host-key failure offers **Trust host key…**. Main re-reads the regis
 repository's validated SSH origin and verifies that it matches the selected
 endpoint before opening a human-owned terminal in the Git access section in
 Settings (#1260, #1261). Multiple untrusted SSH ports on a forge each have a
-port-labeled Trust action. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
+Trust action labeled with the explicit port or SSH config. The fixed command is ssh -T with StrictHostKeyChecking=ask, forwarding
 disabled, and the origin's account/host and optional port. HTTPS cannot select this
 action. Compatible older daemons must advertise originTrust=1; otherwise the
 launch refuses until the host daemon is updated. The user verifies the fingerprint

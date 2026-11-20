@@ -87,7 +87,7 @@ beforeEach(() => {
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
   hosts = new Hosts(store, () => repositories, "0.1.0", run);
 });
-const forgeEndpoint = { host: "forge.test", protocol: "ssh", port: 22 } as const;
+const forgeEndpoint = { host: "forge.test", protocol: "ssh", port: null } as const;
 test("Hosts projects current registered origin endpoints without probing a host", async () => {
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   repositories = [
@@ -111,7 +111,7 @@ test("Hosts projects current registered origin endpoints without probing a host"
     { repository: "/local/ssh", host: "gitlab.com", protocol: "ssh", port: 2222 },
     { repository: "/local/https", host: "github.com", protocol: "https", port: 443 },
     { repository: "/local/port", host: "forge.test", protocol: "https", port: 99999 },
-    { repository: "/local/ip", host: "192.0.2.42", protocol: "ssh", port: 22 },
+    { repository: "/local/ip", host: "192.0.2.42", protocol: "ssh", port: null },
     { repository: "/local/absolute-dns", host: "forge.test.", protocol: "ssh", port: 2222 },
   ];
   expect(hosts.state().gitOrigins).toEqual(endpoints);
@@ -1928,7 +1928,7 @@ test("Trust host key re-reads registered origin and launches a human terminal wi
       launch,
     ),
   ).rejects.toThrow("not registered");
-  mock.execute.mockResolvedValue({ stdout: "ssh://git@forge.test:2222/me/repo.git" });
+  mock.execute.mockResolvedValue({ stdout: "ssh://git@forge.test:22/me/repo.git" });
   await expect(
     hosts.action(
       {

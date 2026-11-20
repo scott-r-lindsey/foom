@@ -177,7 +177,8 @@ export function gitOriginEndpoint(value: unknown): GitOriginEndpoint | undefined
   return {
     host: origin.host.toLowerCase(),
     protocol: origin.protocol,
-    port: origin.port === undefined ? (origin.protocol === "ssh" ? 22 : 443) : Number(origin.port),
+    port:
+      origin.port === undefined ? (origin.protocol === "ssh" ? null : 443) : Number(origin.port),
   };
 }
 export function sameGitOriginEndpoint(
@@ -193,10 +194,11 @@ function validGitOriginEndpoint(value: unknown): value is GitOriginEndpoint {
     typeof value["host"] === "string" &&
     /^[a-z0-9][a-z0-9.-]{0,2047}$/u.test(value["host"]) &&
     (value["protocol"] === "ssh" || value["protocol"] === "https") &&
-    typeof value["port"] === "number" &&
-    Number.isInteger(value["port"]) &&
-    value["port"] >= 0 &&
-    value["port"] <= 99999
+    (value["port"] === null ||
+      (typeof value["port"] === "number" &&
+        Number.isInteger(value["port"]) &&
+        value["port"] >= 0 &&
+        value["port"] <= 99999))
   );
 }
 /** Only validated SSH origins can select this human-owned command. */

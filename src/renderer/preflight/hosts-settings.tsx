@@ -293,7 +293,7 @@ function GitAccess({
             : statuses.every((status) => status.tone === "pass")
               ? "pass"
               : "neutral";
-        const untrusted = new Map<number, RegisteredGitOrigin>();
+        const untrusted = new Map<GitOriginEndpoint["port"], RegisteredGitOrigin>();
         for (const origin of protocols.ssh) {
           const check = checkFor(origin);
           if (
@@ -330,11 +330,15 @@ function GitAccess({
               : {})}
             action={[...untrusted].map(([port, origin]) => (
               <button
-                key={port}
+                key={port ?? "ssh-config"}
                 type="button"
                 disabled={disabled || originTerminals.get(originRecipeKey(host, origin))?.running}
                 aria-label={
-                  showPort ? `Trust host key for ${hostname}:${String(port)}…` : undefined
+                  showPort
+                    ? port === null
+                      ? `Trust host key for ${hostname} using SSH config…`
+                      : `Trust host key for ${hostname}:${String(port)}…`
+                    : undefined
                 }
                 onClick={() => {
                   act({
@@ -349,7 +353,11 @@ function GitAccess({
                   });
                 }}
               >
-                {showPort ? `Trust :${String(port)}…` : "Trust host key…"}
+                {showPort
+                  ? port === null
+                    ? "Trust (SSH config)…"
+                    : `Trust :${String(port)}…`
+                  : "Trust host key…"}
               </button>
             ))}
           />

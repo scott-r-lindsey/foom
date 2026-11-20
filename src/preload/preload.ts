@@ -586,7 +586,7 @@ const gitOriginEndpointFields = {
   host: (value): value is string =>
     typeof value === "string" && /^[a-z0-9][a-z0-9.-]{0,2047}$/u.test(value),
   protocol: literal("ssh", "https"),
-  port: range(0, 99999, true),
+  port: either(nil, range(0, 99999, true)),
 } satisfies Contract<GitOriginEndpoint>;
 const optionalGitOriginEndpoint = either(absent, shape(gitOriginEndpointFields));
 const hostPreflightFields = {

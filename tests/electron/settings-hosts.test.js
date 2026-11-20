@@ -1222,11 +1222,11 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
     "https://forge.test/fixtures/six.git",
   ];
   const endpoints = [
-    { host: "github.com", protocol: "ssh", port: 22 },
+    { host: "github.com", protocol: "ssh", port: null },
     { host: "github.com", protocol: "ssh", port: 443 },
     { host: "github.com", protocol: "https", port: 443 },
-    { host: "gitlab.com", protocol: "ssh", port: 22 },
-    { host: "gitlab.com", protocol: "ssh", port: 22 },
+    { host: "gitlab.com", protocol: "ssh", port: null },
+    { host: "gitlab.com", protocol: "ssh", port: null },
     { host: "forge.test", protocol: "https", port: 443 },
   ];
   const repositories = [];
@@ -1390,6 +1390,14 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   gitSync(["remote", "set-url", "origin", "https://new.example/fixtures/one.git"], {
     cwd: repositories[0],
   });
+  for (const [index, project] of [
+    [3, "four"],
+    [4, "five"],
+  ]) {
+    gitSync(["remote", "set-url", "origin", `ssh://git@gitlab.com:22/fixtures/${project}.git`], {
+      cwd: repositories[index],
+    });
+  }
   const { page: reopened, before: reopenedBaseline } = await openSavedBoard();
   await reopened
     .getByRole("navigation", { name: "Settings sections" })
@@ -1400,6 +1408,10 @@ test("Hosts opens saved checks without SSH and keeps ready repositories compact"
   const changedOrigin = reopenedCard.locator(".host-check-row").filter({ hasText: "new.example" });
   await expect(changedOrigin.locator(".host-git-protocols > span")).toHaveText([
     "HTTPS · Not checked",
+  ]);
+  const explicitPort = reopenedCard.locator(".host-check-row").filter({ hasText: "GitLab" });
+  await expect(explicitPort.locator(".host-git-protocols > span")).toHaveText([
+    "SSH · Not checked",
   ]);
   assert.equal(await readFile(calls, "utf8"), reopenedBaseline);
   assert.equal(await readFile(retiredState, "utf8"), retiredContents);

@@ -52,7 +52,7 @@ const host = {
   foreignSessions: 1,
   result: { ok: true as const, facts },
 };
-const projectEndpoint = { host: "github.com", protocol: "ssh", port: 22 } as const;
+const projectEndpoint = { host: "github.com", protocol: "ssh", port: null } as const;
 const preflight: HostPreflight = {
   ssh: { state: "pass" },
   platform: { state: "pass" },
@@ -1233,10 +1233,10 @@ test("reopening Hosts restores each origin terminal independently of other recip
 
 test("Git access groups registered origins by host and displays only the protocols in use", async () => {
   const gitOrigins = [
-    { repository: "/local/project-0", host: "github.com", protocol: "ssh", port: 22 },
-    { repository: "/local/project-1", host: "github.com", protocol: "ssh", port: 22 },
+    { repository: "/local/project-0", host: "github.com", protocol: "ssh", port: null },
+    { repository: "/local/project-1", host: "github.com", protocol: "ssh", port: null },
     { repository: "/local/project-2", host: "github.com", protocol: "https", port: 443 },
-    { repository: "/local/project-3", host: "gitlab.com", protocol: "ssh", port: 22 },
+    { repository: "/local/project-3", host: "gitlab.com", protocol: "ssh", port: null },
     { repository: "/local/project-4", host: "forge.test", protocol: "https", port: 443 },
   ] as const;
   const state = saved({
@@ -1284,7 +1284,7 @@ test.each([
     "SSH",
   ],
   [
-    { host: "old.example", protocol: "ssh", port: 2222 },
+    { host: "old.example", protocol: "ssh", port: 22 },
     { state: "fail", reason: "origin-host-key" },
     "SSH",
   ],
@@ -1301,7 +1301,7 @@ test.each([
           {
             repository,
             origin,
-            originEndpoint: { host: "old.example", protocol: "ssh", port: 22 },
+            originEndpoint: { host: "old.example", protocol: "ssh", port: null },
             checkout: host.result,
           },
         ],
@@ -1313,52 +1313,53 @@ test.each([
   },
 );
 
-test("every untrusted port in a forge row can open its own trust terminal", async () => {
-  const gitOrigins = [2222, 2222, 2223].map((port, index) => ({
-    repository: `/local/project-${String(index)}`,
-    host: "forge.test",
-    protocol: "ssh" as const,
-    port,
-  }));
-  const { api } = await mount({
-    ...initial,
-    gitOrigins,
-    preflight: {
-      ...preflight,
-      repositories: gitOrigins.map(({ repository, ...originEndpoint }) => ({
+test.each([
+  [2222, 2223, "Trust host key for forge.test:2222…"],
+  [null, 22, "Trust host key for forge.test using SSH config…"],
+] as const)(
+  "untrusted SSH ports %s and %s in one row can open independent terminals",
+  async (firstPort, secondPort, firstLabel) => {
+    const gitOrigins = [firstPort, firstPort, secondPort].map((port, index) => ({
+      repository: `/local/project-${String(index)}`,
+      host: "forge.test",
+      protocol: "ssh" as const,
+      port,
+    }));
+    const { api } = await mount({
+      ...initial,
+      gitOrigins,
+      preflight: {
+        ...preflight,
+        repositories: gitOrigins.map(({ repository, ...originEndpoint }) => ({
+          repository,
+          originEndpoint,
+          origin: { state: "fail", reason: "origin-host-key" },
+          checkout: host.result,
+        })),
+      },
+    });
+    expect(screen.getAllByText("forge.test")).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: /^Trust host key for forge\.test/u }),
+    ).toHaveLength(2);
+    for (const [port, repository, name] of [
+      [secondPort, "/local/project-2", `Trust host key for forge.test:${String(secondPort)}…`],
+      [firstPort, "/local/project-0", firstLabel],
+    ] as const) {
+      const button = screen.getByRole<HTMLButtonElement>("button", { name });
+      await waitFor(() => {
+        expect(button.disabled).toBe(false);
+      });
+      fireEvent.click(button);
+      expect(api).toHaveBeenCalledWith({
+        action: "trust-origin",
+        host: "worker",
         repository,
-        originEndpoint,
-        origin: { state: "fail", reason: "origin-host-key" },
-        checkout: host.result,
-      })),
-    },
-  });
-  expect(screen.getAllByText("forge.test")).toHaveLength(1);
-  expect(screen.getAllByRole("button", { name: /^Trust host key for forge.test:/u })).toHaveLength(
-    2,
-  );
-  for (const [port, repository] of [
-    [2223, "/local/project-2"],
-    [2222, "/local/project-0"],
-  ] as const) {
-    await waitFor(() => {
-      expect(
-        screen.getByRole<HTMLButtonElement>("button", {
-          name: `Trust host key for forge.test:${String(port)}…`,
-        }).disabled,
-      ).toBe(false);
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: `Trust host key for forge.test:${String(port)}…` }),
-    );
-    expect(api).toHaveBeenCalledWith({
-      action: "trust-origin",
-      host: "worker",
-      repository,
-      endpoint: { host: "forge.test", protocol: "ssh", port },
-    });
-  }
-});
+        endpoint: { host: "forge.test", protocol: "ssh", port },
+      });
+    }
+  },
+);
 
 test("slow list and independent host checks leave Add enabled and preserve a newly added host", async () => {
   let finishList: ((state: HostsState) => void) | undefined;

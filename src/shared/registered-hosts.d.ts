@@ -55,7 +55,8 @@ export interface HostConnectionChecks {
 export interface GitOriginEndpoint {
   host: string;
   protocol: "ssh" | "https";
-  port: number;
+  /** Null preserves SSH port selection by the host’s own configuration. */
+  port: number | null;
 }
 export interface HostPreflight extends HostConnectionChecks {
   /** Absent in legacy saved checklists. */

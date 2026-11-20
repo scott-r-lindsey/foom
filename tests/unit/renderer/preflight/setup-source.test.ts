@@ -208,7 +208,7 @@ test("Settings waits for its own host actions and disposes running or exited ses
     action: "trust-origin",
     host: "cloud",
     repository: "/repo",
-    endpoint: { host: "forge.test", protocol: "ssh", port: 22 },
+    endpoint: { host: "forge.test", protocol: "ssh", port: null },
   } as const;
   const trusting = source.hosts(trust);
   resolve({ hosts: [], locations: [], recipeSession: "trust" });
@@ -243,7 +243,7 @@ test("origin trust metadata disappears on exit or successful Stop and survives a
     action: "trust-origin",
     host: "cloud",
     repository: "/repo",
-    endpoint: { host: "forge.test", protocol: "ssh", port: 22 },
+    endpoint: { host: "forge.test", protocol: "ssh", port: null },
   } as const;
   if (!source.hosts || !source.hostTerminal?.stop || !source.installs?.hostActions)
     throw new Error("Missing Settings repair owner");
