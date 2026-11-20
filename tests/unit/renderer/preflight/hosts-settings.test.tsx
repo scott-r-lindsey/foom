@@ -183,7 +183,9 @@ test("host setup filters repositories, keeps selected entries and surfaces launc
     agent: "claude",
     repositories: ["/local/site"],
   });
-  expect(dialog.isConnected).toBe(false);
+  await waitFor(() => {
+    expect(dialog.isConnected).toBe(false);
+  });
 });
 
 test("an empty setup dialog stays open on an interior click and closes on backdrop or Escape", async () => {

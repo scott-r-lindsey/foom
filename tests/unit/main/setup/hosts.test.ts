@@ -21,7 +21,14 @@ import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/sett
 import type { Settings } from "../../../../src/shared/setup";
 import type { HostManagement, HostResult } from "../../../../src/shared/registered-hosts.d";
 const mock = vi.hoisted(() => ({
-  execute: vi.fn(),
+  execute:
+    vi.fn<
+      (
+        file: string,
+        args: readonly string[],
+        options: { cwd: string; signal: AbortSignal },
+      ) => Promise<{ stdout: string }>
+    >(),
   remote: vi.fn<typeof remoteTransport.remoteManagement>(),
   inventory: vi.fn<typeof remoteTransport.remoteInventory>(),
   close: vi.fn(),
@@ -333,6 +340,44 @@ test("destroying the IPC sender cancels setup SSH and prevents agent dispatch", 
   } finally {
     attachment.dispose();
   }
+});
+
+test("setup cancellation during Git origin discovery stops the remaining lookups and releases the slot", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  repositories.push({ path: "/local/second", name: "second" });
+  const window = new AbortController();
+  const reading = Promise.withResolvers<AbortSignal>();
+  const lateOrigin = Promise.withResolvers<{ stdout: string }>();
+  mock.execute.mockImplementationOnce((_git, _args, options: { signal: AbortSignal }) => {
+    reading.resolve(options.signal);
+    return lateOrigin.promise;
+  });
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+  const input = {
+    action: "setup-agent",
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo", "/local/second"],
+  } as const;
+  const starting = hosts.startSetupAgent(input, launch, window.signal);
+  const signal = await reading.promise;
+  window.abort();
+  await expect(starting).rejects.toThrow("Setup agent unavailable");
+  expect(signal.aborted).toBe(true);
+  expect(checkSetupSsh).not.toHaveBeenCalled();
+
+  const replacement = await hosts.startSetupAgent(
+    { ...input, repositories: ["/local/repo"] },
+    launch,
+  );
+  lateOrigin.resolve({ stdout: "git@forge.test:me/late.git\n" });
+  expect(hosts.setupAgentId("worker")).toBe(replacement);
+  expect(launch).toHaveBeenCalledOnce();
+  expect(checkSetupSsh).toHaveBeenCalledOnce();
+  expect(mock.execute.mock.calls.map(([, , options]) => options.cwd)).toEqual([
+    "/local/repo",
+    "/local/repo",
+  ]);
 });
 
 test("a replacement registration can start setup before the removed host's tile exits", async () => {

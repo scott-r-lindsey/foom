@@ -63,8 +63,10 @@ async function fixture() {
     });
     return child;
   });
-  mock.execFile.mockImplementation((_file, _args, _options, callback) => {
-    callback(mock.failure ? new Error("probe failed") : null, { stdout: mock.output });
+  mock.execFile.mockImplementation((_file, args, _options, callback) => {
+    callback(mock.failure ? new Error("probe failed") : null, {
+      stdout: args.includes("-c") ? "" : mock.output,
+    });
   });
   const directory = join(root, "linux-x64");
   await mkdir(directory);
@@ -274,14 +276,13 @@ test.each(["unsupported", "libc-too-old", "libc-unsupported", "pass"])(
     if (state === "unsupported") mock.output = "Unsupported\nx86_64\n";
     if (state.startsWith("libc"))
       mock.execFile.mockImplementation((_file, args, _options, callback) => {
-        callback(
-          args.includes("-c")
-            ? Object.assign(new Error("raw"), {
-                stdout: state === "libc-too-old" ? "FOOM-LIBC-TOO-OLD" : "FOOM-LIBC-UNSUPPORTED",
-              })
-            : null,
-          { stdout: mock.output },
-        );
+        callback(args.includes("-c") ? new Error("libc probe failed") : null, {
+          stdout: !args.includes("-c")
+            ? mock.output
+            : state === "libc-too-old"
+              ? "FOOM-LIBC-TOO-OLD"
+              : "FOOM-LIBC-UNSUPPORTED",
+        });
       });
     const result = selectHostArtifact(
       { host: "fixture" },
@@ -325,6 +326,40 @@ test("a disconnected libc probe does not invent an unsupported platform; mismatc
     state: "fail",
     reason: "version-mismatch",
   });
+});
+
+test("the libc SSH connection reports its own changed host key", async () => {
+  const f = await fixture();
+  const first = mock.spawn.getMockImplementation();
+  if (!first) throw new Error("Missing mock probe");
+  mock.spawn
+    .mockImplementationOnce(first)
+    .mockImplementationOnce((_file: string, args: string[]) => {
+      const child = probeChild();
+      const diagnostic = args[args.indexOf("-E") + 1] ?? "";
+      void writeFile(
+        diagnostic,
+        "@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\nHost key verification failed.\n",
+      ).then(() => {
+        child.emit("exit", 255);
+        child.emit("close", 255);
+      });
+      return child;
+    });
+  const observe = vi.fn();
+  await expect(
+    selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata, undefined, observe),
+  ).rejects.toMatchObject({ failure: "host-key-changed" });
+  expect(observe.mock.calls).toEqual([
+    ["ssh", { state: "pass" }],
+    ["ssh", { state: "fail", reason: "host-key-changed" }],
+    ["platform", { state: "not-checked" }],
+  ]);
+  expect(mock.spawn).toHaveBeenLastCalledWith(
+    "ssh",
+    expect.arrayContaining(["ControlPath=none"]),
+    expect.anything(),
+  );
 });
 
 test("explicit setup output streams SSH stdout and stderr as inert display text", async () => {

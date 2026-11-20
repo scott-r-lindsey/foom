@@ -4,6 +4,7 @@ import { HostTerminal } from "./host-terminal";
 import { HostSetupDialog } from "./host-setup-dialog";
 import {
   hostDisplayName,
+  completedHostCheck,
   hostKeyUntrusted,
   hostNicknameError,
 } from "../../shared/registered-hosts";
@@ -1243,8 +1244,7 @@ export function HostsSettings({
                 : {})}
             />
           ) : undefined;
-        const latest =
-          entry.checklist?.preflight ?? checks.get(entry.host) ?? entry.observation?.preflight;
+        const latest = completedHostCheck(entry, entry.checklist, checks.get(entry.host));
         const sshRevision = latest?.sshRevision ?? 0;
         const preflight = buildPreflight(latest, state.remoteHostsAvailable);
         const hostProgress = progress?.find((item) => item.host === entry.host);

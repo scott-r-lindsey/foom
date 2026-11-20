@@ -7,6 +7,8 @@ import type {
   HostRequirements,
   HostCheck,
   HostObservation,
+  HostPreflight,
+  LiveHostChecklist,
   HostCheckTarget,
 } from "./registered-hosts.d";
 
@@ -601,6 +603,14 @@ export function hostsAction(value: unknown): value is HostsAction {
     typeof value["repository"] === "string" &&
     value["repository"].length <= 4096
   );
+}
+
+export function completedHostCheck(
+  host: RegisteredHost,
+  checklist?: LiveHostChecklist,
+  commandCheck?: HostPreflight,
+): HostPreflight | undefined {
+  return checklist?.preflight ?? commandCheck ?? host.observation?.preflight;
 }
 
 export function hostKeyUntrusted(ssh: HostCheck | undefined): boolean {

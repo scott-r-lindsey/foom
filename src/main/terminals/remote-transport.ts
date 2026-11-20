@@ -94,6 +94,8 @@ export class RemoteTransport extends EventEmitter {
   private restoring: number | undefined;
   private restoration = new Set<number>();
 
+  private readonly freshConnection: boolean;
+
   constructor(
     private readonly target: RemoteTarget,
     expectedVersion: string,
@@ -103,6 +105,8 @@ export class RemoteTransport extends EventEmitter {
   ) {
     super();
     this.expectedVersion = expectedVersion;
+    this.freshConnection =
+      checkConnection || management?.type === "manage" || management?.type === "inventory";
     if (!remoteHost(target.host)) throw new Error("Invalid SSH host");
     if (target.agent)
       target.agent.activate = () => {
@@ -133,6 +137,7 @@ export class RemoteTransport extends EventEmitter {
             this.probeChild = child;
           }
         : undefined,
+      this.freshConnection,
     )
       .then((artifact) => {
         if (this.closed) return;
@@ -333,6 +338,7 @@ export class RemoteTransport extends EventEmitter {
       artifact.upload.length,
       artifact.platform,
       artifact.arch,
+      this.freshConnection,
     );
     const retained = this.probeChild;
     this.probeChild = undefined;

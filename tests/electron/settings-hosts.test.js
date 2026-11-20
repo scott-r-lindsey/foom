@@ -214,7 +214,11 @@ if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')
 if ((args.at(-1) === 'uname -s; uname -m' || args.at(-1).includes('FOOM-PROBED')) && current.remoteHostKeyExit) { process.stderr.write('No ED25519 host key is known for fixture-cloud and you have requested strict checking.\\nHost key verification failed.\\n'); process.exit(current.remoteHostKeyExit); }
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 // Standalone fixed libc preflight has no daemon protocol handshake.
-if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY') && !args.at(-1).includes('FOOM-PROBED')) { if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); } process.exit(0); }
+if (args.at(-1).includes('FOOM-LIBC-UNSUPPORTED') && !args.at(-1).includes('FOOM-READY') && !args.at(-1).includes('FOOM-PROBED')) {
+ if (current.libcKeyChanged) { clientError('@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\\nHost key verification failed.\\n'); process.exit(255); }
+ if(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8').includes('musl')) { process.stdout.write('FOOM-LIBC-UNSUPPORTED'); process.exit(1); }
+ process.exit(0);
+}
 const checking=args.at(-1).includes('FOOM-PROBED');
 if(checking) for(const option of ['ControlMaster=no','ControlPath=none','ControlPersist=no']) assert.ok(args.includes(option));
 if(checking) process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}+(JSON.stringify(current).includes('musl')?'FOOM-LIBC-UNSUPPORTED':'FOOM-LIBC-OK')+'\\nFOOM-PROBED\\n');
@@ -708,6 +712,52 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
   await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
   await expect(ssh.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   await expect(action).toHaveCount(0);
+});
+
+test("Hosts repository reloads bypass the SSH master and update the completed SSH row", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario } = await hostsFixture(context);
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const action = card.getByRole("button", { name: "Set up with an agent…" });
+  for (const kind of ["origin", "checkout"]) {
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+    await expect(action).toBeVisible();
+    await updateScenario({ sshFailure: "changed", controlMasterActive: true });
+    const state = await page.evaluate(async (kind) => {
+      const { repositories } = await window.desktop.workspace();
+      return window.desktop.hosts({
+        action: "reload",
+        host: "fixture-cloud",
+        target: { kind, repository: repositories[0].path },
+      });
+    }, kind);
+    assert.deepEqual(state.preflight.ssh, { state: "fail", reason: "host-key-changed" });
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(action).toHaveCount(0);
+    await updateScenario({});
+    await check.click();
+    await expect(check).toBeEnabled();
+  }
+});
+
+test("Hosts reports a key change on the standalone Linux libc probe", {
+  skip: process.platform !== "linux",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, updateScenario } = await hostsFixture(context);
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await updateScenario({ libcKeyChanged: true });
+  await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Set up with an agent…" })).toHaveCount(0);
 });
 
 test("first-use repository launch exposes each fixed clone failure and Settings has no clone control", {

@@ -785,8 +785,9 @@ drop superseded SSH results. An unsaved checklist retains its save warning until
 that revision or a newer one is committed. SSH row write failures without a
 key observation remain visible as row errors. Preload requires
 a revision on live checklist replies and accepts older saved profiles without
-one. SSH row probes open fresh connections with strict host-key checking and
-multiplexing disabled. Refresh facts preserves the checklist. A resource refresh
+one. Host management, including repository row reloads, opens SSH connections
+with strict host-key checking and multiplexing disabled. Refresh facts preserves
+the checklist. A resource refresh
 failure appears under Host facts, including when the checklist shows the same reason.
 Refresh facts inspects resources before reading session and worktree
 inventories. If scoped facts require a daemon
@@ -945,9 +946,9 @@ and retry rules](../contracts/control-mutations.md#child-host-pressure-1046).
 
 ## Accepting a new SSH host key (#1059)
 
-Add and Check capabilities retain BatchMode=yes. The bounded platform probe uses
-StrictHostKeyChecking=yes and the C locale so OpenSSH reports an unknown key
-explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
+Add and Check capabilities retain BatchMode=yes. The bounded platform and
+standalone Linux libc probes use StrictHostKeyChecking=yes and the C locale
+so OpenSSH reports an unknown key explicitly. OpenSSH's local diagnostics go through `-E` into a private per-run
 0600 file beneath a 0700 temporary directory, removed on completion or failure.
 The open file's size is checked every 10 ms while SSH runs and again on exit,
 including successful exits. Exceeding 16 KiB kills the detached SSH process group
@@ -976,8 +977,9 @@ Changed-key and other SSH failures retain their current presentation, but likewi
 skip dependent repository checks because no connection was established.
 
 Only a registered host whose latest SSH observation is host-key-unknown can
-request trust-host-key. Settings derives the trust action from the completed SSH
-row, including when a successful facts refresh is still cached.
+request trust-host-key. The Settings affordance and main's eligibility check
+use the completed SSH row, including when a successful facts refresh or an
+older inventory reply reports a healthy connection.
 Main checks OpenSSH >= 8.4 and the bundled console helper using detached,
 bounded reads that share cancellation with the requesting run;
 Windows and unsupported clients show a copyable `ssh HOST` fallback. No other
@@ -1051,7 +1053,8 @@ and badges arrive with #1264.
 
 **Start agent** queues one fresh, strict SSH connection check for the
 registration, with connection reuse disabled. Main opens the local tile only
-if that check connects. Closing the requesting window cancels the pending launch.
+if that check connects. Closing the requesting window cancels pending origin
+discovery and SSH checks and releases the setup reservation before dispatch.
 An SSH refusal updates the checklist's SSH row and the dialog shows **Unable to
 start setup agent**. The tile opens in the background and Settings stays open.
 The card shows **Setting up · AGENT** while the invocation runs.

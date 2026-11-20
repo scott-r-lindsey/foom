@@ -23,6 +23,7 @@ import {
   hostResult,
   hostRequirements,
   hostNicknameError,
+  completedHostCheck,
   originSshArgs,
 } from "../../shared/registered-hosts";
 import type {
@@ -90,7 +91,10 @@ function connectionChecks(
       result.connection?.ssh ??
       (result.ok || platformFailure || reason === "facts-unavailable"
         ? pass
-        : reason === "unreachable"
+        : reason === "unreachable" ||
+            reason === "host-key-unknown" ||
+            reason === "host-key-changed" ||
+            reason === "login-rejected"
           ? fail(reason)
           : unknown),
     platform: result.connection?.platform ?? platform,
@@ -209,9 +213,24 @@ export class Hosts {
     this.registered(host);
     const registrationId = this.registrationId(host);
     const provider = agentProviders().find((provider) => provider.id === agent);
-    if (!provider || this.setupAgents.has(host)) throw new Error("Setup agent unavailable");
+    if (!provider || this.setupAgents.has(host) || signal.aborted)
+      throw new Error("Setup agent unavailable");
     const run: HostSetupRun = { id: randomUUID(), name: provider.name, started: false };
     this.setupAgents.set(host, run);
+    const release = () => {
+      if (this.setupAgents.get(host) === run) this.setupAgents.delete(host);
+    };
+    let stopWatching = () => {};
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      const abort = () => {
+        release();
+        reject(new Error("Setup agent unavailable"));
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      stopWatching = () => {
+        signal.removeEventListener("abort", abort);
+      };
+    });
     const work = Promise.allSettled([
       this.pending,
       this.hostPending.get(host) ?? Promise.resolve(),
@@ -239,7 +258,8 @@ export class Hosts {
       for (const path of repositories) {
         const repo = this.repositories().find((repo) => repo.path === path);
         if (!repo) throw new Error("Repository is not registered");
-        const origin = await this.origin(path);
+        const origin = await Promise.race([this.origin(path, signal), cancelled]);
+        validate();
         prompt += `\n${JSON.stringify({ repository: repo.name, origin })}`;
         if (Buffer.byteLength(prompt) > 16384) throw new Error("Setup brief is too long");
       }
@@ -272,6 +292,9 @@ export class Hosts {
         }
         throw new Error("Setup agent unavailable");
       }
+      // The spawn callback still validates the signal. Keep the slot once launch
+      // begins so an abort cannot release a tile that has already spawned.
+      stopWatching();
       await launch(run.id, agent, prompt, validate);
       run.started = true;
       viewChanges.publish("hosts");
@@ -279,10 +302,12 @@ export class Hosts {
     });
     this.trackHostWork(host, work);
     try {
-      return await work;
+      return await Promise.race([work, cancelled]);
     } catch (error) {
-      if (this.setupAgents.get(host) === run) this.setupAgents.delete(host);
+      release();
       throw error;
+    } finally {
+      stopWatching();
     }
   }
 
@@ -946,7 +971,7 @@ export class Hosts {
         ? {}
         : { remoteHostsAvailable: this.remoteHostsAvailable }),
       hosts: (this.store.get().registeredHosts ?? []).map((host) => {
-        const checklist = this.checklists.get(host.host);
+        const checklist = this.visibleChecklist(host);
         const rowFailures = (this.pendingRows.get(host.host) ?? []).flatMap((row) => {
           if (!this.currentRow(host.host, row) || !row.reason) return [];
           if (row.target.kind === "ssh" && row.retry && checklist?.saveFailed) return [];
@@ -972,12 +997,7 @@ export class Hosts {
           ...(setupAgent?.started
             ? { setupAgent: { id: setupAgent.id, name: setupAgent.name } }
             : {}),
-          ...(checklist &&
-          (checklist.saveFailed ||
-            !host.observation ||
-            checklist.preflight.sshRevision > (host.observation.preflight.sshRevision ?? 0))
-            ? { checklist }
-            : {}),
+          ...(checklist ? { checklist } : {}),
           ...(hostKeyTrustFailure ? { hostKeyTrustFailure } : {}),
           ...(resourceResult?.ok === false ? { factsRefreshFailure: resourceResult.reason } : {}),
           ...(this.hostKeyTrust ? { hostKeyTrust: this.hostKeyTrust } : {}),
@@ -1040,6 +1060,17 @@ export class Hosts {
   }
   private checklistRevision(host: string): number {
     return this.checklists.get(host)?.preflight.sshRevision ?? 0;
+  }
+  private visibleChecklist(host: RegisteredHost): LiveHostChecklist | undefined {
+    const checklist = this.checklists.get(host.host);
+    if (
+      checklist &&
+      (checklist.saveFailed ||
+        !host.observation ||
+        checklist.preflight.sshRevision > (host.observation.preflight.sshRevision ?? 0))
+    )
+      return checklist;
+    return undefined;
   }
   private recordChecklist(host: string, preflight: HostPreflight): LiveHostChecklist["preflight"] {
     const current = this.checklists.get(host);
@@ -1438,14 +1469,14 @@ export class Hosts {
         this.hostPending.get(host) ?? Promise.resolve(),
       ]).then(async () => {
         const registration = this.registered(host);
-        const latest = this.results.get(host) ?? registration.observation?.preflight.result;
+        const latest = completedHostCheck(registration, this.visibleChecklist(registration));
         const cancelled = () => signal.aborted;
         if (cancelled()) return false;
         this.hostKeyTrustFailures.delete(host);
         const report = (reason: HostKeyTrustFailure) => {
           if (!cancelled()) this.hostKeyTrustFailures.set(host, reason);
         };
-        if (!unknownHostKey(latest)) {
+        if (!(latest ? unknownSshKey(latest.ssh) : unknownHostKey(this.results.get(host)))) {
           report("trust-not-eligible");
           return false;
         }
@@ -2049,7 +2080,7 @@ export class Hosts {
       : this.cancellation.signal;
     const cancelled = () => cancellation.aborted;
     const needsTrust = state.hosts.some((row) => {
-      const completed = row.checklist?.preflight ?? row.observation?.preflight;
+      const completed = completedHostCheck(row, row.checklist);
       return completed ? unknownSshKey(completed.ssh) : unknownHostKey(row.result);
     });
     if (cancelled() || !needsTrust) return state;
@@ -2296,10 +2327,13 @@ export class Hosts {
     }
     return { ...observation, repositories };
   }
-  private async origin(repository: string): Promise<string> {
+  private async origin(repository: string, signal = this.cancellation.signal): Promise<string> {
     try {
-      const { path } = await loginPath();
+      signal.throwIfAborted();
+      const { path } = await loginPath(signal);
+      signal.throwIfAborted();
       const { executable } = await resolveForgeExecutable(["git"], path);
+      signal.throwIfAborted();
       const result = await promisify(execFile)(
         executable,
         ["--no-optional-locks", "config", "--local", "--get", "remote.origin.url"],
@@ -2315,9 +2349,10 @@ export class Hosts {
             GIT_CONFIG_GLOBAL: devNull,
             GIT_CONFIG_NOSYSTEM: "1",
           },
-          signal: this.cancellation.signal,
+          signal,
         },
       );
+      signal.throwIfAborted();
       const origin = result.stdout.trim();
       if (!gitOrigin(origin)) throw new Error("Unsupported origin");
       this.repositoryOrigins.set(repository, origin);
