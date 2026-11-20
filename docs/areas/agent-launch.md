@@ -295,7 +295,9 @@ The explicit **Start agent** action in Settings › Hosts uses the human-owned
 local machine launch with ordinary defaults, hooks, environment and attention.
 Main selects the enabled, installed provider and builds a fixed brief with the
 registered SSH target, code folder and selected repositories' validated origins.
-It passes the brief as one initial-prompt argument through the provider manifest.
+Before dispatch, main runs a fresh strict SSH connection check in the
+registration's queue with multiplexing disabled. Only that check can authorize
+the local setup launch. Main passes the brief as one initial-prompt argument through the provider manifest.
 The agent uses the user's SSH client and credentials. Foom adds no credentials,
 forwarding, repository control grant or remote agent dependency. Foom never
 interprets the agent's output as setup instructions or observations.

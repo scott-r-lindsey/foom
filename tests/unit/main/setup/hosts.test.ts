@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registeredHosts } from "../../../../src/shared/registered-hosts";
 import type { RemoteInventoryResult, RemoteSessionInfo } from "../../../../src/shared/remote-host";
+import type { probeHostSsh } from "../../../../src/main/terminals/remote-bootstrap";
 import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 
 import {
@@ -76,6 +77,7 @@ const facts = {
 let hosts: Hosts;
 let repositories = [{ path: "/local/repo", name: "repo" }];
 const run = vi.fn<(host: string, request: HostManagement) => Promise<HostResult>>();
+const checkSetupSsh = vi.fn<typeof probeHostSsh>();
 beforeEach(() => {
   vi.clearAllMocks();
   settings = {
@@ -85,7 +87,8 @@ beforeEach(() => {
   repositories = [{ path: "/local/repo", name: "repo" }];
   run.mockReset().mockResolvedValue({ ok: true, facts });
   mock.execute.mockReset().mockResolvedValue({ stdout: "git@forge.test:me/repo.git\n" });
-  hosts = new Hosts(store, () => repositories, "0.1.0", run);
+  checkSetupSsh.mockReset().mockResolvedValue({ state: "pass" });
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, undefined, undefined, checkSetupSsh);
 });
 
 test("a setup brief uses registered origins and rechecks exactly once even on an immediate exit", async () => {
@@ -112,8 +115,9 @@ test("a setup brief uses registered origins and rechecks exactly once even on an
   const id = await spawned.promise;
   expect(hosts.setupAgentId("worker")).toBeUndefined();
   expect(run).not.toHaveBeenCalled();
-  await hosts.setupAgentExited(id, true);
+  const exiting = hosts.setupAgentExited(id, true);
   start.resolve(undefined);
+  await exiting;
   await expect(starting).resolves.toBe(id);
   expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
   expect(settings.registeredHosts[0]?.observation?.checkedAt).toBeGreaterThan(0);
@@ -123,7 +127,7 @@ test("a setup brief uses registered origins and rechecks exactly once even on an
   expect(run).toHaveBeenCalledTimes(calls);
 });
 
-test("setup refuses stale selections, untrusted keys and unsafe origins and releases failed starts", async () => {
+test("setup refuses stale selections and unsafe origins and releases failed starts", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   const input = {
     action: "setup-agent" as const,
@@ -148,41 +152,126 @@ test("setup refuses stale selections, untrusted keys and unsafe origins and rele
   expect(hosts.state().hosts[0]?.setupAgent).toEqual({ id, name: "Codex" });
   await hosts.setupAgentExited(id, false);
   expect(run).not.toHaveBeenCalled();
-
-  run.mockResolvedValueOnce({ ok: false, reason: "host-key-changed" });
-  await hosts.action({ action: "refresh", host: "worker" });
-  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Setup agent unavailable");
-  expect(launch).toHaveBeenCalledTimes(2);
 });
 
-test("new background SSH key failures fence setup even with a saved passing checklist", async () => {
+const changedKey = {
+  ok: false,
+  reason: "host-key-changed",
+  connection: {
+    ssh: { state: "fail", reason: "host-key-changed" },
+    platform: { state: "not-checked" },
+    artifact: { state: "not-checked" },
+  },
+} as const;
+
+test.each([true, false])(
+  "fresh SSH alone authorizes setup despite a saved result and late inventory (fresh passes: %s)",
+  async (connects) => {
+    settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+    const pass = { state: "pass" } as const;
+    const refusal = changedKey.connection.ssh;
+    if (connects) run.mockResolvedValueOnce(changedKey);
+    await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
+    expect(settings.registeredHosts[0]?.observation?.preflight.ssh).toEqual(
+      connects ? refusal : pass,
+    );
+
+    const reading = Promise.withResolvers<undefined>();
+    const stale = Promise.withResolvers<HostResult>();
+    run.mockImplementationOnce(() => {
+      reading.resolve(undefined);
+      return stale.promise;
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+    const older = hosts.inventory("worker");
+    now.mockRestore();
+    await reading.promise;
+
+    const probing = Promise.withResolvers<undefined>();
+    const fresh = Promise.withResolvers<Awaited<ReturnType<typeof probeHostSsh>>>();
+    checkSetupSsh.mockImplementationOnce(() => {
+      probing.resolve(undefined);
+      return fresh.promise;
+    });
+    const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
+    const starting = hosts.startSetupAgent(
+      { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
+      launch,
+    );
+    await probing.promise;
+    expect(checkSetupSsh).toHaveBeenCalledExactlyOnceWith("worker", expect.any(AbortSignal));
+    expect(launch).not.toHaveBeenCalled();
+
+    // The older attempt finishes while the new launch is waiting for its own SSH result.
+    stale.resolve(connects ? changedKey : { ok: true, facts });
+    await older;
+    const displayed = () => {
+      const row = hosts.state(undefined, true).hosts[0];
+      return row?.checklist?.preflight.ssh ?? row?.observation?.preflight.ssh;
+    };
+    expect(displayed()).toEqual(connects ? refusal : pass);
+    expect(launch).not.toHaveBeenCalled();
+
+    if (connects) {
+      fresh.resolve(pass);
+      await expect(starting).resolves.toBeTypeOf("string");
+      expect(launch).toHaveBeenCalledTimes(1);
+    } else {
+      const rejected = expect(starting).rejects.toThrow("Setup agent unavailable");
+      fresh.resolve(refusal);
+      await rejected;
+      expect(launch).not.toHaveBeenCalled();
+      expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
+    }
+    expect(displayed()).toEqual(refusal);
+  },
+);
+
+test("a launch SSH refusal remains visible and retries saving the completed row", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
-  expect(settings.registeredHosts[0]?.observation?.preflight.ssh.state).toBe("pass");
-  const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
-  try {
-    run.mockResolvedValueOnce({ ok: false, reason: "host-key-changed" });
-    expect(await hosts.inventory("worker")).toMatchObject({ reason: "host-key-changed" });
-  } finally {
-    now.mockRestore();
-  }
-  const input = {
-    action: "setup-agent" as const,
-    host: "worker",
-    agent: "codex",
-    repositories: ["/local/repo"],
-  };
-  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
-  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Setup agent unavailable");
-  expect(launch).not.toHaveBeenCalled();
-  expect(hosts.state().hosts[0]?.setupAgent).toBeUndefined();
-  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(true);
-  run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
-  expect(await hosts.inventory("worker")).toMatchObject({ reason: "unreachable" });
-  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(true);
-  await hosts.action({ action: "preflight", host: "worker", codeFolder: facts.codeFolder });
-  expect(hosts.state(undefined, true).hosts[0]?.setupKeyUntrusted).toBe(false);
-  await expect(hosts.startSetupAgent(input, launch)).resolves.toBeTypeOf("string");
+  const checkedAt = settings.registeredHosts[0]?.observation?.checkedAt;
+  checkSetupSsh.mockResolvedValueOnce(changedKey.connection.ssh);
+  store.update.mockRejectedValueOnce(new Error("fixture SSH row write failure"));
+  await expect(
+    hosts.startSetupAgent(
+      { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
+      () => Promise.reject(new Error("unexpected launch")),
+    ),
+  ).rejects.toThrow("Setup agent unavailable");
+  expect(hosts.state(undefined, true).hosts[0]?.checklist).toMatchObject({
+    preflight: { ssh: changedKey.connection.ssh },
+    saveFailed: true,
+  });
+  await hosts.action({ action: "list" });
+  expect(settings.registeredHosts[0]?.observation).toMatchObject({
+    checkedAt,
+    preflight: { ssh: changedKey.connection.ssh },
+  });
+  expect(hosts.state(undefined, true).hosts[0]?.checklist).toBeUndefined();
+  expect(checkSetupSsh).toHaveBeenCalledTimes(1);
+});
+
+test("a restored key reaches the checklist only when the repository checks finish", async () => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const input = { action: "preflight", host: "worker", codeFolder: facts.codeFolder } as const;
+  run.mockResolvedValueOnce(changedKey);
+  await hosts.action(input);
+  run.mockResolvedValueOnce({ ok: true, facts });
+  const checkingOrigin = Promise.withResolvers<undefined>();
+  const origin = Promise.withResolvers<HostResult>();
+  run.mockImplementationOnce(() => {
+    checkingOrigin.resolve(undefined);
+    return origin.promise;
+  });
+  const checking = hosts.action(input);
+  await checkingOrigin.promise;
+  const row = hosts.state(undefined, true).hosts[0];
+  expect(row?.checklist?.preflight.ssh ?? row?.observation?.preflight.ssh).toEqual(
+    changedKey.connection.ssh,
+  );
+  origin.resolve({ ok: true, facts });
+  await expect(checking).resolves.toMatchObject({ preflight: { ssh: { state: "pass" } } });
 });
 
 test("a replacement registration can start setup before the removed host's tile exits", async () => {
@@ -357,8 +446,6 @@ test("windows share the same serialized registration owner and production transp
     "0.1.0",
     expect.objectContaining({ type: "manage" }),
     expect.any(AbortSignal),
-    undefined,
-    undefined,
   );
   expect(new Hosts(store, () => repositories, "0.1.0").state().hosts).toHaveLength(1);
 });
@@ -1032,7 +1119,8 @@ test("a full check held on repository work cannot replace a newer SSH observatio
   await folderStarted.promise;
   const checking = hosts.action(check);
   await originStarted.promise;
-  const trusted = hosts.state().hosts[0]?.checklist?.preflight;
+  const priorRow = hosts.state().hosts[0];
+  const trusted = priorRow?.checklist?.preflight ?? priorRow?.observation?.preflight;
   folder.resolve({
     ok: false,
     reason: "host-key-changed",

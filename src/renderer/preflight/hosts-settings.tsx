@@ -1256,11 +1256,7 @@ export function HostsSettings({
         );
         const ssh = preflight?.ssh ?? (source.views ? undefined : entry.result?.connection?.ssh);
         const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
-        const untrusted =
-          entry.setupKeyUntrusted ??
-          (hostKeyUntrusted(ssh) ||
-            entry.factsRefreshFailure === "host-key-unknown" ||
-            entry.factsRefreshFailure === "host-key-changed");
+        const untrusted = hostKeyUntrusted(ssh);
         const controlsDisabled = resuming || busy.has(entry.host);
         if (source.hostTerminal) {
           for (const origin of recipes.values()) {

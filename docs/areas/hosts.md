@@ -1034,14 +1034,10 @@ Host capability checks and repository checkout controls continue to operate inde
 
 Each registered SSH host card offers **Set up with an agent…** beside its
 status, including while collapsed. The action is secondary on a Ready host
-and primary otherwise. The latest key evidence from host checks or background
-inventory hides the action when the SSH host key is unknown or changed.
-The strict SSH probe publishes the same connection outcome to the checklist
-and setup trust when it confirms authentication or classifies a key failure.
-A clean exit without the expected prelude keeps SSH connected and reports an
-invalid reply for the check. Management replies on a shared checklist stream
-retain that evidence without refreshing it. A running setup agent also hides
-the action.
+and primary otherwise. It is hidden while an agent is running or the SSH row
+shows an unknown or changed host key. The row and button use the same completed
+checklist snapshot, including saved results and completed SSH row reloads.
+Background inventory updates host facts independently of that snapshot.
 
 The dialog focuses the local Agent picker and preselects the configured default
 when it is enabled, installed and accepts an initial prompt. The user selects
@@ -1050,8 +1046,11 @@ Escape, Cancel and the backdrop dismiss the dialog. Enter in the filter keeps
 the dialog open. The requirements control
 and badges arrive with #1264.
 
-**Start agent** opens an ordinary local tile in the background and leaves
-Settings open. The card shows **Setting up · AGENT** while the invocation runs.
+**Start agent** queues one fresh, strict SSH connection check for the
+registration, with connection reuse disabled. Main opens the local tile only
+if that check connects. A failure updates the checklist's SSH row and the dialog
+shows **Unable to start setup agent**. The tile opens in the background and
+Settings stays open. The card shows **Setting up · AGENT** while the invocation runs.
 **Show agent** opens the tile on explicit request. Questions use the tile's
 ordinary **Needs you** state. Main permits one active setup invocation per registration
 across windows and performs a full capability check when that invocation exits,

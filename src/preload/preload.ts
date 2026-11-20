@@ -645,7 +645,6 @@ const validHostsState: Validator<HostsState> = shape({
           name: nonempty,
         }),
       ),
-      setupKeyUntrusted: either(absent, boolean),
       host: hostAlias,
       nickname: either(absent, hostNickname),
       codeFolder: hostRequestedFolder,

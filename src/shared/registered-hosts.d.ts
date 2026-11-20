@@ -167,7 +167,6 @@ export type HostKeyTrustFailure =
 
 export interface HostRow extends RegisteredHost {
   setupAgent?: { id: string; name: string };
-  setupKeyUntrusted?: boolean;
   checklist?: LiveHostChecklist;
   hostKeyTrustFailure?: HostKeyTrustFailure;
   /** Failure from the latest explicit facts refresh. */

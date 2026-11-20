@@ -596,10 +596,11 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
     /"repository":"shell-fixture","origin":"git@forge\.test:team\/project\.git"/u,
   );
   assert.doesNotMatch(brief, /docs-site|release-tools|ui-library/u);
-  assert.equal(
-    await readFile(calls, "utf8"),
-    beforeCalls,
-    "Launching the local agent makes no SSH request",
+  const launchCalls = (await readFile(calls, "utf8")).slice(beforeCalls.length).trim();
+  assert.deepEqual(
+    launchCalls.split("\n").map((line) => JSON.parse(line).message),
+    [{ type: "ssh" }],
+    "Launching the local agent uses one SSH probe without remote management",
   );
   const request = async (extra = {}) =>
     page.evaluate(async (extra) => {
@@ -657,19 +658,40 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
 
   await openSettingsScreen(page);
   await navigation.getByRole("button", { name: "Hosts", exact: true }).click();
+  const expand = card.getByRole("button", { name: "Expand fixture-cloud" });
+  if (await expand.isVisible()) await expand.click();
   const check = card.getByRole("button", { name: "Check capabilities", exact: true });
-  for (const [sshFailure, label] of [
-    ["changed", "Host key changed"],
-    ["unknown", "Host key not trusted"],
-  ]) {
-    await updateScenario({ sshFailure });
-    const expand = card.getByRole("button", { name: "Expand fixture-cloud" });
-    if (await expand.isVisible()) await expand.click();
-    await check.click();
-    await expect(card.getByText(label, { exact: true }).first()).toBeVisible();
-    await expect(action).toHaveCount(0);
-    await assert.rejects(request(), /foom-error:operation-failed/u);
-  }
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  await updateScenario({ sshFailure: "changed" });
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(action).toBeVisible();
+  await action.click();
+  await repo.check();
+  await start.click();
+  await expect(dialog.getByRole("alert")).toHaveText("Unable to start setup agent");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(action).toHaveCount(0);
+
+  const beforeRestored = (await readFile(calls, "utf8")).length;
+  await updateScenario({ hold: "repository" });
+  await check.click();
+  await expect
+    .poll(async () => (await readFile(calls, "utf8")).slice(beforeRestored))
+    .toMatch(/"operation":"repository".*"phase":"held"/u);
+  await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+  await expect(action).toHaveCount(0);
+  await updateScenario({});
+  await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+  await expect(action).toBeVisible();
+
+  await updateScenario({ sshFailure: "unknown" });
+  await check.click();
+  await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
+  await expect(action).toHaveCount(0);
+  await assert.rejects(request(), /foom-error:operation-failed/u);
 });
 
 test("first-use repository launch exposes each fixed clone failure and Settings has no clone control", {

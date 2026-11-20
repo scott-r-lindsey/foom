@@ -6,7 +6,6 @@ import type {
   HostResult,
   HostFailure,
   HostConnectionChecks,
-  HostCheck,
 } from "../../shared/registered-hosts.d";
 import {
   HOST_MANAGEMENT_TIMEOUT_MS,
@@ -101,7 +100,6 @@ export class RemoteTransport extends EventEmitter {
     private management?: HostManagement | RemoteInventory | ImagePut,
     private readonly output?: (text: string, startLine?: boolean) => void,
     private readonly checkConnection = false,
-    observeSsh?: (result: HostCheck) => void,
   ) {
     super();
     this.expectedVersion = expectedVersion;
@@ -135,7 +133,6 @@ export class RemoteTransport extends EventEmitter {
             this.probeChild = child;
           }
         : undefined,
-      observeSsh,
     )
       .then((artifact) => {
         if (this.closed) return;
@@ -942,7 +939,6 @@ export class RemoteCheckConnection {
     private readonly version: string,
     private readonly signal: AbortSignal,
     private readonly output?: (text: string, startLine?: boolean) => void,
-    private readonly observeSsh?: (result: HostCheck) => void,
   ) {
     this.signal.addEventListener("abort", this.abort, { once: true });
   }
@@ -965,8 +961,7 @@ export class RemoteCheckConnection {
     return new Promise((resolve, reject) => {
       const existing = this.transport;
       const transport =
-        existing ??
-        new RemoteTransport(this.target, this.version, request, this.output, true, this.observeSsh);
+        existing ?? new RemoteTransport(this.target, this.version, request, this.output, true);
       this.transport = transport;
       const failure = (): HostResult => ({
         ok: false,
@@ -1047,10 +1042,9 @@ export function remoteManagement(
   request: HostManagement,
   signal?: AbortSignal,
   output?: (text: string, startLine?: boolean) => void,
-  observeSsh?: (result: HostCheck) => void,
 ): Promise<HostResult> {
   return new Promise((resolve) => {
-    const transport = new RemoteTransport(target, version, request, output, false, observeSsh);
+    const transport = new RemoteTransport(target, version, request, output);
     const cancel = () => {
       transport.kill();
     };

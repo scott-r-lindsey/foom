@@ -23,7 +23,6 @@ import {
   hostResult,
   hostRequirements,
   hostNicknameError,
-  hostKeyUntrusted,
   originSshArgs,
 } from "../../shared/registered-hosts";
 import type {
@@ -54,8 +53,7 @@ import {
   remoteInventory,
   remoteManagement,
 } from "../terminals/remote-transport";
-import { remoteHostsAvailable } from "../terminals/remote-bootstrap";
-import { sshEnvironment } from "../terminals/remote-bootstrap";
+import { probeHostSsh, remoteHostsAvailable, sshEnvironment } from "../terminals/remote-bootstrap";
 
 /** Background inspections carry the same main-classified failure without a checklist. */
 function unknownHostKey(result: HostResult | undefined): boolean {
@@ -63,14 +61,6 @@ function unknownHostKey(result: HostResult | undefined): boolean {
   return ssh
     ? ssh.state === "fail" && ssh.reason === "host-key-unknown"
     : result?.ok === false && result.reason === "host-key-unknown";
-}
-
-function untrustedSetupKey(result: HostResult | undefined): boolean {
-  return (
-    hostKeyUntrusted(result?.connection?.ssh) ||
-    (result?.ok === false &&
-      (result.reason === "host-key-unknown" || result.reason === "host-key-changed"))
-  );
 }
 
 /** The same closed classification serves full checks and individual connection rows. */
@@ -200,23 +190,6 @@ export class Hosts {
     return id;
   }
 
-  private setupKeyUntrusted(host: RegisteredHost): boolean {
-    const preflight = this.checklists.get(host.host)?.preflight ?? host.observation?.preflight;
-    return (
-      this.setupSshTrust.get(host.host) ??
-      (hostKeyUntrusted(preflight?.ssh) || untrustedSetupKey(this.results.get(host.host)))
-    );
-  }
-
-  private recordSetupSshTrust(host: string, registration: symbol, ssh: HostCheck): void {
-    if (this.cancellation.signal.aborted || this.registrationIds.get(host) !== registration) return;
-    const untrusted = hostKeyUntrusted(ssh);
-    if (ssh.state !== "pass" && !untrusted) return;
-    if (this.setupSshTrust.get(host) === untrusted) return;
-    this.setupSshTrust.set(host, untrusted);
-    viewChanges.publish("hosts");
-  }
-
   setupAgentId(host: string): string | undefined {
     const run = this.setupAgents.get(host);
     return run?.started ? run.id : undefined;
@@ -227,23 +200,28 @@ export class Hosts {
     launch: (id: string, agent: string, prompt: string, validate: () => void) => Promise<void>,
   ): Promise<string> {
     const { host, agent, repositories } = input;
-    const registration = this.registered(host);
+    this.registered(host);
+    const registrationId = this.registrationId(host);
     const provider = agentProviders().find((provider) => provider.id === agent);
     if (!provider || this.setupAgents.has(host)) throw new Error("Setup agent unavailable");
     const run: HostSetupRun = { id: randomUUID(), name: provider.name, started: false };
-    const validate = () => {
-      const current = this.registered(host, registration.codeFolder);
-      if (
-        this.setupAgents.get(host) !== run ||
-        this.cancellation.signal.aborted ||
-        this.setupKeyUntrusted(current) ||
-        this.store.get().agents[agent] !== true ||
-        repositories.some((path) => !this.repositories().some((repo) => repo.path === path))
-      )
-        throw new Error("Setup agent unavailable");
-    };
     this.setupAgents.set(host, run);
-    try {
+    const work = Promise.allSettled([
+      this.pending,
+      this.hostPending.get(host) ?? Promise.resolve(),
+    ]).then(async () => {
+      const registration = this.registered(host);
+      const validate = () => {
+        this.registered(host, registration.codeFolder);
+        if (
+          this.setupAgents.get(host) !== run ||
+          this.registrationIds.get(host) !== registrationId ||
+          this.cancellation.signal.aborted ||
+          this.store.get().agents[agent] !== true ||
+          repositories.some((path) => !this.repositories().some((repo) => repo.path === path))
+        )
+          throw new Error("Setup agent unavailable");
+      };
       validate();
       let prompt = [
         "Prepare the registered SSH host below to build and test the selected repositories.",
@@ -260,10 +238,42 @@ export class Hosts {
         if (Buffer.byteLength(prompt) > 16384) throw new Error("Setup brief is too long");
       }
       validate();
+      const ssh = await this.checkSetupSsh(host, this.cancellation.signal);
+      validate();
+      if (ssh.state === "fail") {
+        const result = {
+          ok: false,
+          reason: ssh.reason,
+          connection: {
+            ssh,
+            platform: { state: "not-checked" },
+            artifact: { state: "not-checked" },
+          },
+        } satisfies HostResult;
+        this.results.set(host, result);
+        const target = { kind: "ssh" } as const;
+        try {
+          await this.applyRowCheck(host, registration, target, result);
+        } catch (error) {
+          if (error instanceof HostRowSaveFailed) {
+            const rows = this.queueRows(host, [target]);
+            const row = rows.get(JSON.stringify(target));
+            if (row) {
+              row.retry = error.retry;
+              row.reason = "save-failed";
+            }
+          }
+        }
+        throw new Error("Setup agent unavailable");
+      }
       await launch(run.id, agent, prompt, validate);
       run.started = true;
       viewChanges.publish("hosts");
       return run.id;
+    });
+    this.trackHostWork(host, work);
+    try {
+      return await work;
     } catch (error) {
       if (this.setupAgents.get(host) === run) this.setupAgents.delete(host);
       throw error;
@@ -779,12 +789,18 @@ export class Hosts {
     throw new Error("Invalid host copy");
   }
   private readonly results = new HostObservations<string, HostResult>();
-  // Setup authorization follows direct SSH evidence independently of display snapshots.
-  private readonly setupSshTrust = new Map<string, boolean>();
   /** Display-only resource replies never seed the launch inventory. */
   private readonly resourceResults = new HostObservations<string, HostResult>();
   private readonly progress = new Map<string, HostCheckProgress>();
   private readonly hostPending = new Map<string, Promise<unknown>>();
+  private trackHostWork(host: string, work: Promise<unknown>): void {
+    this.hostPending.set(host, work);
+    void work
+      .finally(() => {
+        if (this.hostPending.get(host) === work) this.hostPending.delete(host);
+      })
+      .catch(() => undefined);
+  }
   private checksRunning = 0;
   private readonly checkWaiters: (() => void)[] = [];
   private async enterCheck(): Promise<() => void> {
@@ -806,6 +822,7 @@ export class Hosts {
     private readonly execute?: (host: string, request: HostManagement) => Promise<HostResult>,
     private readonly profile?: string,
     private readonly buildSupport?: () => Promise<boolean>,
+    private readonly checkSetupSsh = probeHostSsh,
   ) {}
   private remoteHostsAvailable: boolean | undefined;
   private projectedResult(host: string, result = this.results.get(host)): HostResult | undefined {
@@ -946,7 +963,6 @@ export class Hosts {
         const setupAgent = this.setupAgents.get(host.host);
         return {
           ...host,
-          setupKeyUntrusted: this.setupKeyUntrusted(host),
           ...(setupAgent?.started
             ? { setupAgent: { id: setupAgent.id, name: setupAgent.name } }
             : {}),
@@ -1191,6 +1207,14 @@ export class Hosts {
         target,
       });
     }
+    return this.applyRowCheck(host, registration, target, result);
+  }
+  private async applyRowCheck(
+    host: string,
+    registration: RegisteredHost,
+    target: HostCheckTarget,
+    result: HostResult,
+  ): Promise<HostPreflight | undefined> {
     const previous = this.checklists.get(host)?.preflight ?? registration.observation?.preflight;
     const displayed = previous?.result ?? this.results.get(host);
     const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
@@ -1437,12 +1461,7 @@ export class Hosts {
         });
       });
       this.pending = work;
-      this.hostPending.set(host, work);
-      void work
-        .finally(() => {
-          if (this.hostPending.get(host) === work) this.hostPending.delete(host);
-        })
-        .catch(() => undefined);
+      this.trackHostWork(host, work);
       return work.then(async (accepted) => {
         const registration = this.registered(host);
         // Prior successes survive failed checks through lastAgents (#1061).
@@ -1685,20 +1704,12 @@ export class Hosts {
             repositories: this.repositories().map((repo) => ({ repository: repo.path })),
           });
           if (registration) this.hostKeyTrustFailures.delete(input.host);
-          const registrationId = registration ? this.registrationId(input.host) : undefined;
-          const host = input.host;
           const connection = this.execute
             ? undefined
             : new RemoteCheckConnection(
                 { host: input.host },
                 this.version,
                 this.cancellation.signal,
-                undefined,
-                registrationId === undefined
-                  ? undefined
-                  : (ssh) => {
-                      this.recordSetupSshTrust(host, registrationId, ssh);
-                    },
               );
           try {
             const preflight = await this.preflight(
@@ -1940,7 +1951,6 @@ export class Hosts {
           );
           this.setupAgents.delete(host.host);
           this.registrationIds.delete(host.host);
-          this.setupSshTrust.delete(host.host);
           this.locations = this.locations.filter((entry) => entry.host !== host.host);
           this.results.delete(host.host);
           this.checklists.delete(host.host);
@@ -2019,14 +2029,7 @@ export class Hosts {
         return state;
       })
       .finally(() => release?.());
-    if (host) {
-      this.hostPending.set(host, work);
-      void work
-        .finally(() => {
-          if (this.hostPending.get(host) === work) this.hostPending.delete(host);
-        })
-        .catch(() => undefined);
-    }
+    if (host) this.trackHostWork(host, work);
     if (!isCheck) this.pending = work;
     return work.then((state) => this.trustState(state, trustSignal));
   }
@@ -2058,9 +2061,6 @@ export class Hosts {
     } = {},
   ): Promise<HostResult> {
     const currentObservation = options.currentObservation ?? (() => true);
-    const registration = this.store.get().registeredHosts?.some((entry) => entry.host === host)
-      ? this.registrationId(host)
-      : undefined;
     const failed = (
       reason: HostFailure,
       step: "providers" | "connection" | "reply" | "configuration" | "cancellation",
@@ -2113,12 +2113,6 @@ export class Hosts {
                   this.version,
                   requestWithAgents,
                   this.cancellation.signal,
-                  undefined,
-                  registration === undefined
-                    ? undefined
-                    : (ssh) => {
-                        this.recordSetupSshTrust(host, registration, ssh);
-                      },
                 ));
       } catch {
         return cancelled()
@@ -2133,15 +2127,6 @@ export class Hosts {
           result.facts.codeFolder !== request.codeFolder)
       )
         return failed("invalid-reply", "reply");
-      // The injected executor models SSH and management as one observation.
-      if (this.execute && registration)
-        this.recordSetupSshTrust(
-          host,
-          registration,
-          untrustedSetupKey(result)
-            ? { state: "fail", reason: "host-key-changed" }
-            : connectionChecks(result).ssh,
-        );
       if (!result.ok)
         return {
           ...failed(result.reason, "connection"),
@@ -2219,7 +2204,6 @@ export class Hosts {
       sshRevision: observed ? this.nextSshRevision(previous) : (previous?.sshRevision ?? 0),
     };
     const repositories: HostPreflight["repositories"][number][] = [];
-    if (registration && observed) this.recordChecklist(host, { ...observation, repositories: [] });
     if (
       !result.ok ||
       connection.artifact.state !== "pass" ||

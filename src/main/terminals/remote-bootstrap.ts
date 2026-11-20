@@ -286,7 +286,7 @@ async function platformProbe(
   signal?: AbortSignal,
   output?: (text: string) => void,
   retain?: (child: ChildProcessWithoutNullStreams) => void,
-  observeSsh?: (result: HostCheck) => void,
+  freshConnection = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "foom-ssh-probe-"));
   const diagnostic = join(directory, "ssh.log");
@@ -319,7 +319,7 @@ async function platformProbe(
           "LogLevel=ERROR",
           "-o",
           "StrictHostKeyChecking=yes",
-          ...(retain || observeSsh
+          ...(retain || freshConnection
             ? ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
             : []),
           ...sshArguments(host),
@@ -402,10 +402,7 @@ async function platformProbe(
             if (failed) return;
             const lines = stdout.join("").split("\n");
             if (lines.length !== 5 || lines[3] !== "FOOM-PROBED") {
-              if (!invalid) {
-                invalid = true;
-                observeSsh?.({ state: "pass" });
-              }
+              invalid = true;
               fail();
               return;
             }
@@ -415,7 +412,6 @@ async function platformProbe(
             child.stdout.removeAllListeners("data");
             child.stderr.removeAllListeners("data");
             retain(child);
-            observeSsh?.({ state: "pass" });
             resolve({ stdout: `${lines[0] ?? ""}\n${lines[1] ?? ""}\n`, libc: lines[2] ?? "" });
           }
         }
@@ -436,28 +432,26 @@ async function platformProbe(
         clearInterval(monitor);
         clearTimeout(deadline);
         signal?.removeEventListener("abort", fail);
-        const connected = !lifetime.retained && (invalid || (!failed && code === 0));
-        // A bounded clean exit establishes SSH trust now, even if the command
-        // omitted the prelude. Later diagnostic I/O must not reorder it.
-        if (connected && !invalid) observeSsh?.({ state: "pass" });
         void (async () => {
           await cleanup;
+          const text =
+            failed || lifetime.retained
+              ? undefined
+              : await boundedFile(diagnostic, 16384).catch(() => undefined);
           if (lifetime.retained) {
             await dispose();
             return;
           }
-          if (connected) {
-            if (invalid || retain) reject(new InvalidRemoteProbe("Invalid check prelude"));
-            else resolve({ stdout: stdout.join("") });
-            return;
-          }
-          const text = failed
-            ? undefined
-            : await boundedFile(diagnostic, 16384).catch(() => undefined);
-          const reason = sshFailure(code === 255 ? text?.toString("utf8") : undefined);
-          observeSsh?.({ state: "fail", reason });
-          if (text) output?.(text.toString("utf8"));
-          reject(new SshConnectionFailure(reason));
+          if (invalid || (retain && !failed && code === 0)) {
+            reject(new InvalidRemoteProbe("Invalid check prelude"));
+          } else if (failed || code !== 0) {
+            if (text) output?.(text.toString("utf8"));
+            reject(
+              new SshConnectionFailure(
+                sshFailure(!failed && code === 255 ? text?.toString("utf8") : undefined),
+              ),
+            );
+          } else resolve({ stdout: stdout.join("") });
         })();
       });
       if (signal?.aborted) fail();
@@ -509,6 +503,22 @@ async function remoteHostSource(metadata: string): Promise<string | undefined> {
   return undefined;
 }
 
+/** Authorize setup with a standalone strict SSH probe, outside any multiplexed session. */
+export async function probeHostSsh(
+  host: string,
+  signal: AbortSignal,
+): Promise<Exclude<HostCheck, { state: "not-checked" }>> {
+  try {
+    await platformProbe(host, signal, undefined, undefined, true);
+    return { state: "pass" };
+  } catch (error) {
+    return {
+      state: "fail",
+      reason: error instanceof SshConnectionFailure ? error.failure : "unreachable",
+    };
+  }
+}
+
 export async function selectHostArtifact(
   target: RemoteTarget,
   expectedVersion: string,
@@ -521,7 +531,6 @@ export async function selectHostArtifact(
   observe?: (stage: keyof HostConnectionChecks, result: HostCheck) => void,
   output?: (text: string, startLine?: boolean) => void,
   retain?: (child: ChildProcessWithoutNullStreams) => void,
-  observeSsh?: (result: HostCheck) => void,
 ) {
   let missingArtifact = false;
   let expectedSource: string | undefined;
@@ -533,24 +542,21 @@ export async function selectHostArtifact(
     }
   }
   output?.("Connecting…\nPlatform\n", true);
-  let sshReported = false;
-  const reportSsh = (result: HostCheck) => {
-    sshReported = true;
-    observe?.("ssh", result);
-    observeSsh?.(result);
-  };
   const { stdout, libc: combinedLibc } = await platformProbe(
     target.host,
     signal,
     output,
     retain,
-    observeSsh || observe ? reportSsh : undefined,
   ).catch((error: unknown) => {
-    if (error instanceof InvalidRemoteProbe) throw error;
+    if (error instanceof InvalidRemoteProbe) {
+      observe?.("ssh", { state: "pass" });
+      throw error;
+    }
     const failure = error instanceof SshConnectionFailure ? error.failure : "unreachable";
-    if (!sshReported) reportSsh({ state: "fail", reason: failure });
+    observe?.("ssh", { state: "fail", reason: failure });
     throw new SshConnectionFailure(failure);
   });
+  observe?.("ssh", { state: "pass" });
   let remote: ReturnType<typeof remotePlatform>;
   try {
     remote = remotePlatform(stdout);
@@ -597,7 +603,7 @@ export async function selectHostArtifact(
                 : ("unreachable" as const);
           });
     if (libc === "unreachable") {
-      reportSsh({ state: "fail", reason: "unreachable" });
+      observe("ssh", { state: "fail", reason: "unreachable" });
       observe("platform", { state: "not-checked" });
       throw new LaunchFailure("remote_host_unreachable");
     }

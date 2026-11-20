@@ -1529,7 +1529,7 @@ test("row reload keeps other rows usable and does not run a full preflight", asy
   });
 });
 
-test("failed resource refresh reports its failure without replacing checklist results", async () => {
+test("a resource refresh key refusal leaves both the completed SSH row and setup action available", async () => {
   const { api } = await mount();
   api.mockResolvedValue(
     saved({
@@ -1537,15 +1537,16 @@ test("failed resource refresh reports its failure without replacing checklist re
       hosts: [
         {
           ...host,
-          result: { ok: false, reason: "unreachable" },
-          factsRefreshFailure: "unreachable",
+          result: { ok: false, reason: "host-key-changed" },
+          factsRefreshFailure: "host-key-changed",
         },
       ],
     }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Refresh facts" }));
-  await screen.findByText("Host unreachable");
+  await screen.findByText("Host key changed");
   expect(screen.getByText("Pass · Host key trusted")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Set up with an agent…" })).toBeTruthy();
   expect(api.mock.calls.some(([action]) => action.action === "preflight")).toBe(false);
 });
 
