@@ -123,12 +123,15 @@ reuses matching worktree observations and can look up a question's PR number
 when no tracked checkout covers it. It stops watching once no open question
 uses that PR. Until the head is known,
 the question shows Checking subject and submission is disabled. Once a
-different head is observed, the board latches Stale and removes the question
-from the count. A force-push back to the original head does not reopen a stale
+different head is observed, the board records that head, locks the options and
+removes the question from the count. The stepper shows the original and moved
+heads for stale questions, including changes observed while the question is saving. A force-push back to the original head does not reopen a stale
 question. An accepted answer retains the original full head. Submit checks
 every selected question and its subject in the serialized board write.
 An invalid, stale, withdrawn or previously answered selection refuses the whole
-batch. Same-key retries return the original receipt.
+batch. The review shows the 8,192-byte limit and disables Submit when the draft
+exceeds it. Same-key retries return the original receipt. Reading a board page
+acknowledges only queued wake notices for the answer posts on that page.
 
 The orchestrator can withdraw an open question post through `board_resolve` with
 its post ID. The thread stays open and previously submitted answers remain in
@@ -148,6 +151,7 @@ Previews bind to the posting checkout or repository. Main revalidates the
 current local checkout, runs the shared preview resolver and restricts the
 canonical preview root to that checkout. It loads the document in a sandboxed
 preview partition with network and JavaScript disabled and blocks navigation
-and popups. The board receives a bounded PNG capture. Missing, unsupported or
+and popups. Main queues overlapping captures within a fixed bound. The board
+receives a bounded PNG capture. Missing, unsupported or
 refused documents show Preview unavailable. The preview cannot receive input
 or use Board IPC.

@@ -1298,6 +1298,8 @@ const validMessageThread: Validator<MessageThread> = shape({
   createdAt: text,
   updatedAt: text,
 } satisfies Contract<MessageThread>);
+const validMovedHead: Validator<string> = (value): value is string =>
+  typeof value === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value);
 const validDecisionSubject = shape({
   pullRequest: count,
   headSha: text,
@@ -1318,6 +1320,7 @@ const validBoardDecision: Validator<BoardDecision> = shape({
   repository: text,
   question: validDecisionQuestion,
   status: literal("open", "checking", "stale", "withdrawn", "answered"),
+  movedHead: either(absent, validMovedHead),
   checks: either(absent, literal("success", "pending", "failure", "none", "unknown")),
 } satisfies Contract<BoardDecision>);
 const validBoardDecisions: Validator<BoardDecisions> = shape({
@@ -1359,6 +1362,7 @@ const validMessagePost: Validator<MessagePost> = shape({
   questions: either(absent, array(validDecisionQuestion)),
   withdrawn: either(absent, literal(true)),
   stale: either(absent, array(count)),
+  staleHeads: either(absent, dictionary(validMovedHead)),
   previewWorktree: either(absent, text),
   decisions: either(absent, array(validBoardDecision)),
   answers: either(absent, array(validDecisionAnswer)),

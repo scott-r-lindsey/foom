@@ -291,19 +291,30 @@ test("disable then re-enable during durable intent cannot revive the withdrawn q
 test("coalesces structured answers with child events without including decision contents", async () => {
   const f = setup();
   f.instance.configure(true, 1);
-  f.instance.event("p");
-  f.instance.read("p");
+  f.instance.boardEvent("p", "answer");
+  f.instance.boardRead("p", ["answer"]);
   await vi.advanceTimersByTimeAsync(0);
   expect(f.wake).not.toHaveBeenCalled();
-  f.instance.event("p");
+  f.instance.boardEvent("p", "answer");
   f.instance.event("p", "child");
   await vi.advanceTimersByTimeAsync(0);
   expect(f.wake.mock.calls[0]?.[1]).toBe(
     "Foom: child and board events. Call wait_for, read_handoff and board_read.",
   );
-  f.instance.event("p");
+  f.instance.boardEvent("p", "answer");
   await vi.advanceTimersByTimeAsync(60000);
   expect(f.wake.mock.calls.at(-1)?.[1]).toBe(
     "Foom: board decisions answered. Call wait_for and board_read.",
   );
+});
+
+test("keeps a board wake when the queue overflows even if individually tracked answers are read", async () => {
+  const f = setup();
+  f.instance.configure(true, 1);
+  const posts = Array.from({ length: 65 }, (_, index) => String(index));
+  for (const post of posts) f.instance.boardEvent("p", post);
+  f.instance.boardRead("p", posts);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.wake.mock.calls[0]?.[1]).toContain("board decisions answered");
+  expect(f.wake).toHaveBeenCalledOnce();
 });

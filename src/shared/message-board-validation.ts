@@ -70,20 +70,26 @@ export function boardLinks(value: unknown): string[] {
 }
 export const OPEN_DECISION_LIMIT = 16;
 
+export const DECISION_ANSWER_BYTE_LIMIT = 8192;
+
+export function decisionAnswerBytes(answers: readonly DecisionAnswer[]): number {
+  return new TextEncoder().encode(JSON.stringify(answers)).length;
+}
+
+export function decisionHead(value: unknown): string {
+  if (typeof value !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/iu.test(value))
+    throw new ControlError("invalid_request");
+  return value.toLowerCase();
+}
+
 export function decisionSubject(value: unknown): DecisionSubject {
   const row = object(value);
   exact(row, ["pullRequest", "headSha"]);
   const number = row["pullRequest"];
   const head = row["headSha"];
-  if (
-    typeof number !== "number" ||
-    !Number.isSafeInteger(number) ||
-    number < 1 ||
-    typeof head !== "string" ||
-    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/iu.test(head)
-  )
+  if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 1)
     throw new ControlError("invalid_request");
-  return { pullRequest: number, headSha: head.toLowerCase() };
+  return { pullRequest: number, headSha: decisionHead(head) };
 }
 
 export function boardQuestions(value: unknown): DecisionQuestion[] {
@@ -164,7 +170,7 @@ export function boardAnswers(value: unknown): BoardAnswerBatch {
   const answers = values.map(decisionAnswer);
   if (
     new Set(answers.map(({ post, index }) => `${post}:${String(index)}`)).size !== answers.length ||
-    new TextEncoder().encode(JSON.stringify(answers)).length > 8192
+    decisionAnswerBytes(answers) > DECISION_ANSWER_BYTE_LIMIT
   )
     throw new ControlError("invalid_request");
   return { answers, idempotencyKey: identifier(row["idempotencyKey"]) };

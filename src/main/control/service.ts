@@ -1,6 +1,6 @@
 import { roleGuidance } from "../../shared/control-guidance";
 import { boardPost, boardResolve } from "../../shared/message-board-validation";
-import type { MessageBoard } from "./message-board";
+import type { BoardAnswerNotice, MessageBoard } from "./message-board";
 import { launchReasons } from "../../shared/launch-failure";
 import { remoteChildControl } from "./remote-control";
 import { removalReasons } from "../workspace/worktree-outcome";
@@ -95,9 +95,9 @@ export class ControlService {
     );
   }
 
-  boardChanged(answeredRepositories?: readonly string[]): void {
+  boardChanged(answers?: readonly BoardAnswerNotice[]): void {
     this.orchestration?.childEvents?.publish();
-    if (answeredRepositories) this.orchestration?.boardAnswered?.(answeredRepositories);
+    if (answers) this.orchestration?.boardAnswered?.(answers);
   }
 
   childLimit(): number {
@@ -415,7 +415,8 @@ export class ControlService {
       if (method === "board_threads") return this.board.threads(params, repository);
       if (method === "board_read") {
         const page = this.board.read(params, repository);
-        if (page.posts.some(({ answers }) => answers)) this.orchestration?.boardAnswerRead?.(actor);
+        const answers = page.posts.flatMap(({ id, answers }) => (answers ? [id] : []));
+        if (answers.length) this.orchestration?.boardAnswerRead?.(actor, answers);
         return page;
       }
       const input = method === "board_post" ? boardPost(params) : boardResolve(params);

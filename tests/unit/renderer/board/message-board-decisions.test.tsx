@@ -187,12 +187,18 @@ it("updates watched rows in place and disables stale and withdrawn choices", asy
   await h.findByRole("img", { name: "Preview of file.html" });
   fireEvent.click(h.getByRole("radio", { name: /Yes/ }));
   fireEvent.click(h.getByText("Next"));
-  h.setRows([{ ...first, status: "stale" }]);
+  h.setRows([{ ...first, status: "stale", movedHead: "b".repeat(40) }]);
   await h.findByText("Withdrawn");
   expect(h.container.querySelector("s")?.textContent).toBe("Keep the draft?");
   expect(h.getByLabelText("Other answer").closest("fieldset")).toHaveProperty("disabled", true);
   fireEvent.click(h.getByText("Back"));
-  expect(h.getByText("Stale · PR head changed")).toBeTruthy();
+  expect(h.getByText("Head moved")).toBeTruthy();
+  expect(h.getByText("Answers disabled until main re-asks at the new head")).toBeTruthy();
+  expect(h.getByText("abcabcab").tagName).toBe("S");
+  expect(h.getByText(/→ bbbbbbbb/)).toBeTruthy();
+  const option = h.getByRole("radio", { name: /Yes/ });
+  expect(option.getAttribute("aria-disabled")).toBe("true");
+  expect(option).toHaveProperty("checked", false);
   expect(h.getByText("Next")).toHaveProperty("disabled", true);
   fireEvent.click(h.getByText("Skip"));
   fireEvent.click(h.getByText("Skip"));
@@ -201,4 +207,24 @@ it("updates watched rows in place and disables stale and withdrawn choices", asy
   expect(h.close).toHaveBeenCalledOnce();
   h.unmount();
   expect(h.off).toHaveBeenCalledOnce();
+});
+
+it("explains an oversized batch before submission and enables Submit after shortening it", async () => {
+  const h = setup();
+  await h.findByText("Preview unavailable");
+  fireEvent.change(h.getByLabelText("Other answer"), { target: { value: "a".repeat(4200) } });
+  fireEvent.click(h.getByText("Next"));
+  fireEvent.change(h.getByLabelText("Other answer"), { target: { value: "b".repeat(4200) } });
+  fireEvent.click(h.getByText("Next"));
+  const submit = h.getByText("Submit 2 answers");
+  expect(submit).toHaveProperty("disabled", true);
+  expect(h.getByRole("alert").textContent).toContain("8,192 bytes");
+  expect(h.answer).not.toHaveBeenCalled();
+  fireEvent.click(h.getByRole("button", { name: "Change Keep the draft?" }));
+  fireEvent.change(h.getByLabelText("Other answer"), { target: { value: "Shortened" } });
+  fireEvent.click(h.getByText("Next"));
+  fireEvent.click(h.getByText("Submit 2 answers"));
+  await waitFor(() => {
+    expect(h.answer).toHaveBeenCalledOnce();
+  });
 });

@@ -113,7 +113,7 @@ recorded with bounds and visible truncation markers. See the full
 
 Questions and answers are shared with the same repositories as their thread.
 The owning orchestrator may read the human's choice or free-text answer and its
-bound PR head. Use the Board for decisions that can be shared with those
+bound PR head. A stale question can include the observed replacement head. Use the Board for decisions that can be shared with those
 repositories and their model providers. Question and answer contents stay out
 of operation logs. Preview paths are untrusted board data. Preview file bytes
 stay in main's isolated preview partition and only a raster capture goes to the

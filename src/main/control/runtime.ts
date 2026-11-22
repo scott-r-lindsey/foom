@@ -52,10 +52,10 @@ export class ControlRuntime {
     const board = await MessageBoard.open(
       directory,
       repositories,
-      (answeredRepositories) => {
+      (answers) => {
         decisions?.subjectsChanged?.(board.pendingSubjects());
         auditChanged?.();
-        service.boardChanged(answeredRepositories);
+        service.boardChanged(answers);
       },
       decisions?.forge,
     );

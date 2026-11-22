@@ -22,6 +22,7 @@ import {
   boardQuestions,
   decisionAddress,
   decisionAnswer,
+  decisionHead,
   decisionSubject,
   boardLinks,
   boardPost,
@@ -51,6 +52,17 @@ function afterPost(state: ThreadState, post: MessagePost): ThreadState {
   if (post.kind === "decision-needed" || post.kind === "question" || state === "waiting-human")
     return "waiting-human";
   return post.kind === "request" ? "waiting-repo" : "open";
+}
+
+export interface BoardAnswerNotice {
+  repository: string;
+  post: string;
+}
+
+function recordStaleHeads(post: MessagePost, heads: Map<number, string>): void {
+  if (!heads.size) return;
+  post.stale = [...new Set([...(post.stale ?? []), ...heads.keys()])];
+  post.staleHeads = { ...post.staleHeads, ...Object.fromEntries(heads) };
 }
 
 interface Receipt {
@@ -101,20 +113,21 @@ const envelope = { untrusted: true, notice: BOARD_NOTICE } as const;
 export class MessageBoard {
   private data: Data = { version: 1, threads: [], posts: [], receipts: [] };
   private failed = false;
-  private readonly observedStale = new Map<string, Set<number>>();
+  private readonly observedStale = new Map<string, Map<number, string>>();
+  private savingQuestion: { post: MessagePost; heads: Map<number, string> } | undefined;
   private childWrites: Promise<unknown> = Promise.resolve();
   private writes: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly save: (data: unknown, beforeCommit?: () => void) => Promise<void>,
     private readonly repositories: () => BoardRepository[],
-    private readonly changed: (answeredRepositories?: readonly string[]) => void = () => {},
+    private readonly changed: (answers?: readonly BoardAnswerNotice[]) => void = () => {},
     private readonly limits = { bytes: LIMIT, receipts: 65536 },
     private readonly forge: DecisionForge = () => undefined,
   ) {}
   static async open(
     directory: string,
     repositories: () => BoardRepository[],
-    changed: (answeredRepositories?: readonly string[]) => void,
+    changed: (answers?: readonly BoardAnswerNotice[]) => void,
     forge?: DecisionForge,
   ): Promise<MessageBoard> {
     const board = new MessageBoard(
@@ -264,13 +277,15 @@ export class MessageBoard {
       const address = { post: post.id, index };
       const subject = question.subject;
       const current = subject && this.forge(repository, subject.pullRequest);
+      const mismatch =
+        subject && current && subject.headSha !== current.headSha ? current.headSha : undefined;
+      const movedHead =
+        mismatch ?? this.observedStale.get(post.id)?.get(index) ?? post.staleHeads?.[String(index)];
       const status = answered.has(addressKey(address))
         ? "answered"
         : post.withdrawn || thread.state === "resolved"
           ? "withdrawn"
-          : post.stale?.includes(index) ||
-              this.observedStale.get(post.id)?.has(index) ||
-              (subject && current && subject.headSha !== current.headSha)
+          : post.stale?.includes(index) || movedHead
             ? "stale"
             : subject && !current
               ? "checking"
@@ -280,6 +295,7 @@ export class MessageBoard {
         repository,
         question,
         status,
+        ...(status === "stale" && movedHead ? { movedHead } : {}),
         ...(current?.checks === undefined ? {} : { checks: current.checks }),
       };
     });
@@ -340,8 +356,20 @@ export class MessageBoard {
     return { ...preview, repository: post.author.slice(13), worktree: post.previewWorktree };
   }
 
+  private observeSavingQuestion(): void {
+    const pending = this.savingQuestion;
+    if (!pending) return;
+    const repository = pending.post.author.slice(13);
+    for (const [index, { subject }] of (pending.post.questions ?? []).entries()) {
+      if (!subject || pending.heads.has(index)) continue;
+      const current = this.forge(repository, subject.pullRequest);
+      if (current && current.headSha !== subject.headSha) pending.heads.set(index, current.headSha);
+    }
+  }
+
   /** Latch an observed head change immediately, then persist it through the board write queue. */
   observe(): void {
+    this.observeSavingQuestion();
     const answered = answeredPosts(this.data.posts);
     const threads = new Map(this.data.threads.map((thread) => [thread.id, thread]));
     let changed = false;
@@ -349,11 +377,12 @@ export class MessageBoard {
       const thread = threads.get(post.thread);
       if (!post.questions || !thread) continue;
       for (const row of this.project(post, thread, answered)) {
-        if (row.status !== "stale" || post.stale?.includes(row.index)) continue;
-        const indexes = this.observedStale.get(post.id) ?? new Set<number>();
-        if (indexes.has(row.index)) continue;
-        indexes.add(row.index);
-        this.observedStale.set(post.id, indexes);
+        if (row.status !== "stale" || !row.movedHead || post.staleHeads?.[String(row.index)])
+          continue;
+        const heads = this.observedStale.get(post.id) ?? new Map<number, string>();
+        if (heads.has(row.index)) continue;
+        heads.set(row.index, row.movedHead);
+        this.observedStale.set(post.id, heads);
         changed = true;
       }
     }
@@ -364,7 +393,7 @@ export class MessageBoard {
       const observed = structuredClone(this.observedStale);
       for (const post of next.posts) {
         const known = observed.get(post.id);
-        if (known) post.stale = [...new Set([...(post.stale ?? []), ...known])];
+        if (known) recordStaleHeads(post, known);
       }
       try {
         await this.save(next);
@@ -375,7 +404,7 @@ export class MessageBoard {
       this.data = next;
       for (const [id, indexes] of observed) {
         const pending = this.observedStale.get(id);
-        for (const index of indexes) pending?.delete(index);
+        for (const index of indexes.keys()) pending?.delete(index);
         if (!pending?.size) this.observedStale.delete(id);
       }
     });
@@ -385,7 +414,7 @@ export class MessageBoard {
 
   answer(value: unknown): Promise<BoardMutation> {
     const input = boardAnswers(value);
-    const repositories = new Set<string>();
+    const notices: BoardAnswerNotice[] = [];
     const requireOpen = () => {
       const answered = answeredPosts(this.data.posts);
       for (const { post, index } of input.answers) {
@@ -417,14 +446,13 @@ export class MessageBoard {
             ...(question.subject ? { subject: question.subject } : {}),
           });
           byQuestionPost.set(answer.post, batch);
-          repositories.add(post.author.slice(13));
         }
         const timestamp = new Date().toISOString();
         let result: BoardMutation | undefined;
         for (const [parent, answers] of byQuestionPost) {
           const question = data.posts.find((post) => post.id === parent);
           const thread = data.threads.find((thread) => thread.id === question?.thread);
-          if (!thread) throw new ControlError("not_found");
+          if (!question || !thread) throw new ControlError("not_found");
           const id = randomUUID();
           data.posts.push({
             id,
@@ -436,6 +464,7 @@ export class MessageBoard {
             timestamp,
             answers,
           });
+          notices.push({ repository: question.author.slice(13), post: id });
           thread.state = "waiting-repo";
           thread.updatedAt = timestamp;
           result ??= { thread: thread.id, post: id };
@@ -443,7 +472,7 @@ export class MessageBoard {
         if (!result) throw new ControlError("invalid_request");
         return result;
       },
-      { beforeCommit: requireOpen, answeredRepositories: repositories },
+      { beforeCommit: requireOpen, notices },
     );
   }
 
@@ -536,12 +565,8 @@ export class MessageBoard {
       const index = data.threads.findIndex((row) => row.id === thread.id);
       if (index < 0) data.threads.push(thread);
       else data.threads[index] = thread;
-      const stale = this.project(post, thread, new Set())
-        .filter(({ status }) => status === "stale")
-        .map(({ index }) => index);
-      if (stale.length) post.stale = stale;
       data.posts.push(post);
-      return { thread: thread.id, post: post.id };
+      return { thread: thread.id, post: post.id, ...(post.questions ? { question: post } : {}) };
     });
   }
   resolve(
@@ -693,8 +718,12 @@ export class MessageBoard {
         this.markRemoved(reserved, thread, "2000-01-01T00:00:00.000Z");
     }
     for (const post of reserved.posts) {
-      if (post.questions?.some(({ subject }) => subject))
-        post.stale = post.questions.flatMap(({ subject }, index) => (subject ? [index] : []));
+      if (post.questions) {
+        const heads = new Map<number, string>();
+        for (const [index, { subject }] of post.questions.entries())
+          if (subject) heads.set(index, "0".repeat(64));
+        recordStaleHeads(post, heads);
+      }
     }
     return Buffer.byteLength(JSON.stringify(reserved));
   }
@@ -733,8 +762,8 @@ export class MessageBoard {
     key: string,
     input: unknown,
     active: () => void,
-    change: (data: Data) => BoardMutation,
-    answerEffects?: { beforeCommit: () => void; answeredRepositories: Set<string> },
+    change: (data: Data) => BoardMutation & { question?: MessagePost },
+    answerEffects?: { beforeCommit: () => void; notices: BoardAnswerNotice[] },
   ): Promise<BoardMutation> {
     boardText(scope, 512);
     const fingerprint = hash(JSON.stringify(input));
@@ -750,7 +779,7 @@ export class MessageBoard {
       this.pruneData(next);
       if (next.receipts.length >= this.limits.receipts) throw new ControlError("capacity");
       answerEffects?.beforeCommit();
-      const result = change(next);
+      const { question, ...result } = change(next);
       next.receipts.push({ scope, key: hash(key), hash: fingerprint, result });
       if (this.reservedBytes(next) > this.limits.bytes) throw new ControlError("capacity");
       active();
@@ -765,17 +794,40 @@ export class MessageBoard {
             throw error;
           }
         });
+      const saving = question && { post: question, heads: new Map<number, string>() };
+      this.savingQuestion = saving;
       try {
-        await this.save(next, check);
+        if (saving) {
+          // A head can move while writing the snapshot or while syncing the rename.
+          // Retry with each newly latched head before publishing the question.
+          const retry = new Error("Decision head changed during save");
+          let saved: number;
+          this.observeSavingQuestion();
+          do {
+            recordStaleHeads(saving.post, saving.heads);
+            saved = saving.heads.size;
+            await this.save(next, () => {
+              this.observeSavingQuestion();
+              if (saved !== saving.heads.size) throw retry;
+            }).catch((error: unknown) => {
+              if (error !== retry) throw error;
+            });
+            this.observeSavingQuestion();
+          } while (saved !== saving.heads.size);
+        } else {
+          await this.save(next, check);
+        }
       } catch (error) {
         if (commit.refused) throw error;
         // A failed sync may follow a successful rename. Refuse further writes until
         // validated restart recovery, rather than overwriting an ambiguous append.
         this.failed = true;
         throw new ControlError("unavailable");
+      } finally {
+        this.savingQuestion = undefined;
       }
       this.data = next;
-      this.changed(answerEffects && [...answerEffects.answeredRepositories]);
+      this.changed(answerEffects?.notices);
       return { ...result };
     });
     this.writes = task.catch(() => undefined);
@@ -850,6 +902,7 @@ export function parseMessageBoard(value: unknown): Data {
       "questions",
       "withdrawn",
       "stale",
+      "staleHeads",
       "previewWorktree",
       "answers",
     ]);
@@ -860,6 +913,7 @@ export function parseMessageBoard(value: unknown): Data {
       (!question &&
         (row["withdrawn"] !== undefined ||
           row["stale"] !== undefined ||
+          row["staleHeads"] !== undefined ||
           row["previewWorktree"] !== undefined)) ||
       (row["withdrawn"] !== undefined && row["withdrawn"] !== true) ||
       (row["answers"] !== undefined && (kind !== "answer" || row["author"] !== "human"))
@@ -868,6 +922,22 @@ export function parseMessageBoard(value: unknown): Data {
     const questions = question ? boardQuestions(row["questions"]) : undefined;
     const stale: unknown = row["stale"];
     const staleIndexes = stale === undefined ? undefined : storedStale(stale, questions);
+    const staleHeads =
+      row["staleHeads"] === undefined
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(object(row["staleHeads"])).map(([index, value]) => {
+              const number = Number(index);
+              const head = decisionHead(value);
+              if (
+                String(number) !== index ||
+                !staleIndexes?.includes(number) ||
+                questions?.[number]?.subject?.headSha === head
+              )
+                throw new ControlError("unavailable");
+              return [index, head];
+            }),
+          );
     const answers = row["answers"] === undefined ? undefined : storedAnswers(row["answers"]);
     const author = boardAuthor(row["author"]);
     const thread = identifier(row["thread"]);
@@ -891,6 +961,7 @@ export function parseMessageBoard(value: unknown): Data {
       ...(questions === undefined ? {} : { questions }),
       ...(row["withdrawn"] === true ? { withdrawn: true } : {}),
       ...(staleIndexes === undefined ? {} : { stale: staleIndexes }),
+      ...(staleHeads === undefined ? {} : { staleHeads }),
       ...(row["previewWorktree"] === undefined
         ? {}
         : { previewWorktree: identifier(row["previewWorktree"]) }),

@@ -19,6 +19,7 @@ export interface BoardDecision extends DecisionAddress {
   repository: string;
   question: DecisionQuestion;
   status: DecisionStatus;
+  movedHead?: string;
   checks?: "success" | "pending" | "failure" | "none" | "unknown";
 }
 export interface BoardDecisions {
@@ -55,6 +56,7 @@ export interface MessagePost {
   questions?: DecisionQuestion[];
   withdrawn?: true;
   stale?: number[];
+  staleHeads?: Record<string, string>;
   previewWorktree?: string;
   decisions?: BoardDecision[];
   answers?: (DecisionAnswer & { subject?: DecisionSubject })[];

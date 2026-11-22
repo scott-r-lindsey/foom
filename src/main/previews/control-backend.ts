@@ -52,10 +52,9 @@ export function previewBackend(
 
 /** Only this raster leaves the preview partition. The board never embeds active content. */
 export function decisionPreview() {
-  let active = false;
-  return async (root: string, path: string): Promise<string | null> => {
-    if (active) return null;
-    active = true;
+  let pending = 0;
+  let queue = Promise.resolve();
+  const capture = async (root: string, path: string): Promise<string | null> => {
     try {
       const document = await resolveDocument(join(root, path), true);
       if (document.status !== 200 || document.root.path !== (await realpath(root))) return null;
@@ -106,8 +105,15 @@ export function decisionPreview() {
       }
     } catch {
       return null;
-    } finally {
-      active = false;
     }
+  };
+  return (root: string, path: string): Promise<string | null> => {
+    if (pending >= 16) return Promise.resolve(null);
+    pending++;
+    const result = queue.then(() => capture(root, path));
+    queue = result.then(() => {
+      pending--;
+    });
+    return result;
   };
 }

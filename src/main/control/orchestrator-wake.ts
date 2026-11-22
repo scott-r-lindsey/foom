@@ -5,6 +5,9 @@ import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 import type { OrchestrationHost } from "./orchestration.d";
 
+const BOARD_PREFIX = "board:";
+const MAX_PENDING_EVENTS = 64;
+
 /** Bounded per-parent event queue. Screens and authority are rechecked on every attempt. */
 export class OrchestratorWake {
   private enabled = false;
@@ -12,7 +15,7 @@ export class OrchestratorWake {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
   private readonly bindings = new Map<string, { actor: Principal; operations: Operations }>();
-  private readonly pending = new Map<string, Map<string | undefined, number>>();
+  private readonly pending = new Map<string, Map<string, number>>();
   private readonly attempted = new Map<string, number>();
   private readonly last = new Map<string, number>();
   private readonly busy = new Set<string>();
@@ -42,21 +45,38 @@ export class OrchestratorWake {
     this.bindings.set(actor.terminalId, { actor, operations });
     this.host.recheckWakes?.();
   }
-  event(parentId: string, childId?: string): void {
+  event(parentId: string, childId: string): void {
+    this.enqueue(parentId, childId);
+  }
+  boardEvent(parentId: string, post: string): void {
+    this.enqueue(parentId, BOARD_PREFIX + post);
+  }
+  private enqueue(parentId: string, key: string): void {
     if (!this.enabled || this.disposed) return;
     let queue = this.pending.get(parentId);
     if (!queue) {
       queue = new Map();
       this.pending.set(parentId, queue);
     }
-    queue.set(childId, (queue.get(childId) ?? 0) + 1);
+    // Collapse excess Board entries to one notice that clears only on delivery.
+    if (key.startsWith(BOARD_PREFIX) && queue.size >= MAX_PENDING_EVENTS && !queue.has(key))
+      key = BOARD_PREFIX;
+    queue.set(key, (queue.get(key) ?? 0) + 1);
     queueMicrotask(() => {
       this.sync();
     });
   }
-  read(parentId: string, childId?: string): void {
+  read(parentId: string, childId: string): void {
     this.pending.get(parentId)?.delete(childId);
     this.host.recheckWakes?.();
+  }
+  boardRead(parentId: string, posts: readonly string[]): void {
+    const queue = this.pending.get(parentId);
+    for (const post of posts) queue?.delete(BOARD_PREFIX + post);
+    this.host.recheckWakes?.();
+  }
+  private eligible(actor: Principal, key: string): boolean {
+    return this.valid(actor, key.startsWith(BOARD_PREFIX) ? undefined : key);
   }
   dispose(): void {
     this.disposed = true;
@@ -75,7 +95,7 @@ export class OrchestratorWake {
         this.pending.delete(id);
         continue;
       }
-      for (const child of queue.keys()) if (!this.valid(run.actor, child)) queue.delete(child);
+      for (const child of queue.keys()) if (!this.eligible(run.actor, child)) queue.delete(child);
       if (
         this.now() - (this.attempted.get(id) ?? -Infinity) < 2000 ||
         !queue.size ||
@@ -99,16 +119,16 @@ export class OrchestratorWake {
   }
   private async deliver(
     id: string,
-    queue: Map<string | undefined, number>,
+    queue: Map<string, number>,
     run: { actor: Principal; operations: Operations },
   ): Promise<void> {
     const { actor, operations } = run;
     const batch = [...queue];
     const rows = this.host.terminals();
     const names = batch.flatMap(([id]) =>
-      id === undefined ? [] : [rows.find((row) => row.id === id)?.branch ?? "child"],
+      id.startsWith(BOARD_PREFIX) ? [] : [rows.find((row) => row.id === id)?.branch ?? "child"],
     );
-    const line = wakeLine(names, queue.has(undefined));
+    const line = wakeLine(names, names.length !== batch.length);
     let operation: Operation | undefined;
     const valid = () =>
       !this.disposed &&
@@ -116,7 +136,7 @@ export class OrchestratorWake {
       this.pending.get(id) === queue &&
       this.bindings.get(id) === run &&
       this.valid(actor) &&
-      batch.some(([child, version]) => queue.get(child) === version && this.valid(actor, child));
+      batch.some(([child, version]) => queue.get(child) === version && this.eligible(actor, child));
     try {
       const result = await this.host.wake?.(id, line, valid, async () => {
         operation = await operations.begin(actor, "wake", randomUUID(), line, id);

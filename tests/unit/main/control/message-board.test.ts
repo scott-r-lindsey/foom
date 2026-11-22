@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile, chmod, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { MessageBoard } from "../../../../src/main/control/message-board";
+import { MessageBoard, parseMessageBoard } from "../../../../src/main/control/message-board";
 import { privateDirectory } from "../../../../src/node-common/private-files";
 import { mcpToolResponse } from "../../../../src/node-common/mcp-response";
 import {
@@ -735,7 +735,8 @@ it("rechecks the subject at atomic commit and cleanly refuses a head change duri
     answers: [{ post: original.post, index: 1, option: "go" }],
     idempotencyKey: "answer",
   });
-  expect(changed).toHaveBeenLastCalledWith(["a"]);
+  const recorded = board.read({ thread: original.thread }).posts.at(-1);
+  expect(changed).toHaveBeenLastCalledWith([{ repository: "a", post: recorded?.id }]);
 });
 
 it("binds a question preview to main's opaque checkout and rejects invalid lookup addresses", async () => {
@@ -783,3 +784,66 @@ it("remembers a stale head immediately even if its durable write is refused", as
     board.append("orchestrator:a", "grant", decisions([question], "later")),
   ).rejects.toThrow("unavailable");
 });
+
+it.each([false, true])(
+  "latches head changes while saving (commit reached: %s)",
+  async (committed) => {
+    const a = "a".repeat(40);
+    let headSha = a;
+    let newest: unknown;
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const save = vi.fn(async (value: unknown, beforeCommit?: () => void) => {
+      const snapshot = structuredClone(value);
+      if (committed) {
+        beforeCommit?.();
+        newest = snapshot;
+      }
+      entered.resolve(undefined);
+      await release.promise;
+      if (!committed) {
+        beforeCommit?.();
+        newest = snapshot;
+      }
+    });
+    const board = new MessageBoard(save, repos, undefined, undefined, () => ({ headSha }));
+    const posting = board.append(
+      "orchestrator:a",
+      "grant",
+      decisions([{ ...question, subject: { pullRequest: 3, headSha: a } }]),
+    );
+    await entered.promise;
+    headSha = "b".repeat(40);
+    board.observe();
+    headSha = a;
+    board.observe();
+    release.resolve(undefined);
+    const result = await posting;
+    expect(board.read({ thread: result.thread }).posts[0]?.decisions?.[0]).toMatchObject({
+      status: "stale",
+      movedHead: "b".repeat(40),
+    });
+    await expect(
+      board.answer({
+        answers: [{ post: result.post, index: 0, option: "go" }],
+        idempotencyKey: "no-reopen",
+      }),
+    ).rejects.toThrow("conflict");
+    await board.flush();
+    const stored = parseMessageBoard(newest);
+    expect(stored.posts[0]).toMatchObject({
+      stale: [0],
+      staleHeads: { "0": "b".repeat(40) },
+    });
+    for (const staleHeads of [{ "0": a }, { "1": "b".repeat(40) }]) {
+      expect(() =>
+        parseMessageBoard({
+          ...stored,
+          posts: stored.posts.map((post) => ({ ...post, staleHeads })),
+        }),
+      ).toThrow("unavailable");
+    }
+    await board.append("orchestrator:a", "grant", decisions([question], "after"));
+    expect(parseMessageBoard(newest).posts.at(-1)?.questions).toEqual([question]);
+  },
+);

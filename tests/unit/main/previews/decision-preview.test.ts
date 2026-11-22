@@ -50,7 +50,6 @@ it("captures a contained read-only preview and releases the native window and pr
     });
     const render = decisionPreview();
     const rendering = render(root, "preview.html");
-    expect(await render(root, "preview.html")).toBeNull();
     expect(await rendering).toBe("data:image/png;base64,AA==");
     expect(capture.options.mock.lastCall?.[0]).toMatchObject({
       show: false,
@@ -85,6 +84,37 @@ it("captures a contained read-only preview and releases the native window and pr
     expect(await render(root, "preview.html")).toBeNull();
     expect(capture.destroy).toHaveBeenCalledTimes(5);
     expect(capture.unhandle).toHaveBeenCalledTimes(5);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("waits for a busy capture before rendering the next valid document", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-decision-preview-"));
+  try {
+    await writeFile(join(root, "first.html"), "<p>First</p>");
+    await writeFile(join(root, "second.html"), "<p>Second</p>");
+    const inLoad = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    capture.load.mockResolvedValue(undefined).mockImplementationOnce(() => {
+      inLoad.resolve(undefined);
+      return release.promise;
+    });
+    capture.page.mockResolvedValue({
+      isEmpty: () => false,
+      toDataURL: () => "data:image/png;base64,AA==",
+    });
+    const render = decisionPreview();
+    const first = render(root, "first.html");
+    await inLoad.promise;
+    const second = render(root, "second.html");
+    const others = Array.from({ length: 14 }, () => render(root, "second.html"));
+    await expect(render(root, "second.html")).resolves.toBeNull();
+    release.resolve(undefined);
+    await expect(first).resolves.toMatch(/^data:image\/png/);
+    await expect(second).resolves.toMatch(/^data:image\/png/);
+    await Promise.all(others);
+    expect(capture.load.mock.lastCall?.[0]).toMatch(/\/second.html$/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

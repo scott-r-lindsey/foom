@@ -508,6 +508,28 @@ process.stdout.write("FOOM_AGENT_READY`,
     for (const base of ["light", "dark"]) {
       await theme(base);
       await expect(pill(3)).toBeVisible();
+      const colors = await pill(3).evaluate((button) => {
+        button.blur();
+        const reference = document.createElement("span");
+        reference.style.borderColor = "var(--attention)";
+        reference.style.boxShadow =
+          "0 0 0 3px color-mix(in srgb, var(--attention) 20%, transparent)";
+        button.after(reference);
+        const expected = getComputedStyle(reference);
+        const actual = getComputedStyle(button);
+        const result = {
+          actual: [actual.borderTopColor, actual.boxShadow],
+          expected: [expected.borderTopColor, expected.boxShadow],
+        };
+        reference.remove();
+        return result;
+      });
+      assert.deepEqual(
+        colors.actual,
+        colors.expected,
+        `${base} pill uses the amber border and halo`,
+      );
+      await expect(pill(3)).not.toBeFocused();
       await screenshot("pill", base);
       await pill(3).click();
       await expect(pill(3)).toBeHidden();
@@ -603,12 +625,24 @@ process.stdout.write("FOOM_AGENT_READY`,
       await window.desktop.saveSetup({ showPullRequests: false });
       await window.desktop.saveSetup({ showPullRequests: true });
     });
-    await expect(dialog.getByText("Stale · PR head changed")).toBeVisible({
+    await expect(dialog.getByText("Head moved", { exact: true })).toBeVisible({
       timeout: deadline(20000),
     });
-    await expect(dialog.getByRole("radio").first()).toBeDisabled();
+    await expect(
+      dialog.getByText("Answers disabled until main re-asks at the new head"),
+    ).toBeVisible();
+    await expect(dialog.locator(".decision-badge s")).toHaveText("aaaaaaaa");
+    await expect(dialog.locator(".decision-badge code")).toContainText("→ bbbbbbbb");
+    for (const option of await dialog.getByRole("radio").all()) {
+      await expect(option).toHaveAttribute("aria-disabled", "true");
+      await expect(option).toBeDisabled();
+      await expect(option).not.toBeChecked();
+    }
+    await expect(dialog.getByLabel("Other answer")).toHaveAttribute("aria-disabled", "true");
     await expect(dialog.getByRole("button", { name: "Next" })).toBeDisabled();
-    assert.equal((await board()).posts.at(-1).decisions[0].status, "stale");
+    const stale = (await board()).posts.at(-1).decisions[0];
+    assert.equal(stale.status, "stale");
+    assert.equal(stale.movedHead, "b".repeat(40));
     for (const base of ["light", "dark"]) {
       await theme(base);
       await screenshot("stale", base);

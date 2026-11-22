@@ -2327,6 +2327,19 @@ test("projects decision facts and accepts only a bounded PNG preview response", 
   mock.invoke.mockResolvedValueOnce(result);
   const read = await api.decisions({ repository: "repo", watch: [] });
   expect(read.questions[0]?.question.options[0]).toEqual({ id: "go", label: "Go" });
+  const movedHead = "b".repeat(40);
+  const withHead = (head: string) => ({
+    ...result,
+    questions: result.questions.map((question) => ({
+      ...question,
+      status: "stale",
+      movedHead: head,
+    })),
+  });
+  mock.invoke.mockResolvedValueOnce(withHead(movedHead));
+  expect((await api.decisions({ watch: [address] })).questions[0]?.movedHead).toBe(movedHead);
+  mock.invoke.mockResolvedValueOnce(withHead("<script>"));
+  await expect(api.decisions({ watch: [address] })).rejects.toThrow();
   mock.invoke.mockResolvedValueOnce({ thread: "t", post: "p" });
   const answer = { answers: [{ ...address, option: "go" }], idempotencyKey: "key" };
   expect(await api.answer(answer)).toEqual({ thread: "t", post: "p" });

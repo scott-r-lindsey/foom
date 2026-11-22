@@ -207,6 +207,11 @@
   font-weight: 600;
 }
 
+.decision-pill:focus-visible {
+  outline: 2px solid var(--attention-ink);
+  outline-offset: 5px;
+}
+
 .decision-pill[hidden] {
   display: none;
 }
@@ -309,6 +314,7 @@
 
 .decisions-body p,
 .decision-position,
+.decision-subject [role="status"],
 .decision-options small,
 .decision-preview figcaption {
   color: var(--muted);
@@ -338,6 +344,11 @@
 .decision-badge code {
   background: var(--badge-fill);
   color: var(--badge-ink);
+}
+
+.decision-subject[data-status="stale"] .decision-badge :is(span, code) {
+  background: var(--bg);
+  color: var(--muted);
 }
 
 .decision-subject [data-checks="success"] {
@@ -410,8 +421,18 @@
   overflow-wrap: anywhere;
 }
 
-.decision-option:has(:checked),
-.decision-other:has([data-selected="true"]) {
+.decision-options:disabled :is(.decision-option, input),
+.decision-options:disabled input::placeholder {
+  color: var(--muted);
+  cursor: default;
+}
+
+.decision-options:disabled .decision-option {
+  background: var(--surface);
+}
+
+.decision-options:not(:disabled) .decision-option:has(:checked),
+.decision-options:not(:disabled) .decision-other:has([data-selected="true"]) {
   border-color: var(--highlight);
 }
 

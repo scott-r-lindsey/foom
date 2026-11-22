@@ -7,7 +7,12 @@ import type {
   DecisionChoice,
   MessageBoardApi,
 } from "../../shared/message-board";
-import { boardAnswers, boardText } from "../../shared/message-board-validation";
+import {
+  DECISION_ANSWER_BYTE_LIMIT,
+  boardAnswers,
+  boardText,
+  decisionAnswerBytes,
+} from "../../shared/message-board-validation";
 
 export function decisionLabel(count: number): string {
   return `${String(count)} ${count === 1 ? "decision" : "decisions"}`;
@@ -146,33 +151,52 @@ function QuestionPage({
 }) {
   const groupId = useId();
   const titleId = useId();
-  const { question, status, checks } = row;
+  const { question, status, checks, movedHead } = row;
+  const locked = status !== "open";
   return (
     <>
       {(question.subject || status !== "open") && (
-        <div className="decision-subject">
+        <div className="decision-subject" data-status={status}>
           {question.subject && (
             <span className="decision-badge">
               <span>PR #{question.subject.pullRequest}</span>
-              <code>{question.subject.headSha.slice(0, 8)}</code>
+              <code>
+                {status === "stale" ? (
+                  <>
+                    <s>{question.subject.headSha.slice(0, 8)}</s>
+                    {movedHead && <> → {movedHead.slice(0, 8)}</>}
+                  </>
+                ) : (
+                  question.subject.headSha.slice(0, 8)
+                )}
+              </code>
             </span>
           )}
           {checks && status === "open" && <span data-checks={checks}>{checksText[checks]}</span>}
-          {status !== "open" && <span role="status">{statusText[status]}</span>}
+          {locked && (
+            <span role="status">{status === "stale" ? "Head moved" : statusText[status]}</span>
+          )}
         </div>
       )}
       <h3 id={titleId}>{status === "withdrawn" ? <s>{question.title}</s> : question.title}</h3>
       {question.detail && <p>{question.detail}</p>}
+      {status === "stale" && <p>Answers disabled until main re-asks at the new head</p>}
       {preview && question.preview && status !== "withdrawn" && (
         <DecisionPreview row={row} preview={preview} />
       )}
-      <fieldset className="decision-options" disabled={status !== "open"} aria-labelledby={titleId}>
+      <fieldset
+        className="decision-options"
+        disabled={locked}
+        aria-disabled={locked}
+        aria-labelledby={titleId}
+      >
         {question.options.map(({ id, label, hint }) => (
           <label key={id} className="decision-option">
             <input
               type="radio"
               name={groupId}
-              checked={choice?.option === id}
+              checked={!locked && choice?.option === id}
+              aria-disabled={locked}
               onChange={() => {
                 choose({ option: id });
               }}
@@ -184,15 +208,16 @@ function QuestionPage({
           </label>
         ))}
         <label className="decision-option decision-other">
-          <span aria-hidden="true" data-selected={choice?.other !== undefined}>
+          <span aria-hidden="true" data-selected={!locked && choice?.other !== undefined}>
             ◯
           </span>
           <input
             type="text"
             aria-label="Other answer"
+            aria-disabled={locked}
             placeholder="Other…"
             maxLength={8192}
-            value={choice?.other ?? ""}
+            value={locked ? "" : (choice?.other ?? "")}
             onChange={(event) => {
               choose({ other: event.target.value });
             }}
@@ -286,12 +311,13 @@ export function DecisionsDialog({
     const picked = choices[decisionKey({ post, index })];
     return status === "open" && picked && usableChoice(picked) ? [{ post, index, ...picked }] : [];
   });
+  const oversized = decisionAnswerBytes(answers) > DECISION_ANSWER_BYTE_LIMIT;
   const move = (next: number) => {
     setError("");
     setStep(next);
   };
   const submit = async () => {
-    if (!api.answer || busy || !answers.length) return;
+    if (!api.answer || busy || !answers.length || oversized) return;
     const fingerprint = JSON.stringify(answers);
     const key =
       pendingRef.current?.fingerprint === fingerprint
@@ -396,6 +422,12 @@ export function DecisionsDialog({
                   );
                 })}
               </ol>
+              {oversized && (
+                <p role="alert">
+                  Answers exceed the 8,192 bytes allowed per submission. Shorten an Other answer or
+                  skip a question.
+                </p>
+              )}
             </>
           )}
           {error && <p role="alert">{error}</p>}
@@ -439,7 +471,7 @@ export function DecisionsDialog({
             <button
               type="button"
               className="decision-primary"
-              disabled={busy || !answers.length}
+              disabled={busy || !answers.length || oversized}
               onClick={() => {
                 void submit();
               }}
