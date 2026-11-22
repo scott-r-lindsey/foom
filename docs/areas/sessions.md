@@ -31,37 +31,37 @@ state belong to ExecutionOwner. Terminal hosts own live PTYs.
 
 ### Startup and quit (#1284)
 
-- **Queued.** A saved row enters the inventory dormant. The board can open on
-  its verified Settings baseline when the shared Settings lock is busy.
-  Startup waits for Settings attachment and the profile's daemon inventory
-  before dispatching restores. Settings attachment retries under the shared
-  lock, and the restore plan uses the settings and row claims current at dispatch.
-- **Claimed.** Each row has one generation for its current owner. Resume,
-  New conversation, Restart, Close and explicit metadata removal replace a
-  queued startup claim before they start asynchronous work. Saved metadata
-  survives a failed operation. Removal or same-ID replacement commits the
-  metadata change. Startup rechecks
-  its claim and the dormant row before launching. Close checks both saved child
-  links and hydrated roles. Daemon discovery uses its
-  starting generation and cannot recreate a row claimed or closed since it began.
-- **Starting.** The startup claim protects launch preparation and settlement.
-  Launch adapters check it before dispatching a PTY and before publishing the
-  result. Parent records combine pending saved worktrees with current live
-  ownership. Validation settles each saved worktree and transfers it to the
-  live owner if its identity matches. Pending unused checkouts count against
-  creation capacity while validation runs. Parents restore saved child relationships as exited. The child
-  consumes a live slot at dispatch and releases it if launch fails. Pending
-  intent can keep a tile reserved, but quit inventories the terminal host.
-- **Paused for quit.** Main stops new dispatch and shows **Stopping…** while
-  it waits up to 750 ms for pending startup work. If preparation reaches
-  dispatch while paused, its reservation is released and it retries after Cancel.
-  Cancel resumes the same startup pass and makes queued dormant rows available
-  for manual claims. Confirm freezes and flushes the session file before
-  shutdown. Config disposal cancels an outstanding Settings attachment and
-  releases its shared lock. The saved running flag retains the next-start intent for queued
-  and in-flight startup rows. Shutdown exits cannot overwrite that snapshot.
-  After stopping the PTYs, main releases agent, control and hook services and
-  drains outstanding session writes.
+| Row state and next event | Owner | Commit to `sessions.json` | Confirm quit | Cancel quit | Generation change | Failure |
+| --- | --- | --- | --- | --- | --- | --- |
+| Queued → preparation or manual claim | Startup plan | Import or discovery adds a validated row. Taking a claim leaves the record intact. | Keep saved running intent and links. | Resume the queue. | Use the new claim and discard older discovery. | Leave the row dormant. |
+| Claimed by startup → dispatch | Startup attempt | Preparation does not change running intent. | Keep the saved record. | Retry preparation interrupted by quit. | Discard the stale result. | Quit interruption retries. An ordinary launch failure settles the row dormant. |
+| Claimed by manual operation → replacement, cleanup or rollback | That operation | A published replacement or completed removal changes saved metadata. | Keep the last committed record. | Continue the operation or resume its returned claim. | Discard work tied to the previous claim. | Return an eligible dormant row to startup with its saved links. |
+| Launching → live | Dispatching claim | Publish the accepted PTY under the current claim. | Save published state or the previous saved intent. | An already dispatched launch can finish. Retry a launch interrupted before dispatch. | Reject the stale launch result. | Release the running slot if launch fails. |
+| Live → exit or cleanup | Live terminal and authority | Accept a current exit, role or ownership change. | Freeze before shutdown exits. | Keep live state and continue hydration. | Reject stale updates. | Keep the last committed ownership. |
+| Closing or forgetting → removed or rollback | Cleanup claim | Close saves its recovery marker before destructive cleanup. Forget completes the final host check before submitting deletion. | Keep uncommitted Forget rows and committed Close recovery markers. | Continue cleanup or resume the returned claim. | Refuse stale cleanup results. | Keep the record and links. An interrupted Close retains its recovery marker. |
+| Quit pending → confirm or cancel | Quit gate over the existing row owner | Confirm freezes and flushes the committed projection. Cancel reopens dispatch. | Preserve saved intent and links for unfinished work. | Resume interrupted attempts and queued rows. | Confirm fences outstanding results. | A quit-induced decline is retryable after Cancel. |
+
+Snapshots use committed state, including recovery markers and published live ownership.
+A failed manual operation hands an eligible row back to startup with its saved links.
+Startup revalidates those links under the returned claim before it launches or hydrates the row.
+Settings installs its watchers after folder initialization and marks a successful attachment
+ready regardless of which attempt succeeds.
+
+The board can open on its verified Settings baseline while startup waits for
+Settings attachment and the profile's daemon inventory. Resume, New conversation,
+Restart, Close and Forget each take a row claim before committing session changes.
+Close checks saved child links and hydrated roles. Discovery cannot recreate rows
+claimed or closed since it started.
+
+Parent records combine pending saved worktrees with live ownership. A validation
+commit transfers each matching saved worktree to the live owner. Pending unused
+checkouts count against creation capacity. Child links hydrate as exited and a
+child consumes a live slot at dispatch.
+
+Quit inventories the terminal host and shows **Stopping…** during a wait of up to
+750 ms for pending startup work. Config disposal cancels any outstanding Settings
+attachment and releases its shared lock. After stopping the PTYs, main releases
+agent, control and hook services and drains outstanding session writes.
 
 Main writes ordered, atomic replacements of private `sessions.json` in the active
 profile through `SessionStore`. It stores terminal ID, agent, registered repository, worktree, branch and

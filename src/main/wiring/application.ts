@@ -477,10 +477,10 @@ export function runApplication() {
         if (!accepted) return;
       }
       decide?.(true);
+      await workspace.prepareQuit();
       await saveWindows().catch((error: unknown) => {
         console.error("Unable to save windows:", error);
       });
-      await workspace.prepareQuit();
       const boards = [...windows.values()];
       const settingsStops = boards.flatMap(({ settingsStop }) =>
         settingsStop ? [settingsStop] : [],

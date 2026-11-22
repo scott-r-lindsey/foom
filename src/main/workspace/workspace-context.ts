@@ -846,16 +846,11 @@ export class WorkspaceContext {
     validate();
     if (!(await unavailable())) throw new ApplicationError("session-busy");
     validate();
-    const release = this.sessions.claim(id);
-    try {
-      await this.sessions.forget(id, async () => {
-        validate(true);
-        if (!(await unavailable())) throw new ApplicationError("session-busy");
-        validate(true);
-      });
-    } finally {
-      release();
-    }
+    await this.sessions.forget(id, async () => {
+      validate(true);
+      if (!(await unavailable())) throw new ApplicationError("session-busy");
+      validate(true);
+    });
   }
 
   /** Publish acceptance before filesystem or SSH work, retaining the session until settlement. */

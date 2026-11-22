@@ -440,3 +440,24 @@ test.each(["cancel", "failure"] as const)(
     expect(await readdir(f.folder)).not.toContain(lockName);
   },
 );
+
+test.each(["initial", "retry"] as const)(
+  "Settings is available and watched when the %s attachment succeeds",
+  async (success) => {
+    const f = await fixture();
+    const attach = vi.fn(async () => {});
+    if (success === "retry") attach.mockRejectedValueOnce(new Error("Profile temporarily busy"));
+    await expect(f.service.initialize(undefined, attach)).resolves.toBeDefined();
+    await expect(f.service.finishSettingsStartup(attach, () => true)).resolves.toBe(true);
+    expect(f.service.ready).toBe(true);
+    expect(f.service.status()).toMatchObject({ available: true });
+    expect(f.service.status()).not.toHaveProperty("error");
+    expect(attach).toHaveBeenCalledTimes(success === "initial" ? 1 : 2);
+    await f.settings({ interfaceScale: 120 });
+    expect(f.listeners).toHaveLength(5);
+    f.listeners[0]?.("settings.json");
+    await vi.waitFor(() => {
+      expect(f.applied.at(-1)).toEqual({ interfaceScale: 120 });
+    });
+  },
+);

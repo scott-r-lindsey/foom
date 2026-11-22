@@ -44,7 +44,9 @@ function fixture(entries: StoredSession[] = []) {
     exited: vi.fn(),
     relaunched: vi.fn(),
     reserve: vi.fn<SessionOwnerDependencies["orchestration"]["reserve"]>(() => ({ bind, release })),
-    restoreChild: vi.fn((_parent: string, _entry: WorkspaceTerminal) => Promise.resolve(true)),
+    restoreChild: vi.fn<SessionOwnerDependencies["orchestration"]["restoreChild"]>(() =>
+      Promise.resolve(true),
+    ),
     restoreHistory: vi.fn(),
     restoreWorktrees: vi.fn<SessionOwnerDependencies["orchestration"]["restoreWorktrees"]>(
       async () => {},
@@ -306,7 +308,8 @@ it.each(["identity", "agent", "existing", "launch", "no-id", "worktrees", "child
 it("waits for restoration before freezing writes and resumes persistence on cancelled quit", async () => {
   const f = fixture([row("one")]);
   const gate = Promise.withResolvers<string>();
-  vi.mocked(f.deps.launch).mockImplementationOnce(async () => {
+  vi.mocked(f.deps.launch).mockImplementationOnce(async (_entry, _control, _identity, validate) => {
+    validate(true);
     await gate.promise;
     f.rows.set("one", row("one", { dormant: false, exited: false }));
     return "one";
@@ -607,7 +610,7 @@ it("forgets locally after a durable write, rejects late discovery and permits hu
   expect(recovered.orchestration.reserve).not.toHaveBeenCalled();
 });
 
-it("background saves during Forget cannot resurrect its row or surviving children's parent links", async () => {
+it("background saves during Forget wait for the durable deletion and clear surviving children's links", async () => {
   const remote = row("remote", {
     remote: true,
     placement: { kind: "remote", host: "worker" },
@@ -627,6 +630,7 @@ it("background saves during Forget cannot resurrect its row or surviving childre
   const forget = f.owner.forget("remote");
   expect(f.rows.has("remote")).toBe(true);
   f.owner.persist();
+  expect(f.store.save).toHaveBeenCalledOnce();
   expect(f.store.save.mock.lastCall?.[0]).toEqual([expect.objectContaining({ id: "child" })]);
   expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("parentId");
   pending.resolve(undefined);
@@ -768,6 +772,12 @@ it("preserves restore intent across bounded quit and skips rows claimed during C
   f.rows.delete("closed");
   f.owner.removed("closed");
   ready.resolve(undefined);
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledOnce();
+  });
+  f.rows.delete("claimed");
+  f.owner.removed("claimed");
+  release();
   await work;
   expect(f.deps.launch).toHaveBeenCalledTimes(1);
   expect(f.deps.launch).toHaveBeenCalledWith(
@@ -776,7 +786,6 @@ it("preserves restore intent across bounded quit and skips rows claimed during C
     undefined,
     expect.any(Function),
   );
-  release();
   expect(f.owner.operationInProgress("claimed")).toBe(false);
 });
 
@@ -890,3 +899,145 @@ it("counts saved and live child links once and retains the link until the row co
   committed();
   expect(f.owner.childCount("parent")).toBe(0);
 });
+
+const rowStates = [
+  "queued",
+  "claimed-by-startup",
+  "claimed-by-manual-op",
+  "launching",
+  "live",
+  "closing/forgetting",
+  "quit-pending",
+] as const;
+const settlements = ["confirm", "cancel", "failure"] as const;
+
+it.each(rowStates.flatMap((state) => settlements.map((outcome) => ({ state, outcome }))))(
+  "applies the $outcome transition to a $state row",
+  async ({ state, outcome }) => {
+    const forgetting = state === "closing/forgetting";
+    const startsLive = state === "live";
+    const manual = state === "claimed-by-manual-op";
+    const running = !forgetting;
+    const entry = row("subject", {
+      parentId: "parent",
+      running,
+      ...(forgetting && { remote: true, placement: { kind: "remote", host: "worker" } }),
+    });
+    const f = fixture([parent({ running: manual }), entry]);
+    const entered = Promise.withResolvers<undefined>();
+    const proceed = Promise.withResolvers<undefined>();
+    const startupInputs = Promise.withResolvers<undefined>();
+    const exit = new Error("fixture operation failed");
+    f.deps.removeRow = (id) => {
+      f.rows.delete(id);
+    };
+    await f.owner.restore();
+
+    const launch = vi.mocked(f.deps.launch).getMockImplementation();
+    if (!launch) throw new Error("Missing launch fixture");
+    let attempts = 0;
+    vi.mocked(f.deps.launch).mockImplementation(async (saved, control, identity, validate) => {
+      if (saved.id !== entry.id) return launch(saved, control, identity, validate);
+      attempts++;
+      if (attempts === 1 && (state === "claimed-by-startup" || state === "launching")) {
+        if (state === "launching") validate(true);
+        entered.resolve(undefined);
+        await proceed.promise;
+        if (outcome === "failure") throw exit;
+        if (state === "claimed-by-startup") return undefined;
+        validate();
+      } else if (outcome === "failure" && !startsLive && !manual) {
+        throw exit;
+      }
+      return launch(saved, control, identity, validate);
+    });
+
+    // The manual Resume races an already running hydration of the saved child link.
+    if (manual) {
+      f.orchestration.restoreChild.mockImplementationOnce(async (_parent, _entry, current) => {
+        entered.resolve(undefined);
+        await proceed.promise;
+        expect(current?.()).toBe(false);
+        return false;
+      });
+    }
+    const startup = f.owner.restartSaved(startupInputs.promise);
+    const opensImmediately =
+      startsLive || manual || state === "claimed-by-startup" || state === "launching";
+    if (opensImmediately) startupInputs.resolve(undefined);
+    if (startsLive) await startup;
+    if (opensImmediately && !startsLive) await entered.promise;
+    const release = manual ? f.owner.claim(entry.id) : undefined;
+    const forget = forgetting
+      ? f.owner
+          .forget(entry.id, async () => {
+            entered.resolve(undefined);
+            await proceed.promise;
+            if (outcome === "failure") throw exit;
+          })
+          .catch((error: unknown) => error)
+      : undefined;
+    if (forget) await entered.promise;
+
+    const paused = outcome !== "failure" || state === "quit-pending";
+    const waiting = paused ? f.owner.pauseRestore() : undefined;
+    if (outcome === "confirm") {
+      await f.owner.prepareQuit();
+      expect(f.store.save.mock.lastCall?.[0]).toContainEqual(
+        expect.objectContaining({ id: entry.id, parentId: "parent", running }),
+      );
+      f.owner.releaseRestorePause();
+    } else if (paused) {
+      if (state === "claimed-by-startup") {
+        proceed.resolve(undefined);
+        await waiting;
+        expect(f.deps.failed).not.toHaveBeenCalled();
+      }
+      f.owner.cancelQuit();
+    }
+    if (startsLive && outcome !== "cancel") {
+      const live = f.rows.get(entry.id);
+      if (!live) throw new Error("Missing live row");
+      live.exited = true;
+      f.owner.persist();
+    }
+    release?.();
+    proceed.resolve(undefined);
+    startupInputs.resolve(undefined);
+    await startup;
+    await waiting;
+
+    if (forget) {
+      const result = await forget;
+      expect(f.rows.has(entry.id)).toBe(outcome !== "cancel");
+      if (outcome === "failure") expect(result).toBe(exit);
+    }
+    const saved = f.store.save.mock.lastCall?.[0].find(({ id }) => id === entry.id);
+    if (outcome === "confirm") {
+      expect(saved).toMatchObject({ running, parentId: "parent" });
+      expect(f.deps.failed).not.toHaveBeenCalled();
+    } else if (forgetting) {
+      if (outcome === "cancel") expect(saved).toBeUndefined();
+      else {
+        await f.owner.save();
+        expect(f.store.save.mock.lastCall?.[0]).toContainEqual(
+          expect.objectContaining({ id: entry.id, parentId: "parent", running: false }),
+        );
+      }
+    } else if (outcome === "failure" && !manual) {
+      expect(saved?.running).toBe(false);
+      if (!startsLive) expect(f.deps.failed).toHaveBeenCalledWith(entry.id, exit);
+    } else {
+      expect(saved?.running).toBe(true);
+      if (manual) {
+        expect(f.orchestration.restoreChild).toHaveBeenCalledTimes(3);
+        expect(f.deps.launch).toHaveBeenLastCalledWith(
+          expect.objectContaining({ parentId: "parent" }),
+          { parentId: "parent" },
+          undefined,
+          expect.any(Function),
+        );
+      }
+    }
+  },
+);

@@ -451,20 +451,22 @@ test("Forget rechecks host availability after consent and refuses busy or quitti
   fleet.mockResolvedValueOnce([offline]);
   await expect(forget()).rejects.toThrow("session-busy");
   expect(workspace.ownsSession(saved.id)).toBe(true);
-  fleet.mockResolvedValue([offline]);
-  const writing = Promise.withResolvers<undefined>();
-  const write = Promise.withResolvers<undefined>();
-  vi.mocked(deps.sessions.save).mockImplementationOnce(() => {
-    writing.resolve(undefined);
-    return write.promise;
-  });
+  const checking = Promise.withResolvers<undefined>();
+  const check = Promise.withResolvers<[typeof online]>();
+  fleet
+    .mockResolvedValueOnce([offline])
+    .mockResolvedValueOnce([offline])
+    .mockImplementationOnce(() => {
+      checking.resolve(undefined);
+      return check.promise;
+    });
   const forgetting = forget();
-  await writing.promise;
-  fleet.mockResolvedValue([online]);
-  write.resolve(undefined);
+  await checking.promise;
+  expect(deps.sessions.save).not.toHaveBeenCalled();
+  check.resolve([online]);
   await expect(forgetting).rejects.toThrow("session-busy");
   expect(workspace.ownsSession(saved.id)).toBe(true);
-  expect(deps.sessions.save).toHaveBeenLastCalledWith([expect.objectContaining({ id: saved.id })]);
+  expect(deps.sessions.save).not.toHaveBeenCalled();
   expect(fleet.mock.calls.every(([refresh]) => refresh === false)).toBe(true);
   fleet.mockResolvedValue([offline]);
   vi.mocked(deps.dialog).mockImplementationOnce(async () => {

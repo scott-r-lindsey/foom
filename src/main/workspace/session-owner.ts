@@ -11,6 +11,13 @@ import { ApplicationError } from "../../shared/application-errors";
 
 const RESTORE_PAUSED = new Error("Startup restore paused");
 
+type RowClaim = {
+  generation: number;
+  owner: "startup" | "operation" | "settled";
+  active: boolean;
+  completion: Promise<void> | undefined;
+};
+
 export interface SessionOwnerDependencies {
   registeredHost?: (host: string) => boolean;
   removeRow?: (id: string) => void;
@@ -57,14 +64,12 @@ export class SessionOwner {
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
   // The identity of a claim is its generation. Settled claims remain visible to
   // discovery that started before them, even if their row has since been deleted.
-  private readonly claims = new Map<
-    string,
-    { generation: number; owner: "startup" | "operation" | "settled"; active: boolean }
-  >();
+  private readonly claims = new Map<string, RowClaim>();
   private generation = 0;
   private readonly pending = new Set<Promise<unknown>>();
   private resume: (() => void) | undefined;
   private paused: Promise<void> | undefined;
+  private pauseGeneration = 0;
   private discoveryGeneration = 0;
   private readonly unrestoredRoles = new Set<string>();
   private restoreWork: Promise<void> | undefined;
@@ -72,7 +77,7 @@ export class SessionOwner {
   private quitting = false;
   private pruning = false;
   private readonly forgottenSessions = new Set<string>();
-  private readonly forgettingSessions = new Set<string>();
+  private removalWrite: Promise<void> | undefined;
 
   constructor(private readonly deps: SessionOwnerDependencies) {}
 
@@ -101,8 +106,8 @@ export class SessionOwner {
     return row.dormant ? this.saved.get(row.id)?.parentId : undefined;
   }
 
-  private assign(id: string, owner: "startup" | "operation" | "settled") {
-    const claim = { generation: ++this.generation, owner, active: false };
+  private assign(id: string, owner: RowClaim["owner"], completion?: Promise<void>): RowClaim {
+    const claim = { generation: ++this.generation, owner, active: false, completion };
     if (owner === "settled" && !this.discovery && !this.saved.has(id)) this.claims.delete(id);
     else this.claims.set(id, claim);
     return claim;
@@ -112,13 +117,20 @@ export class SessionOwner {
     if (this.quitting || this.operationInProgress(id)) throw new ApplicationError("session-busy");
     const queued = this.isRestoring(id);
     const previous = this.deps.terminal(id);
-    const operation = this.assign(id, "operation");
+    let finish: (() => void) | undefined;
+    const completion = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const operation = this.assign(id, "operation", completion);
     return () => {
+      finish?.();
       if (this.claims.get(id) !== operation) return;
-      // Removal commits through removed(). A same-ID launch commits on row replacement.
-      if (this.deps.terminal(id) !== previous) this.removed(id);
-      this.assign(id, "settled");
-      if (queued && this.deps.terminal(id)?.dormant) {
+      const row = this.deps.terminal(id);
+      // A failed manual claim leaves the previous saved record and its links intact.
+      if (row !== previous) this.removed(id);
+      const retry = queued && row?.dormant && !row.closeState && this.saved.has(id);
+      this.assign(id, retry ? "startup" : "settled");
+      if (queued && row?.dormant) {
         this.persist();
         this.deps.onChange?.();
       }
@@ -147,8 +159,9 @@ export class SessionOwner {
   }
 
   /** Explicit handoff writes propagate failures even during the quit freeze. */
-  async save(): Promise<void> {
-    await this.deps.store?.save(this.records());
+  async save(explicit = true): Promise<void> {
+    while (this.removalWrite) await this.removalWrite.catch(() => {});
+    if (explicit || !this.quitting) await this.deps.store?.save(this.records());
   }
   releaseRestorePause(): void {
     this.resume?.();
@@ -203,9 +216,10 @@ export class SessionOwner {
   /** Caller has validated human intent; no terminal or host capability is used. */
   async forget(id: string, revalidate?: () => Promise<void>): Promise<void> {
     const entry = this.deps.terminal(id);
-    const validate = () => {
+    const validate = (preparing = true) => {
       const current = this.deps.terminals().find((row) => row.id === id);
       if (
+        (preparing && this.quitting) ||
         !entry ||
         this.deps.terminal(id) !== entry ||
         (!current?.dormant && !current?.exited) ||
@@ -214,29 +228,39 @@ export class SessionOwner {
         throw new ApplicationError("session-busy");
     };
     validate();
-    if (this.forgettingSessions.has(id)) throw new ApplicationError("session-busy");
-    // Concurrent background saves must not reintroduce this row while the
-    // removal write is pending. Keep the visible row until persistence succeeds.
-    this.forgettingSessions.add(id);
+    const release = this.claim(id);
     try {
-      await this.save();
-      try {
-        await revalidate?.();
+      const commit = async () => {
+        await this.deps.store?.save(this.records(id));
+        try {
+          validate(false);
+        } catch (error) {
+          await this.deps.store?.save(this.records());
+          throw error;
+        }
+        this.forgottenSessions.add(id);
+        this.removed(id);
+        this.remotePlacements.delete(id);
+        this.deps.removeRow?.(id);
+        this.deps.onChange?.(true);
+      };
+      // Host checks are preparation. Only an admitted local write serializes snapshots.
+      for (;;) {
         validate();
-      } catch (error) {
-        // The deletion reached disk, but the row is no longer safe to forget.
-        // Lift suppression before repairing persistence with the current row.
-        this.forgettingSessions.delete(id);
-        await this.save();
-        throw error;
+        const precedingWrite = this.removalWrite;
+        if (precedingWrite) await precedingWrite.catch(() => {});
+        if (revalidate) await revalidate();
+        validate();
+        if (this.removalWrite) continue;
+        const write = commit().finally(() => {
+          this.removalWrite = undefined;
+        });
+        this.removalWrite = write;
+        await write;
+        return;
       }
-      this.forgottenSessions.add(id);
-      this.removed(id);
-      this.remotePlacements.delete(id);
-      this.deps.removeRow?.(id);
-      this.deps.onChange?.(true);
     } finally {
-      this.forgettingSessions.delete(id);
+      release();
     }
   }
 
@@ -266,7 +290,7 @@ export class SessionOwner {
 
   private importEntries(entries: readonly StoredSession[], discovered = false): void {
     for (const entry of this.retained(entries)) {
-      if (this.forgettingSessions.has(entry.id) || this.operationInProgress(entry.id)) continue;
+      if (this.operationInProgress(entry.id)) continue;
       if (discovered) {
         if (
           this.forgottenSessions.has(entry.id) ||
@@ -328,14 +352,14 @@ export class SessionOwner {
     return [...owned.values()];
   }
 
-  private records(): StoredSession[] {
+  private records(removed?: string): StoredSession[] {
     const entries = this.deps.terminals();
     const ids = new Set(entries.map((entry) => entry.id));
     for (const id of this.remotePlacements.keys())
       if (!ids.has(id)) this.remotePlacements.delete(id);
     return this.retained(
       entries
-        .filter((entry) => !entry.probe && !entry.recipe && !this.forgettingSessions.has(entry.id))
+        .filter((entry) => !entry.probe && !entry.recipe && entry.id !== removed)
         .map((entry) => {
           const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
           const sharedReview = this.deps.sharedReview?.(entry.id);
@@ -382,7 +406,7 @@ export class SessionOwner {
   persist(): void {
     if (this.quitting) return;
     this.pruneRows();
-    void this.deps.store?.save(this.records()).catch((error: unknown) => {
+    void this.save(false).catch((error: unknown) => {
       console.error("Unable to save sessions:", error);
     });
   }
@@ -394,9 +418,12 @@ export class SessionOwner {
 
   /** Stop dispatching new restores and give in-flight work a bounded window to settle. */
   pauseRestore(): Promise<boolean> | undefined {
-    this.paused ??= new Promise<void>((resolve) => {
-      this.resume = resolve;
-    });
+    if (!this.paused) {
+      this.pauseGeneration++;
+      this.paused = new Promise<void>((resolve) => {
+        this.resume = resolve;
+      });
+    }
     if (!this.pending.size) return undefined;
     const timeout = new AbortController();
     return Promise.race([
@@ -439,7 +466,7 @@ export class SessionOwner {
   private async restartEntries(settings?: Promise<void>): Promise<void> {
     const [, discovered] = await this.track(Promise.all([settings, this.discovery]));
     await this.waitForResume();
-    if (this.quitting || this.deps.closed()) return;
+    if (this.isQuitting || this.deps.closed()) return;
     if (discovered) this.importEntries(discovered, true);
     this.discovery = undefined;
     for (const [id, claim] of this.claims) {
@@ -447,7 +474,7 @@ export class SessionOwner {
     }
     const plan = restorePlan([...this.saved.values()], this.restoreEnabled).filter(({ id }) => {
       const claim = this.claims.get(id);
-      return !claim || claim.owner === "startup";
+      return claim?.owner !== "settled";
     });
     const planned = new Set(plan.map(({ id }) => id));
     for (const [id, claim] of this.claims) {
@@ -466,44 +493,61 @@ export class SessionOwner {
       if (!this.claims.has(entry.id)) this.assign(entry.id, "startup");
     }
     this.deps.onChange?.();
-    await runRestore(plan, (entry) => this.runEntry(entry));
+    let ready = plan;
+    while (ready.length) {
+      const deferred = new Map<string, Promise<void>>();
+      await runRestore(ready, ({ id }) => this.runEntry(id, deferred));
+      if (!deferred.size || this.quitting) return;
+      // A queued launch leaves its worker and checkout lane free during a manual claim.
+      await Promise.race(deferred.values());
+      ready = ready.filter(({ id }) => deferred.has(id));
+    }
   }
 
-  private async runEntry(entry: StoredSession): Promise<void> {
-    const id = entry.id;
-    const claim = this.claims.get(id);
-    if (claim?.owner !== "startup") return;
-    const current = () => !this.quitting && !this.deps.closed() && this.claims.get(id) === claim;
-    let dispatched = false;
-    const validate = (dispatch?: true) => {
-      if (!current()) throw new ApplicationError("session-busy");
-      if (dispatch && !dispatched) {
-        if (this.paused || !this.restoreEnabled) throw RESTORE_PAUSED;
-        dispatched = true;
-      }
-    };
-    while (current()) {
+  private async runEntry(id: string, deferred: Map<string, Promise<void>>): Promise<void> {
+    for (;;) {
       await this.waitForResume();
-      if (!current()) break;
+      if (this.isQuitting) return;
+      if (this.paused) continue;
+      const entry = this.saved.get(id);
+      const claim = this.claims.get(id);
+      const completion =
+        claim?.completion ?? (entry?.parentId ? deferred.get(entry.parentId) : undefined);
+      if (completion) {
+        deferred.set(id, completion);
+        return;
+      }
+      if (!entry || claim?.owner !== "startup") return;
+      const current = () => !this.quitting && !this.deps.closed() && this.claims.get(id) === claim;
+      const pauseGeneration = this.pauseGeneration;
+      let dispatched = false;
+      const interrupted = () => !dispatched && pauseGeneration !== this.pauseGeneration;
+      const validate = (dispatch?: true) => {
+        if (!current()) throw new ApplicationError("session-busy");
+        if (dispatch && !dispatched) {
+          if (this.paused || !this.restoreEnabled) throw RESTORE_PAUSED;
+          dispatched = true;
+        }
+      };
       claim.active = true;
       try {
-        if (this.restoreEnabled && this.deps.terminal(id)?.dormant)
+        if (current() && this.restoreEnabled && this.deps.terminal(id)?.dormant)
           await this.track(this.restartSavedEntry(entry, current, validate));
-        break;
+        if (interrupted()) continue;
       } catch (error) {
-        if (error === RESTORE_PAUSED) continue;
+        if (error === RESTORE_PAUSED || interrupted()) continue;
         if (current()) this.deps.failed(id, error);
-        break;
       } finally {
         claim.active = false;
       }
+      if (this.quitting || this.claims.get(id) !== claim) return;
+      if (this.deps.terminal(id)?.dormant) this.deps.orchestration.exited(id);
+      this.saved.delete(id);
+      this.assign(id, "settled");
+      this.persist();
+      this.deps.onChange?.();
+      return;
     }
-    if (this.quitting || this.claims.get(id) !== claim) return;
-    if (this.deps.terminal(id)?.dormant) this.deps.orchestration.exited(id);
-    this.saved.delete(id);
-    this.assign(id, "settled");
-    this.persist();
-    this.deps.onChange?.();
   }
 
   private async restartSavedEntry(
@@ -593,25 +637,40 @@ export class SessionOwner {
         delete hydrated.orchestrator;
         this.saved.set(id, hydrated);
         this.unrestoredRoles.delete(id);
-        for (const child of this.saved.values()) {
+        for (const childId of [...this.saved.keys()]) {
           if (!current()) return;
-          if (child.parentId !== id) continue;
-          const childClaim = this.claims.get(child.id);
-          const childCurrent = () =>
-            current() &&
-            this.claims.get(child.id) === childClaim &&
-            this.saved.get(child.id) === child &&
-            this.deps.terminal(child.id)?.dormant === true;
-          const restored = await this.deps.orchestration.restoreChild(
-            id,
-            { ...child, exited: true },
-            childCurrent,
-          );
-          if (!restored && childCurrent()) delete child.parentId;
+          if (this.saved.get(childId)?.parentId === id)
+            await this.hydrateChild(id, childId, current);
         }
       }
     } finally {
       if (slot && !("existing" in slot)) slot.release();
+    }
+  }
+
+  private async hydrateChild(parentId: string, id: string, parentCurrent: () => boolean) {
+    while (parentCurrent()) {
+      const child = this.saved.get(id);
+      const claim = this.claims.get(id);
+      if (!child || child.parentId !== parentId) return;
+      if (claim?.completion) {
+        await claim.completion;
+        continue;
+      }
+      const current = () =>
+        parentCurrent() &&
+        this.claims.get(id) === claim &&
+        this.saved.get(id) === child &&
+        this.deps.terminal(id)?.dormant === true;
+      if (!current()) return;
+      const restored = await this.deps.orchestration.restoreChild(
+        parentId,
+        { ...child, exited: true },
+        current,
+      );
+      if (!current()) continue;
+      if (!restored) delete child.parentId;
+      return;
     }
   }
 }

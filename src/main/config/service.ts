@@ -252,7 +252,9 @@ export class ConfigService {
     this.applyLive(this.applied.values);
     if (attach) {
       this.settingsDeferred = true;
-      await this.tryAttachSettings(attach, () => true);
+      // Folder readiness and subscriptions belong to setup. The profile attachment
+      // can retry after the board opens without undoing either.
+      await this.tryAttachSettings(attach, () => true).catch(ignore);
       await this.scanCatalogs();
     } else {
       // Standalone config users load a read-only snapshot.
