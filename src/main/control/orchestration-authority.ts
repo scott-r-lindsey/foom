@@ -151,7 +151,7 @@ export class OrchestrationAuthority {
       },
       (actor, record) => {
         const parent = this.parents.get(actor.terminalId);
-        if (parent?.active) this.note(parent, this.entry(record, "Child events"));
+        if (parent?.active) this.note(parent, this.entry(record, "Orchestrator events"));
       },
       now,
     );
@@ -245,6 +245,17 @@ export class OrchestrationAuthority {
           : [],
       ),
     );
+  }
+
+  boardAnswered(repositories: readonly string[]): void {
+    const addressed = new Set(repositories);
+    for (const [id, parent] of this.parents) {
+      if (parent.active && addressed.has(locationId(parent.repository))) this.wake.event(id);
+    }
+  }
+
+  boardAnswerRead(actor: Principal): void {
+    this.wake.read(this.parent(actor).terminalId ?? actor.terminalId);
   }
 
   childRead(actor: Principal, id: string): void {

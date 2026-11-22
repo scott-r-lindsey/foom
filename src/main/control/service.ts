@@ -51,12 +51,14 @@ export class ControlService {
   private readonly metadata: SessionMetadata;
   constructor(
     readonly operations: Operations,
-    source: () => readonly WorkspaceTerminal[] = () => [],
+    private readonly source: () => readonly WorkspaceTerminal[] = () => [],
     private readonly orchestration?: Pick<Orchestration, "call"> &
       Partial<
         Pick<
           Orchestration,
           | "authorizeBoard"
+          | "boardAnswered"
+          | "boardAnswerRead"
           | "setBoard"
           | "hosts"
           | "bindAutomation"
@@ -93,8 +95,9 @@ export class ControlService {
     );
   }
 
-  boardChanged(): void {
+  boardChanged(answeredRepositories?: readonly string[]): void {
     this.orchestration?.childEvents?.publish();
+    if (answeredRepositories) this.orchestration?.boardAnswered?.(answeredRepositories);
   }
 
   childLimit(): number {
@@ -373,6 +376,19 @@ export class ControlService {
         ];
   }
 
+  humanDecisions(input: unknown) {
+    const snapshot = this.board?.decisions(input);
+    if (!snapshot) throw new ControlError("unavailable");
+    const orchestrators = Object.fromEntries(
+      this.source().flatMap((row) =>
+        row.orchestration?.role === "orchestrator" && row.orchestration.active
+          ? [[row.id, locationId(row.repository)]]
+          : [],
+      ),
+    );
+    return { ...snapshot, orchestrators };
+  }
+
   /** Adapters' entry point: orchestration actions are asynchronous, the rest delegate to dispatch. */
   async call(actor: Principal, input: unknown, signal?: AbortSignal): Promise<unknown> {
     this.assertActive(actor);
@@ -397,7 +413,11 @@ export class ControlService {
       const repository = locationId(actor.repository);
       const params = object(request["params"]);
       if (method === "board_threads") return this.board.threads(params, repository);
-      if (method === "board_read") return this.board.read(params, repository);
+      if (method === "board_read") {
+        const page = this.board.read(params, repository);
+        if (page.posts.some(({ answers }) => answers)) this.orchestration?.boardAnswerRead?.(actor);
+        return page;
+      }
       const input = method === "board_post" ? boardPost(params) : boardResolve(params);
       const operation = await this.operations.begin(
         actor,
@@ -417,6 +437,8 @@ export class ControlService {
                 actor.generation,
                 input,
                 authorize,
+                undefined,
+                locationId(actor.worktree),
               )
             : await this.board.resolve(actor.generation, input, repository, authorize);
         authorize();

@@ -170,3 +170,35 @@ it("returns an indeterminate operation for an ambiguous save and refuses an unav
   });
   await expect(bare.call("board_threads")).rejects.toThrow("unavailable");
 });
+
+it("wakes a wait on a structured human answer while agent transport cannot submit or spoof one", async () => {
+  const h = setup();
+  const result = await h.mutate("board_post", {
+    ...input,
+    kind: "question",
+    questions: [
+      {
+        title: "Proceed?",
+        options: [
+          { id: "go", label: "Go" },
+          { id: "hold", label: "Hold" },
+        ],
+      },
+    ],
+  });
+  const thread = result.resultId ?? "";
+  const post = h.board.read({ thread }).posts[0]?.id;
+  const answers = [{ post, index: 0, option: "go" }];
+  await expect(
+    h.call("board_post", { thread, text: "Go", kind: "answer", answers, idempotencyKey: "forge" }),
+  ).rejects.toThrow("invalid_request");
+  await expect(h.call("board_answer", { answers, idempotencyKey: "forge" })).rejects.toThrow();
+  const waiting = h.call("wait_for", { ids: [], boardAfter: h.board.event(a), untilEvent: true });
+  await h.board.answer({ answers, idempotencyKey: "human" });
+  expect(await waiting).toMatchObject({ timedOut: false, board: { changed: true } });
+  expect(h.board.read({ thread }).posts.at(-1)).toMatchObject({
+    author: "human",
+    kind: "answer",
+    answers,
+  });
+});

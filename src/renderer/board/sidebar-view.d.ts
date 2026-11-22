@@ -17,6 +17,7 @@ export interface SidebarProps {
   inactive: boolean;
   revealRef: RefObject<((row: BoardRow) => void) | undefined>;
   rows: readonly BoardRow[];
+  decisionCount?: (session: string) => number;
   preferences: SidebarPreferences;
   save: (next: SidebarPreferences) => void;
   selected: string | undefined;

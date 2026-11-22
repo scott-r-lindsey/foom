@@ -38,6 +38,15 @@ interface Entry extends ForgeWorktree {
   due: number;
 }
 
+interface DecisionWatch {
+  repository: string;
+  number: number;
+  due: number;
+  observation: number;
+  failures: number;
+  pr?: PullRequest;
+}
+
 export function forgeDelay(failures: number): number {
   return Math.min(600000, 30000 * 2 ** Math.min(failures, 5));
 }
@@ -45,6 +54,7 @@ export function forgeDelay(failures: number): number {
 /** Durable observations confer no terminal, worktree or orchestration authority. */
 export class ForgeTracking {
   private readonly entries = new Map<string, Entry>();
+  private readonly decisions = new Map<string, DecisionWatch>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running: Promise<void> = Promise.resolve();
   private closed = false;
@@ -65,6 +75,7 @@ export class ForgeTracking {
     private readonly changed: () => void,
     private readonly provider: ForgeProviderFactory = () => undefined,
     private readonly now: () => number = Date.now,
+    private readonly decisionRemote?: (repository: string) => Promise<string | undefined>,
   ) {}
 
   static async open(
@@ -75,8 +86,16 @@ export class ForgeTracking {
     ) => Promise<string | ForgeInspection | undefined>,
     changed: () => void,
     provider: ForgeProviderFactory = () => undefined,
+    decisionRemote?: (repository: string) => Promise<string | undefined>,
   ): Promise<ForgeTracking> {
-    const tracker = new ForgeTracking(await privateDirectory(userData), inspect, changed, provider);
+    const tracker = new ForgeTracking(
+      await privateDirectory(userData),
+      inspect,
+      changed,
+      provider,
+      undefined,
+      decisionRemote,
+    );
     await tracker.load();
     tracker.schedule();
     return tracker;
@@ -236,6 +255,10 @@ export class ForgeTracking {
   /** Selection changes retire observations and bindings, including pending publication. */
   invalidate(): void {
     this.generation++;
+    for (const entry of this.decisions.values()) {
+      delete entry.pr;
+      entry.due = 0;
+    }
     for (const entry of this.entries.values()) {
       entry.available = false;
       delete entry.pr;
@@ -381,6 +404,104 @@ export class ForgeTracking {
     return entry?.repository === repository && entry.available ? pullRequest(entry.pr) : undefined;
   }
 
+  /** Settled checkout observations can cover a subject without a separate query. */
+  private decisionCheckout(repositoryId: string, number: number): Entry | undefined {
+    let latest: Entry | undefined;
+    for (const entry of this.entries.values()) {
+      if (
+        !entry.available ||
+        entry.pr?.number !== number ||
+        entry.sampledRefresh !== entry.refresh ||
+        locationId(entry.repository) !== repositoryId
+      )
+        continue;
+      if (!latest || latest.observation < entry.observation) latest = entry;
+    }
+    return latest;
+  }
+
+  readDecision(repository: string, number: number): PullRequest | undefined {
+    const checkout = this.decisionCheckout(repository, number);
+    const watch = this.decisions.get(`${repository}:${String(number)}`);
+    if (!watch?.pr || (checkout && checkout.observation >= watch.observation)) return checkout?.pr;
+    return watch.pr;
+  }
+
+  watchDecisions(subjects: ReadonlyArray<{ repository: string; number: number }>): void {
+    if (!this.decisionRemote || this.closed) return;
+    const keys = new Set<string>();
+    for (const { repository, number } of subjects) {
+      const key = `${repository}:${String(number)}`;
+      keys.add(key);
+      if (!this.decisions.has(key)) {
+        this.decisions.set(key, { repository, number, due: 0, observation: 0, failures: 0 });
+      }
+    }
+    for (const key of this.decisions.keys()) if (!keys.has(key)) this.decisions.delete(key);
+    this.schedule();
+  }
+
+  private async pollDecision(key: string, watch: DecisionWatch): Promise<void> {
+    const generation = this.generation;
+    const active = () =>
+      !this.stopped() &&
+      this.pauses.size === 0 &&
+      generation === this.generation &&
+      this.decisions.get(key) === watch;
+    const tracked = this.decisionCheckout(watch.repository, watch.number);
+    if (tracked && (!watch.pr || tracked.observation >= watch.observation)) {
+      watch.due = this.now() + 120000;
+      if (watch.pr) {
+        delete watch.pr;
+        this.changed();
+      }
+      return;
+    }
+    const remote = await this.decisionRemote?.(watch.repository).catch(() => undefined);
+    if (!active()) return;
+    const validate = async () => {
+      if (!active() || (await this.decisionRemote?.(watch.repository)) !== remote || !active())
+        throw new Error("Forge decision context changed");
+    };
+    const provider = remote
+      ? await Promise.resolve(
+          this.provider(remote, () =>
+            Promise.resolve({
+              identity: JSON.stringify([watch.repository, remote, watch.number]),
+              validate,
+            }),
+          ),
+        ).catch(() => undefined)
+      : undefined;
+    const resolved = await provider?.resolve?.(watch.number).catch(() => undefined);
+    const result = resolved?.sameRepository
+      ? await provider?.lookup(resolved.branch, watch.number).catch(() => undefined)
+      : undefined;
+    const current = await validate().then(
+      () => true,
+      () => false,
+    );
+    if (!active()) return;
+    const before = JSON.stringify(watch.pr);
+    const pr = current ? pullRequest(result) : undefined;
+    if (pr?.number === watch.number) {
+      watch.pr = pr;
+      watch.observation = ++this.observation;
+      watch.failures = 0;
+    } else {
+      delete watch.pr;
+      watch.failures = Math.min(watch.failures + 1, 5);
+    }
+    const minimum = provider?.minimumIntervalMs ?? 0;
+    const interval = watch.pr
+      ? watch.pr.requiredChecks === "pending"
+        ? 20000
+        : 120000
+      : forgeDelay(watch.failures);
+    watch.due = this.now() + Math.max(interval, minimum);
+    if (JSON.stringify(watch.pr) !== before) this.changed();
+  }
+
   /** Main-only request clock. An exit records this before accepting later observations. */
   revision(): number {
     return this.observation;
@@ -424,6 +545,13 @@ export class ForgeTracking {
         const entry = [...this.entries.values()]
           .sort((a, b) => a.due - b.due)
           .find((row) => row.due <= this.now() && (row.orchestrator || this.enabled));
+        const decision = [...this.decisions.entries()]
+          .sort(([, a], [, b]) => a.due - b.due)
+          .find(([, watch]) => watch.due <= this.now());
+        if (decision && (!entry || decision[1].due < entry.due)) {
+          await this.pollDecision(...decision);
+          return;
+        }
         if (!entry) return;
         const generation = this.generation;
         const refresh = entry.refresh;
@@ -695,7 +823,13 @@ export class ForgeTracking {
   }
 
   private schedule(): void {
-    if (this.closed || this.pauses.size > 0 || this.timer || this.entries.size === 0) return;
+    if (
+      this.closed ||
+      this.pauses.size > 0 ||
+      this.timer ||
+      (this.entries.size === 0 && this.decisions.size === 0)
+    )
+      return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.poll().finally(() => {

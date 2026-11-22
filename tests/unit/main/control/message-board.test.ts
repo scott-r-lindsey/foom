@@ -548,3 +548,187 @@ describe("main-owned child threads", () => {
     }
   });
 });
+
+const choiceOptions = [
+  { id: "go", label: "Proceed" },
+  { id: "hold", label: "Hold" },
+];
+const question = {
+  title: "Approve these screenshots?",
+  options: choiceOptions,
+};
+const decisions = (questions: unknown[], key = "ask") => ({
+  ...post(key),
+  kind: "question",
+  questions,
+});
+
+describe("structured decisions", () => {
+  it("bounds and validates every nested field and accepts only an orchestrator question", () => {
+    const valid = { ...question, preview: { path: "shots/light.html", relativeTo: "repository" } };
+    expect(boardPost(decisions([valid])).questions).toEqual([valid]);
+    for (const invalid of [
+      [],
+      Array(5).fill(question),
+      [{ ...question, detail: "é".repeat(4096) }],
+      [{ ...question, title: " " }],
+      [{ ...question, options: [choiceOptions[0]] }],
+      [{ ...question, options: Array(5).fill(choiceOptions[0]) }],
+      [{ ...question, options: Array(2).fill(choiceOptions[0]) }],
+      [
+        {
+          ...question,
+          options: [{ id: "go", label: "go", hint: "first\nsecond" }, choiceOptions[1]],
+        },
+      ],
+      [{ ...question, preview: { path: "../secrets.html" } }],
+      [{ ...question, preview: { path: "/outside.png" } }],
+      [{ ...question, preview: { path: "C:\\outside.png" } }],
+      [{ ...question, preview: { path: "script.js" } }],
+      [{ ...question, preview: { path: "file.jpg", relativeTo: "desktop" } }],
+      [{ ...question, subject: { pullRequest: 9, headSha: "aaa" } }],
+      [{ ...question, subject: { pullRequest: 0, headSha: "a".repeat(40) } }],
+      [{ ...question, subject: { pullRequest: 9, headSha: "a".repeat(40), status: "current" } }],
+      [{ ...question, author: "human" }],
+    ])
+      expect(() => boardPost(decisions(invalid))).toThrow("invalid_request");
+    expect(() => boardPost({ ...post(), questions: [question] })).toThrow("invalid_request");
+    const board = new MessageBoard(() => Promise.resolve(), repos);
+    expect(() => board.append("human", "human", decisions([question]))).toThrow("forbidden");
+    expect(() =>
+      board.answer({
+        answers: [{ post: "p", index: 0, option: "go", subject: {} }],
+        idempotencyKey: "s",
+      }),
+    ).toThrow("invalid_request");
+    expect(() =>
+      board.answer({ answers: [{ post: "p", index: -1, other: "no" }], idempotencyKey: "s" }),
+    ).toThrow("invalid_request");
+    expect(() =>
+      board.answer({
+        answers: [{ post: "p", index: 1, option: "go", other: "no" }],
+        idempotencyKey: "s",
+      }),
+    ).toThrow("invalid_request");
+    expect(() =>
+      board.answer({
+        answers: [{ post: "p", index: 0, option: "go" }],
+        author: "orchestrator:a",
+        idempotencyKey: "s",
+      }),
+    ).toThrow("invalid_request");
+  });
+
+  it("limits each repository, withdraws only its own open post and frees capacity", async () => {
+    const board = new MessageBoard(() => Promise.resolve(), repos);
+    const input = Array.from({ length: 4 }, () => question);
+    const first = await board.append("orchestrator:a", "granta", decisions(input));
+    for (let index = 1; index < 4; index++)
+      await board.append("orchestrator:a", "granta", decisions(input, `ask-${String(index)}`));
+    expect(board.decisions({ watch: [] }).counts).toEqual({ a: 16 });
+    await expect(
+      board.append("orchestrator:a", "granta", decisions([question], "over")),
+    ).rejects.toThrow("capacity");
+    const withdraw = { thread: first.thread, post: first.post, idempotencyKey: "withdraw" };
+    await expect(board.resolve("grantb", withdraw, "b")).rejects.toThrow("forbidden");
+    await expect(board.resolve("human", withdraw)).rejects.toThrow("forbidden");
+    expect(await board.resolve("granta", withdraw, "a")).toEqual(first);
+    expect(await board.resolve("granta", withdraw, "a")).toEqual(first);
+    expect(
+      board.decisions({ repository: "a", watch: [{ post: first.post, index: 0 }] }),
+    ).toMatchObject({
+      counts: { a: 12 },
+      questions: [
+        { status: "withdrawn" },
+        ...Array.from({ length: 12 }, () => ({ status: "open" })),
+      ],
+    });
+    await expect(
+      board.resolve("granta", { ...withdraw, idempotencyKey: "again" }, "a"),
+    ).rejects.toThrow("conflict");
+    await board.append("orchestrator:a", "granta", decisions([question], "more"));
+    expect(board.decisions({ watch: [] }).counts).toEqual({ a: 13 });
+  });
+
+  it("commits a human-only batch once, binds the head, and preserves stale across restart", async () => {
+    let headSha: string | undefined;
+    const expected = "a".repeat(40);
+    const forge = () => (headSha ? { headSha, checks: "success" as const } : undefined);
+    const root = await directory();
+    const changed = vi.fn();
+    const board = await MessageBoard.open(root, repos, changed, forge);
+    const first = await board.append(
+      "orchestrator:a",
+      "granta",
+      decisions([
+        { ...question, subject: { pullRequest: 1, headSha: expected } },
+        question,
+        { ...question, subject: { pullRequest: 1, headSha: expected } },
+      ]),
+    );
+    const selected = { post: first.post, index: 0, option: "go" };
+    const other = { post: first.post, index: 1, other: "<b>Later</b>" };
+    const batch = { idempotencyKey: "human-first", answers: [selected, other] };
+    expect(board.decisions({ repository: "a", watch: [] }).questions[0]?.status).toBe("checking");
+    await expect(board.answer(batch)).rejects.toThrow("conflict");
+    headSha = expected;
+    await expect(
+      board.answer({ ...batch, answers: [other, { ...selected, option: "missing" }] }),
+    ).rejects.toThrow("invalid_request");
+    expect(board.read({ thread: first.thread }).posts).toHaveLength(1);
+    const result = await board.answer(batch);
+    expect(await board.answer(batch)).toEqual(result);
+    await expect(board.answer({ ...batch, answers: [other] })).rejects.toThrow("conflict");
+    const originalCursor = board.event("a");
+    headSha = "b".repeat(40);
+    board.observe();
+    expect(board.event("a")).not.toEqual(originalCursor);
+    headSha = expected;
+    await expect(
+      board.answer({ idempotencyKey: "too-late", answers: [{ ...selected, index: 2 }] }),
+    ).rejects.toThrow("conflict");
+    const restored = await MessageBoard.open(root, repos, changed, forge);
+    expect(restored.read({ thread: first.thread }).posts).toMatchObject([
+      { decisions: [{ status: "answered" }, { status: "answered" }, { status: "stale" }] },
+      {
+        author: "human",
+        answers: [{ ...selected, subject: { pullRequest: 1, headSha: expected } }, other],
+      },
+    ]);
+    expect(restored.decisions({ watch: [] }).counts).toEqual({});
+    expect(await restored.answer(batch)).toEqual(result);
+  });
+});
+
+it("rechecks the subject at atomic commit and cleanly refuses a head change during the write", async () => {
+  const headSha = "a".repeat(40);
+  let currentHead = headSha;
+  const changed = vi.fn();
+  const save = vi.fn((_value: unknown, beforeCommit?: () => void) => {
+    beforeCommit?.();
+    return Promise.resolve();
+  });
+  const board = new MessageBoard(save, repos, changed, undefined, () => ({ headSha: currentHead }));
+  const original = await board.append(
+    "orchestrator:a",
+    "grant",
+    decisions([{ ...question, subject: { pullRequest: 1, headSha } }, question]),
+  );
+  save.mockImplementationOnce(async (_value, beforeCommit) => {
+    await Promise.resolve();
+    currentHead = "b".repeat(40);
+    beforeCommit?.();
+  });
+  await expect(
+    board.answer({
+      answers: [{ post: original.post, index: 0, option: "go" }],
+      idempotencyKey: "answer",
+    }),
+  ).rejects.toThrow("conflict");
+  expect(board.read({ thread: original.thread }).posts).toHaveLength(1);
+  await board.answer({
+    answers: [{ post: original.post, index: 1, option: "go" }],
+    idempotencyKey: "answer",
+  });
+  expect(changed).toHaveBeenLastCalledWith(["a"]);
+});

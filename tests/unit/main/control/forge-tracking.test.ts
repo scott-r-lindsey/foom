@@ -1777,3 +1777,57 @@ it.each([
     }
   },
 );
+
+it("samples a decision PR separately from checkout tracking and retires its observations", async () => {
+  const changed = vi.fn();
+  const resolve = vi.fn(() =>
+    Promise.resolve({ branch: "draft", state: "OPEN" as const, sameRepository: true }),
+  );
+  let headSha = "a".repeat(40);
+  const lookup = vi.fn(() =>
+    Promise.resolve({
+      number: 340,
+      headSha,
+      state: "OPEN" as const,
+      requiredChecks: "success" as const,
+    }),
+  );
+  const provider = vi.fn(() => ({ resolve, lookup }));
+  let now = 0;
+  const repo = locationId("/repo");
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(undefined),
+    changed,
+    provider,
+    () => now,
+    (id) => Promise.resolve(id === repo ? "https://github.com/foom/private.git" : undefined),
+  );
+  tracker.watchDecisions([
+    { repository: repo, number: 340 },
+    { repository: repo, number: 340 },
+  ]);
+  try {
+    expect(tracker.readDecision(repo, 340)).toBeUndefined();
+    await tracker.poll();
+    expect(provider).toHaveBeenCalledOnce();
+    expect(resolve).toHaveBeenCalledWith(340);
+    expect(lookup).toHaveBeenCalledWith("draft", 340);
+    expect(tracker.readDecision(repo, 340)).toMatchObject({ headSha });
+    await tracker.poll();
+    expect(lookup).toHaveBeenCalledOnce();
+    now = 120000;
+    headSha = "b".repeat(40);
+    await tracker.poll();
+    expect(tracker.readDecision(repo, 340)).toMatchObject({ headSha });
+    expect(changed).toHaveBeenCalledTimes(2);
+    tracker.invalidate();
+    expect(tracker.readDecision(repo, 340)).toBeUndefined();
+    tracker.watchDecisions([]);
+    await tracker.poll();
+    expect(lookup).toHaveBeenCalledTimes(2);
+  } finally {
+    // Use the regular tracker temporary directory for shutdown persistence.
+    trackers.push(tracker);
+  }
+});

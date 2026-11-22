@@ -597,6 +597,7 @@ export function useSidebar(props: SidebarProps) {
       <SidebarSessionRow
         key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}
         row={row}
+        decisionCount={props.decisionCount?.(row.id) ?? 0}
         name={name}
         identity={identity}
         parentName={parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : undefined}

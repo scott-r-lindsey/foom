@@ -121,6 +121,7 @@ test("control startup publishes private discovery and binds trusted pairing call
       expect.any(Function),
       expect.any(Object),
       expect.any(Function),
+      expect.any(Object),
     );
     startControl.mock.calls[0]?.[5]?.();
     expect(mock.workspace.refresh).toHaveBeenCalled();

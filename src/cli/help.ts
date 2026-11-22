@@ -35,7 +35,7 @@ const commandHelp = [
       "close ID --idempotency-key KEY",
       "remove-worktree WORKTREE_ID --idempotency-key KEY",
       "tail ID [--lines 1-40]",
-      "board threads [--category topics|children] [--state S] | board read THREAD [--after POST] | board post --thread ID|--new --to REPO --title T --kind K --text-file FILE|- [--link URL] --idempotency-key KEY | board resolve THREAD --idempotency-key KEY",
+      "board threads [--category topics|children] [--state S] | board read THREAD [--after POST] | board post --thread ID|--new --to REPO --title T --kind K --text-file FILE|- [--questions-file FILE|-] [--link URL] --idempotency-key KEY | board resolve THREAD [--post ID] --idempotency-key KEY",
       "wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000] | wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--board-after EVENT] [--timeout SECONDS]",
     ],
     suffix:

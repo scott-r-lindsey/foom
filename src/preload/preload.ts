@@ -2,6 +2,9 @@ import type { RepositoryRequirements } from "../shared/repository-requirements";
 import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
+  BoardDecisions,
+  BoardDecision,
+  DecisionQuestion,
   BoardThreads,
   BoardMutation,
   MessagePost,
@@ -1295,16 +1298,70 @@ const validMessageThread: Validator<MessageThread> = shape({
   createdAt: text,
   updatedAt: text,
 } satisfies Contract<MessageThread>);
+const validDecisionSubject = shape({
+  pullRequest: count,
+  headSha: text,
+});
+const validDecisionQuestion: Validator<DecisionQuestion> = shape({
+  title: text,
+  detail: either(absent, text),
+  options: array(shape({ id: text, label: text, hint: either(absent, text) })),
+  preview: either(
+    absent,
+    shape({ path: text, relativeTo: either(absent, literal("repository", "worktree")) }),
+  ),
+  subject: either(absent, validDecisionSubject),
+} satisfies Contract<DecisionQuestion>);
+const validBoardDecision: Validator<BoardDecision> = shape({
+  post: text,
+  index: count,
+  repository: text,
+  question: validDecisionQuestion,
+  status: literal("open", "checking", "stale", "withdrawn", "answered"),
+  checks: either(absent, literal("success", "pending", "failure", "none", "unknown")),
+} satisfies Contract<BoardDecision>);
+const validBoardDecisions: Validator<BoardDecisions> = shape({
+  counts: dictionary(count),
+  orchestrators: either(absent, dictionary(text)),
+  questions: array(validBoardDecision),
+} satisfies Contract<BoardDecisions>);
+const validDecisionAnswer = either(
+  shape({
+    post: text,
+    index: count,
+    option: text,
+    other: absent,
+    subject: either(absent, validDecisionSubject),
+  }),
+  shape({
+    post: text,
+    index: count,
+    option: absent,
+    other: text,
+    subject: either(absent, validDecisionSubject),
+  }),
+);
+const decisionPreviewImage: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length <= 2 * 1024 * 1024 &&
+  /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/u.test(value);
+
 const validMessagePost: Validator<MessagePost> = shape({
   id: text,
   thread: text,
   author: (value): value is MessagePost["author"] =>
     typeof value === "string" &&
     (value === "human" || /^orchestrator:[a-zA-Z0-9_-]{1,200}$/u.test(value)),
-  kind: literal("request", "answer", "decision-needed", "fyi", "link"),
+  kind: literal("request", "answer", "decision-needed", "fyi", "link", "question"),
   text,
   links: array(text),
   timestamp: text,
+  questions: either(absent, array(validDecisionQuestion)),
+  withdrawn: either(absent, literal(true)),
+  stale: either(absent, array(count)),
+  previewWorktree: either(absent, text),
+  decisions: either(absent, array(validBoardDecision)),
+  answers: either(absent, array(validDecisionAnswer)),
 } satisfies Contract<MessagePost>);
 const validBoardThreads: Validator<BoardThreads> = shape({
   repositories: array(shape({ id: text, name: text } satisfies Contract<BoardRepository>)),
@@ -2220,6 +2277,10 @@ const desktop: DesktopApi = {
     return () => ipcRenderer.removeListener("terminal:activity", listener);
   },
   messageBoard: {
+    decisions: (input) => reply("workspace:message-board", validBoardDecisions, "decisions", input),
+    answer: (input) => reply("workspace:message-board", validBoardMutation, "answer", input),
+    preview: (input) =>
+      reply("workspace:message-board", either(nil, decisionPreviewImage), "preview", input),
     threads: (query) => reply("workspace:message-board", validBoardThreads, "threads", query),
     read: (query) => reply("workspace:message-board", validBoardRead, "read", query),
     post: (input) => reply("workspace:message-board", validBoardMutation, "post", input),

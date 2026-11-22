@@ -368,7 +368,7 @@ or grants authority merely by opening, showing or recovering the window.
 
 General's **Wake idle orchestrators on child events** starts off. Enabling it
 permits fixed metadata notices in an unfocused orchestrator after current hook idle,
-a matching live composer, Escape and another screen check. Pending child events
+a matching live composer, Escape and another screen check. Structured decision answers add a fixed Board wake line under the same setting. Pending child events
 share a notice and a configurable minimum interval, default three minutes. The
 Action Log records attempts and outcomes. Menus, working screens and uncertain
 readiness queue the notice. Escape may cancel a prompt or interrupt work; the

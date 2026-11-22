@@ -287,3 +287,23 @@ test("disable then re-enable during durable intent cannot revive the withdrawn q
   expect(f.records.at(-1)?.operation.status).toBe("cancelled");
   expect(f.wake).toHaveBeenCalledOnce();
 });
+
+test("coalesces structured answers with child events without including decision contents", async () => {
+  const f = setup();
+  f.instance.configure(true, 1);
+  f.instance.event("p");
+  f.instance.read("p");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.wake).not.toHaveBeenCalled();
+  f.instance.event("p");
+  f.instance.event("p", "child");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.wake.mock.calls[0]?.[1]).toBe(
+    "Foom: child and board events. Call wait_for, read_handoff and board_read.",
+  );
+  f.instance.event("p");
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.wake.mock.calls.at(-1)?.[1]).toBe(
+    "Foom: board decisions answered. Call wait_for and board_read.",
+  );
+});

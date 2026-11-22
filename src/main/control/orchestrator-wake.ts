@@ -12,7 +12,7 @@ export class OrchestratorWake {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
   private readonly bindings = new Map<string, { actor: Principal; operations: Operations }>();
-  private readonly pending = new Map<string, Map<string, number>>();
+  private readonly pending = new Map<string, Map<string | undefined, number>>();
   private readonly attempted = new Map<string, number>();
   private readonly last = new Map<string, number>();
   private readonly busy = new Set<string>();
@@ -42,7 +42,7 @@ export class OrchestratorWake {
     this.bindings.set(actor.terminalId, { actor, operations });
     this.host.recheckWakes?.();
   }
-  event(parentId: string, childId: string): void {
+  event(parentId: string, childId?: string): void {
     if (!this.enabled || this.disposed) return;
     let queue = this.pending.get(parentId);
     if (!queue) {
@@ -54,7 +54,7 @@ export class OrchestratorWake {
       this.sync();
     });
   }
-  read(parentId: string, childId: string): void {
+  read(parentId: string, childId?: string): void {
     this.pending.get(parentId)?.delete(childId);
     this.host.recheckWakes?.();
   }
@@ -99,15 +99,16 @@ export class OrchestratorWake {
   }
   private async deliver(
     id: string,
-    queue: Map<string, number>,
+    queue: Map<string | undefined, number>,
     run: { actor: Principal; operations: Operations },
   ): Promise<void> {
     const { actor, operations } = run;
     const batch = [...queue];
     const rows = this.host.terminals();
-    const line = wakeLine(
-      batch.map(([id]) => rows.find((row) => row.id === id)?.branch ?? "child"),
+    const names = batch.flatMap(([id]) =>
+      id === undefined ? [] : [rows.find((row) => row.id === id)?.branch ?? "child"],
     );
+    const line = wakeLine(names, queue.has(undefined));
     let operation: Operation | undefined;
     const valid = () =>
       !this.disposed &&

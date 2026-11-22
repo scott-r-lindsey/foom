@@ -1,3 +1,4 @@
+import { decisionLabel } from "./message-board-decisions";
 import { reviewLabel } from "../../shared/review-state";
 import { BackgroundErrorMark } from "./error-presentation";
 import type { SidebarRowEvents } from "./sidebar-interactions.d";
@@ -14,6 +15,7 @@ import { SessionName } from "./session-name";
 /** Presentation only: the sidebar owns focus, panel intent and selection. */
 export interface SidebarSessionRowProps {
   row: BoardRow;
+  decisionCount?: number;
   name: string;
   identity: string;
   parentName: string | undefined;
@@ -36,6 +38,7 @@ export interface SidebarSessionRowProps {
 }
 export function SidebarSessionRow({
   row,
+  decisionCount = 0,
   name,
   identity,
   parentName,
@@ -107,7 +110,7 @@ export function SidebarSessionRow({
         data-state={lightState(row)}
         data-exited={Boolean(row.exited)}
         tabIndex={docked || row.id === selected ? 0 : -1}
-        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" && !row.closeFailed ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.review ? ` · ${reviewLabel(row.review)}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}${row.unavailable ? " · Unavailable" : ""}`}
+        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" && !row.closeFailed ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.review ? ` · ${reviewLabel(row.review)}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}${row.unavailable ? " · Unavailable" : ""}${decisionCount ? ` · ${decisionLabel(decisionCount)}` : ""}`}
         ref={(element) => {
           register(row.id, element);
         }}
@@ -146,6 +149,9 @@ export function SidebarSessionRow({
                 : row.exited
                   ? "Exited orchestrator"
                   : "Revoked orchestrator"}
+              {decisionCount > 0 && (
+                <span className="decision-count"> · {decisionLabel(decisionCount)}</span>
+              )}
             </span>
           )}
           {row.review && (

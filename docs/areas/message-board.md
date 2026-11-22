@@ -108,3 +108,46 @@ even when ordinary writes have reached the 32 MiB/receipt bounds. Local and
 registered-host human removal share this expiry notification. Other writes still
 refuse at capacity rather than silently evicting events. Serialized writes preserve event order; recording failure is exposed
 through mutation flushes and a fixed diagnostic without contents.
+
+## Structured decisions (#1297)
+
+The current repository orchestrator can post one to four questions on a topic.
+The board caps outstanding questions at 16 per authoring repository across
+threads. Each question has a title, two to four options with distinct IDs and
+optional detail, option hints, preview and PR subject. The Board remains the
+single private history. A question cannot approve a Foom action by itself.
+
+A PR subject names a PR in the posting repository. Main reads the settled head
+and required-check state from current forge tracking. The serial forge poller
+reuses matching worktree observations and can look up a question's PR number
+when no tracked checkout covers it. It stops watching once no open question
+uses that PR. Until the head is known,
+the question shows Checking subject and submission is disabled. Once a
+different head is observed, the board latches Stale and removes the question
+from the count. A force-push back to the original head does not reopen a stale
+question. An accepted answer retains the original full head. Submit checks
+every selected question and its subject in the serialized board write.
+An invalid, stale, withdrawn or previously answered selection refuses the whole
+batch. Same-key retries return the original receipt.
+
+The orchestrator can withdraw an open question post through `board_resolve` with
+its post ID. The thread stays open and previously submitted answers remain in
+its history. Questions withdrawn while the stepper is open stay in that stepper
+struck through until it closes. Resolving the thread also closes its outstanding
+questions. The Board records questions, stale/withdrawn state and human answers
+in the same thread.
+
+The current orchestrator's tile has an amber decisions pill with the count and
+the sidebar and Board button repeat it. The pill and Board queue open the
+stepper. Hide and Escape return focus and leave questions pending. Back and
+Change return to earlier questions, Skip leaves a question open, and review
+submits the completed choices together. The renderer displays question text,
+options and answers as plain text.
+
+Previews bind to the posting checkout or repository. Main revalidates the
+current local checkout, runs the shared preview resolver and restricts the
+canonical preview root to that checkout. It loads the document in a sandboxed
+preview partition with network and JavaScript disabled and blocks navigation
+and popups. The board receives a bounded PNG capture. Missing, unsupported or
+refused documents show Preview unavailable. The preview cannot receive input
+or use Board IPC.

@@ -308,7 +308,9 @@ export interface WorkspaceDependencies {
   /** Started on the first agent launch, independently of hook support. */
   control?: () => Promise<
     Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
-      Partial<Pick<ControlRuntime, "audit" | "takeOver" | "board">>
+      Partial<
+        Pick<ControlRuntime, "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview">
+      >
   >;
   /** Started on the first launch that attaches hooks, then reused. */
   agentPluginDirectory?: string;

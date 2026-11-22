@@ -19,6 +19,9 @@ import type { SetupSource } from "../preflight/setup-source.d";
 import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
 import { MessageBoardPanel } from "./message-board-view";
+import { decisionLabel, DecisionsDialog, useDecisionCounts } from "./message-board-decisions";
+import type { DecisionSession } from "./message-board-decisions";
+import type { BoardDecision } from "../../shared/message-board";
 import { ActionLog } from "./action-log-view";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -162,6 +165,39 @@ function BoardContents({
   }, []);
   const [logOpen, setLogOpen] = useState(false);
   const [boardOpen, setBoardOpen] = useState(false);
+  const [decisionSession, setDecisionSession] = useState<DecisionSession>();
+  const decisionOriginRef = useRef<HTMLElement | null>(null);
+  const decisionRequestRef = useRef(0);
+  const { counts, orchestrators } = useDecisionCounts(
+    source.messageBoard?.decisions,
+    source.subscribe,
+  );
+  const decisionTotal = Object.values(counts).reduce((total, count) => total + count, 0);
+  const countFor = (session: string) => counts[orchestrators?.[session] ?? ""] ?? 0;
+  const openDecisions = (repository: string, name: string, watched?: BoardDecision[]) => {
+    const id = ++decisionRequestRef.current;
+    const origin = document.activeElement;
+    const watch = watched?.map(({ post, index }) => ({ post, index })) ?? [];
+    void source.messageBoard
+      ?.decisions?.({ ...(watch.length ? {} : { repository }), watch })
+      .then(({ questions }) => {
+        if (id !== decisionRequestRef.current || !questions.length) return;
+        decisionOriginRef.current = origin instanceof HTMLElement ? origin : null;
+        setDecisionSession({ repository, name, questions });
+      })
+      .catch(() => {
+        reportBackground("board-decisions", "Unable to load decisions.");
+      });
+  };
+  const closeDecisions = () => {
+    setDecisionSession(undefined);
+    const origin = decisionOriginRef.current;
+    requestAnimationFrame(() => {
+      if (origin?.isConnected && !origin.hidden) origin.focus();
+      if (document.activeElement !== origin)
+        document.querySelector<HTMLElement>(".message-board-toggle")?.focus();
+    });
+  };
   const boardShown = boardOpen && !logOpen && !settingsView;
   const settingsOpen = Boolean(settingsView) || logOpen || boardShown;
   const paneInactive = inactive || settingsOpen;
@@ -478,6 +514,7 @@ function BoardContents({
       setFocusRequest,
       reportBackground,
       refusePlacement,
+      setSelection,
       clearBackground,
       setRemoveError,
     ],
@@ -788,7 +825,7 @@ function BoardContents({
         if (!paneInactive) boardFocusRef.current = event.target;
       }}
       data-dragging={Boolean(drag || incomingDrag)}
-      data-preview-covered={paneInactive}
+      data-preview-covered={paneInactive || Boolean(decisionSession)}
       ref={boardRef}
       aria-label="Board"
       hidden={inactive}
@@ -932,6 +969,7 @@ function BoardContents({
           {...(onSettings ? { openSettings: onSettings } : {})}
           inactive={inactive}
           rows={liveRows}
+          decisionCount={countFor}
           preferences={preferences}
           save={save}
           selected={selected}
@@ -950,6 +988,7 @@ function BoardContents({
                   className="message-board-toggle"
                   title="Board"
                   aria-label="Open message board"
+                  aria-description={decisionTotal > 0 ? decisionLabel(decisionTotal) : undefined}
                   aria-pressed={boardShown}
                   onClick={() => {
                     const show = () => {
@@ -961,6 +1000,9 @@ function BoardContents({
                   }}
                 >
                   Board
+                  {decisionTotal > 0 && (
+                    <span className="decision-count"> · {decisionLabel(decisionTotal)}</span>
+                  )}
                 </button>
               )}
               {approvalCount > 0 && (
@@ -992,9 +1034,19 @@ function BoardContents({
           <MessageBoardPanel
             api={source.messageBoard}
             subscribe={source.subscribe}
+            decisions={counts}
+            openDecisions={openDecisions}
             close={() => {
               setBoardOpen(false);
             }}
+          />
+        )}
+        {decisionSession && source.messageBoard && (
+          <DecisionsDialog
+            session={decisionSession}
+            api={source.messageBoard}
+            subscribe={source.subscribe}
+            close={closeDecisions}
           />
         )}
         {logOpen && source.actionLog && (
@@ -1040,6 +1092,12 @@ function BoardContents({
                 setFocusRequest((value) => value + 1);
             }}
             rows={rows}
+            decisionsHidden={Boolean(decisionSession)}
+            decisionCount={countFor}
+            openDecisions={(row) => {
+              const repository = orchestrators?.[row.id];
+              if (repository) openDecisions(repository, row.repository);
+            }}
             startupReady={(id) => {
               const operation = startupOperationsRef.current.get(id)?.operation;
               startupOperationsRef.current.delete(id);

@@ -4,7 +4,10 @@ import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicPrivate, verifyPrivate } from "../../node-common/private-files";
 import type {
+  BoardDecision,
+  BoardDecisions,
   BoardMutation,
+  DecisionAddress,
   BoardRead,
   BoardRepository,
   BoardThreads,
@@ -13,6 +16,12 @@ import type {
 } from "../../shared/message-board";
 import {
   BOARD_NOTICE,
+  OPEN_DECISION_LIMIT,
+  boardAnswers,
+  boardQuestions,
+  decisionAddress,
+  decisionAnswer,
+  decisionSubject,
   boardLinks,
   boardPost,
   boardResolve,
@@ -22,6 +31,19 @@ import {
 } from "../../shared/message-board-validation";
 import { ControlError, exact, identifier, object } from "../../shared/control-validation";
 import { MCP_ID_LIMIT, MCP_RESPONSE_LIMIT, mcpToolResponse } from "../../node-common/mcp-response";
+
+export type DecisionForge = (
+  repository: string,
+  pullRequest: number,
+) => { headSha: string; checks?: NonNullable<BoardDecision["checks"]> } | undefined;
+
+function addressKey({ post, index }: DecisionAddress): string {
+  return `${post}:${String(index)}`;
+}
+
+function answeredPosts(posts: MessagePost[]): Set<string> {
+  return new Set(posts.flatMap((post) => post.answers?.map(addressKey) ?? []));
+}
 
 interface Receipt {
   scope: string;
@@ -71,23 +93,28 @@ const envelope = { untrusted: true, notice: BOARD_NOTICE } as const;
 export class MessageBoard {
   private data: Data = { version: 1, threads: [], posts: [], receipts: [] };
   private failed = false;
+  private readonly observedStale = new Map<string, Set<number>>();
   private childWrites: Promise<unknown> = Promise.resolve();
   private writes: Promise<unknown> = Promise.resolve();
   constructor(
-    private readonly save: (data: unknown) => Promise<void>,
+    private readonly save: (data: unknown, beforeCommit?: () => void) => Promise<void>,
     private readonly repositories: () => BoardRepository[],
-    private readonly changed: () => void = () => {},
+    private readonly changed: (answeredRepositories?: readonly string[]) => void = () => {},
     private readonly limits = { bytes: LIMIT, receipts: 65536 },
+    private readonly forge: DecisionForge = () => undefined,
   ) {}
   static async open(
     directory: string,
     repositories: () => BoardRepository[],
-    changed: () => void,
+    changed: (answeredRepositories?: readonly string[]) => void,
+    forge?: DecisionForge,
   ): Promise<MessageBoard> {
     const board = new MessageBoard(
-      (data) => atomicPrivate(directory, "board.json", data),
+      (data, beforeCommit) => atomicPrivate(directory, "board.json", data, beforeCommit),
       repositories,
       changed,
+      undefined,
+      forge,
     );
     const path = join(directory, "board.json");
     try {
@@ -181,7 +208,12 @@ export class MessageBoard {
     const input = object(value);
     exact(input, ["thread", "after"]);
     const thread = this.thread(identifier(input["thread"]), repository);
-    const rows = this.data.posts.filter((row) => row.thread === thread.id);
+    const answered = answeredPosts(this.data.posts);
+    const rows = this.data.posts
+      .filter((row) => row.thread === thread.id)
+      .map((post) =>
+        post.questions ? { ...post, decisions: this.project(post, thread, answered) } : post,
+      );
     const after = input["after"] === undefined ? undefined : identifier(input["after"]);
     const start = after === undefined ? 0 : rows.findIndex((row) => row.id === after) + 1;
     if (after !== undefined && start === 0) throw new ControlError("not_found");
@@ -194,6 +226,199 @@ export class MessageBoard {
       })),
     );
   }
+  private project(
+    post: MessagePost,
+    thread: MessageThread,
+    answered: Set<string>,
+  ): BoardDecision[] {
+    const repository = post.author.slice(13);
+    return (post.questions ?? []).map((question, index) => {
+      const address = { post: post.id, index };
+      const subject = question.subject;
+      const current = subject && this.forge(repository, subject.pullRequest);
+      const status = answered.has(addressKey(address))
+        ? "answered"
+        : post.withdrawn || thread.state === "resolved"
+          ? "withdrawn"
+          : post.stale?.includes(index) ||
+              this.observedStale.get(post.id)?.has(index) ||
+              (subject && current && subject.headSha !== current.headSha)
+            ? "stale"
+            : subject && !current
+              ? "checking"
+              : "open";
+      return {
+        ...address,
+        repository,
+        question,
+        status,
+        ...(current?.checks === undefined ? {} : { checks: current.checks }),
+      };
+    });
+  }
+
+  decisions(value: unknown): BoardDecisions {
+    const input = object(value);
+    exact(input, ["repository", "watch"]);
+    const repository =
+      input["repository"] === undefined ? undefined : identifier(input["repository"]);
+    const watch = input["watch"];
+    if (!Array.isArray(watch) || watch.length > OPEN_DECISION_LIMIT)
+      throw new ControlError("invalid_request");
+    const watched = new Set(watch.map((value: unknown) => addressKey(decisionAddress(value))));
+    const counts = new Map<string, number>();
+    const questions: BoardDecision[] = [];
+    const answered = answeredPosts(this.data.posts);
+    const threads = new Map(this.data.threads.map((thread) => [thread.id, thread]));
+    for (const post of this.data.posts) {
+      const thread = threads.get(post.thread);
+      if (!post.questions || !thread) continue;
+      for (const row of this.project(post, thread, answered)) {
+        const open = row.status === "open" || row.status === "checking";
+        if (open) counts.set(row.repository, (counts.get(row.repository) ?? 0) + 1);
+        if ((open && repository === row.repository) || watched.has(addressKey(row)))
+          questions.push(row);
+      }
+    }
+    return structuredClone({ counts: Object.fromEntries(counts), questions });
+  }
+
+  pendingSubjects(): { repository: string; number: number }[] {
+    const subjects = new Map<string, { repository: string; number: number }>();
+    const answered = answeredPosts(this.data.posts);
+    const threads = new Map(this.data.threads.map((thread) => [thread.id, thread]));
+    for (const post of this.data.posts) {
+      const thread = threads.get(post.thread);
+      if (!post.questions || !thread) continue;
+      for (const row of this.project(post, thread, answered)) {
+        const subject = row.question.subject;
+        if (subject && (row.status === "open" || row.status === "checking")) {
+          const number = subject.pullRequest;
+          subjects.set(`${row.repository}:${String(number)}`, {
+            repository: row.repository,
+            number,
+          });
+        }
+      }
+    }
+    return [...subjects.values()];
+  }
+
+  preview(value: unknown) {
+    const address = decisionAddress(value);
+    const post = this.data.posts.find((post) => post.id === address.post);
+    const preview = post?.questions?.[address.index]?.preview;
+    if (!post || !preview) return undefined;
+    return { ...preview, repository: post.author.slice(13), worktree: post.previewWorktree };
+  }
+
+  /** Latch an observed head change immediately, then persist it through the board write queue. */
+  observe(): void {
+    const answered = answeredPosts(this.data.posts);
+    const threads = new Map(this.data.threads.map((thread) => [thread.id, thread]));
+    let changed = false;
+    for (const post of this.data.posts) {
+      const thread = threads.get(post.thread);
+      if (!post.questions || !thread) continue;
+      for (const row of this.project(post, thread, answered)) {
+        if (row.status !== "stale" || post.stale?.includes(row.index)) continue;
+        const indexes = this.observedStale.get(post.id) ?? new Set<number>();
+        if (indexes.has(row.index)) continue;
+        indexes.add(row.index);
+        this.observedStale.set(post.id, indexes);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const task = this.writes.then(async () => {
+      if (this.failed) return;
+      const next = structuredClone(this.data);
+      const observed = structuredClone(this.observedStale);
+      for (const post of next.posts) {
+        const known = observed.get(post.id);
+        if (known) post.stale = [...new Set([...(post.stale ?? []), ...known])];
+      }
+      try {
+        await this.save(next);
+      } catch {
+        this.failed = true;
+        return;
+      }
+      this.data = next;
+      for (const [id, indexes] of observed) {
+        const pending = this.observedStale.get(id);
+        for (const index of indexes) pending?.delete(index);
+        if (!pending?.size) this.observedStale.delete(id);
+      }
+    });
+    this.writes = task;
+    this.changed();
+  }
+
+  answer(value: unknown): Promise<BoardMutation> {
+    const input = boardAnswers(value);
+    const repositories = new Set<string>();
+    const requireOpen = () => {
+      const answered = answeredPosts(this.data.posts);
+      for (const { post, index } of input.answers) {
+        const source = this.data.posts.find((row) => row.id === post);
+        if (!source?.questions) throw new ControlError("not_found");
+        const row = this.project(source, this.thread(source.thread), answered)[index];
+        if (!row || row.status !== "open") throw new ControlError("conflict");
+      }
+    };
+    return this.mutate(
+      "human",
+      input.idempotencyKey,
+      ["decisions", input],
+      () => {},
+      (data) => {
+        const byQuestionPost = new Map<string, NonNullable<MessagePost["answers"]>>();
+        for (const answer of input.answers) {
+          const post = data.posts.find((post) => post.id === answer.post);
+          const question = post?.questions?.[answer.index];
+          if (!question) throw new ControlError("conflict");
+          if (
+            answer.option !== undefined &&
+            !question.options.some(({ id }) => id === answer.option)
+          )
+            throw new ControlError("invalid_request");
+          const batch = byQuestionPost.get(answer.post) ?? [];
+          batch.push({
+            ...answer,
+            ...(question.subject ? { subject: question.subject } : {}),
+          });
+          byQuestionPost.set(answer.post, batch);
+          repositories.add(post.author.slice(13));
+        }
+        const timestamp = new Date().toISOString();
+        let result: BoardMutation | undefined;
+        for (const [parent, answers] of byQuestionPost) {
+          const question = data.posts.find((post) => post.id === parent);
+          const thread = data.threads.find((thread) => thread.id === question?.thread);
+          if (!thread) throw new ControlError("not_found");
+          const id = randomUUID();
+          data.posts.push({
+            id,
+            thread: thread.id,
+            author: "human",
+            kind: "answer",
+            text: answers.length === 1 ? "Decision answered" : "Decisions answered",
+            links: [],
+            timestamp,
+            answers,
+          });
+          thread.state = "waiting-repo";
+          thread.updatedAt = timestamp;
+          result ??= { thread: thread.id, post: id };
+        }
+        if (!result) throw new ControlError("invalid_request");
+        return result;
+      },
+      { beforeCommit: requireOpen, answeredRepositories: repositories },
+    );
+  }
+
   /** Posts by other authors in threads addressed to this repository; metadata only. */
   event(repository: string): string {
     const addressed = new Set(
@@ -201,14 +426,22 @@ export class MessageBoard {
         .filter((thread) => this.visible(thread, repository))
         .map((thread) => thread.id),
     );
+    const answered = answeredPosts(this.data.posts);
+    const stale = this.data.posts.flatMap((post) => {
+      if (!post.questions || !addressed.has(post.thread)) return [];
+      return this.project(post, this.thread(post.thread), answered)
+        .filter((row) => row.status === "stale")
+        .map(addressKey);
+    });
     return hash(
-      JSON.stringify(
-        this.data.posts
+      JSON.stringify([
+        ...this.data.posts
           .filter(
             (post) => addressed.has(post.thread) && post.author !== `orchestrator:${repository}`,
           )
           .map((post) => post.id),
-      ),
+        ...stale,
+      ]),
     );
   }
   /** Main-only append seam for future app-owned producers. Never exposed as caller-selected identity. */
@@ -218,10 +451,12 @@ export class MessageBoard {
     value: unknown,
     active: () => void = () => {},
     child?: MessageThread["child"],
+    previewWorktree?: string,
   ): Promise<BoardMutation> {
     const input = boardPost(value);
     const identity = boardAuthor(author);
     const repository = identity === "human" ? undefined : identity.slice(13);
+    if (input.questions && (!repository || child)) throw new ControlError("forbidden");
     return this.mutate(scope, input.idempotencyKey, [identity, input], active, (data) => {
       const now = new Date().toISOString();
       let thread: MessageThread;
@@ -245,6 +480,11 @@ export class MessageBoard {
           updatedAt: now,
         };
       }
+      if (input.questions && repository) {
+        const pending = this.decisions({ watch: [] }).counts[repository] ?? 0;
+        if (pending + input.questions.length > OPEN_DECISION_LIMIT)
+          throw new ControlError("capacity");
+      }
       if (child) thread.child = { ...child };
       const post: MessagePost = {
         id: randomUUID(),
@@ -254,12 +494,22 @@ export class MessageBoard {
         text: input.text,
         links: [...input.links],
         timestamp: now,
+        ...(input.questions === undefined
+          ? {}
+          : {
+              questions: input.questions,
+              ...(previewWorktree && input.questions.some(({ preview }) => preview)
+                ? { previewWorktree: identifier(previewWorktree) }
+                : {}),
+            }),
       };
       thread.updatedAt = now;
       thread.state = child
         ? thread.state
         : identity !== "human" &&
-            (input.kind === "decision-needed" || thread.state === "waiting-human")
+            (input.kind === "decision-needed" ||
+              input.kind === "question" ||
+              thread.state === "waiting-human")
           ? "waiting-human"
           : identity === "human" || input.kind === "request"
             ? "waiting-repo"
@@ -267,6 +517,10 @@ export class MessageBoard {
       const index = data.threads.findIndex((row) => row.id === thread.id);
       if (index < 0) data.threads.push(thread);
       else data.threads[index] = thread;
+      const stale = this.project(post, thread, new Set())
+        .filter(({ status }) => status === "stale")
+        .map(({ index }) => index);
+      if (stale.length) post.stale = stale;
       data.posts.push(post);
       return { thread: thread.id, post: post.id };
     });
@@ -281,6 +535,18 @@ export class MessageBoard {
     return this.mutate(scope, input.idempotencyKey, ["resolve", input], active, (data) => {
       const thread = this.thread(input.thread, repository);
       if (thread.child && repository !== undefined) throw new ControlError("forbidden");
+      if (input.post !== undefined) {
+        if (!repository) throw new ControlError("forbidden");
+        const post = data.posts.find((row) => row.id === input.post && row.thread === thread.id);
+        if (!post?.questions) throw new ControlError("not_found");
+        if (post.author !== `orchestrator:${repository}`) throw new ControlError("forbidden");
+        const open = this.project(post, thread, answeredPosts(data.posts)).some(
+          ({ status }) => status === "open" || status === "checking",
+        );
+        if (!open) throw new ControlError("conflict");
+        post.withdrawn = true;
+        return { thread: thread.id, post: post.id };
+      }
       const index = data.threads.findIndex((row) => row.id === thread.id);
       data.threads[index] = { ...thread, state: "resolved", updatedAt: new Date().toISOString() };
       return { thread: thread.id, post: null };
@@ -343,6 +609,10 @@ export class MessageBoard {
     });
     return task;
   }
+  async flush(): Promise<void> {
+    await this.flushChildren();
+    await this.writes;
+  }
   flushChildren(): Promise<unknown> {
     return this.childWrites;
   }
@@ -403,6 +673,10 @@ export class MessageBoard {
       if (thread.child && !thread.child.removedAt)
         this.markRemoved(reserved, thread, "2000-01-01T00:00:00.000Z");
     }
+    for (const post of reserved.posts) {
+      if (post.questions?.some(({ subject }) => subject))
+        post.stale = post.questions.flatMap(({ subject }, index) => (subject ? [index] : []));
+    }
     return Buffer.byteLength(JSON.stringify(reserved));
   }
   private pruneData(data: Data): boolean {
@@ -441,6 +715,7 @@ export class MessageBoard {
     input: unknown,
     active: () => void,
     change: (data: Data) => BoardMutation,
+    answerEffects?: { beforeCommit: () => void; answeredRepositories: Set<string> },
   ): Promise<BoardMutation> {
     boardText(scope, 512);
     const fingerprint = hash(JSON.stringify(input));
@@ -455,20 +730,33 @@ export class MessageBoard {
       const next = structuredClone(this.data);
       this.pruneData(next);
       if (next.receipts.length >= this.limits.receipts) throw new ControlError("capacity");
+      answerEffects?.beforeCommit();
       const result = change(next);
       next.receipts.push({ scope, key: hash(key), hash: fingerprint, result });
       if (this.reservedBytes(next) > this.limits.bytes) throw new ControlError("capacity");
       active();
+      const commit = { refused: false };
+      const check =
+        answerEffects &&
+        (() => {
+          try {
+            answerEffects.beforeCommit();
+          } catch (error) {
+            commit.refused = true;
+            throw error;
+          }
+        });
       try {
-        await this.save(next);
-      } catch {
+        await this.save(next, check);
+      } catch (error) {
+        if (commit.refused) throw error;
         // A failed sync may follow a successful rename. Refuse further writes until
         // validated restart recovery, rather than overwriting an ambiguous append.
         this.failed = true;
         throw new ControlError("unavailable");
       }
       this.data = next;
-      this.changed();
+      this.changed(answerEffects && [...answerEffects.answeredRepositories]);
       return { ...result };
     });
     this.writes = task.catch(() => undefined);
@@ -532,20 +820,83 @@ export function parseMessageBoard(value: unknown): Data {
   });
   const posts = data["posts"].map((value: unknown): MessagePost => {
     const row = object(value);
-    exact(row, ["id", "thread", "author", "kind", "text", "links", "timestamp"]);
+    exact(row, [
+      "id",
+      "thread",
+      "author",
+      "kind",
+      "text",
+      "links",
+      "timestamp",
+      "questions",
+      "withdrawn",
+      "stale",
+      "previewWorktree",
+      "answers",
+    ]);
+    const kind = postKind(row["kind"]);
+    const question = kind === "question";
+    if (
+      question !== (row["questions"] !== undefined) ||
+      (!question &&
+        (row["withdrawn"] !== undefined ||
+          row["stale"] !== undefined ||
+          row["previewWorktree"] !== undefined)) ||
+      (row["withdrawn"] !== undefined && row["withdrawn"] !== true) ||
+      (row["answers"] !== undefined && (kind !== "answer" || row["author"] !== "human"))
+    )
+      throw new ControlError("unavailable");
+    const questions = question ? boardQuestions(row["questions"]) : undefined;
+    const stale: unknown = row["stale"];
+    const staleIndexes = stale === undefined ? undefined : storedStale(stale, questions);
+    const answers = row["answers"] === undefined ? undefined : storedAnswers(row["answers"]);
     const author = boardAuthor(row["author"]);
     const thread = identifier(row["thread"]);
-    if (!threads.some((row) => row.id === thread)) throw new ControlError("unavailable");
+    const owner = threads.find((row) => row.id === thread);
+    if (
+      !owner ||
+      (question &&
+        (author === "human" ||
+          owner.child ||
+          (owner.repository !== author.slice(13) && !owner.to.includes(author.slice(13)))))
+    )
+      throw new ControlError("unavailable");
     return {
       id: identifier(row["id"]),
       thread,
       author,
-      kind: postKind(row["kind"]),
+      kind,
       text: boardText(row["text"]),
       links: boardLinks(row["links"]),
       timestamp: timestamp(row["timestamp"]),
+      ...(questions === undefined ? {} : { questions }),
+      ...(row["withdrawn"] === true ? { withdrawn: true } : {}),
+      ...(staleIndexes === undefined ? {} : { stale: staleIndexes }),
+      ...(row["previewWorktree"] === undefined
+        ? {}
+        : { previewWorktree: identifier(row["previewWorktree"]) }),
+      ...(answers === undefined ? {} : { answers }),
     };
   });
+  const priorPosts = new Map<string, MessagePost>();
+  const answers = new Set<string>();
+  for (const post of posts) {
+    for (const answer of post.answers ?? []) {
+      const source = priorPosts.get(answer.post);
+      const question = source?.questions?.[answer.index];
+      const key = addressKey(answer);
+      if (
+        !question ||
+        source.thread !== post.thread ||
+        answers.has(key) ||
+        (answer.option !== undefined && !question.options.some(({ id }) => id === answer.option)) ||
+        JSON.stringify(answer.subject) !== JSON.stringify(question.subject)
+      )
+        throw new ControlError("unavailable");
+      answers.add(key);
+    }
+    priorPosts.set(post.id, post);
+  }
   const receipts = data["receipts"].map((value: unknown): Receipt => {
     const row = object(value);
     exact(row, ["scope", "key", "hash", "result"]);
@@ -569,6 +920,31 @@ export function parseMessageBoard(value: unknown): Data {
     throw new ControlError("unavailable");
   return { version: 1, threads, posts, receipts };
 }
+function storedStale(value: unknown, questions: MessagePost["questions"]): number[] {
+  if (!Array.isArray(value) || !questions || value.length < 1 || value.length > questions.length)
+    throw new ControlError("unavailable");
+  const indexes = value.map((index: unknown) => {
+    if (typeof index !== "number" || !Number.isInteger(index) || !questions[index]?.subject)
+      throw new ControlError("unavailable");
+    return index;
+  });
+  if (new Set(indexes).size !== indexes.length) throw new ControlError("unavailable");
+  return indexes;
+}
+
+function storedAnswers(value: unknown): NonNullable<MessagePost["answers"]> {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 4)
+    throw new ControlError("unavailable");
+  return value.map((value: unknown) => {
+    const row = object(value);
+    const { subject, ...choice } = row;
+    return {
+      ...decisionAnswer(choice),
+      ...(subject === undefined ? {} : { subject: decisionSubject(subject) }),
+    };
+  });
+}
+
 function boardAuthor(value: unknown): MessagePost["author"] {
   if (value === "human") return value;
   if (typeof value !== "string" || !value.startsWith("orchestrator:"))
