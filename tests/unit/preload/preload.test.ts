@@ -2306,3 +2306,42 @@ test("validates and projects recorded host requirements", async () => {
     );
   }
 });
+
+test("projects decision facts and accepts only a bounded PNG preview response", async () => {
+  await import("../../../src/preload/preload");
+  const api = mock.expose.mock.calls[0]?.[1].messageBoard;
+  if (!api?.decisions || !api.answer || !api.preview) throw new Error("Missing board capabilities");
+  const address = { post: "q", index: 0 };
+  const result = {
+    counts: { repo: 1 },
+    orchestrators: { terminal: "repo" },
+    questions: [
+      {
+        ...address,
+        repository: "repo",
+        status: "open",
+        question: { title: "Proceed?", options: [{ id: "go", label: "Go", injected: true }] },
+      },
+    ],
+  };
+  mock.invoke.mockResolvedValueOnce(result);
+  const read = await api.decisions({ repository: "repo", watch: [] });
+  expect(read.questions[0]?.question.options[0]).toEqual({ id: "go", label: "Go" });
+  mock.invoke.mockResolvedValueOnce({ thread: "t", post: "p" });
+  const answer = { answers: [{ ...address, option: "go" }], idempotencyKey: "key" };
+  expect(await api.answer(answer)).toEqual({ thread: "t", post: "p" });
+  expect(mock.invoke).toHaveBeenLastCalledWith("workspace:message-board", "answer", answer);
+  for (const payload of [null, "data:image/png;base64,AA=="]) {
+    mock.invoke.mockResolvedValueOnce(payload);
+    expect(await api.preview(address)).toBe(payload);
+  }
+  for (const payload of [
+    "data:text/html,evil",
+    "data:image/png;base64,!",
+    "A".repeat(2 * 1024 * 1024 + 1),
+    8,
+  ]) {
+    mock.invoke.mockResolvedValueOnce(payload);
+    await expect(api.preview(address)).rejects.toThrow();
+  }
+});

@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
 import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
-import type { ForgeMatch, ForgeWorktree, PullRequest } from "../../../../src/main/control/forge.d";
+import type {
+  ForgeMatch,
+  ForgeProviderFactory,
+  ForgeWorktree,
+  PullRequest,
+} from "../../../../src/main/control/forge.d";
 import { SessionMetadata, locationId } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
@@ -1830,4 +1835,65 @@ it("samples a decision PR separately from checkout tracking and retires its obse
     // Use the regular tracker temporary directory for shutdown persistence.
     trackers.push(tracker);
   }
+});
+
+it("reuses a settled checkout for a decision subject and retires a superseded numeric result", async () => {
+  const { tracker, lookup } = harness();
+  tracker.track(tree, 340);
+  expect(tracker.readDecision(locationId(tree.repository), 340)).toBeUndefined();
+  await tracker.poll();
+  expect(tracker.readDecision(locationId(tree.repository), 340)).toEqual(pending);
+  expect(tracker.readDecision(locationId(tree.repository), 341)).toBeUndefined();
+  expect(lookup).toHaveBeenCalledOnce();
+  tracker.invalidate();
+  expect(tracker.readDecision(locationId(tree.repository), 340)).toBeUndefined();
+});
+
+it("backs off on disabled routing, bad identity and failed numeric reads", async () => {
+  let now = 0;
+  const repository = locationId("/repo");
+  const targets = [
+    { repository, number: 340 },
+    { repository, number: 341 },
+  ];
+  const remote = vi.fn(() => Promise.resolve<string | undefined>("https://github.com/foom/foom"));
+  const resolve = vi.fn(() =>
+    Promise.resolve({ branch: "review", state: "OPEN" as const, sameRepository: true }),
+  );
+  const lookup = vi.fn(() => Promise.resolve(pending));
+  const provider = vi.fn<ForgeProviderFactory>(async (_url, context) => {
+    const selected = await context?.();
+    await selected?.validate();
+    return { resolve, lookup };
+  });
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(undefined),
+    vi.fn(),
+    provider,
+    () => now,
+    remote,
+  );
+  trackers.push(tracker);
+  tracker.watchDecisions(targets);
+  remote.mockRejectedValueOnce(new Error("gone"));
+  await tracker.poll();
+  expect(provider).not.toHaveBeenCalled();
+  provider.mockRejectedValueOnce(new Error("unavailable"));
+  await tracker.poll();
+  expect(lookup).not.toHaveBeenCalled();
+  now = 60000;
+  resolve.mockRejectedValueOnce(new Error("gone"));
+  await tracker.poll();
+  expect(lookup).not.toHaveBeenCalled();
+  lookup.mockRejectedValueOnce(new Error("gone"));
+  await tracker.poll();
+  expect(tracker.readDecision(repository, 341)).toBeUndefined();
+  tracker.invalidate();
+  lookup.mockImplementationOnce(() => {
+    remote.mockResolvedValueOnce(undefined);
+    return Promise.resolve(pending);
+  });
+  await tracker.poll();
+  expect(tracker.readDecision(repository, 340)).toBeUndefined();
 });

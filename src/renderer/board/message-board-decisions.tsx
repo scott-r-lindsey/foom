@@ -203,10 +203,15 @@ function QuestionPage({
   );
 }
 
+export interface DecisionDraft {
+  position: string | null;
+  choices: Record<string, DecisionChoice | undefined>;
+}
 export interface DecisionSession {
   repository: string;
   name: string;
   questions: BoardDecision[];
+  draft?: DecisionDraft;
 }
 
 export function DecisionsDialog({
@@ -218,13 +223,22 @@ export function DecisionsDialog({
   session: DecisionSession;
   api: MessageBoardApi;
   subscribe: (listener: () => void) => () => void;
-  close: () => void;
+  close: (draft?: DecisionDraft) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const headingId = useId();
   const [rows, setRows] = useState(session.questions);
-  const [step, setStep] = useState(0);
-  const [choices, setChoices] = useState<Record<string, DecisionChoice | undefined>>({});
+  const [step, setStep] = useState(() =>
+    session.draft?.position === null
+      ? session.questions.length
+      : Math.max(
+          0,
+          session.questions.findIndex(
+            (question) => decisionKey(question) === session.draft?.position,
+          ),
+        ),
+  );
+  const [choices, setChoices] = useState(session.draft?.choices ?? {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const pendingRef = useRef<{ fingerprint: string; key: string } | undefined>(undefined);
@@ -265,6 +279,9 @@ export function DecisionsDialog({
   const row = rows[step];
   const key = row && decisionKey(row);
   const choice = key === undefined ? undefined : choices[key];
+  const hide = () => {
+    close({ position: key ?? null, choices });
+  };
   const answers: DecisionAnswer[] = rows.flatMap(({ status, post, index }) => {
     const picked = choices[decisionKey({ post, index })];
     return status === "open" && picked && usableChoice(picked) ? [{ post, index, ...picked }] : [];
@@ -299,7 +316,7 @@ export function DecisionsDialog({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault();
-        if (!busy) close();
+        if (!busy) hide();
       }}
     >
       <div className="decisions-content">
@@ -309,14 +326,21 @@ export function DecisionsDialog({
             {rows.map((item, index) => (
               <i
                 key={decisionKey(item)}
-                data-step={index === step ? "current" : index < step ? "visited" : "pending"}
+                data-step={
+                  index === step
+                    ? "current"
+                    : item.status === "open" && usableChoice(choices[decisionKey(item)])
+                      ? "visited"
+                      : "pending"
+                }
               />
             ))}
+            <i data-step={row ? "pending" : "current"} />
           </span>
           <span className="decision-position">
             {row ? `${String(step + 1)} / ${String(rows.length)}` : "Review"}
           </span>
-          <button type="button" disabled={busy} onClick={close}>
+          <button type="button" disabled={busy} onClick={hide}>
             Hide
           </button>
         </header>

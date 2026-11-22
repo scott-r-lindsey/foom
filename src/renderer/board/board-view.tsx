@@ -20,8 +20,7 @@ import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
 import { MessageBoardPanel } from "./message-board-view";
 import { decisionLabel, DecisionsDialog, useDecisionCounts } from "./message-board-decisions";
-import type { DecisionSession } from "./message-board-decisions";
-import type { BoardDecision } from "../../shared/message-board";
+import type { DecisionDraft, DecisionSession } from "./message-board-decisions";
 import { ActionLog } from "./action-log-view";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -167,6 +166,7 @@ function BoardContents({
   const [boardOpen, setBoardOpen] = useState(false);
   const [decisionSession, setDecisionSession] = useState<DecisionSession>();
   const decisionOriginRef = useRef<HTMLElement | null>(null);
+  const decisionDraftsRef = useRef(new Map<string, DecisionDraft>());
   const decisionRequestRef = useRef(0);
   const { counts, orchestrators } = useDecisionCounts(
     source.messageBoard?.decisions,
@@ -174,22 +174,26 @@ function BoardContents({
   );
   const decisionTotal = Object.values(counts).reduce((total, count) => total + count, 0);
   const countFor = (session: string) => counts[orchestrators?.[session] ?? ""] ?? 0;
-  const openDecisions = (repository: string, name: string, watched?: BoardDecision[]) => {
+  const openDecisions = (repository: string, name: string) => {
     const id = ++decisionRequestRef.current;
     const origin = document.activeElement;
-    const watch = watched?.map(({ post, index }) => ({ post, index })) ?? [];
     void source.messageBoard
-      ?.decisions?.({ ...(watch.length ? {} : { repository }), watch })
+      ?.decisions?.({ repository, watch: [] })
       .then(({ questions }) => {
         if (id !== decisionRequestRef.current || !questions.length) return;
         decisionOriginRef.current = origin instanceof HTMLElement ? origin : null;
-        setDecisionSession({ repository, name, questions });
+        const draft = decisionDraftsRef.current.get(repository);
+        setDecisionSession({ repository, name, questions, ...(draft ? { draft } : {}) });
       })
       .catch(() => {
         reportBackground("board-decisions", "Unable to load decisions.");
       });
   };
-  const closeDecisions = () => {
+  const closeDecisions = (draft?: DecisionDraft) => {
+    if (decisionSession) {
+      if (draft) decisionDraftsRef.current.set(decisionSession.repository, draft);
+      else decisionDraftsRef.current.delete(decisionSession.repository);
+    }
     setDecisionSession(undefined);
     const origin = decisionOriginRef.current;
     requestAnimationFrame(() => {

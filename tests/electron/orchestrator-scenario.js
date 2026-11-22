@@ -515,6 +515,8 @@ process.stdout.write("FOOM_AGENT_READY`,
         dialog.getByRole("heading", { name: "Approve the approval queue screenshots?" }),
       ).toBeVisible();
       await expect(dialog.getByText("Checks passed", { exact: true })).toBeVisible();
+      if (base === "dark")
+        await expect(dialog.getByRole("radio", { name: /Approve screenshots/ })).toBeChecked();
       const preview = dialog.getByRole("img", { name: "Preview of shots.html" });
       await expect(preview).toBeVisible();
       const rgb = await preview.evaluate(async (image) => {
@@ -543,6 +545,9 @@ process.stdout.write("FOOM_AGENT_READY`,
       await expect(dialog.getByText("Keep it in draft for now")).toBeVisible();
       await screenshot("review", base);
       if (base === "light") {
+        await dialog
+          .getByRole("button", { name: "Change Approve the approval queue screenshots?" })
+          .click();
         await page.keyboard.press("Escape");
         await expect(dialog).toBeHidden();
       }

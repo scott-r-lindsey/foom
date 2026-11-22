@@ -670,6 +670,7 @@ describe("structured decisions", () => {
     const other = { post: first.post, index: 1, other: "<b>Later</b>" };
     const batch = { idempotencyKey: "human-first", answers: [selected, other] };
     expect(board.decisions({ repository: "a", watch: [] }).questions[0]?.status).toBe("checking");
+    expect(board.pendingSubjects()).toEqual([{ repository: "a", number: 1 }]);
     await expect(board.answer(batch)).rejects.toThrow("conflict");
     headSha = expected;
     await expect(
@@ -678,6 +679,7 @@ describe("structured decisions", () => {
     expect(board.read({ thread: first.thread }).posts).toHaveLength(1);
     const result = await board.answer(batch);
     expect(await board.answer(batch)).toEqual(result);
+    expect(board.threads({ state: "waiting-human" }).threads[0]?.id).toBe(first.thread);
     await expect(board.answer({ ...batch, answers: [other] })).rejects.toThrow("conflict");
     const originalCursor = board.event("a");
     headSha = "b".repeat(40);
@@ -696,6 +698,9 @@ describe("structured decisions", () => {
       },
     ]);
     expect(restored.decisions({ watch: [] }).counts).toEqual({});
+    expect(restored.pendingSubjects()).toEqual([]);
+    expect(restored.read({ thread: first.thread }).thread.state).toBe("waiting-repo");
+    expect(restored.threads({ state: "waiting-human" }).threads).toEqual([]);
     expect(await restored.answer(batch)).toEqual(result);
   });
 });
@@ -731,4 +736,50 @@ it("rechecks the subject at atomic commit and cleanly refuses a head change duri
     idempotencyKey: "answer",
   });
   expect(changed).toHaveBeenLastCalledWith(["a"]);
+});
+
+it("binds a question preview to main's opaque checkout and rejects invalid lookup addresses", async () => {
+  const board = new MessageBoard(() => Promise.resolve(), repos);
+  const preview = { path: "review.html" };
+  const result = await board.append(
+    "orchestrator:a",
+    "grant",
+    decisions([{ ...question, preview }]),
+    undefined,
+    undefined,
+    "checkout",
+  );
+  expect(board.preview({ post: result.post, index: 0 })).toEqual({
+    ...preview,
+    repository: "a",
+    worktree: "checkout",
+  });
+  expect(board.preview({ post: result.post, index: 1 })).toBeUndefined();
+  expect(board.preview({ post: "no-such-post", index: 0 })).toBeUndefined();
+  expect(() => board.preview({ post: result.post, index: 0, path: "elsewhere" })).toThrow(
+    "invalid_request",
+  );
+  expect(() => board.decisions({ watch: Array(17).fill({ post: result.post, index: 0 }) })).toThrow(
+    "invalid_request",
+  );
+});
+
+it("remembers a stale head immediately even if its durable write is refused", async () => {
+  let headSha = "a".repeat(40);
+  const save = vi.fn(() => Promise.resolve());
+  const board = new MessageBoard(save, repos, undefined, undefined, () => ({ headSha }));
+  const original = await board.append(
+    "orchestrator:a",
+    "grant",
+    decisions([{ ...question, subject: { pullRequest: 3, headSha } }]),
+  );
+  save.mockRejectedValueOnce(new Error("write refused"));
+  headSha = "b".repeat(40);
+  board.observe();
+  await board.flush();
+  headSha = "a".repeat(40);
+  expect(board.read({ thread: original.thread }).posts[0]?.decisions?.[0]?.status).toBe("stale");
+  await expect(
+    board.append("orchestrator:a", "grant", decisions([question], "later")),
+  ).rejects.toThrow("unavailable");
 });

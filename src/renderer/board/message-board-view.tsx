@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   BoardRead,
-  BoardDecision,
   BoardThreads,
   MessageBoardApi,
   MessagePost,
@@ -27,7 +26,7 @@ export function MessageBoardPanel({
 }: {
   api: MessageBoardApi;
   decisions?: Record<string, number>;
-  openDecisions?: (repository: string, name: string, questions?: BoardDecision[]) => void;
+  openDecisions?: (repository: string, name: string) => void;
   subscribe: (listener: () => void) => () => void;
   close: () => void;
 }) {

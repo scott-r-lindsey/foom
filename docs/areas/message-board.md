@@ -139,7 +139,7 @@ in the same thread.
 
 The current orchestrator's tile has an amber decisions pill with the count and
 the sidebar and Board button repeat it. The pill and Board queue open the
-stepper. Hide and Escape return focus and leave questions pending. Back and
+stepper. Hide and Escape retain the draft in that window and leave questions pending. Back and
 Change return to earlier questions, Skip leaves a question open, and review
 submits the completed choices together. The renderer displays question text,
 options and answers as plain text.

@@ -68,6 +68,17 @@ export async function boardCommand(
       (questionsPath === "-" && path === "-")
     )
       throw new ControlError("invalid_request");
+    if (fresh === (thread !== undefined)) throw new ControlError("invalid_request");
+    const shape = {
+      ...(thread === undefined ? {} : { thread }),
+      ...(to.length ? { to } : {}),
+      ...(title === undefined ? {} : { title }),
+      kind,
+      text: "validate",
+      links,
+      idempotencyKey: key,
+    };
+    boardPost({ ...shape, kind: kind === "question" ? "fyi" : kind });
     let questions: unknown;
     if (questionsPath !== undefined) {
       try {
@@ -75,22 +86,17 @@ export async function boardCommand(
       } catch {
         throw new ControlError("invalid_request");
       }
+      boardPost({ ...shape, questions });
     }
-    if (fresh === (thread !== undefined)) throw new ControlError("invalid_request");
-    const shape = {
-      ...(thread === undefined ? {} : { thread }),
-      ...(to.length ? { to } : {}),
-      ...(title === undefined ? {} : { title }),
-      kind,
-      ...(questions === undefined ? {} : { questions }),
-      text: "validate",
-      links,
-      idempotencyKey: key,
-    };
-    boardPost(shape);
     return {
       method: "board_post",
-      params: { ...boardPost({ ...shape, text: await boundedText(path, input) }) },
+      params: {
+        ...boardPost({
+          ...shape,
+          ...(questions === undefined ? {} : { questions }),
+          text: await boundedText(path, input),
+        }),
+      },
     };
   } else throw new ControlError("invalid_request");
   if (

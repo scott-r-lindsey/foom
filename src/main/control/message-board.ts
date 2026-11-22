@@ -13,6 +13,7 @@ import type {
   BoardThreads,
   MessagePost,
   MessageThread,
+  ThreadState,
 } from "../../shared/message-board";
 import {
   BOARD_NOTICE,
@@ -43,6 +44,13 @@ function addressKey({ post, index }: DecisionAddress): string {
 
 function answeredPosts(posts: MessagePost[]): Set<string> {
   return new Set(posts.flatMap((post) => post.answers?.map(addressKey) ?? []));
+}
+
+function afterPost(state: ThreadState, post: MessagePost): ThreadState {
+  if (post.author === "human") return "waiting-repo";
+  if (post.kind === "decision-needed" || post.kind === "question" || state === "waiting-human")
+    return "waiting-human";
+  return post.kind === "request" ? "waiting-repo" : "open";
 }
 
 interface Receipt {
@@ -184,13 +192,18 @@ export class MessageBoard {
       throw new ControlError("invalid_request");
     const filter = input["repository"] === undefined ? undefined : identifier(input["repository"]);
     const state = input["state"] === undefined ? undefined : threadState(input["state"]);
-    const rows = this.data.threads.filter(
-      (row) =>
-        this.visible(row, repository) &&
-        this.visible(row, filter) &&
-        (state === undefined || row.state === state) &&
-        (category === undefined || (category === "children") === (row.child !== undefined)),
-    );
+    const questionThreads = new Map<string, MessagePost[]>();
+    for (const post of this.data.posts) if (post.questions) questionThreads.set(post.thread, []);
+    for (const post of this.data.posts) questionThreads.get(post.thread)?.push(post);
+    const rows = this.data.threads
+      .filter(
+        (row) =>
+          this.visible(row, repository) &&
+          this.visible(row, filter) &&
+          (category === undefined || (category === "children") === (row.child !== undefined)),
+      )
+      .map((thread) => this.displayThread(thread, questionThreads.get(thread.id)))
+      .filter((row) => state === undefined || row.state === state);
     const after = input["after"] === undefined ? undefined : identifier(input["after"]);
     const start = after === undefined ? 0 : rows.findIndex((row) => row.id === after) + 1;
     if (after !== undefined && start === 0) throw new ControlError("not_found");
@@ -220,12 +233,27 @@ export class MessageBoard {
     return structuredClone(
       pageRows(rows, start, 8, (posts, next) => ({
         ...envelope,
-        thread,
+        thread: this.displayThread(thread, rows),
         posts,
         next,
       })),
     );
   }
+  private displayThread(thread: MessageThread, posts: MessagePost[] = []): MessageThread {
+    if (thread.state === "resolved" || !posts.some((post) => post.questions)) return thread;
+    const answered = answeredPosts(posts);
+    if (
+      posts.some((post) =>
+        this.project(post, thread, answered).some(
+          ({ status }) => status === "open" || status === "checking",
+        ),
+      )
+    )
+      return { ...thread, state: "waiting-human" };
+    const state = posts.filter((post) => !post.questions).reduce<ThreadState>(afterPost, "open");
+    return { ...thread, state };
+  }
+
   private project(
     post: MessagePost,
     thread: MessageThread,
@@ -419,7 +447,7 @@ export class MessageBoard {
     );
   }
 
-  /** Posts by other authors in threads addressed to this repository; metadata only. */
+  /** Posts by other authors and stale subjects in the repository’s threads. Metadata only. */
   event(repository: string): string {
     const addressed = new Set(
       this.data.threads
@@ -504,16 +532,7 @@ export class MessageBoard {
             }),
       };
       thread.updatedAt = now;
-      thread.state = child
-        ? thread.state
-        : identity !== "human" &&
-            (input.kind === "decision-needed" ||
-              input.kind === "question" ||
-              thread.state === "waiting-human")
-          ? "waiting-human"
-          : identity === "human" || input.kind === "request"
-            ? "waiting-repo"
-            : "open";
+      if (!child) thread.state = afterPost(thread.state, post);
       const index = data.threads.findIndex((row) => row.id === thread.id);
       if (index < 0) data.threads.push(thread);
       else data.threads[index] = thread;

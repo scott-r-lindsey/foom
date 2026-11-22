@@ -1,3 +1,4 @@
+import type { BoardDecision, MessageBoardApi } from "../../../../src/shared/message-board";
 import { agent, mock, settle, verdict } from "./app-board-fixture";
 // @vitest-environment jsdom
 import { act, fireEvent, render, within } from "@testing-library/react";
@@ -408,4 +409,93 @@ test("the amber approval count opens the trusted queue without moving focus on a
   screen.unmount();
   expect(off).toHaveBeenCalled();
   input.remove();
+});
+
+test("the tile and Board footer share decisions and Hide retains the draft", async () => {
+  const row: BoardDecision = {
+    repository: "repo-id",
+    post: "q",
+    index: 0,
+    status: "open",
+    question: {
+      title: "Proceed with this plan?",
+      options: [
+        { id: "go", label: "Proceed" },
+        { id: "hold", label: "Hold" },
+      ],
+    },
+  };
+  const decide = vi.fn<NonNullable<MessageBoardApi["decisions"]>>(({ repository, watch }) =>
+    Promise.resolve({
+      counts: { "repo-id": 1 },
+      orchestrators: { a: "repo-id" },
+      questions: repository || watch.length ? [row] : [],
+    }),
+  );
+  const api = {
+    decisions: decide,
+    threads: vi.fn(() =>
+      Promise.resolve({ repositories: [{ id: "repo-id", name: "app" }], threads: [], next: null }),
+    ),
+  };
+  Object.defineProperty(window.desktop, "messageBoard", { configurable: true, value: api });
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [
+      {
+        ...agent("a"),
+        orchestration: { role: "orchestrator", active: true, children: 0, history: [] },
+      },
+    ],
+  });
+  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.setAttribute("open", "");
+  });
+  vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.removeAttribute("open");
+  });
+  const screen = render(<App />);
+  await settle();
+  const divider = screen.getByRole("separator", { name: "Sidebar width" });
+  fireEvent.keyDown(divider, { key: "Home" });
+  expect(divider.getAttribute("aria-valuenow")).toBe("240");
+  const sidebar = screen.getByRole("treeitem", { name: /1 decision/ });
+  fireEvent.click(sidebar);
+  await settle();
+  const pill = () => screen.getByRole("button", { name: "1 decision needed from you" });
+  expect(screen.getByRole("button", { name: "Open message board" }).textContent).toContain(
+    "1 decision",
+  );
+  decide.mockRejectedValueOnce(new Error("Board unavailable"));
+  fireEvent.click(pill());
+  await settle();
+  expect(screen.queryByRole("dialog", { name: / · decisions/ })).toBeNull();
+  pill().focus();
+  fireEvent.click(pill());
+  await settle();
+  expect(screen.queryByRole("button", { name: "1 decision needed from you" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "Proceed" }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: / · decisions/ })).getByRole("button", {
+      name: "Hide",
+    }),
+  );
+  act(() => {
+    vi.advanceTimersByTime(16);
+  });
+  expect(document.activeElement).toBe(pill());
+  fireEvent.click(screen.getByRole("button", { name: "Open message board" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: /app · 1 decision/ }));
+  await settle();
+  expect(screen.getByRole("radio", { name: "Proceed" })).toHaveProperty("checked", true);
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: / · decisions/ })).getByRole("button", {
+      name: "Hide",
+    }),
+  );
 });

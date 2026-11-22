@@ -98,6 +98,7 @@ const forgeMock = vi.hoisted(() => ({
       ) => Promise<string | ForgeInspection | undefined>,
       changed: () => void,
       provider?: ForgeProviderFactory,
+      decisionRemote?: (repository: string) => Promise<string | undefined>,
     ) => Promise<unknown>
   >(),
 }));
