@@ -550,3 +550,31 @@ test("unrelated Settings apply never resets a native factor or rescales the wind
   expect(mock.window.webContents.setZoomFactor).not.toHaveBeenCalled();
   expect(mock.window.setBounds).not.toHaveBeenCalled();
 });
+
+test("retries Settings attachment after the board is visible and releases the restore barrier", async () => {
+  mock.config.finishSettingsStartup.mockImplementationOnce((_attach, current) => {
+    expect(mock.window.loadURL).toHaveBeenCalled();
+    expect(current()).toBe(true);
+    return Promise.resolve(false);
+  });
+  await start();
+  await vi.waitFor(() => {
+    expect(mock.config.finishSettingsStartup).toHaveBeenCalledTimes(2);
+  });
+  const gate = mock.workspace.restartSaved.mock.calls[0]?.[0];
+  expect(gate).toBeDefined();
+  await expect(gate).resolves.toBeUndefined();
+});
+
+test("reports a failed Settings attachment and releases the restore barrier", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const error = new Error("Settings attachment failed");
+  mock.config.finishSettingsStartup.mockRejectedValueOnce(error);
+  await start();
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Foom config is unavailable:", error);
+  });
+  const gate = mock.workspace.restartSaved.mock.calls[0]?.[0];
+  expect(gate).toBeDefined();
+  await expect(gate).resolves.toBeUndefined();
+});

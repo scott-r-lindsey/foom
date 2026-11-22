@@ -662,7 +662,12 @@ const mock = vi.hoisted(() => {
     config: {
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
-      finishSettingsStartup: vi.fn(() => Promise.resolve(true)),
+      finishSettingsStartup: vi.fn<
+        (
+          attach: (values: ConfigSettings) => Promise<void>,
+          current: () => boolean,
+        ) => Promise<boolean>
+      >(() => Promise.resolve(true)),
       activePalette: vi.fn(() => undefined),
       write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),
       status: { folder: "/home/.foom/config", available: true, changes: [] },
