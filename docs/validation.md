@@ -30,8 +30,9 @@ policy without network requests in `scripts/audit.test.mjs`.
 
 Real-app integration tests are split into discovered feature suites, with a separate
 packaged smoke test. See [Electron test layout and sharding](electron-shards.md)
-for suite ownership, four Linux, five Windows and seven macOS named-test shards and local commands, and
-[explicit Electron fixtures](electron-fixtures.md) for fixture selection and timing.
+for suite ownership, local commands and the named-test matrix with four Linux,
+six Windows and eight macOS shards. See [explicit Electron fixtures](electron-fixtures.md)
+for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
 Unit coverage includes every executable TypeScript file under `src/`, including
@@ -128,10 +129,13 @@ shell removal on native exit and shutdown.
 
 ## Refreshing the Electron shard plan
 
-Use Node 24 and installed dependencies. Download every `electron-results-*` artifact per selected recent passing CI run
-(sixteen for the current matrix, fifteen for the earlier four/five/six matrix, fourteen for the earlier four/five/five matrix, and twelve for historical four-shard runs). Keep numeric run-ID directories and
-artifact subdirectories intact, outside the repository or under ignored
-`test-results/`. Use a fresh source directory for each refresh:
+Use Node 24 and installed dependencies. Download every `electron-results-*`
+artifact per selected recent passing CI run
+(eighteen for the current matrix, sixteen for four/five/seven, fifteen for
+four/five/six, fourteen for four/five/five, and twelve for four shards on every
+platform). Keep numeric run-ID directories and artifact subdirectories intact,
+outside the repository or under ignored `test-results/`. Use a fresh source
+directory for each refresh:
 
 ```sh
 for run in 39918020774 39946804406 39970696968 39973853488 39981523976; do
@@ -151,7 +155,8 @@ cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
 and headroom under the 840s Linux, Windows and macOS step limits.
 The examples select historical four-shard inputs with `--source-shards=4`. Omit
-that option for current runs with four Linux, five Windows and seven macOS shards. Each source run must have the expected report count per platform.
+that option for current runs with four Linux, six Windows and eight macOS
+shards. Each source run must have the expected report count per platform.
 When combining old and current matrices, specify per-run counts explicitly. For
 example, `--source-shards=4 --source-shards=41409300263:4,5,5` uses four reports
 per platform for historical sources and four/five/five for that newer run, in
@@ -175,9 +180,12 @@ for the assignment method and measurement history.
 Draft PRs select Electron suites using the existing mapping in
 `scripts/electron-affected.mjs` against the PR merge-base diff. When every changed
 path is mapped, those suites run once on each platform using shard `1/1`.
-Unmapped paths, empty diffs or missing mapped suites retain the full sixteen-shard
-matrix. Static checks, unit tests, coverage and native-check/packaging are unchanged.
-The `ready_for_review` event and every push while ready run the full matrix.
+Unmapped paths, empty diffs or missing mapped suites retain the full eighteen-shard
+matrix. The full desktop gate requires all eighteen Electron jobs and the three
+native-check/packaging jobs. Each full desktop run requests ten macOS jobs,
+including the eight Electron shards, native-check/packaging and combined Darwin
+host build. The `ready_for_review` event and every push while ready run the full
+matrix.
 `converted_to_draft` also starts a new run. Main pushes, schedules, manual runs,
 nightly publication and the documentation-only desktop skip retain their policy.
 
