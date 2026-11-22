@@ -120,8 +120,10 @@ single private history. A question cannot approve a Foom action by itself.
 A PR subject names a PR in the posting repository. Main reads the settled head
 and required-check state from current forge tracking. The serial forge poller
 reuses matching worktree observations and can look up a question's PR number
-when no tracked checkout covers it. It stops watching once no open question
-uses that PR. Until the head is known,
+when no tracked checkout covers it, including same-repository PRs from the default
+branch. After a newer observation replaces older checkout evidence, losing its
+source does not make that older head eligible for answers again. The poller stops
+watching once no open question uses that PR. Until the head is known,
 the question shows Checking subject and submission is disabled. Once a
 different head is observed, the board records that head, locks the options and
 removes the question from the count. The stepper shows the original and moved

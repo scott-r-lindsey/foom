@@ -47,7 +47,7 @@ function answeredPosts(posts: MessagePost[]): Set<string> {
   return new Set(posts.flatMap((post) => post.answers?.map(addressKey) ?? []));
 }
 
-function afterPost(state: ThreadState, post: MessagePost): ThreadState {
+export function stateAfterBoardPost(state: ThreadState, post: MessagePost): ThreadState {
   if (post.author === "human") return "waiting-repo";
   if (post.kind === "decision-needed" || post.kind === "question" || state === "waiting-human")
     return "waiting-human";
@@ -263,7 +263,9 @@ export class MessageBoard {
       )
     )
       return { ...thread, state: "waiting-human" };
-    const state = posts.filter((post) => !post.questions).reduce<ThreadState>(afterPost, "open");
+    const state = posts
+      .filter((post) => !post.questions)
+      .reduce<ThreadState>(stateAfterBoardPost, "open");
     return { ...thread, state };
   }
 
@@ -561,7 +563,7 @@ export class MessageBoard {
             }),
       };
       thread.updatedAt = now;
-      if (!child) thread.state = afterPost(thread.state, post);
+      if (!child) thread.state = stateAfterBoardPost(thread.state, post);
       const index = data.threads.findIndex((row) => row.id === thread.id);
       if (index < 0) data.threads.push(thread);
       else data.threads[index] = thread;
@@ -845,15 +847,6 @@ export function parseMessageBoard(value: unknown): Data {
     !Array.isArray(data["receipts"])
   )
     throw new ControlError("unavailable");
-  const timestamp = (value: unknown) => {
-    if (
-      typeof value !== "string" ||
-      !Number.isFinite(Date.parse(value)) ||
-      new Date(value).toISOString() !== value
-    )
-      throw new ControlError("unavailable");
-    return value;
-  };
   const threads = data["threads"].map((value: unknown): MessageThread => {
     const row = object(value);
     exact(row, ["id", "title", "repository", "to", "state", "createdAt", "updatedAt", "child"]);
@@ -876,7 +869,7 @@ export function parseMessageBoard(value: unknown): Data {
                 worktreeId: identifier(child["worktreeId"]),
                 ...(child["removedAt"] === undefined
                   ? {}
-                  : { removedAt: timestamp(child["removedAt"]) }),
+                  : { removedAt: storedTimestamp(child["removedAt"]) }),
               };
             })(),
           }),
@@ -885,106 +878,23 @@ export function parseMessageBoard(value: unknown): Data {
       repository: identifier(row["repository"]),
       to: input.to ?? [],
       state: threadState(row["state"]),
-      createdAt: timestamp(row["createdAt"]),
-      updatedAt: timestamp(row["updatedAt"]),
+      createdAt: storedTimestamp(row["createdAt"]),
+      updatedAt: storedTimestamp(row["updatedAt"]),
     };
   });
-  const posts = data["posts"].map((value: unknown): MessagePost => {
-    const row = object(value);
-    exact(row, [
-      "id",
-      "thread",
-      "author",
-      "kind",
-      "text",
-      "links",
-      "timestamp",
-      "questions",
-      "withdrawn",
-      "stale",
-      "staleHeads",
-      "previewWorktree",
-      "answers",
-    ]);
-    const kind = postKind(row["kind"]);
-    const question = kind === "question";
-    if (
-      question !== (row["questions"] !== undefined) ||
-      (!question &&
-        (row["withdrawn"] !== undefined ||
-          row["stale"] !== undefined ||
-          row["staleHeads"] !== undefined ||
-          row["previewWorktree"] !== undefined)) ||
-      (row["withdrawn"] !== undefined && row["withdrawn"] !== true) ||
-      (row["answers"] !== undefined && (kind !== "answer" || row["author"] !== "human"))
-    )
-      throw new ControlError("unavailable");
-    const questions = question ? boardQuestions(row["questions"]) : undefined;
-    const stale: unknown = row["stale"];
-    const staleIndexes = stale === undefined ? undefined : storedStale(stale, questions);
-    const staleHeads =
-      row["staleHeads"] === undefined
-        ? undefined
-        : Object.fromEntries(
-            Object.entries(object(row["staleHeads"])).map(([index, value]) => {
-              const number = Number(index);
-              const head = decisionHead(value);
-              if (
-                String(number) !== index ||
-                !staleIndexes?.includes(number) ||
-                questions?.[number]?.subject?.headSha === head
-              )
-                throw new ControlError("unavailable");
-              return [index, head];
-            }),
-          );
-    const answers = row["answers"] === undefined ? undefined : storedAnswers(row["answers"]);
-    const author = boardAuthor(row["author"]);
-    const thread = identifier(row["thread"]);
-    const owner = threads.find((row) => row.id === thread);
-    if (
-      !owner ||
-      (question &&
-        (author === "human" ||
-          owner.child ||
-          (owner.repository !== author.slice(13) && !owner.to.includes(author.slice(13)))))
-    )
-      throw new ControlError("unavailable");
-    return {
-      id: identifier(row["id"]),
-      thread,
-      author,
-      kind,
-      text: boardText(row["text"]),
-      links: boardLinks(row["links"]),
-      timestamp: timestamp(row["timestamp"]),
-      ...(questions === undefined ? {} : { questions }),
-      ...(row["withdrawn"] === true ? { withdrawn: true } : {}),
-      ...(staleIndexes === undefined ? {} : { stale: staleIndexes }),
-      ...(staleHeads === undefined ? {} : { staleHeads }),
-      ...(row["previewWorktree"] === undefined
-        ? {}
-        : { previewWorktree: identifier(row["previewWorktree"]) }),
-      ...(answers === undefined ? {} : { answers }),
-    };
-  });
+  const owners = new Map(threads.map((thread) => [thread.id, thread]));
+  const posts = data["posts"].map((value: unknown) =>
+    parseMessagePost(value, owners.get(identifier(object(value)["thread"]))),
+  );
   const priorPosts = new Map<string, MessagePost>();
   const answers = new Set<string>();
   for (const post of posts) {
-    for (const answer of post.answers ?? []) {
-      const source = priorPosts.get(answer.post);
-      const question = source?.questions?.[answer.index];
-      const key = addressKey(answer);
-      if (
-        !question ||
-        source.thread !== post.thread ||
-        answers.has(key) ||
-        (answer.option !== undefined && !question.options.some(({ id }) => id === answer.option)) ||
-        JSON.stringify(answer.subject) !== JSON.stringify(question.subject)
-      )
-        throw new ControlError("unavailable");
-      answers.add(key);
-    }
+    validateStoredBoardAnswers(
+      post,
+      (id) => priorPosts.get(id),
+      (answer) => answers.has(addressKey(answer)),
+    );
+    for (const answer of post.answers ?? []) answers.add(addressKey(answer));
     priorPosts.set(post.id, post);
   }
   const receipts = data["receipts"].map((value: unknown): Receipt => {
@@ -1010,6 +920,120 @@ export function parseMessageBoard(value: unknown): Data {
     throw new ControlError("unavailable");
   return { version: 1, threads, posts, receipts };
 }
+function storedTimestamp(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !Number.isFinite(Date.parse(value)) ||
+    new Date(value).toISOString() !== value
+  )
+    throw new ControlError("unavailable");
+  return value;
+}
+
+/** Parse a persisted post against its already validated thread. */
+export function parseMessagePost(value: unknown, owner: MessageThread | undefined): MessagePost {
+  const row = object(value);
+  exact(row, [
+    "id",
+    "thread",
+    "author",
+    "kind",
+    "text",
+    "links",
+    "timestamp",
+    "questions",
+    "withdrawn",
+    "stale",
+    "staleHeads",
+    "previewWorktree",
+    "answers",
+  ]);
+  const kind = postKind(row["kind"]);
+  const question = kind === "question";
+  if (
+    question !== (row["questions"] !== undefined) ||
+    (!question &&
+      (row["withdrawn"] !== undefined ||
+        row["stale"] !== undefined ||
+        row["staleHeads"] !== undefined ||
+        row["previewWorktree"] !== undefined)) ||
+    (row["withdrawn"] !== undefined && row["withdrawn"] !== true) ||
+    (row["answers"] !== undefined && (kind !== "answer" || row["author"] !== "human"))
+  )
+    throw new ControlError("unavailable");
+  const questions = question ? boardQuestions(row["questions"]) : undefined;
+  const stale: unknown = row["stale"];
+  const staleIndexes = stale === undefined ? undefined : storedStale(stale, questions);
+  const staleHeads =
+    row["staleHeads"] === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(object(row["staleHeads"])).map(([index, value]) => {
+            const number = Number(index);
+            const head = decisionHead(value);
+            if (
+              String(number) !== index ||
+              !staleIndexes?.includes(number) ||
+              questions?.[number]?.subject?.headSha === head
+            )
+              throw new ControlError("unavailable");
+            return [index, head];
+          }),
+        );
+  const answers = row["answers"] === undefined ? undefined : storedAnswers(row["answers"]);
+  const author = boardAuthor(row["author"]);
+  const thread = identifier(row["thread"]);
+  if (
+    owner?.id !== thread ||
+    (question &&
+      (author === "human" ||
+        owner.child ||
+        (owner.repository !== author.slice(13) && !owner.to.includes(author.slice(13)))))
+  )
+    throw new ControlError("unavailable");
+  return {
+    id: identifier(row["id"]),
+    thread,
+    author,
+    kind,
+    text: boardText(row["text"]),
+    links: boardLinks(row["links"]),
+    timestamp: storedTimestamp(row["timestamp"]),
+    ...(questions === undefined ? {} : { questions }),
+    ...(row["withdrawn"] === true ? { withdrawn: true } : {}),
+    ...(staleIndexes === undefined ? {} : { stale: staleIndexes }),
+    ...(staleHeads === undefined ? {} : { staleHeads }),
+    ...(row["previewWorktree"] === undefined
+      ? {}
+      : { previewWorktree: identifier(row["previewWorktree"]) }),
+    ...(answers === undefined ? {} : { answers }),
+  };
+}
+
+/** Check historically ordered answer references against preceding, accepted posts. */
+export function validateStoredBoardAnswers(
+  post: MessagePost,
+  sourcePost: (id: string) => MessagePost | undefined,
+  wasAnswered: (answer: DecisionAddress) => boolean,
+): void {
+  const seen = new Set<string>();
+  for (const answer of post.answers ?? []) {
+    const source = sourcePost(answer.post);
+    const question = source?.questions?.[answer.index];
+    const key = addressKey(answer);
+    if (
+      !question ||
+      source.thread !== post.thread ||
+      seen.has(key) ||
+      wasAnswered(answer) ||
+      (answer.option !== undefined && !question.options.some(({ id }) => id === answer.option)) ||
+      JSON.stringify(answer.subject) !== JSON.stringify(question.subject)
+    )
+      throw new ControlError("unavailable");
+    seen.add(key);
+  }
+}
+
 function storedStale(value: unknown, questions: MessagePost["questions"]): number[] {
   if (!Array.isArray(value) || !questions || value.length < 1 || value.length > questions.length)
     throw new ControlError("unavailable");

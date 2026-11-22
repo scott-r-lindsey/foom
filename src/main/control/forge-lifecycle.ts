@@ -260,6 +260,8 @@ export class ForgeLifecycle {
           (p) => p.lookup(branch, number, state),
           [branch],
         ),
+      lookupNumber: (number) =>
+        sample(["lookupNumber", number], this.lookups, async (p) => p.lookupNumber?.(number)),
       resolve: (number) =>
         sample(["resolve", number], this.resolutions, async (p) => p.resolve?.(number)),
       batch: (matches) =>

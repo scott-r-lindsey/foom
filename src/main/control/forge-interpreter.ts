@@ -52,6 +52,110 @@ export function manifestForgeProvider(
     }
     return reduceForgeChecks(value, plan.result, candidate.headSha, candidate.number);
   }
+  async function lookup(
+    branch: string | undefined,
+    number: number | undefined,
+    state: "open" | "all",
+  ) {
+    if (
+      (branch !== undefined && (!forgeBranch(branch) || branch === defaultBranch)) ||
+      (branch === undefined && number === undefined) ||
+      (number !== undefined && (!Number.isSafeInteger(number) || number <= 0))
+    )
+      return undefined;
+    try {
+      const raw = await execute(
+        number === undefined
+          ? manifest.operations.lookupByBranch[state]
+          : manifest.operations.refresh,
+        {
+          ...base,
+          ...(branch === undefined ? {} : { branch }),
+          ...(number === undefined ? {} : { number }),
+        },
+      );
+      const row: unknown =
+        number === undefined ? (Array.isArray(raw) && raw.length === 1 ? raw[0] : undefined) : raw;
+      const found = identity(row);
+      if (
+        !found ||
+        !found.sameRepository ||
+        (branch !== undefined && found.branch !== branch) ||
+        (number !== undefined && found.number !== number) ||
+        (number === undefined && state === "open" && found.state !== "OPEN")
+      )
+        return undefined;
+      const candidate = pullRequest({
+        number: found.number,
+        headSha: forgeValue(row, manifest.mapping.headSha),
+        ...forgeMergeCommits(manifest.mapping, row),
+        state: found.state,
+        requiredChecks: "unknown",
+      });
+      if (!candidate) return undefined;
+      let requiredChecks: PullRequest["requiredChecks"] = "unknown";
+      try {
+        requiredChecks = await checks(manifest.checks.primary, candidate);
+      } catch {
+        if (manifest.checks.fallback) {
+          try {
+            requiredChecks = await checks(manifest.checks.fallback, candidate);
+          } catch {
+            /* Unknown checks preserve PR identity. */
+          }
+        }
+      }
+      const refreshed = await execute(manifest.operations.refresh, {
+        ...base,
+        number: candidate.number,
+      });
+      const verified = identity(refreshed);
+      if (
+        !verified ||
+        !verified.sameRepository ||
+        verified.branch !== found.branch ||
+        verified.number !== candidate.number ||
+        verified.state !== candidate.state ||
+        forgeValue(refreshed, manifest.mapping.headSha) !== candidate.headSha ||
+        [manifest.mapping.mergeCommit, manifest.mapping.squashCommit].some(
+          (path) => path !== undefined && forgeValue(refreshed, path) !== forgeValue(row, path),
+        )
+      )
+        return undefined;
+      let display = {};
+      if (manifest.operations.display) {
+        try {
+          const row = await execute(
+            manifest.operations.display,
+            { ...base, number: candidate.number },
+            true,
+          );
+          const enriched = identity(row);
+          if (
+            enriched?.sameRepository &&
+            enriched.number === candidate.number &&
+            enriched.branch === found.branch &&
+            enriched.state === candidate.state &&
+            forgeValue(row, manifest.mapping.headSha) === candidate.headSha
+          ) {
+            display = forgeDisplay(manifest, row, remote);
+          }
+        } catch {
+          // Optional display failures cannot change verified status.
+        }
+      }
+      return {
+        ...candidate,
+        ...(manifest.requestLabel ? { requestLabel: manifest.requestLabel } : {}),
+        ...(manifest.numberPrefix ? { numberPrefix: manifest.numberPrefix } : {}),
+        requiredChecks,
+        checksMeaning: manifest.checks.meaning,
+        ...display,
+      };
+    } catch {
+      return undefined;
+    }
+  }
   return {
     routedHost: remote.host,
     minimumIntervalMs: manifest.minimumIntervalSeconds * 1000,
@@ -77,105 +181,7 @@ export function manifestForgeProvider(
         return undefined;
       }
     },
-    async lookup(branch, number, state = "open") {
-      if (
-        !forgeBranch(branch) ||
-        branch === defaultBranch ||
-        (number !== undefined && (!Number.isSafeInteger(number) || number <= 0))
-      )
-        return undefined;
-      try {
-        const raw = await execute(
-          number === undefined
-            ? manifest.operations.lookupByBranch[state]
-            : manifest.operations.refresh,
-          { ...base, branch, ...(number === undefined ? {} : { number }) },
-        );
-        const row: unknown =
-          number === undefined
-            ? Array.isArray(raw) && raw.length === 1
-              ? raw[0]
-              : undefined
-            : raw;
-        const found = identity(row);
-        if (
-          !found ||
-          !found.sameRepository ||
-          found.branch !== branch ||
-          (number !== undefined && found.number !== number) ||
-          (number === undefined && state === "open" && found.state !== "OPEN")
-        )
-          return undefined;
-        const candidate = pullRequest({
-          number: found.number,
-          headSha: forgeValue(row, manifest.mapping.headSha),
-          ...forgeMergeCommits(manifest.mapping, row),
-          state: found.state,
-          requiredChecks: "unknown",
-        });
-        if (!candidate) return undefined;
-        let requiredChecks: PullRequest["requiredChecks"] = "unknown";
-        try {
-          requiredChecks = await checks(manifest.checks.primary, candidate);
-        } catch {
-          if (manifest.checks.fallback) {
-            try {
-              requiredChecks = await checks(manifest.checks.fallback, candidate);
-            } catch {
-              /* Unknown checks preserve PR identity. */
-            }
-          }
-        }
-        const refreshed = await execute(manifest.operations.refresh, {
-          ...base,
-          number: candidate.number,
-        });
-        const verified = identity(refreshed);
-        if (
-          !verified ||
-          !verified.sameRepository ||
-          verified.branch !== branch ||
-          verified.number !== candidate.number ||
-          verified.state !== candidate.state ||
-          forgeValue(refreshed, manifest.mapping.headSha) !== candidate.headSha ||
-          [manifest.mapping.mergeCommit, manifest.mapping.squashCommit].some(
-            (path) => path !== undefined && forgeValue(refreshed, path) !== forgeValue(row, path),
-          )
-        )
-          return undefined;
-        let display = {};
-        if (manifest.operations.display) {
-          try {
-            const row = await execute(
-              manifest.operations.display,
-              { ...base, number: candidate.number },
-              true,
-            );
-            const enriched = identity(row);
-            if (
-              enriched?.sameRepository &&
-              enriched.number === candidate.number &&
-              enriched.branch === branch &&
-              enriched.state === candidate.state &&
-              forgeValue(row, manifest.mapping.headSha) === candidate.headSha
-            ) {
-              display = forgeDisplay(manifest, row, remote);
-            }
-          } catch {
-            // Optional display failures cannot change verified status.
-          }
-        }
-        return {
-          ...candidate,
-          ...(manifest.requestLabel ? { requestLabel: manifest.requestLabel } : {}),
-          ...(manifest.numberPrefix ? { numberPrefix: manifest.numberPrefix } : {}),
-          requiredChecks,
-          checksMeaning: manifest.checks.meaning,
-          ...display,
-        };
-      } catch {
-        return undefined;
-      }
-    },
+    lookup: (branch, number, state = "open") => lookup(branch, number, state),
+    lookupNumber: (number) => lookup(undefined, number, "all"),
   };
 }

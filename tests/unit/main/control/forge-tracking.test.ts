@@ -10,6 +10,9 @@ import type {
   ForgeWorktree,
   PullRequest,
 } from "../../../../src/main/control/forge.d";
+import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
+import { MessageBoard } from "../../../../src/main/control/message-board";
+import { githubManifest } from "../../../../src/main/control/forge-manifests";
 import { SessionMetadata, locationId } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
@@ -1896,4 +1899,183 @@ it("backs off on disabled routing, bad identity and failed numeric reads", async
   });
   await tracker.poll();
   expect(tracker.readDecision(repository, 340)).toBeUndefined();
+});
+
+it("does not fall back to a superseded head when the newest checkout is replaced mid-batch", async () => {
+  const binding = {
+    host: "alpha",
+    codeFolder: "/code",
+    repository: "/code/repository-fixture",
+    path: "/code/.foom-worktree-fixture",
+    origin: "https://github.com/o/r",
+  };
+  const remote = {
+    ...tree,
+    path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+    remoteCheckout: binding,
+  };
+  const repository = locationId(tree.repository);
+  const moved = { ...pending, headSha: "b".repeat(40) };
+  const gate = Promise.withResolvers<undefined>();
+  const firstPublication = Promise.withResolvers<undefined>();
+  let now = 0;
+  let result = pending;
+  let hold = false;
+  const tracker = new ForgeTracking(
+    directory,
+    async (row) => {
+      if (!row.remoteCheckout) return binding.origin;
+      if (hold) await gate.promise;
+      return { remote: binding.origin, head: pending.headSha };
+    },
+    () => {
+      if (result === moved) {
+        hold = true;
+        firstPublication.resolve(undefined);
+      }
+    },
+    () => ({
+      lookup: () => Promise.resolve(result),
+      batch: (matches) =>
+        Promise.resolve(
+          new Map(
+            matches.map(({ branch }) => [
+              branch,
+              {
+                ...result,
+                board: {
+                  number: result.number,
+                  state: result.state,
+                  checks: { pending: 1, passed: 0, failed: 0 },
+                },
+              },
+            ]),
+          ),
+        ),
+    }),
+    () => now,
+  );
+  trackers.push(tracker);
+  tracker.track(tree, pending.number);
+  tracker.track(remote, pending.number);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(pending);
+  now = 20000;
+  result = moved;
+  const polling = tracker.poll();
+  try {
+    await firstPublication.promise;
+    expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
+    tracker.track({ ...tree, branch: "another-branch" });
+    expect(tracker.read(tree.repository, remote.path)).toEqual(pending);
+    expect(tracker.readDecision(repository, pending.number)).toBeUndefined();
+    const board = new MessageBoard(
+      () => Promise.resolve(),
+      () => [{ id: repository, name: "Fixture" }],
+      undefined,
+      undefined,
+      (repo, number) => tracker.readDecision(repo, number),
+    );
+    const question = await board.append(`orchestrator:${repository}`, "grant", {
+      kind: "question",
+      to: [repository],
+      title: "Superseded head",
+      text: "Verify the subject",
+      idempotencyKey: "ask",
+      questions: [
+        {
+          title: "Proceed?",
+          options: [
+            { id: "go", label: "Proceed" },
+            { id: "no", label: "Hold" },
+          ],
+          subject: { pullRequest: pending.number, headSha: pending.headSha },
+        },
+      ],
+    });
+    await expect(
+      board.answer({
+        answers: [{ post: question.post, index: 0, option: "go" }],
+        idempotencyKey: "answer",
+      }),
+    ).rejects.toThrow("conflict");
+  } finally {
+    gate.resolve(undefined);
+    await polling;
+  }
+  expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
+});
+
+it.each([
+  ["main", 40],
+  ["release", 64],
+] as const)(
+  "observes numeric decision subjects from %s with %i-digit heads",
+  async (branch, length) => {
+    const repository = locationId(tree.repository);
+    const headSha = "a".repeat(length);
+    const row = {
+      number: 340,
+      headRefName: branch,
+      headRefOid: headSha,
+      state: "OPEN",
+      headRepositoryOwner: { login: "o" },
+      isCrossRepository: false,
+    };
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve(undefined),
+      vi.fn(),
+      () =>
+        manifestForgeProvider(
+          githubManifest,
+          { host: "github.com", project: "o/r" },
+          (argv) =>
+            Promise.resolve({
+              code: 0,
+              stdout: JSON.stringify(argv[1] === "checks" ? [] : row),
+              stderr: "",
+            }),
+          "main",
+        ),
+      () => 0,
+      () => Promise.resolve("https://github.com/o/r"),
+    );
+    trackers.push(tracker);
+    tracker.watchDecisions([{ repository, number: row.number }]);
+    await tracker.poll();
+    expect(tracker.readDecision(repository, row.number)).toMatchObject({ headSha });
+  },
+);
+
+it("does not revert to a numeric watch result when a newer checkout is lost", async () => {
+  const repository = locationId(tree.repository);
+  const origin = "https://github.com/o/r";
+  const moved = { ...pending, headSha: "b".repeat(40) };
+  const lookupNumber = vi.fn(() => Promise.resolve(pending));
+  let now = 0;
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(origin),
+    vi.fn(),
+    () => ({ lookupNumber, lookup: () => Promise.resolve(moved) }),
+    () => now,
+    () => Promise.resolve(origin),
+  );
+  trackers.push(tracker);
+  tracker.watchDecisions([{ repository, number: pending.number }]);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(pending);
+  tracker.setEnabled(true);
+  tracker.track(tree, pending.number, false);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
+  tracker.sync(tree.repository, []);
+  expect(tracker.readDecision(repository, pending.number)).toBeUndefined();
+  expect(lookupNumber).toHaveBeenCalledOnce();
+  now = 20000;
+  lookupNumber.mockResolvedValue(moved);
+  await tracker.poll();
+  expect(lookupNumber).toHaveBeenCalledTimes(2);
+  expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
 });

@@ -28,6 +28,7 @@ interface Entry extends ForgeWorktree {
   refresh: number;
   sampledRefresh: number;
   observation: number;
+  decisionSuperseded?: true;
   readonly observationWaiters: Map<symbol, number>;
   followUp?: boolean;
   remote?: string;
@@ -410,6 +411,7 @@ export class ForgeTracking {
     for (const entry of this.entries.values()) {
       if (
         !entry.available ||
+        entry.decisionSuperseded ||
         entry.pr?.number !== number ||
         entry.sampledRefresh !== entry.refresh ||
         locationId(entry.repository) !== repositoryId
@@ -420,11 +422,24 @@ export class ForgeTracking {
     return latest;
   }
 
+  /** Prevent a retired source from exposing an older head from another checkout. */
+  private supersedeDecision(repository: string, number: number, observation: number): void {
+    for (const entry of this.entries.values()) {
+      if (
+        entry.pr?.number === number &&
+        entry.observation < observation &&
+        locationId(entry.repository) === repository
+      )
+        entry.decisionSuperseded = true;
+    }
+    const watch = this.decisions.get(`${repository}:${String(number)}`);
+    if (watch && watch.observation < observation) delete watch.pr;
+  }
+
   readDecision(repository: string, number: number): PullRequest | undefined {
     const checkout = this.decisionCheckout(repository, number);
     const watch = this.decisions.get(`${repository}:${String(number)}`);
-    if (!watch?.pr || (checkout && checkout.observation >= watch.observation)) return checkout?.pr;
-    return watch.pr;
+    return checkout?.pr ?? watch?.pr;
   }
 
   watchDecisions(subjects: ReadonlyArray<{ repository: string; number: number }>): void {
@@ -449,12 +464,8 @@ export class ForgeTracking {
       generation === this.generation &&
       this.decisions.get(key) === watch;
     const tracked = this.decisionCheckout(watch.repository, watch.number);
-    if (tracked && (!watch.pr || tracked.observation >= watch.observation)) {
+    if (tracked) {
       watch.due = this.now() + 120000;
-      if (watch.pr) {
-        delete watch.pr;
-        this.changed();
-      }
       return;
     }
     const remote = await this.decisionRemote?.(watch.repository).catch(() => undefined);
@@ -473,10 +484,11 @@ export class ForgeTracking {
           ),
         ).catch(() => undefined)
       : undefined;
-    const resolved = await provider?.resolve?.(watch.number).catch(() => undefined);
-    const result = resolved?.sameRepository
-      ? await provider?.lookup(resolved.branch, watch.number).catch(() => undefined)
-      : undefined;
+    const result = await (async () => {
+      if (provider?.lookupNumber) return provider.lookupNumber(watch.number);
+      const resolved = await provider?.resolve?.(watch.number);
+      if (resolved?.sameRepository) return provider?.lookup(resolved.branch, watch.number);
+    })().catch(() => undefined);
     const current = await validate().then(
       () => true,
       () => false,
@@ -487,6 +499,7 @@ export class ForgeTracking {
     if (pr?.number === watch.number) {
       watch.pr = pr;
       watch.observation = ++this.observation;
+      this.supersedeDecision(watch.repository, watch.number, watch.observation);
       watch.failures = 0;
     } else {
       delete watch.pr;
@@ -611,7 +624,10 @@ export class ForgeTracking {
             return;
           const pr = valid ? pullRequest(result) : undefined;
           entry.available = pr !== undefined;
+          const superseded = entry.decisionSuperseded;
           if (pr) {
+            this.supersedeDecision(locationId(entry.repository), pr.number, observation);
+            delete entry.decisionSuperseded;
             entry.pr = pr;
             entry.observation = observation;
             entry.remote = remote;
@@ -621,7 +637,9 @@ export class ForgeTracking {
             refresh === entry.refresh
               ? this.now() + Math.max(forgeDelay(entry.failures), provider?.minimumIntervalMs ?? 0)
               : 0;
-          refreshed = entry.sampledRefresh !== refresh && refresh === entry.refresh;
+          refreshed =
+            (entry.sampledRefresh !== refresh && refresh === entry.refresh) ||
+            (superseded === true && pr !== undefined);
           entry.sampledRefresh = refresh;
         }
         const current = this.read(entry.repository, entry.path);
@@ -762,7 +780,10 @@ export class ForgeTracking {
       const discovered = pr && !entry.pr && entry.number === undefined;
       entry.available = pr !== undefined;
       entry.followUp = Boolean(discovered);
+      const superseded = entry.decisionSuperseded;
       if (pr) {
+        this.supersedeDecision(locationId(entry.repository), pr.number, observation);
+        delete entry.decisionSuperseded;
         const { board, ...metadata } = pr;
         entry.pr = metadata;
         entry.observation = observation;
@@ -798,7 +819,7 @@ export class ForgeTracking {
         this.onCompleted?.(entry, pr.board);
       const current = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
       const settled = this.settleWaiters(entry);
-      if (settled || refreshed || previous !== current) this.changed();
+      if (settled || refreshed || previous !== current || (superseded && pr)) this.changed();
     }
     await this.save();
   }

@@ -1,0 +1,2466 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "3692cc10-ed02-4d52-82bd-5b8e1ebc82fb",
+  "prevIds": ["d8d052a8-d520-4ec1-8aa7-7421b3274a9d"],
+  "ddl": [
+    {
+      "name": "agent_consents",
+      "entityType": "tables"
+    },
+    {
+      "name": "agent_health",
+      "entityType": "tables"
+    },
+    {
+      "name": "audit_records",
+      "entityType": "tables"
+    },
+    {
+      "name": "board_bindings",
+      "entityType": "tables"
+    },
+    {
+      "name": "board_posts",
+      "entityType": "tables"
+    },
+    {
+      "name": "board_receipts",
+      "entityType": "tables"
+    },
+    {
+      "name": "board_recipients",
+      "entityType": "tables"
+    },
+    {
+      "name": "board_threads",
+      "entityType": "tables"
+    },
+    {
+      "name": "_changes",
+      "entityType": "tables"
+    },
+    {
+      "name": "control_operations",
+      "entityType": "tables"
+    },
+    {
+      "name": "environment_entries",
+      "entityType": "tables"
+    },
+    {
+      "name": "environment_scopes",
+      "entityType": "tables"
+    },
+    {
+      "name": "forge_observations",
+      "entityType": "tables"
+    },
+    {
+      "name": "hosts",
+      "entityType": "tables"
+    },
+    {
+      "name": "_imports",
+      "entityType": "tables"
+    },
+    {
+      "name": "legacy_window_size",
+      "entityType": "tables"
+    },
+    {
+      "name": "offers",
+      "entityType": "tables"
+    },
+    {
+      "name": "operation_audit_links",
+      "entityType": "tables"
+    },
+    {
+      "name": "owned_worktrees",
+      "entityType": "tables"
+    },
+    {
+      "name": "pending_removals",
+      "entityType": "tables"
+    },
+    {
+      "name": "preview_records",
+      "entityType": "tables"
+    },
+    {
+      "name": "profile_metadata",
+      "entityType": "tables"
+    },
+    {
+      "name": "profile_settings",
+      "entityType": "tables"
+    },
+    {
+      "name": "quarantine",
+      "entityType": "tables"
+    },
+    {
+      "name": "repositories",
+      "entityType": "tables"
+    },
+    {
+      "name": "sessions",
+      "entityType": "tables"
+    },
+    {
+      "name": "terminal_diagnostics",
+      "entityType": "tables"
+    },
+    {
+      "name": "update_activity",
+      "entityType": "tables"
+    },
+    {
+      "name": "verdict_actions",
+      "entityType": "tables"
+    },
+    {
+      "name": "verdict_records",
+      "entityType": "tables"
+    },
+    {
+      "name": "windows",
+      "entityType": "tables"
+    },
+    {
+      "name": "worktree_parents",
+      "entityType": "tables"
+    },
+    {
+      "name": "worktrees",
+      "entityType": "tables"
+    },
+    {
+      "table": "agent_consents",
+      "name": "agent",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "agent_consents",
+      "name": "acknowledged",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "agent_consents",
+      "name": "identity",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "agent_health",
+      "name": "namespace",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "agent_health",
+      "name": "agent",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "agent_health",
+      "name": "fingerprint",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "agent_health",
+      "name": "state",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "audit_records",
+      "name": "id",
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "audit_records",
+      "name": "operation_snapshot",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "audit_records",
+      "name": "timestamp",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "audit_records",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_bindings",
+      "name": "thread",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_bindings",
+      "name": "repository",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_posts",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_posts",
+      "name": "thread",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_posts",
+      "name": "kind",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_posts",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_receipts",
+      "name": "scope",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_receipts",
+      "name": "key",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_receipts",
+      "name": "hash",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_receipts",
+      "name": "thread",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_receipts",
+      "name": "post",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_recipients",
+      "name": "thread",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_recipients",
+      "name": "repository_snapshot",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_threads",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_threads",
+      "name": "state",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_threads",
+      "name": "removed_at",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "board_threads",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "_changes",
+      "name": "revision",
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "_changes",
+      "name": "table_name",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "action",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "status",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "key_hash",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "fingerprint",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "generation",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "recovered",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "control_operations",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "environment_entries",
+      "name": "scope",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "environment_entries",
+      "name": "fold",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "environment_entries",
+      "name": "name",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "environment_entries",
+      "name": "secret",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "environment_entries",
+      "name": "value",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "environment_entries",
+      "name": "cipher",
+      "type": "blob",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "environment_scopes",
+      "name": "scope",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "forge_observations",
+      "name": "path",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "forge_observations",
+      "name": "host",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "forge_observations",
+      "name": "repository",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "forge_observations",
+      "name": "worktree",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "forge_observations",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "hosts",
+      "name": "alias",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "hosts",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "_imports",
+      "name": "name",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "_imports",
+      "name": "report",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "legacy_window_size",
+      "name": "id",
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "legacy_window_size",
+      "name": "width",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "legacy_window_size",
+      "name": "height",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "offers",
+      "name": "category",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "offers",
+      "name": "agent",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "offers",
+      "name": "answered",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "operation_audit_links",
+      "name": "operation",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "operation_audit_links",
+      "name": "audit",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "path",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "owner",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "state",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "pending_removals",
+      "name": "path",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "pending_removals",
+      "name": "repository",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "pending_removals",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "preview_records",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "preview_records",
+      "name": "window",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "preview_records",
+      "name": "worktree",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "preview_records",
+      "name": "worktreeSnapshot",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "preview_records",
+      "name": "relativePath",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "preview_records",
+      "name": "network",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "profile_metadata",
+      "name": "key",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "profile_metadata",
+      "name": "value",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "profile_settings",
+      "name": "key",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "profile_settings",
+      "name": "value",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "quarantine",
+      "name": "id",
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "quarantine",
+      "name": "source",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "quarantine",
+      "name": "position",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "quarantine",
+      "name": "reason",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "repositories",
+      "name": "path",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "repositories",
+      "name": "registration",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "host",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "repository",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "worktree",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "parent",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "kind",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "sessions",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "terminal_diagnostics",
+      "name": "id",
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "terminal_diagnostics",
+      "name": "kind",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "terminal_diagnostics",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "update_activity",
+      "name": "period",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "update_activity",
+      "name": "date",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_actions",
+      "name": "verdict",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_actions",
+      "name": "action",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_actions",
+      "name": "timestamp",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_records",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_records",
+      "name": "terminal_snapshot",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_records",
+      "name": "state",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_records",
+      "name": "timestamp",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "verdict_records",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "windows",
+      "name": "id",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "windows",
+      "name": "display",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "windows",
+      "name": "x",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "windows",
+      "name": "y",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "windows",
+      "name": "width",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "windows",
+      "name": "height",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "windows",
+      "name": "maximized",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "worktree_parents",
+      "name": "path",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "worktree_parents",
+      "name": "identity",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "worktrees",
+      "name": "path",
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "worktrees",
+      "name": "repository",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "worktrees",
+      "name": "data",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "audit_records",
+      "name": "audit_operation",
+      "columns": [
+        {
+          "value": "operation_snapshot",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "audit_records",
+      "name": "audit_timestamp",
+      "columns": [
+        {
+          "value": "timestamp",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "board_bindings",
+      "name": "board_bindings_repository",
+      "columns": [
+        {
+          "value": "repository",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "board_posts",
+      "name": "board_posts_thread",
+      "columns": [
+        {
+          "value": "thread",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "board_posts",
+      "name": "board_post_identity",
+      "columns": [
+        {
+          "value": "id",
+          "isExpression": false
+        },
+        {
+          "value": "thread",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "board_receipts",
+      "name": "board_receipts_thread",
+      "columns": [
+        {
+          "value": "thread",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "board_receipts",
+      "name": "board_receipts_post",
+      "columns": [
+        {
+          "value": "post",
+          "isExpression": false
+        },
+        {
+          "value": "thread",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "board_threads",
+      "name": "board_thread_removal",
+      "columns": [
+        {
+          "value": "removed_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "control_operations",
+      "name": "operation_generation_key",
+      "columns": [
+        {
+          "value": "generation",
+          "isExpression": false
+        },
+        {
+          "value": "key_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "forge_observations",
+      "name": "forge_host",
+      "columns": [
+        {
+          "value": "host",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "forge_observations",
+      "name": "forge_repository",
+      "columns": [
+        {
+          "value": "repository",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "forge_observations",
+      "name": "forge_worktree",
+      "columns": [
+        {
+          "value": "worktree",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "operation_audit_links",
+      "name": "operation_audit_record",
+      "columns": [
+        {
+          "value": "audit",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "owned_worktrees_owner",
+      "columns": [
+        {
+          "value": "owner",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "pending_removals",
+      "name": "pending_removals_repository",
+      "columns": [
+        {
+          "value": "repository",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "preview_records",
+      "name": "previews_window",
+      "columns": [
+        {
+          "value": "window",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "preview_records",
+      "name": "previews_worktree",
+      "columns": [
+        {
+          "value": "worktree",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "repositories",
+      "name": "repositories_registration_identity",
+      "columns": [
+        {
+          "value": "path",
+          "isExpression": false
+        },
+        {
+          "value": "registration",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_host",
+      "columns": [
+        {
+          "value": "host",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_repository",
+      "columns": [
+        {
+          "value": "repository",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_worktree",
+      "columns": [
+        {
+          "value": "worktree",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_parent",
+      "columns": [
+        {
+          "value": "parent",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "verdict_records",
+      "name": "verdict_terminal",
+      "columns": [
+        {
+          "value": "terminal_snapshot",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "worktrees",
+      "name": "worktrees_repository",
+      "columns": [
+        {
+          "value": "repository",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "entityType": "indexes"
+    },
+    {
+      "table": "board_bindings",
+      "name": "fk_board_bindings_thread_board_threads_id_fk",
+      "columns": ["thread"],
+      "tableTo": "board_threads",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "board_bindings",
+      "name": "fk_board_bindings_repository_repositories_path_fk",
+      "columns": ["repository"],
+      "tableTo": "repositories",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "board_posts",
+      "name": "fk_board_posts_thread_board_threads_id_fk",
+      "columns": ["thread"],
+      "tableTo": "board_threads",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "board_receipts",
+      "name": "fk_board_receipts_thread_board_threads_id_fk",
+      "columns": ["thread"],
+      "tableTo": "board_threads",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "board_receipts",
+      "name": "fk_board_receipts_post_thread_board_posts_id_thread_fk",
+      "columns": ["post", "thread"],
+      "tableTo": "board_posts",
+      "columnsTo": ["id", "thread"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "board_recipients",
+      "name": "fk_board_recipients_thread_board_threads_id_fk",
+      "columns": ["thread"],
+      "tableTo": "board_threads",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "environment_entries",
+      "name": "fk_environment_entries_scope_environment_scopes_scope_fk",
+      "columns": ["scope"],
+      "tableTo": "environment_scopes",
+      "columnsTo": ["scope"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "forge_observations",
+      "name": "fk_forge_observations_host_hosts_alias_fk",
+      "columns": ["host"],
+      "tableTo": "hosts",
+      "columnsTo": ["alias"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "forge_observations",
+      "name": "fk_forge_observations_repository_repositories_path_fk",
+      "columns": ["repository"],
+      "tableTo": "repositories",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "forge_observations",
+      "name": "fk_forge_observations_worktree_worktrees_path_fk",
+      "columns": ["worktree"],
+      "tableTo": "worktrees",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "operation_audit_links",
+      "name": "fk_operation_audit_links_operation_control_operations_id_fk",
+      "columns": ["operation"],
+      "tableTo": "control_operations",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "operation_audit_links",
+      "name": "fk_operation_audit_links_audit_audit_records_id_fk",
+      "columns": ["audit"],
+      "tableTo": "audit_records",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "fk_owned_worktrees_path_worktrees_path_fk",
+      "columns": ["path"],
+      "tableTo": "worktrees",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "fk_owned_worktrees_owner_sessions_id_fk",
+      "columns": ["owner"],
+      "tableTo": "sessions",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "pending_removals",
+      "name": "fk_pending_removals_repository_repositories_path_fk",
+      "columns": ["repository"],
+      "tableTo": "repositories",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "preview_records",
+      "name": "fk_preview_records_window_windows_id_fk",
+      "columns": ["window"],
+      "tableTo": "windows",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "preview_records",
+      "name": "fk_preview_records_worktree_worktrees_path_fk",
+      "columns": ["worktree"],
+      "tableTo": "worktrees",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "sessions",
+      "name": "fk_sessions_host_hosts_alias_fk",
+      "columns": ["host"],
+      "tableTo": "hosts",
+      "columnsTo": ["alias"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "sessions",
+      "name": "fk_sessions_repository_repositories_path_fk",
+      "columns": ["repository"],
+      "tableTo": "repositories",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "sessions",
+      "name": "fk_sessions_worktree_worktrees_path_fk",
+      "columns": ["worktree"],
+      "tableTo": "worktrees",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "sessions",
+      "name": "fk_sessions_parent_sessions_id_fk",
+      "columns": ["parent"],
+      "tableTo": "sessions",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "verdict_actions",
+      "name": "fk_verdict_actions_verdict_verdict_records_id_fk",
+      "columns": ["verdict"],
+      "tableTo": "verdict_records",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "worktrees",
+      "name": "fk_worktrees_repository_repositories_path_fk",
+      "columns": ["repository"],
+      "tableTo": "repositories",
+      "columnsTo": ["path"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "entityType": "fks"
+    },
+    {
+      "table": "agent_health",
+      "name": "agent_health_pk",
+      "columns": ["namespace", "agent"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "board_bindings",
+      "name": "board_bindings_pk",
+      "columns": ["thread", "repository"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "board_receipts",
+      "name": "board_receipts_pk",
+      "columns": ["scope", "key"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "board_recipients",
+      "name": "board_recipients_pk",
+      "columns": ["thread", "repository_snapshot"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "environment_entries",
+      "name": "environment_entries_pk",
+      "columns": ["scope", "fold"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "offers",
+      "name": "offers_pk",
+      "columns": ["category", "agent"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "operation_audit_links",
+      "name": "operation_audit_links_pk",
+      "columns": ["operation", "audit"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "agent_consents",
+      "name": "agent_consents_pk",
+      "columns": ["agent"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "audit_records",
+      "name": "audit_records_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "board_posts",
+      "name": "board_posts_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "board_threads",
+      "name": "board_threads_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "_changes",
+      "name": "_changes_pk",
+      "columns": ["revision"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "control_operations",
+      "name": "control_operations_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "environment_scopes",
+      "name": "environment_scopes_pk",
+      "columns": ["scope"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "forge_observations",
+      "name": "forge_observations_pk",
+      "columns": ["path"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "hosts",
+      "name": "hosts_pk",
+      "columns": ["alias"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "_imports",
+      "name": "_imports_pk",
+      "columns": ["name"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "legacy_window_size",
+      "name": "legacy_window_size_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "owned_worktrees_pk",
+      "columns": ["path"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "pending_removals",
+      "name": "pending_removals_pk",
+      "columns": ["path"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "preview_records",
+      "name": "preview_records_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "profile_metadata",
+      "name": "profile_metadata_pk",
+      "columns": ["key"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "profile_settings",
+      "name": "profile_settings_pk",
+      "columns": ["key"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "quarantine",
+      "name": "quarantine_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "repositories",
+      "name": "repositories_pk",
+      "columns": ["path"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "terminal_diagnostics",
+      "name": "terminal_diagnostics_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "update_activity",
+      "name": "update_activity_pk",
+      "columns": ["period"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "verdict_actions",
+      "name": "verdict_actions_pk",
+      "columns": ["verdict"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "verdict_records",
+      "name": "verdict_records_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "windows",
+      "name": "windows_pk",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "worktree_parents",
+      "name": "worktree_parents_pk",
+      "columns": ["path"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "worktrees",
+      "name": "worktrees_pk",
+      "columns": ["path"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "table": "repositories",
+      "name": "repositories_registration_unique",
+      "columns": ["registration"],
+      "nameExplicit": false,
+      "entityType": "uniques"
+    },
+    {
+      "table": "agent_consents",
+      "name": "agent_consents_boolean",
+      "value": "\"acknowledged\" IN (0,1)",
+      "entityType": "checks"
+    },
+    {
+      "table": "agent_consents",
+      "name": "agent_consents_identity",
+      "value": "\"identity\" IS NULL OR (length(\"identity\")=64 AND \"identity\" NOT GLOB '*[^a-f0-9]*')",
+      "entityType": "checks"
+    },
+    {
+      "table": "agent_health",
+      "name": "health_state",
+      "value": "\"state\" IN ('trusted','declined','outdated','not-reviewed')",
+      "entityType": "checks"
+    },
+    {
+      "table": "agent_health",
+      "name": "health_fingerprint",
+      "value": "length(\"fingerprint\")=64 AND \"fingerprint\" NOT GLOB '*[^a-f0-9]*'",
+      "entityType": "checks"
+    },
+    {
+      "table": "audit_records",
+      "name": "audit_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "board_posts",
+      "name": "board_post_kind",
+      "value": "\"kind\" IN ('request','answer','decision-needed','fyi','link','question')",
+      "entityType": "checks"
+    },
+    {
+      "table": "board_posts",
+      "name": "board_post_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "board_threads",
+      "name": "board_thread_state",
+      "value": "\"state\" IN ('open','waiting-repo','waiting-human','resolved')",
+      "entityType": "checks"
+    },
+    {
+      "table": "board_threads",
+      "name": "board_thread_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "control_operations",
+      "name": "operation_action",
+      "value": "\"action\" IN ('wake','create_worktree','launch','stop','close','remove_worktree','prompt','send_keys','reply','board_post','board_resolve')",
+      "entityType": "checks"
+    },
+    {
+      "table": "control_operations",
+      "name": "operation_status",
+      "value": "\"status\" IN ('pending_confirmation','running','succeeded','failed','declined','cancelled','indeterminate')",
+      "entityType": "checks"
+    },
+    {
+      "table": "control_operations",
+      "name": "operation_recovered",
+      "value": "\"recovered\" IN (0,1)",
+      "entityType": "checks"
+    },
+    {
+      "table": "control_operations",
+      "name": "operation_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "control_operations",
+      "name": "operation_hashes",
+      "value": "length(\"key_hash\")=64 AND \"key_hash\" NOT GLOB '*[^a-f0-9]*' AND length(\"fingerprint\")=64 AND \"fingerprint\" NOT GLOB '*[^a-f0-9]*'",
+      "entityType": "checks"
+    },
+    {
+      "table": "environment_entries",
+      "name": "environment_secret",
+      "value": "\"secret\" IN (0,1)",
+      "entityType": "checks"
+    },
+    {
+      "table": "environment_entries",
+      "name": "environment_storage",
+      "value": "(\"secret\"=1 AND \"value\" IS NULL AND \"cipher\" IS NOT NULL AND length(\"cipher\") BETWEEN 1 AND 16384) OR (\"secret\"=0 AND \"value\" IS NOT NULL AND \"cipher\" IS NULL AND length(\"value\")<=4096)",
+      "entityType": "checks"
+    },
+    {
+      "table": "environment_entries",
+      "name": "environment_name",
+      "value": "length(\"name\") BETWEEN 1 AND 256",
+      "entityType": "checks"
+    },
+    {
+      "table": "forge_observations",
+      "name": "forge_observations_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "hosts",
+      "name": "hosts_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "legacy_window_size",
+      "name": "window_size_singleton",
+      "value": "\"id\"=1",
+      "entityType": "checks"
+    },
+    {
+      "table": "legacy_window_size",
+      "name": "window_size_positive",
+      "value": "\"width\" BETWEEN 1 AND 9007199254740991 AND \"height\" BETWEEN 1 AND 9007199254740991",
+      "entityType": "checks"
+    },
+    {
+      "table": "offers",
+      "name": "offer_category",
+      "value": "\"category\" IN ('setup','probe-notice')",
+      "entityType": "checks"
+    },
+    {
+      "table": "offers",
+      "name": "offer_answer",
+      "value": "\"answered\" IN (0,1)",
+      "entityType": "checks"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "owned_worktrees_state",
+      "value": "\"state\" IN ('unused', 'used')",
+      "entityType": "checks"
+    },
+    {
+      "table": "owned_worktrees",
+      "name": "owned_worktrees_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "pending_removals",
+      "name": "pending_removals_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "preview_records",
+      "name": "previews_network",
+      "value": "\"network\"=0",
+      "entityType": "checks"
+    },
+    {
+      "table": "preview_records",
+      "name": "previews_id",
+      "value": "length(\"id\")=32 AND \"id\" NOT GLOB '*[^a-f0-9]*'",
+      "entityType": "checks"
+    },
+    {
+      "table": "profile_metadata",
+      "name": "profile_metadata_key",
+      "value": "\"key\" IN ('remoteProfile','configVersion','configDigest','configText','themeDigests')",
+      "entityType": "checks"
+    },
+    {
+      "table": "profile_metadata",
+      "name": "profile_metadata_json",
+      "value": "json_valid(\"value\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "profile_settings",
+      "name": "profile_settings_key",
+      "value": "\"key\" IN ('setupComplete','checkForUpdates','agyPluginOfferAnswered','hooks','agentHooks','restoreSessions','showNewChildren','closeFinishedAgents','wakeOrchestrator','wakeIntervalMinutes','concurrentChildren','defaultAgent','recentRepositoryDays','unreadChildMinutes','autoRemoveMergedWorktrees','showPullRequests','showNestedRepositoryNames','middleClickPaste','copyOnSelect','terminalClipboardWrites','forges','forgeHosts','agents','agentArguments','worktreeLocation','panelColor','interfaceTheme','interfaceScale','terminalFontSize','terminalFont','terminalTheme','sound','codeFolder')",
+      "entityType": "checks"
+    },
+    {
+      "table": "profile_settings",
+      "name": "profile_settings_json",
+      "value": "json_valid(\"value\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "profile_settings",
+      "name": "profile_settings_boolean",
+      "value": "\"key\" NOT IN ('setupComplete','checkForUpdates','agyPluginOfferAnswered','hooks','restoreSessions','showNewChildren','closeFinishedAgents','wakeOrchestrator','autoRemoveMergedWorktrees','showPullRequests','showNestedRepositoryNames','middleClickPaste','copyOnSelect','terminalClipboardWrites') OR json_type(\"value\") IN ('true','false')",
+      "entityType": "checks"
+    },
+    {
+      "table": "profile_settings",
+      "name": "profile_settings_location",
+      "value": "\"key\" != 'worktreeLocation' OR COALESCE(json_extract(\"value\", '$') IN ('root','adjacent'), 0)",
+      "entityType": "checks"
+    },
+    {
+      "table": "profile_settings",
+      "name": "profile_settings_panel",
+      "value": "\"key\" != 'panelColor' OR COALESCE(json_extract(\"value\", '$') IN ('vivid','subtle','plain'), 0)",
+      "entityType": "checks"
+    },
+    {
+      "table": "quarantine",
+      "name": "quarantine_reason",
+      "value": "\"reason\" IN ('invalid', 'relationship', 'conflict')",
+      "entityType": "checks"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_kind",
+      "value": "\"kind\" IN ('local', 'remote', 'home', 'config')",
+      "entityType": "checks"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_placement",
+      "value": "(\"kind\" = 'remote') = (\"host\" IS NOT NULL)",
+      "entityType": "checks"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_local_repository",
+      "value": "\"kind\" != 'local' OR \"repository\" IS NOT NULL",
+      "entityType": "checks"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_parent_self",
+      "value": "\"parent\" IS NULL OR \"parent\" != \"id\"",
+      "entityType": "checks"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "terminal_diagnostics",
+      "name": "terminal_diagnostic_kind",
+      "value": "\"kind\" IN ('exit','timeout','near-miss')",
+      "entityType": "checks"
+    },
+    {
+      "table": "terminal_diagnostics",
+      "name": "terminal_diagnostic_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "update_activity",
+      "name": "update_period",
+      "value": "\"period\" IN ('d','w','m')",
+      "entityType": "checks"
+    },
+    {
+      "table": "update_activity",
+      "name": "update_date",
+      "value": "COALESCE(length(\"date\")=10 AND \"date\" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(\"date\",'+0 days')=\"date\" AND (\"period\"!='w' OR strftime('%w',\"date\")='1') AND (\"period\"!='m' OR substr(\"date\",9,2)='01'),0)",
+      "entityType": "checks"
+    },
+    {
+      "table": "verdict_actions",
+      "name": "verdict_action",
+      "value": "\"action\" IN ('replied','dismissed','ignored')",
+      "entityType": "checks"
+    },
+    {
+      "table": "verdict_records",
+      "name": "verdict_state",
+      "value": "\"state\" IN ('needs_input','done','failed','quiet_ok','working')",
+      "entityType": "checks"
+    },
+    {
+      "table": "verdict_records",
+      "name": "verdict_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    },
+    {
+      "table": "windows",
+      "name": "windows_id",
+      "value": "length(\"id\") BETWEEN 1 AND 64 AND \"id\" NOT GLOB '*[^a-zA-Z0-9-]*'",
+      "entityType": "checks"
+    },
+    {
+      "table": "windows",
+      "name": "windows_geometry",
+      "value": "abs(\"x\") <= 100000 AND abs(\"y\") <= 100000 AND \"width\" BETWEEN 1 AND 20000 AND \"height\" BETWEEN 1 AND 20000",
+      "entityType": "checks"
+    },
+    {
+      "table": "windows",
+      "name": "windows_maximized",
+      "value": "\"maximized\" IN (0,1)",
+      "entityType": "checks"
+    },
+    {
+      "table": "worktrees",
+      "name": "worktrees_json",
+      "value": "json_valid(\"data\")",
+      "entityType": "checks"
+    }
+  ],
+  "renames": []
+}

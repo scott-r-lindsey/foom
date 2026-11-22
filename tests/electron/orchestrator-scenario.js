@@ -158,13 +158,13 @@ process.stdout.write("FOOM_AGENT_READY`,
   git("init", "-q", "-b", "main");
   git("commit", "-q", "--allow-empty", "-m", "init");
   const forgeState = path.join(root, "decision-forge.json");
-  const decisionHead = "a".repeat(40);
+  const decisionHead = "a".repeat(64);
   const decisionForge = async (headRefOid) => {
     const temporary = `${forgeState}.tmp`;
     await writeFile(
       temporary,
       JSON.stringify({
-        pr: { headRefOid, headRefName: "decision-head" },
+        pr: { headRefOid, headRefName: "main" },
         checks: [{ bucket: "pass" }],
       }),
     );
@@ -620,10 +620,10 @@ process.stdout.write("FOOM_AGENT_READY`,
     );
     await pill(1).click();
     await dialog.getByRole("radio", { name: /Approve screenshots/ }).check();
-    await decisionForge("b".repeat(40));
+    await decisionForge("b".repeat(64));
     await page.evaluate(async () => {
-      await window.desktop.saveSetup({ showPullRequests: false });
-      await window.desktop.saveSetup({ showPullRequests: true });
+      await window.desktop.saveSetup({ forges: { github: false, gitlab: true } });
+      await window.desktop.saveSetup({ forges: { github: true, gitlab: true } });
     });
     await expect(dialog.getByText("Head moved", { exact: true })).toBeVisible({
       timeout: deadline(20000),
@@ -642,7 +642,7 @@ process.stdout.write("FOOM_AGENT_READY`,
     await expect(dialog.getByRole("button", { name: "Next" })).toBeDisabled();
     const stale = (await board()).posts.at(-1).decisions[0];
     assert.equal(stale.status, "stale");
-    assert.equal(stale.movedHead, "b".repeat(40));
+    assert.equal(stale.movedHead, "b".repeat(64));
     for (const base of ["light", "dark"]) {
       await theme(base);
       await screenshot("stale", base);
