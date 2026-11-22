@@ -271,24 +271,26 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   );
 });
 
-test("desktop jobs use four Linux, five Windows and seven macOS shards", () => {
+test("desktop jobs use four Linux, six Windows and eight macOS shards", () => {
   assert.deepEqual(desktopMatrix(), [
     { os: "ubuntu-24.04", shard: "1/4" },
     { os: "ubuntu-24.04", shard: "2/4" },
     { os: "ubuntu-24.04", shard: "3/4" },
     { os: "ubuntu-24.04", shard: "4/4" },
-    { os: "windows-2025", shard: "1/5" },
-    { os: "windows-2025", shard: "2/5" },
-    { os: "windows-2025", shard: "3/5" },
-    { os: "windows-2025", shard: "4/5" },
-    { os: "windows-2025", shard: "5/5" },
-    { os: "macos-15", shard: "1/7" },
-    { os: "macos-15", shard: "2/7" },
-    { os: "macos-15", shard: "3/7" },
-    { os: "macos-15", shard: "4/7" },
-    { os: "macos-15", shard: "5/7" },
-    { os: "macos-15", shard: "6/7" },
-    { os: "macos-15", shard: "7/7" },
+    { os: "windows-2025", shard: "1/6" },
+    { os: "windows-2025", shard: "2/6" },
+    { os: "windows-2025", shard: "3/6" },
+    { os: "windows-2025", shard: "4/6" },
+    { os: "windows-2025", shard: "5/6" },
+    { os: "windows-2025", shard: "6/6" },
+    { os: "macos-15", shard: "1/8" },
+    { os: "macos-15", shard: "2/8" },
+    { os: "macos-15", shard: "3/8" },
+    { os: "macos-15", shard: "4/8" },
+    { os: "macos-15", shard: "5/8" },
+    { os: "macos-15", shard: "6/8" },
+    { os: "macos-15", shard: "7/8" },
+    { os: "macos-15", shard: "8/8" },
   ]);
   assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [
     { os: "ubuntu-24.04", shard: "1/4" },
@@ -595,7 +597,7 @@ test("Quality gate rejects failed, cancelled or skipped required desktop and pla
     }).status;
   assert.equal(run("true", "success"), 0);
   assert.equal(run("false", "skipped"), 0);
-  // GitHub aggregates all sixteen matrix jobs into needs.desktop.result.
+  // GitHub aggregates all eighteen matrix jobs into needs.desktop.result.
   for (const { os, shard } of desktopMatrix()) {
     for (const result of ["failure", "cancelled", "skipped"]) {
       assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);
