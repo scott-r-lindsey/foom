@@ -38,14 +38,18 @@ state belong to ExecutionOwner. Terminal hosts own live PTYs.
   lock, and the restore plan uses the settings and row claims current at dispatch.
 - **Claimed.** Each row has one generation for its current owner. Resume,
   New conversation, Restart, Close and explicit metadata removal replace a
-  queued startup claim before they start asynchronous work. Startup rechecks
+  queued startup claim before they start asynchronous work. Saved metadata
+  survives a failed operation. Removal or same-ID replacement commits the
+  metadata change. Startup rechecks
   its claim and the dormant row before launching. Close checks both saved child
   links and hydrated roles. Daemon discovery uses its
   starting generation and cannot recreate a row claimed or closed since it began.
 - **Starting.** The startup claim protects launch preparation and settlement.
   Launch adapters check it before dispatching a PTY and before publishing the
-  result. Parent records retain saved worktree ownership until validation
-  settles. Parents restore saved child relationships as exited. The child
+  result. Parent records combine pending saved worktrees with current live
+  ownership. Validation settles each saved worktree and transfers it to the
+  live owner if its identity matches. Pending unused checkouts count against
+  creation capacity while validation runs. Parents restore saved child relationships as exited. The child
   consumes a live slot at dispatch and releases it if launch fails. Pending
   intent can keep a tile reserved, but quit inventories the terminal host.
 - **Paused for quit.** Main stops new dispatch and shows **Stopping…** while

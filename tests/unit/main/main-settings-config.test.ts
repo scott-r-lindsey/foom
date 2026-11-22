@@ -193,6 +193,7 @@ test("Foom config migrates profile values, applies file changes live and broadca
     "d".repeat(64),
     "{}",
     undefined,
+    undefined,
   );
   expect(mock.attachConfig).toHaveBeenCalled();
   const config = mock.workspace.deps?.config;

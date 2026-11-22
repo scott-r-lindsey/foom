@@ -47,7 +47,12 @@ export interface ConfigServiceDependencies {
   baseline: {
     get(): string | null;
     copy?(): string | null;
-    set(digest: string, text: string, theme?: { file: string; digest: string }): Promise<void>;
+    set(
+      digest: string,
+      text: string,
+      theme?: { file: string; digest: string },
+      signal?: AbortSignal,
+    ): Promise<void>;
   };
   /** The profile's digest of each interface theme file it last applied, by config path. */
   themeBaseline: {
@@ -277,32 +282,39 @@ export class ConfigService {
     current: () => boolean,
   ): Promise<boolean> {
     if (!this.settingsDeferred || this.closed) return true;
-    const canAttach = () => current() && !this.closed;
+    const signal = this.settingsStartup.signal;
+    const canAttach = () => current() && !signal.aborted;
     if (!canAttach()) return false;
+
+    let cancel: (() => void) | undefined;
+    const cancelled = new Promise<false>((resolve) => {
+      cancel = () => {
+        resolve(false);
+      };
+    });
+    const listener = addAbortListener(signal, () => cancel?.());
+    const attachLocked = async () => {
+      await this.scanSettings(signal);
+      if (!canAttach()) return false;
+      await attach(this.liveValues ?? this.applied.values, signal);
+      return true;
+    };
     try {
       return await this.files.withSettingsLock(async () => {
         if (!canAttach()) return false;
-        await this.scanSettings();
-        if (!canAttach()) return false;
-        const signal = this.settingsStartup.signal;
-        let cancel: (() => void) | undefined;
-        const cancelled = new Promise<void>((resolve) => {
-          cancel = resolve;
-        });
-        const listener = addAbortListener(signal, () => cancel?.());
-        try {
-          await Promise.race([attach(this.liveValues ?? this.applied.values, signal), cancelled]);
-          if (signal.aborted) return false;
-        } finally {
-          listener[Symbol.dispose]();
-        }
+        // Releasing the lock requires the whole startup transaction to settle on abort,
+        // even if a profile write cannot finish. The same signal fences each commit.
+        if (!(await Promise.race([attachLocked(), cancelled])) || signal.aborted) return false;
         this.settingsDeferred = false;
         this.publish();
         return true;
-      });
+      }, signal);
     } catch (error) {
-      if (error instanceof ApplicationError && error.code === "settings-busy") return false;
+      if (signal.aborted || (error instanceof ApplicationError && error.code === "settings-busy"))
+        return false;
       throw error;
+    } finally {
+      listener[Symbol.dispose]();
     }
   }
 
@@ -432,14 +444,17 @@ export class ConfigService {
     this.deps.apply(live);
   }
 
-  private async readSettings(): Promise<Applied | null> {
+  private async readSettings(signal?: AbortSignal): Promise<Applied | null> {
+    signal?.throwIfAborted();
     let bytes: Buffer | null;
     try {
       bytes = await this.files.read(SETTINGS_FILE);
     } catch (error) {
+      signal?.throwIfAborted();
       this.reject(SETTINGS_FILE, invalid(error), invalid(error));
       return null;
     }
+    signal?.throwIfAborted();
     if (bytes === null) {
       this.reject(SETTINGS_FILE, "missing", "$: missing");
       return null;
@@ -480,16 +495,18 @@ export class ConfigService {
     return { ...current, weak, id, selection };
   }
 
-  private async scanSettings(): Promise<void> {
-    const current = await this.readSettings();
+  private async scanSettings(signal?: AbortSignal): Promise<void> {
+    const current = await this.readSettings(signal);
+    signal?.throwIfAborted();
     if (!current) return;
     if (current.text === this.applied.text) {
       this.pending = null;
       return;
     }
     const proposal = await this.inspectSettings(current);
+    signal?.throwIfAborted();
     if (proposal.weak.length) this.pending = proposal;
-    else await this.applyValues(proposal, proposal.selection);
+    else await this.applyValues(proposal, proposal.selection, signal);
   }
 
   /** The active palette comes from the same snapshot as the applied selection. */
@@ -507,8 +524,26 @@ export class ConfigService {
     return { id, theme: palette.parsed.theme, digest: digest(palette.text) };
   }
 
-  private async applyValues(applied: Applied, selection?: Selection): Promise<void> {
+  private async applyValues(
+    applied: Applied,
+    selection?: Selection,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const palette = selection?.palette;
+    const saveBaseline = () =>
+      this.deps.baseline
+        .set(
+          digest(applied.text),
+          applied.text,
+          selection && palette ? { file: selection.file, digest: digest(palette.text) } : undefined,
+          ...(signal ? [signal] : []),
+        )
+        .catch(ignore);
+    if (signal) {
+      signal.throwIfAborted();
+      await saveBaseline();
+      signal.throwIfAborted();
+    }
     if (selection) {
       if (palette) this.appliedThemes.set(selection.file, palette);
       else this.appliedThemes.delete(selection.file);
@@ -521,13 +556,7 @@ export class ConfigService {
     this.pending = null;
     this.notice = undefined;
     this.applyLive(applied.values);
-    await this.deps.baseline
-      .set(
-        digest(applied.text),
-        applied.text,
-        selection && palette ? { file: selection.file, digest: digest(palette.text) } : undefined,
-      )
-      .catch(ignore);
+    if (!signal) await saveBaseline();
   }
 
   /** Both watchers pass through this serialized gate before a palette reaches any window. */

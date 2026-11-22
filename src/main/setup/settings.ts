@@ -446,18 +446,22 @@ export class SettingsStore {
     digest: string,
     text: string,
     theme?: { file: string; digest: string },
+    signal?: AbortSignal,
   ): Promise<void> {
     if (Buffer.byteLength(text) > 65536) return;
     if (digest === this.digest && text === this.text && !theme) return;
     const approvedTheme = structuredClone(theme);
-    await this.write(() => {
-      this.digest = digest;
-      this.text = text;
-      if (approvedTheme) {
-        const next = { ...this.themeDigests, [approvedTheme.file]: approvedTheme.digest };
-        if (Object.keys(next).length <= MAX_THEME_DIGESTS) this.themeDigests = next;
-      }
-    });
+    await this.write(
+      () => {
+        this.digest = digest;
+        this.text = text;
+        if (approvedTheme) {
+          const next = { ...this.themeDigests, [approvedTheme.file]: approvedTheme.digest };
+          if (Object.keys(next).length <= MAX_THEME_DIGESTS) this.themeDigests = next;
+        }
+      },
+      signal ? () => !signal.aborted : undefined,
+    );
   }
 
   /** Only registered-host updates may be cancelled when their observation is superseded. */
@@ -519,6 +523,7 @@ export class SettingsStore {
         change();
         try {
           await mkdir(dirname(this.file), { recursive: true, mode: 0o700 });
+          if (canCommit?.() === false) throw SUPERSEDED_PROFILE_WRITE;
           const temporary = `${this.file}.${randomUUID()}.tmp`;
           try {
             await writeFile(

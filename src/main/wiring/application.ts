@@ -718,7 +718,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     baseline: {
       get: () => wiring.settings.configDigest(),
       copy: () => wiring.settings.configText(),
-      set: (digest, text, theme) => wiring.settings.setConfigBaseline(digest, text, theme),
+      set: (digest, text, theme, signal) =>
+        wiring.settings.setConfigBaseline(digest, text, theme, signal),
     },
     themeBaseline: {
       get: (file) => wiring.settings.themeDigest(file),

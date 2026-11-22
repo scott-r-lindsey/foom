@@ -363,6 +363,7 @@ export class OrchestrationAuthority {
       creating: 0,
       uncertain: 0,
       refusedWorktrees: new Set(),
+      restoringUnused: new Set(),
       children: new Map(),
       worktrees: new Map(),
       history: [],
@@ -431,30 +432,44 @@ export class OrchestrationAuthority {
     return this.parents.get(id)?.uncertain ?? 0;
   }
 
+  /** Binding the first authenticated principal initializes the same active parent. */
+  private currentParent(parent: Parent): boolean {
+    return parent.active && this.slots.get(parent.repository) === parent;
+  }
+
   /** Saved identity must still match; invalid entries never grant capabilities. */
   async restoreWorktrees(
     id: string,
     trees: readonly OwnedWorktree[],
     uncertain = 0,
     current?: () => boolean,
+    settled?: (path: string) => void,
   ): Promise<void> {
     const parent = this.parents.get(id);
-    if (!parent?.active) return;
+    if (!parent) return;
+    const valid = () => this.currentParent(parent) && current?.() !== false;
+    if (!valid()) return;
     parent.uncertain = uncertain;
     for (const saved of trees) {
+      if (saved.state === "unused" && this.unused(parent) < WORKTREE_LIMIT)
+        parent.restoringUnused.add(locationId(saved.path));
+    }
+    for (const saved of trees) {
+      if (!valid()) return;
       const tree = await this.host
         .restoreWorktree(parent.repository, saved.path)
         .catch(() => undefined);
-      if (this.active(parent.repository) !== id || current?.() === false) return;
+      if (!valid()) return;
       const key = locationId(saved.path);
-      if (!tree || tree.identity !== saved.identity) {
-        parent.refusedWorktrees.add(key);
-        continue;
+      parent.restoringUnused.delete(key);
+      if (!parent.worktrees.has(key)) {
+        if (!tree || tree.identity !== saved.identity) parent.refusedWorktrees.add(key);
+        else if (saved.state === "used" || this.unused(parent) < WORKTREE_LIMIT) {
+          parent.worktrees.set(key, { ...tree, ...saved });
+          this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
+        }
       }
-      if (parent.worktrees.has(key)) continue;
-      if (saved.state === "unused" && this.unused(parent) >= WORKTREE_LIMIT) continue;
-      parent.worktrees.set(key, { ...tree, ...saved });
-      this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
+      settled?.(saved.path);
     }
     this.changed();
   }
@@ -476,19 +491,19 @@ export class OrchestrationAuthority {
       (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
-    const generation = parent.generation;
     const tree = await this.host
       .restoreWorktree(parent.repository, entry.worktree)
       .catch(() => undefined);
     if (
       !tree ||
       current?.() === false ||
-      this.parents.get(parentId) !== parent ||
-      parent.generation !== generation ||
-      this.active(parent.repository) !== parentId ||
+      !this.currentParent(parent) ||
+      parent.refusedWorktrees.has(locationId(entry.worktree)) ||
       (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
+    const attached = parent.children.get(entry.id);
+    if (attached) return !attached.takenOver;
     const worktreeId = locationId(entry.worktree);
     const owned = parent.worktrees.get(worktreeId);
     if (owned && owned.identity !== tree.identity) return false;
@@ -516,10 +531,8 @@ export class OrchestrationAuthority {
   remoteParentGuard(id: string): () => void {
     const parent = this.parents.get(id);
     if (!parent?.active) throw new ControlError("forbidden");
-    const generation = parent.generation;
     return () => {
-      if (this.parents.get(id) !== parent || !parent.active || parent.generation !== generation)
-        throw new ControlError("forbidden");
+      if (!this.currentParent(parent)) throw new ControlError("forbidden");
     };
   }
 
@@ -876,7 +889,9 @@ export class OrchestrationAuthority {
     return (
       [...parent.worktrees.values()].filter(
         (tree) => tree.state === "unused" || tree.state === "starting",
-      ).length + parent.uncertain
+      ).length +
+      [...parent.restoringUnused].filter((key) => !parent.worktrees.has(key)).length +
+      parent.uncertain
     );
   }
 

@@ -1153,3 +1153,64 @@ it("recovers only daemon-live forgotten sessions as human tiles after re-enrollm
   expect(records.find((row) => row.id === "live")).not.toHaveProperty("orchestrator");
   expect(records.some((row) => row.id === "exited")).toBe(false);
 });
+
+it("a failed Close keeps the queued child's saved link and refuses to orphan it", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const entries = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "parent-conversation",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+    {
+      id: "child",
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: child.branch,
+      conversationId: "child-conversation",
+      running: true,
+      parentId: "parent",
+      remote: true,
+      placement: { kind: "remote", host: "worker" },
+    },
+  ]);
+  deps.hosts = {
+    registered: () => ({ host: "worker", codeFolder: "/code" }),
+    fleet: () => Promise.resolve([]),
+    worktree: () => Promise.reject(new Error("Unexpected remote worktree request")),
+    requireAgent: () => Promise.resolve(),
+  };
+  const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(() =>
+    Promise.resolve(),
+  );
+  deps.sessions = { load: () => Promise.resolve(entries), save, flush: () => Promise.resolve() };
+  const kill = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("remote cleanup unavailable"))
+    .mockResolvedValue(undefined);
+  deps.terminals.kill = kill;
+  const workspace = createWorkspace();
+  await workspace.restore();
+  const closeChild = { kind: "close", id: "child" } as const;
+  await expect(workspace.sidebarCommand(closeChild, confirm)).rejects.toThrow();
+  expect(workspace.snapshot().terminals.find(({ id }) => id === "child")?.closeState).toBe(
+    "failed",
+  );
+  expect(save).toHaveBeenLastCalledWith(
+    expect.arrayContaining([
+      expect.objectContaining({ id: "child", parentId: "parent", closeState: "failed" }),
+    ]),
+  );
+  await expect(workspace.sidebarCommand({ kind: "close", id: "parent" }, confirm)).rejects.toThrow(
+    "session-has-children",
+  );
+  await workspace.sidebarCommand(closeChild, confirm);
+  expect(workspace.snapshot().terminals.map(({ id }) => id)).toEqual(["parent"]);
+  await workspace.dispose();
+});

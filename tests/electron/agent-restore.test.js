@@ -879,41 +879,50 @@ test("a skipped queued restore leaves the orchestrator child slot available", {
     .toBe(1);
 });
 
-test("confirmed quit abandons a stalled Settings attachment and releases the shared lock", {
-  timeout: deadline(30000),
-}, async (context) => {
-  const { app, page, saved, lock, unlock } = await deferredStartup(context, ({ shell }) => [
-    shell("pending-settings"),
-  ]);
-  await app.evaluate(({ app }) => {
-    const load = process
-      .getBuiltinModule("node:module")
-      .createRequire(app.getAppPath() + "/package.json");
-    const { SettingsStore } = load("./build/main/setup/settings.js");
-    const attach = SettingsStore.prototype.attachConfig;
-    SettingsStore.prototype.attachConfig = async function (...args) {
-      await new Promise((resolve) => {
-        globalThis.releaseSettingsAttachment = resolve;
+for (const write of ["attachConfig", "setConfigBaseline"]) {
+  test(`confirmed quit abandons stalled Settings ${write} and releases the shared lock`, {
+    timeout: deadline(30000),
+  }, async (context) => {
+    const { app, page, saved, lock, root, unlock } = await deferredStartup(context, ({ shell }) => [
+      shell("pending-settings"),
+    ]);
+    await app.evaluate(({ app }, write) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { SettingsStore } = load("./build/main/setup/settings.js");
+      const original = SettingsStore.prototype[write];
+      SettingsStore.prototype[write] = async function (...args) {
+        await new Promise((resolve) => {
+          globalThis.releaseSettingsAttachment = resolve;
+        });
+        return original.apply(this, args);
+      };
+    }, write);
+    await unlock();
+    await expect
+      .poll(() => app.evaluate(() => typeof globalThis.releaseSettingsAttachment))
+      .toBe("function");
+    try {
+      await quitAndWait(app, async () => {
+        const prompt = await requestDeferredQuit(app, page);
+        await prompt.getByRole("button", { name: "Stop all and quit", exact: true }).click();
       });
-      return attach.apply(this, args);
-    };
+    } catch (error) {
+      await app.evaluate(() => globalThis.releaseSettingsAttachment?.()).catch(() => {});
+      throw error;
+    }
+    await assert.rejects(readFile(lock), { code: "ENOENT" });
+    const persisted = JSON.parse(
+      await readFile(path.join(root, "profile", "settings.json"), "utf8"),
+    );
+    assert.equal(
+      JSON.parse(persisted.configText).interfaceScale,
+      write === "attachConfig" ? 110 : undefined,
+    );
+    assert.equal((await saved()).find((row) => row.id === "pending-settings")?.running, true);
   });
-  await unlock();
-  await expect
-    .poll(() => app.evaluate(() => typeof globalThis.releaseSettingsAttachment))
-    .toBe("function");
-  try {
-    await quitAndWait(app, async () => {
-      const prompt = await requestDeferredQuit(app, page);
-      await prompt.getByRole("button", { name: "Stop all and quit", exact: true }).click();
-    });
-  } catch (error) {
-    await app.evaluate(() => globalThis.releaseSettingsAttachment?.()).catch(() => {});
-    throw error;
-  }
-  await assert.rejects(readFile(lock), { code: "ENOENT" });
-  assert.equal((await saved()).find((row) => row.id === "pending-settings")?.running, true);
-});
+}
 
 test("live Settings scans recover after a deferred profile attachment fails", {
   timeout: deadline(30000),
@@ -954,11 +963,11 @@ test("live Settings scans recover after a deferred profile attachment fails", {
     .toBe(120);
 });
 
-test("confirmed quit preserves saved orchestrator ownership during worktree hydration", {
+test("confirmed quit preserves pending and newly created worktrees during ownership hydration", {
   timeout: deadline(30000),
   skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
 }, async (context) => {
-  const { app, page, saved, unlock } = await deferredStartup(
+  const { app, page, saved, root, unlock } = await deferredStartup(
     context,
     (fixture) => seedRestoreParent(fixture, true),
     { claude: true },
@@ -979,6 +988,23 @@ test("confirmed quit preserves saved orchestrator ownership during worktree hydr
   });
   await unlock();
   await expect.poll(() => app.evaluate(() => globalThis.hydratingSavedWorktrees)).toBe(true);
+  const credentialFile = path.join(root, "credentials.restore-parent");
+  await expect.poll(() => readFile(credentialFile, "utf8").catch(() => "")).toContain("controlUrl");
+  const { controlUrl, controlToken, instanceId } = JSON.parse(
+    await readFile(credentialFile, "utf8"),
+  );
+  const response = await fetch(controlUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      version: 1,
+      instanceId,
+      method: "create_worktree",
+      params: { branch: "created-during-restore", idempotencyKey: "during-hydration" },
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).result.status, "succeeded");
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await expect(page.getByRole("dialog", { name: "Stopping Foom" })).toBeVisible();
@@ -987,7 +1013,16 @@ test("confirmed quit preserves saved orchestrator ownership during worktree hydr
   });
   const parent = (await saved()).find((row) => row.id === "restore-parent");
   assert.equal(parent.running, true);
-  assert.deepEqual(parent.orchestrator.worktrees, previous.worktrees);
+  const persisted = parent.orchestrator.worktrees;
+  assert.equal(persisted.length, 2);
+  assert.deepEqual(
+    persisted.find((tree) => tree.path === previous.worktrees[0].path),
+    previous.worktrees[0],
+  );
+  assert.equal(
+    persisted.find((tree) => path.basename(tree.path) === "created-during-restore")?.state,
+    "unused",
+  );
 });
 
 test("Close refuses a queued parent with an unhydrated saved child link", {

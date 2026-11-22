@@ -132,7 +132,8 @@ waits 250 ms after the last event and scans serially. The initial Settings
 review and writer attachment use the shared lock. With a busy lock, the board
 opens on the verified baseline and attachment retries. If attachment fails,
 live scans resume under the Settings lock. Shutdown cancels any pending
-attachment and fences its profile commit. The saved-session pass
+attachment from the start of its locked scan and fences baseline and
+attachment profile commits. The saved-session pass
 uses the attached Settings values through the [startup coordinator](sessions.md#startup-and-quit-1284).
 Live Settings reviews also use the shared lock. If a live scan times out waiting for that lock, the watcher
 retries it in the background. When `themes` or

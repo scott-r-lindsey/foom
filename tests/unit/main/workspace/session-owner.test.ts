@@ -39,14 +39,16 @@ function fixture(entries: StoredSession[] = []) {
     identity: vi.fn<SessionOwnerDependencies["orchestration"]["identity"]>(),
     handoffs: new Handoffs(),
     view: vi.fn<SessionOwnerDependencies["orchestration"]["view"]>(),
-    ownedWorktrees: vi.fn(() => []),
+    ownedWorktrees: vi.fn<SessionOwnerDependencies["orchestration"]["ownedWorktrees"]>(() => []),
     uncertainWorktrees: vi.fn(() => 0),
     exited: vi.fn(),
     relaunched: vi.fn(),
     reserve: vi.fn<SessionOwnerDependencies["orchestration"]["reserve"]>(() => ({ bind, release })),
     restoreChild: vi.fn((_parent: string, _entry: WorkspaceTerminal) => Promise.resolve(true)),
     restoreHistory: vi.fn(),
-    restoreWorktrees: vi.fn(async () => {}),
+    restoreWorktrees: vi.fn<SessionOwnerDependencies["orchestration"]["restoreWorktrees"]>(
+      async () => {},
+    ),
   };
   const deps: SessionOwnerDependencies = {
     store,
@@ -838,7 +840,14 @@ it("persists the saved ownership list until the current parent finishes validati
   });
   const f = fixture([savedParent]);
   const hydration = Promise.withResolvers<undefined>();
-  f.orchestration.restoreWorktrees.mockReturnValueOnce(hydration.promise);
+  const created = { path: "/repo/new", identity: "new-tree", state: "unused" as const };
+  f.orchestration.ownedWorktrees.mockReturnValue([created]);
+  f.orchestration.restoreWorktrees.mockImplementationOnce(
+    (_id, _trees, _uncertain, _current, settle) =>
+      hydration.promise.then(() => {
+        settle?.(owned.path);
+      }),
+  );
   f.orchestration.view.mockReturnValue({
     role: "orchestrator",
     active: true,
@@ -853,17 +862,17 @@ it("persists the saved ownership list until the current parent finishes validati
   });
   await f.owner.save();
   expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
-    { orchestrator: { worktrees: [owned], uncertain: 1 } },
+    { orchestrator: { worktrees: [owned, created], uncertain: 1 } },
   ]);
   hydration.resolve(undefined);
   await startup;
   await f.owner.save();
   expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
-    { orchestrator: { worktrees: [], uncertain: 0 } },
+    { orchestrator: { worktrees: [created], uncertain: 0 } },
   ]);
 });
 
-it("counts saved and live child links once and releases a saved link with its claim", async () => {
+it("counts saved and live child links once and retains the link until the row commits", async () => {
   const f = fixture([parent(), row("child", { parentId: "parent", running: false })]);
   await f.owner.restore();
   expect(f.owner.childCount("parent")).toBe(1);
@@ -873,6 +882,11 @@ it("counts saved and live child links once and releases a saved link with its cl
   expect(f.owner.childCount("parent")).toBe(1);
   f.orchestration.view.mockReset();
   const release = f.owner.claim("child");
-  expect(f.owner.childCount("parent")).toBe(0);
+  expect(f.owner.childCount("parent")).toBe(1);
   release();
+  expect(f.owner.childCount("parent")).toBe(1);
+  const committed = f.owner.claim("child");
+  f.rows.set("child", row("child", { dormant: false, exited: false }));
+  committed();
+  expect(f.owner.childCount("parent")).toBe(0);
 });

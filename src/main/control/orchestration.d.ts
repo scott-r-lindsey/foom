@@ -131,6 +131,7 @@ export interface Parent {
   /** Creations that may have left a checkout; they stay charged to the unused budget. */
   uncertain: number;
   readonly refusedWorktrees: Set<string>;
+  readonly restoringUnused: Set<string>;
   readonly children: Map<string, Child>;
   readonly worktrees: Map<
     string,

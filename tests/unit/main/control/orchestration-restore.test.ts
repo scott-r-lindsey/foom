@@ -260,3 +260,52 @@ it("counts starting reservations at a changed limit", async () => {
   release();
   expect(await pending).toMatchObject({ status: "succeeded" });
 });
+
+it.each(["first request", "regrant"] as const)(
+  "checks the active parent incarnation while restoring a child through a %s",
+  async (change) => {
+    const h = harness();
+    const parent = h.rows.get("parent");
+    if (!parent) throw new Error("missing parent");
+    const row = { ...parent, id: "saved-child", worktree: join(repo, "saved-child"), exited: true };
+    const checkout = Promise.withResolvers<{ branch: string; identity: string }>();
+    h.host.restoreWorktree.mockReturnValueOnce(checkout.promise);
+    const restoring = h.orchestration.restoreChild("parent", row);
+    const guard = h.orchestration.remoteParentGuard("parent");
+    if (change === "first request") {
+      expect(await h.mutate("create_worktree", { branch: "new" })).toMatchObject({
+        status: "succeeded",
+      });
+      expect(guard).not.toThrow();
+    } else {
+      h.orchestration.revoke("parent");
+      const slot = h.orchestration.reserve(repo);
+      if ("existing" in slot) throw new Error("expected a new parent");
+      slot.bind("parent");
+      expect(guard).toThrow();
+    }
+    checkout.resolve({ branch: "saved-child", identity: "id-saved-child" });
+    await expect(restoring).resolves.toBe(change === "first request");
+    expect(h.orchestration.view(row.id)?.role === "child").toBe(change === "first request");
+  },
+);
+
+it("charges pending unused worktrees before admitting a live creation", async () => {
+  const h = harness();
+  const trees = Array.from({ length: 4 }, (_, i) => ({
+    path: join(repo, `saved-${String(i)}`),
+    identity: `id-saved-${String(i)}`,
+    state: "unused" as const,
+  }));
+  const validation = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(validation.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", trees);
+  await expect(h.mutate("create_worktree", { branch: "new" })).rejects.toThrow("capacity");
+  expect(h.host.createWorktree).not.toHaveBeenCalled();
+  validation.resolve({ branch: "saved-0", identity: "replaced" });
+  await restoring;
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual(trees.slice(1));
+  await expect(h.mutate("create_worktree", { branch: "new" })).resolves.toMatchObject({
+    status: "succeeded",
+  });
+});

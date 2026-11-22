@@ -1288,22 +1288,35 @@ test("wake is off by default and its profile-only interval is bounded", () => {
     expect(() => parseSettingsPatch({ wakeIntervalMinutes: bad })).toThrow("Invalid settings");
 });
 
-test("an aborted startup attachment cannot migrate the profile before or after staging", async () => {
-  const dir = await directory();
-  const store = await SettingsStore.open(dir);
-  const file = path.join(dir, "settings.json");
-  const before = await readFile(file, "utf8");
-  const abort = new AbortController();
-  const write = (await vi.importActual<typeof Fs>("node:fs/promises")).writeFile;
-  const writer = vi.fn(() => Promise.resolve());
-  vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
-    await write(...args);
-    abort.abort();
-  });
-  await store.attachConfig(writer, { interfaceScale: 120 }, null, abort.signal);
-  await store.attachConfig(writer, { interfaceScale: 130 }, null, abort.signal);
-  expect(await readFile(file, "utf8")).toBe(before);
-  expect(await readdir(dir)).toEqual(["settings.json"]);
-  expect(store.get().interfaceScale).toBe(DEFAULT_SETTINGS.interfaceScale);
-  expect(store.legacyConfig()).toBeDefined();
-});
+test.each(["attachment", "baseline"] as const)(
+  "an aborted startup %s cannot change the profile before or after staging",
+  async (phase) => {
+    const dir = await directory();
+    const store = await SettingsStore.open(dir);
+    const file = path.join(dir, "settings.json");
+    const before = await readFile(file, "utf8");
+    const abort = new AbortController();
+    const write = (await vi.importActual<typeof Fs>("node:fs/promises")).writeFile;
+    const writer = vi.fn(() => Promise.resolve());
+    const commit = (scale: number) =>
+      phase === "attachment"
+        ? store.attachConfig(writer, { interfaceScale: scale }, null, abort.signal)
+        : store.setConfigBaseline(
+            String(scale).padStart(64, "0"),
+            JSON.stringify({ kind: "settings", interfaceScale: scale }),
+            undefined,
+            abort.signal,
+          );
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      await write(...args);
+      abort.abort();
+    });
+    await commit(120);
+    await commit(130);
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(await readdir(dir)).toEqual(["settings.json"]);
+    expect(store.get().interfaceScale).toBe(DEFAULT_SETTINGS.interfaceScale);
+    expect(store.configDigest()).toBeNull();
+    expect(store.legacyConfig()).toBeDefined();
+  },
+);

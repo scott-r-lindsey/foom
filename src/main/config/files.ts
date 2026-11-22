@@ -122,8 +122,8 @@ export class ConfigFiles {
   }
 
   /** All cooperating profiles hold this lock from the settings read through rename. */
-  async withSettingsLock<T>(work: () => Promise<T>): Promise<T> {
-    return withSettingsLock(this.path(".foom-settings.lock"), work);
+  async withSettingsLock<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return withSettingsLock(this.path(".foom-settings.lock"), work, signal);
   }
 
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */
@@ -302,8 +302,15 @@ async function ownsLock(path: string, token: string): Promise<boolean> {
   );
 }
 
-async function withSettingsLock<T>(path: string, work: () => Promise<T>, depth = 0): Promise<T> {
+async function withSettingsLock<T>(
+  path: string,
+  work: () => Promise<T>,
+  signal?: AbortSignal,
+  depth = 0,
+): Promise<T> {
+  signal?.throwIfAborted();
   await sweepLockTemporaries(dirname(path));
+  signal?.throwIfAborted();
   const token = randomUUID();
   const record = JSON.stringify({
     pid: process.pid,
@@ -313,14 +320,17 @@ async function withSettingsLock<T>(path: string, work: () => Promise<T>, depth =
     timestamp: Date.now(),
   });
   for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
     if (await publishLock(path, record)) {
       try {
         if (!(await ownsLock(path, token))) throw settingsBusy();
+        signal?.throwIfAborted();
         return await work();
       } finally {
         if (await ownsLock(path, token)) await rm(path);
       }
     }
+    signal?.throwIfAborted();
     const stale = await staleLock(path);
     if (stale !== null && depth < 4) {
       // Serialize the compare/remove, not just the later exclusive create. A
@@ -328,12 +338,16 @@ async function withSettingsLock<T>(path: string, work: () => Promise<T>, depth =
       await withSettingsLock(
         `${path}.recovery`,
         async () => {
-          if ((await staleLock(path)) === stale) await rm(path, { force: true });
+          if ((await staleLock(path)) === stale) {
+            signal?.throwIfAborted();
+            await rm(path, { force: true });
+          }
         },
+        signal,
         depth + 1,
       );
     }
     if (attempt === 20) throw settingsBusy();
-    await sleep(25);
+    await sleep(25, undefined, { signal });
   }
 }
