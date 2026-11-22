@@ -333,3 +333,26 @@ test("concurrent windowless quit requests share one parent and recover from a fa
     expect(mock.quit).toHaveBeenCalledOnce();
   });
 });
+
+test.each([0, 1])(
+  "progress and bounded quit confirmation with deferred startup (answer %s)",
+  async (response) => {
+    const pause = Promise.withResolvers<boolean>();
+    mock.workspace.pauseRestore.mockReturnValueOnce(pause.promise);
+    mock.message.mockResolvedValueOnce({ response });
+    await start();
+    quitting();
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", "quit");
+    expect(mock.message).not.toHaveBeenCalled();
+    pause.resolve(true);
+    await vi.waitFor(() => {
+      expect(mock.message).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Quit while sessions are starting?", sessions: [] }),
+      );
+      if (response === 0) expect(mock.workspace.cancelQuit).toHaveBeenCalledOnce();
+      else expect(mock.quit).toHaveBeenCalledOnce();
+    });
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("windows:settings-stopping", false);
+    if (response === 0) expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+  },
+);

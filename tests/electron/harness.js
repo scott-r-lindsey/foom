@@ -800,6 +800,11 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               "const userInfo = os.userInfo;",
               `os.userInfo = (...args) => ({ ...userInfo(...args), shell: ${JSON.stringify(isolated.SHELL)} });`,
             ]),
+        ...(options.deferRestoreDaemonInventory
+          ? [
+              `require(${JSON.stringify(path.join(__dirname, "startup-restore-fixture.js"))}).deferRestoreDaemonInventory(${JSON.stringify(entry)});`,
+            ]
+          : []),
         ...(options.trackSidebarReads
           ? [
               `const workspaceModule = require(${JSON.stringify(path.join(entry, "build/main/workspace/workspace.js"))});`,

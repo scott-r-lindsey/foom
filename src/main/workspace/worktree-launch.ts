@@ -96,7 +96,7 @@ export async function launchAgent(
     | "pressure"
     | "selection"
     | "remoteCheckout"
-  > = {},
+  > & { afterSpawn?: () => void } = {},
   parentHold?: CheckoutHold,
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
   return this.withRepository(request.repository, async () => {
@@ -156,6 +156,7 @@ export async function launchAgent(
         ...(checkoutIdentity !== undefined ? { checkoutIdentity } : {}),
         ...(this.deps.environment ? { environment: this.deps.environment(request.agent) } : {}),
       });
+      extra.afterSpawn?.();
       const launchVersion = replacement
         ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
         : undefined;
@@ -295,7 +296,7 @@ export async function startShell(
   configEnvironment?: Readonly<Record<string, string>>,
   checkout?: Awaited<ReturnType<WorktreeLaunchContext["orchestration"]["remoteCheckout"]>>,
   remoteOverride?: RemoteTarget,
-  validateLaunch?: () => void | Promise<void>,
+  validateLaunch?: (dispatch?: true) => void | Promise<void>,
   signal?: AbortSignal,
   parentHold?: CheckoutHold,
   localRecipe?: { command: string; args: readonly string[] },
@@ -335,9 +336,7 @@ export async function startShell(
             names: [],
           }
         : await this.shellEnvironment(pathFirst);
-    if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     await checkout?.validate();
-    await validateLaunch?.();
     if (
       !location.home &&
       !location.config &&
@@ -350,6 +349,8 @@ export async function startShell(
       )
     )
       throw new Error("This worktree is busy");
+    await validateLaunch?.(true);
+    if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     const id = await this.deps.terminals.create({
       ...(signal ? { signal } : {}),
       ...(restoreId === undefined ? {} : { id: restoreId }),
@@ -380,6 +381,7 @@ export async function startShell(
       cols: 80,
       rows: 24,
     });
+    if (restoreId !== undefined) await validateLaunch?.();
     this.launched.set(id, {
       ...this.replacementVersion(restoreId),
       id,
@@ -603,7 +605,11 @@ export async function startMachine(
                 prompt: setup.prompt,
               }
             : validateLaunch
-              ? { beforeSpawn: validateLaunch }
+              ? {
+                  beforeSpawn: () => {
+                    validateLaunch(true);
+                  },
+                }
               : {}),
           localOnly: true,
           sharedCheckout: true,
@@ -616,6 +622,7 @@ export async function startMachine(
         });
       }
       if (remote) remote.beforeOpen = ensureOpen;
+      if (!agentResult && !remote) ensureOpen(true);
       const id =
         agentResult?.id ??
         (await this.deps.terminals.create({
@@ -630,6 +637,7 @@ export async function startMachine(
           ...(remote ? { remote } : {}),
           ...(run === "shell" ? { shellIntegration: true } : {}),
         }));
+      validateLaunch?.();
       const conversationId = agentResult?.conversationId ?? conversation;
       this.launched.set(id, {
         ...this.replacementVersion(restoreId),
@@ -678,7 +686,7 @@ export async function startHomeShell(
   this: WorktreeLaunchContext,
   restoreId?: string,
   remote?: RemoteTarget,
-  validateLaunch?: () => void,
+  validateLaunch?: (dispatch?: true) => void,
   signal?: AbortSignal,
 ): Promise<string> {
   return this.startShell(
@@ -757,7 +765,7 @@ export async function startExisting(
   restoring = false,
   authorityIdentity?: ParentIdentity,
   pastedId?: string,
-  validateLaunch?: () => void,
+  validateLaunch?: (dispatch?: true) => void,
   signal?: AbortSignal,
   heldReservation?: string,
   parentHold?: CheckoutHold,
@@ -906,11 +914,12 @@ export async function startExisting(
               replacement,
               {
                 ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
+                ...(restoring && validateLaunch ? { afterSpawn: validateLaunch } : {}),
                 ...(validateLaunch || resumeGuard
                   ? {
                       beforeSpawn: () => {
-                        validateLaunch?.();
                         resumeGuard?.();
+                        validateLaunch?.(true);
                       },
                     }
                   : {}),
@@ -932,6 +941,7 @@ export async function startExisting(
                               child.takenOver))
                         )
                           throw new Error("Remote child ownership changed");
+                        validateLaunch?.(true);
                       },
                     }
                   : {}),
@@ -947,6 +957,7 @@ export async function startExisting(
               },
               hold,
             );
+            validateLaunch?.();
             // A human revoke may finish while the host is spawning. Keep the new
             // process ordinary and live rather than restoring cancelled authority.
             if (resumeGuard) {

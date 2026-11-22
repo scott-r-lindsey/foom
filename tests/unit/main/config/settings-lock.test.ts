@@ -370,3 +370,38 @@ test.each(["ENOTSUP", "EOPNOTSUPP", "ENOSYS"])(
     expect((await readdir(f.folder)).filter((name) => name.startsWith(".foom-"))).toEqual([]);
   },
 );
+
+test("attaches deferred Settings under the shared lock once startup is current", async () => {
+  const baseline = JSON.stringify({ kind: "settings", interfaceScale: 90 });
+  const f = await fixture({
+    baseline: (await import("../../../../src/main/config/layout")).digest(baseline),
+    appliedText: baseline,
+  });
+  await mkdir(f.folder);
+  await f.settings({ interfaceScale: 110 });
+  const lock = join(f.folder, lockName);
+  await writeFile(lock, owner());
+  const attach = vi.fn(() =>
+    readFile(lock, "utf8").then((record) => {
+      expect(JSON.parse(record)).toHaveProperty("pid", process.pid);
+      expect(record).not.toBe(owner());
+    }),
+  );
+  await expect(f.service.initialize(undefined, attach)).resolves.toEqual({ interfaceScale: 90 });
+  expect(attach).not.toHaveBeenCalled();
+  await f.service.refresh();
+  expect(f.applied.at(-1)).toEqual({ interfaceScale: 90 });
+  await rm(lock);
+  await expect(f.service.finishSettingsStartup(attach, () => false)).resolves.toBe(false);
+  const current = vi
+    .fn()
+    .mockReturnValueOnce(true)
+    .mockReturnValueOnce(true)
+    .mockReturnValue(false);
+  await expect(f.service.finishSettingsStartup(attach, current)).resolves.toBe(false);
+  expect(attach).not.toHaveBeenCalled();
+  await expect(f.service.finishSettingsStartup(attach, () => true)).resolves.toBe(true);
+  expect(attach).toHaveBeenCalledExactlyOnceWith({ interfaceScale: 110 });
+  await expect(f.service.finishSettingsStartup(attach, () => true)).resolves.toBe(true);
+  expect(attach).toHaveBeenCalledOnce();
+});

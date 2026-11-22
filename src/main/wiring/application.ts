@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { viewChanges } from "../data/view-changes";
 import { stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -193,7 +194,7 @@ export function runApplication() {
       confirmations: TrustedDialog;
       workspaceIpc: ReturnType<typeof attachWorkspace>;
       setup: Setup;
-      beginSettingsStopping(): () => void;
+      beginSettingsStopping(kind?: "quit"): () => void;
       readonly settingsStop: Promise<void> | undefined;
       updateBackground(): void;
       applySettings(next: Settings): void;
@@ -416,6 +417,7 @@ export function runApplication() {
       app.quit();
       return;
     }
+    let decide: ((accepted: boolean) => void) | undefined;
     try {
       let entry =
         [...windows.values()].find(({ window }) => window.isFocused()) ??
@@ -427,16 +429,34 @@ export function runApplication() {
       if (!entry) return;
       const { window, confirmations } = entry;
       quitPending = true;
+      quitConfirmation = new Promise<boolean>((resolve) => {
+        decide = resolve;
+      });
+      const pendingRestore = workspace.pauseRestore();
+      let timedOut = false;
+      if (pendingRestore) {
+        const finishWaiting = [...windows.values()].map((board) =>
+          board.beginSettingsStopping("quit"),
+        );
+        try {
+          timedOut = await pendingRestore;
+        } finally {
+          for (const finish of finishWaiting) finish();
+        }
+      }
       const count = terminals.runningCount;
-      if (count > 0) {
+      const running = count ? terminals.runningSessions() : [];
+      if (count > 0 || timedOut) {
         const snapshot = workspace.snapshot();
-        quitConfirmation = confirmations.request(
+        const accepted = await confirmations.request(
           {
-            title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
+            title: count
+              ? `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`
+              : "Quit while sessions are starting?",
             accept: "Stop all and quit",
             glyph: "power",
-            subject: "Each one is stopped",
-            sessions: terminals.runningSessions().map((session) => {
+            subject: count ? "Each one is stopped" : "Pending sessions can restore next time",
+            sessions: running.map((session) => {
               const entry = snapshot.terminals.find((item) => item.id === session.id);
               return {
                 id: session.id,
@@ -454,10 +474,9 @@ export function runApplication() {
           // A person asked Foom to quit, possibly from the Dock while another app is frontmost.
           { activate: true },
         );
-        const accepted = await quitConfirmation;
-        quitConfirmation = undefined;
         if (!accepted) return;
       }
+      decide?.(true);
       await saveWindows().catch((error: unknown) => {
         console.error("Unable to save windows:", error);
       });
@@ -467,16 +486,13 @@ export function runApplication() {
         settingsStop ? [settingsStop] : [],
       );
       const finishProgress =
-        settingsStops.length || terminals.hasRunningSettingsRecipe
-          ? boards.map((board) => board.beginSettingsStopping())
+        timedOut || settingsStops.length || terminals.hasRunningSettingsRecipe
+          ? boards.map((board) => board.beginSettingsStopping(timedOut ? "quit" : undefined))
           : [];
       try {
         // A native close may already be stopping and disposing its own recipes.
         await Promise.allSettled(settingsStops);
         await terminals.shutdown();
-      } catch (error) {
-        workspace.cancelQuit();
-        throw error;
       } finally {
         for (const finish of finishProgress) finish();
       }
@@ -508,9 +524,12 @@ export function runApplication() {
         });
       });
     } catch (error) {
+      decide?.(true);
       console.error("Unable to quit the application:", error);
       dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
     } finally {
+      if (!quitting) workspace.cancelQuit();
+      decide?.(false);
       quitConfirmation = undefined;
       quitPending = false;
     }
@@ -752,18 +771,20 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   wiring.disposeThemes = () => {
     wiring.themes.dispose();
   };
+  const writeConfig: Parameters<SettingsStore["attachConfig"]>[0] = (...args) =>
+    wiring.config.write(...args);
+  const attachSettings = async (values: Parameters<SettingsStore["attachConfig"]>[1]) => {
+    await wiring.settings.attachConfig(writeConfig, values, wiring.settings.configDigest());
+  };
   try {
     // Include the old window scale only in no-clobber initial creation. Never
     // follow initialization with a Settings save: another profile may replace
     // the file while the approved baseline is being persisted.
-    const values = await wiring.config.initialize(
+    await wiring.config.initialize(
       migratedScale === undefined ? legacy : { ...legacy, interfaceScale: migratedScale },
+      attachSettings,
     );
-    await wiring.settings.attachConfig(
-      (...args) => wiring.config.write(...args),
-      values,
-      wiring.settings.configDigest(),
-    );
+    wiring.settings.deferConfig(writeConfig);
   } catch (error) {
     // Settings stay in the profile until the folder is usable.
     console.error("Foom config is unavailable:", error);
@@ -775,8 +796,19 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     for (const placement of placements) await wiring.createWindow(undefined, placement);
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
   wiring.workspace.configure(wiring.settings.get());
+  const finishSettings = async () => {
+    const current = () => !wiring.quitPending && !wiring.quitting;
+    while (!wiring.quitting) {
+      if (await wiring.config.finishSettingsStartup(attachSettings, current)) return;
+      await delay(250, undefined, { ref: false });
+    }
+  };
   void wiring.workspace
-    .restartSaved()
+    .restartSaved(
+      finishSettings().catch((error: unknown) => {
+        console.error("Foom config is unavailable:", error);
+      }),
+    )
     .then(() => wiring.worktrees.reconcileRemovals(() => wiring.quitPending || wiring.quitting))
     .then(() => {
       if (!wiring.quitPending && !wiring.quitting) wiring.workspace.refresh();

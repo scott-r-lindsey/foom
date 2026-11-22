@@ -15,6 +15,8 @@ const {
   launchApp,
   quitAndWait,
   removeAfterApps,
+  confirmationPage,
+  stopSession,
 } = require("./harness.js");
 
 for (const { agent, linked, replaced } of [
@@ -436,3 +438,437 @@ req.end(JSON.stringify(payload));
       .poll(() => rows(off))
       .toMatchObject(beforeDisabled.map(({ id }) => ({ id, exited: true, dormant: true })));
   });
+
+async function deferredStartup(context, makeSessions, options = {}) {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-deferred-startup-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const profile = path.join(root, "profile");
+  const config = path.join(profile, ".foom", "config");
+  const lock = path.join(config, ".foom-settings.lock");
+  const sessionsFile = path.join(profile, "sessions.json");
+  await Promise.all([mkdir(home), mkdir(config, { recursive: true })]);
+  const shell = (id) => ({
+    id,
+    agent: "shell",
+    home: true,
+    repository: home,
+    worktree: home,
+    branch: null,
+    running: true,
+  });
+  const settings = {
+    kind: "settings",
+    agents: { claude: true },
+    hooks: false,
+    ...options.config,
+  };
+  const baseline = JSON.stringify(settings);
+  const env = {};
+  if (options.claude) {
+    const bin = path.join(root, "bin");
+    await mkdir(bin);
+    const { chmod, symlink } = require("node:fs/promises");
+    await symlink(process.execPath, path.join(bin, "node"));
+    const cli = path.join(bin, "claude");
+    await writeFile(cli, FAKE_ORCHESTRATED_CLAUDE);
+    await chmod(cli, 0o755);
+    env.PATH = bin;
+    env.TEST_FAKE_CREDENTIALS = path.join(root, "credentials");
+  }
+  const sessions = await makeSessions({ root, home, profile, shell });
+  await Promise.all([
+    writeFile(sessionsFile, JSON.stringify(sessions)),
+    writeFile(
+      path.join(config, "settings.json"),
+      JSON.stringify({ ...settings, interfaceScale: 110 }),
+    ),
+    writeFile(
+      path.join(profile, "settings.json"),
+      JSON.stringify({
+        version: 2,
+        settings: { setupComplete: true, checkForUpdates: false, ...options.profile },
+        configText: baseline,
+        configDigest: require("node:crypto").createHash("sha256").update(baseline).digest("hex"),
+      }),
+    ),
+    writeFile(
+      lock,
+      JSON.stringify({
+        pid: process.pid,
+        start: null,
+        hostname: require("node:os").hostname(),
+        token: "deferred-startup-fixture",
+        timestamp: Date.now(),
+      }),
+    ),
+  ]);
+  const app = await launchApp(context, {
+    fixture: "restored",
+    args: [`--user-data-dir=${profile}`, "--foom-isolated-state"],
+    home,
+    env,
+    deferRestoreDaemonInventory: options.remote,
+  });
+  const page = await boardPage(app);
+  const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
+  const saved = async () => JSON.parse(await readFile(sessionsFile, "utf8"));
+  return { app, page, rows, saved, unlock: () => require("node:fs/promises").rm(lock) };
+}
+
+async function requestDeferredQuit(app, page, capture = false) {
+  await app.evaluate(({ app }) => app.quit());
+  const stopping = page.getByRole("dialog", { name: "Stopping Foom" });
+  await expect(stopping.getByRole("status")).toHaveText("Stopping…");
+  if (capture) await page.screenshot({ path: evidencePath("deferred-restore-stopping.png") });
+  return confirmationPage(app, "Quit while sessions are starting?");
+}
+
+test("deferred startup opens on the baseline and confirmed quit preserves queued sessions", {
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, page, rows, saved } = await deferredStartup(context, ({ shell }) => [
+    shell("deferred-shell"),
+  ]);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
+    100,
+  );
+  assert.equal((await rows())[0]?.dormant, true);
+  await quitAndWait(app, async () => {
+    const prompt = await requestDeferredQuit(app, page, true);
+    await prompt.getByRole("button", { name: "Stop all and quit", exact: true }).click();
+  });
+  assert.equal((await saved()).find((row) => row.id === "deferred-shell")?.running, true);
+});
+
+test("deferred startup resumes all queued sessions after a timed-out quit is cancelled", {
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, page, rows, saved, unlock } = await deferredStartup(context, ({ shell }) => [
+    shell("deferred-one"),
+    shell("deferred-two"),
+  ]);
+  try {
+    const prompt = await requestDeferredQuit(app, page);
+    await prompt.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect
+      .poll(async () => (await rows()).filter((row) => row.dormant && row.restoring).length)
+      .toBe(2);
+    await expect.poll(async () => (await saved()).filter((row) => row.running).length).toBe(2);
+  } finally {
+    await unlock();
+  }
+  await expect
+    .poll(async () => (await rows()).filter((row) => !row.dormant && !row.exited).length)
+    .toBe(2);
+  await expect
+    .poll(
+      async () => (await page.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
+    )
+    .toBe(110);
+});
+
+test("Restart, Resume and Close claim queued rows before the deferred startup pass", {
+  timeout: deadline(45000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { app, page, rows, unlock } = await deferredStartup(
+    context,
+    ({ shell }) => [
+      shell("replace-shell"),
+      shell("close-shell"),
+      { ...shell("resume-agent"), agent: "claude", machine: true, conversationId: "saved-agent" },
+      shell("restore-shell"),
+    ],
+    { claude: true },
+  );
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { AgentService } = load("./build/main/agents/agents.js");
+    const original = AgentService.prototype.launch;
+    AgentService.prototype.launch = async function (request) {
+      if (request.terminalId === "resume-agent") {
+        AgentService.prototype.launch = original;
+        await new Promise((resolve) => {
+          globalThis.releaseManualResume = resolve;
+        });
+      }
+      return original.call(this, request);
+    };
+  });
+  let unlocked = false;
+  try {
+    const prompt = await requestDeferredQuit(app, page);
+    await prompt.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect
+      .poll(async () => (await rows()).filter((row) => row.dormant && row.restoring).length)
+      .toBe(4);
+    const commands = page.evaluate(async () => {
+      const completions = Promise.allSettled([
+        window.desktop.sidebarCommand({ kind: "restart", id: "replace-shell" }),
+        window.desktop.sidebarCommand({ kind: "resume", id: "resume-agent" }),
+        window.desktop.sidebarCommand({ kind: "close", id: "close-shell" }),
+      ]);
+      const duplicate = await window.desktop
+        .sidebarCommand({ kind: "resume", id: "resume-agent" })
+        .then(
+          () => false,
+          () => true,
+        );
+      return { duplicate, completions: await completions };
+    });
+    await expect
+      .poll(() => app.evaluate(() => typeof globalThis.releaseManualResume))
+      .toBe("function");
+    await unlock();
+    unlocked = true;
+    await expect
+      .poll(async () => (await rows()).find((row) => row.id === "restore-shell")?.exited)
+      .toBe(false);
+    await app.evaluate(() => globalThis.releaseManualResume());
+    const result = await commands;
+    assert.equal(result.duplicate, true);
+    assert.deepEqual(
+      result.completions.map(({ status }) => status),
+      ["fulfilled", "fulfilled", "fulfilled"],
+      JSON.stringify(result.completions),
+    );
+  } finally {
+    await app.evaluate(() => globalThis.releaseManualResume?.());
+    if (!unlocked) await unlock();
+  }
+  const inventory = await rows();
+  assert.equal(inventory.length, 3);
+  assert.ok(!inventory.some((row) => ["replace-shell", "close-shell"].includes(row.id)));
+  assert.ok(inventory.every((row) => !row.exited && !row.dormant));
+});
+
+test("a stalled restore completes after Cancel and releases its claim", {
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, page, rows, unlock } = await deferredStartup(context, ({ shell }) => [
+    shell("stalled-shell"),
+  ]);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    const original = TerminalHostClient.prototype.create;
+    TerminalHostClient.prototype.create = async function (spec) {
+      if (spec.id === "stalled-shell") {
+        TerminalHostClient.prototype.create = original;
+        await new Promise((resolve) => {
+          globalThis.releaseStalledRestore = resolve;
+        });
+      }
+      return original.call(this, spec);
+    };
+  });
+  await unlock();
+  try {
+    await expect
+      .poll(() => app.evaluate(() => typeof globalThis.releaseStalledRestore))
+      .toBe("function");
+    const prompt = await requestDeferredQuit(app, page);
+    await prompt.getByRole("button", { name: "Cancel", exact: true }).click();
+  } finally {
+    await app.evaluate(() => globalThis.releaseStalledRestore?.());
+  }
+  await expect
+    .poll(async () => (await rows()).find((row) => row.id === "stalled-shell")?.exited)
+    .toBe(false);
+  await stopSession(page, "stalled-shell");
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "close", id: "stalled-shell" }));
+  await expect.poll(rows).toEqual([]);
+});
+
+test("Close persists across a stale startup daemon discovery reply", {
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, page, rows, saved, unlock } = await deferredStartup(
+    context,
+    ({ shell }) => [
+      {
+        ...shell("remote-saved"),
+        remote: true,
+        running: false,
+        placement: { kind: "remote", host: "fixture-host" },
+      },
+      shell("discovery-follower"),
+    ],
+    {
+      remote: true,
+      profile: { registeredHosts: [{ host: "fixture-host", codeFolder: "/code" }] },
+    },
+  );
+  try {
+    assert.equal(await app.evaluate(() => globalThis.restoreDaemon.requested), true);
+    await page.evaluate(() => window.desktop.sidebarCommand({ kind: "close", id: "remote-saved" }));
+    assert.equal(await app.evaluate(() => globalThis.restoreDaemon.closed), true);
+    assert.equal(
+      (await rows()).some((row) => row.id === "remote-saved"),
+      false,
+    );
+  } finally {
+    await app.evaluate(() =>
+      globalThis.restoreDaemon.release([{ host: "fixture-host", session: { id: "remote-saved" } }]),
+    );
+    await unlock();
+  }
+  await expect
+    .poll(async () => (await rows()).find((row) => row.id === "discovery-follower")?.exited)
+    .toBe(false);
+  assert.equal(
+    (await rows()).some((row) => row.id === "remote-saved"),
+    false,
+  );
+  await expect
+    .poll(async () => (await saved()).map((row) => row.id))
+    .toEqual(["discovery-follower"]);
+});
+
+test("a skipped queued restore leaves the orchestrator child slot available", {
+  timeout: deadline(45000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  let credentials;
+  const { app, page, rows, unlock } = await deferredStartup(
+    context,
+    async ({ root, profile }) => {
+      const repo = path.join(root, "restore-parent");
+      const child = path.join(root, "skipped-child");
+      credentials = path.join(root, "credentials.restore-parent");
+      isolatedGit(["init", "-q", "-b", "main", repo]);
+      isolatedGit([
+        "-C",
+        repo,
+        "-c",
+        "user.name=Foom",
+        "-c",
+        "user.email=foom@example.com",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "init",
+      ]);
+      isolatedGit(["-C", repo, "worktree", "add", "-b", "skipped-child", child]);
+      const { lstat } = require("node:fs/promises");
+      const identity = async (checkout, gitDir) => {
+        const entries = await Promise.all(
+          [checkout, path.join(checkout, ".git"), gitDir].map(async (entry) => {
+            const stat = await lstat(entry, { bigint: true });
+            return [stat.dev, stat.ino, stat.birthtimeNs].map(String);
+          }),
+        );
+        return JSON.stringify([gitDir, entries]);
+      };
+      await writeFile(
+        path.join(profile, "worktrees.json"),
+        JSON.stringify({
+          version: 1,
+          repositories: [repo],
+          managed: [
+            {
+              path: child,
+              repository: repo,
+              root,
+              identity: await identity(
+                child,
+                path.join(repo, ".git", "worktrees", "skipped-child"),
+              ),
+            },
+          ],
+        }),
+      );
+      const parent = {
+        id: "restore-parent",
+        agent: "claude",
+        repository: repo,
+        worktree: repo,
+        branch: "main",
+        conversationId: "saved-parent",
+        running: true,
+        orchestrator: { identity: await identity(repo, path.join(repo, ".git")), history: [] },
+      };
+      return [
+        parent,
+        {
+          id: "skipped-child",
+          agent: "claude",
+          repository: repo,
+          worktree: child,
+          branch: "skipped-child",
+          conversationId: "saved-child",
+          running: true,
+          parentId: parent.id,
+        },
+      ];
+    },
+    { claude: true, config: { concurrentChildren: 1 } },
+  );
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { OrchestrationAuthority } = load("./build/main/control/orchestration-authority.js");
+    const original = OrchestrationAuthority.prototype.restoreChild;
+    OrchestrationAuthority.prototype.restoreChild = async function (parent, entry, current) {
+      const restored = await original.call(this, parent, entry, current);
+      if (entry.id === "skipped-child") {
+        OrchestrationAuthority.prototype.restoreChild = original;
+        if (!restored) throw new Error("Fixture child relationship did not restore");
+        await new Promise((resolve) => {
+          globalThis.releaseChildRestore = resolve;
+        });
+      }
+      return restored;
+    };
+  });
+  await unlock();
+  try {
+    await expect
+      .poll(() => app.evaluate(() => typeof globalThis.releaseChildRestore))
+      .toBe("function");
+    await page.evaluate(() => window.desktop.saveSetup({ restoreSessions: false }));
+    assert.equal(
+      (await rows()).find((row) => row.id === "restore-parent")?.orchestration?.children,
+      0,
+    );
+  } finally {
+    await app.evaluate(() => globalThis.releaseChildRestore?.());
+  }
+  await expect
+    .poll(async () => (await rows()).find((row) => row.id === "skipped-child")?.restoring)
+    .toBeUndefined();
+  const parent = JSON.parse(await readFile(credentials, "utf8"));
+  const call = async (method, params) => {
+    const response = await fetch(parent.controlUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parent.controlToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  const tree = await call("create_worktree", { branch: "child-next", idempotencyKey: "next-tree" });
+  assert.equal(tree.status, "succeeded");
+  const next = await call("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    idempotencyKey: "next-child",
+  });
+  assert.equal(next.status, "succeeded");
+  await expect
+    .poll(
+      async () =>
+        (await rows()).find((row) => row.id === "restore-parent")?.orchestration?.children,
+    )
+    .toBe(1);
+});

@@ -129,8 +129,10 @@ file, and retains the existing file, applied values and pending approval.
 
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
 waits 250 ms after the last event and scans serially. The initial Settings
-review reads a snapshot before attaching the writer. Live Settings reviews
-use the shared lock. If a live scan times out waiting for that lock, the watcher
+review and writer attachment use the shared lock. With a busy lock, the board
+opens on the verified baseline and attachment retries. The saved-session pass
+uses the attached Settings values through the [startup coordinator](sessions.md#startup-and-quit-1284).
+Live Settings reviews also use the shared lock. If a live scan times out waiting for that lock, the watcher
 retries it in the background. When `themes` or
 `terminal-themes` is replaced, the root watcher resubscribes to it. The config
 scanner (`config/files.ts`) refuses file links, nonregular files and files over

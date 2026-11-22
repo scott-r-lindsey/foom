@@ -42,6 +42,8 @@ export interface BoardRow {
   conversationId?: string | undefined;
   /** No host screen exists for a restored or failed-to-relaunch session. */
   dormant?: boolean;
+  /** Startup still owns this dormant row and may reuse its saved tile. */
+  restoring?: boolean;
   unavailable?: boolean;
   /** Changes when an exited terminal is relaunched under the same ID. */
   launchVersion?: number;

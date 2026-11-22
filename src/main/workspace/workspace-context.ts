@@ -91,7 +91,6 @@ export class WorkspaceContext {
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
   private localOnlyChange = false;
-  readonly busySessions = new Set<string>();
   readonly busyWorktrees = new Set<string>();
   readonly checkoutHolds = new CheckoutHolds();
   readonly repositoryOperations = new Map<string, Set<symbol>>();
@@ -345,20 +344,20 @@ export class WorkspaceContext {
       failed: (id, error) => {
         this.executionOwner.markExited(id, error instanceof RemoteSessionExit ? error.code : -1);
       },
-      busy: (id, value) => {
-        if (value) this.busySessions.add(id);
-        else this.busySessions.delete(id);
-      },
       closed: () => this.closed,
       identity: (repository) => deps.worktrees.launchIdentity(repository, repository),
       agents: async () => (await this.scanAgents(false)).agents,
-      launch: async (entry, control, identity) => {
+      launch: async (entry, control, identity, validateLaunch) => {
         const replacement = {
           id: entry.id,
           ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
         };
         const confirm: ConfirmWorkspace = () => Promise.resolve(false);
         if (entry.remote && registeredHosts) {
+          const parentGuard =
+            control && "parentId" in control
+              ? this.orchestration.remoteParentGuard(control.parentId)
+              : undefined;
           this.executionOwner.reset(entry.id);
           const result = await reattachRemoteSession(
             entry,
@@ -366,10 +365,12 @@ export class WorkspaceContext {
             deps.terminals,
             (request) => this.agents.launch(request),
             control,
-            control && "parentId" in control
-              ? this.orchestration.remoteParentGuard(control.parentId)
-              : undefined,
+            (dispatch) => {
+              parentGuard?.();
+              validateLaunch(dispatch);
+            },
           );
+          validateLaunch();
           const row = {
             ...entry,
             ...result,
@@ -390,14 +391,22 @@ export class WorkspaceContext {
           return entry.id;
         }
         if (entry.machine) {
-          return this.startMachine(null, entry.agent, entry.id, undefined, entry.conversationId);
+          return this.startMachine(
+            null,
+            entry.agent,
+            entry.id,
+            undefined,
+            entry.conversationId,
+            undefined,
+            validateLaunch,
+          );
         }
         if (entry.home) {
-          await this.startHomeShell(entry.id);
+          await this.startHomeShell(entry.id, undefined, validateLaunch);
           return undefined;
         }
         if (entry.config) {
-          await this.startConfig(entry.agent, replacement);
+          await this.startConfig(entry.agent, replacement, validateLaunch);
           return undefined;
         }
         return this.startExisting(
@@ -409,6 +418,8 @@ export class WorkspaceContext {
           control,
           true,
           identity,
+          undefined,
+          validateLaunch,
         );
       },
       onChange: (localOnly) => deps.onChange?.(localOnly),
@@ -508,6 +519,10 @@ export class WorkspaceContext {
   }
 
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
+  pauseRestore(): Promise<boolean> | undefined {
+    return this.sessions.pauseRestore();
+  }
+
   async prepareQuit(): Promise<void> {
     await this.sessions.prepareQuit();
   }
@@ -517,8 +532,8 @@ export class WorkspaceContext {
   }
 
   /** Called only after all saved windows have been shown. */
-  restartSaved(): Promise<void> {
-    return this.sessions.restartSaved();
+  restartSaved(settings?: Promise<void>): Promise<void> {
+    return this.sessions.restartSaved(settings);
   }
 
   readonly mcpConnections = new Map<string, McpConnection>();
@@ -548,9 +563,8 @@ export class WorkspaceContext {
           state: this.probeState(entry.id, this.executionOwner.currentState(entry.id)),
           outputRevision: view.outputRevision,
           inputRevision: view.inputRevision,
-          exited:
-            !this.sessions.isRestoring(entry.id) &&
-            (entry.dormant === true || exitCode !== undefined),
+          exited: entry.dormant === true || exitCode !== undefined,
+          ...(entry.dormant && this.sessions.isRestoring(entry.id) ? { restoring: true } : {}),
           ...this.orchestrationView(entry.id),
           ...(this.sessions.roleNotRestored(entry.id) ? { roleNotRestored: true } : {}),
           mcpConnection: this.mcpConnections.get(entry.id),
@@ -800,8 +814,7 @@ export class WorkspaceContext {
         !entry?.remote ||
         (!entry.dormant && this.executionOwner.view(id).exitCode === undefined) ||
         entry.placement?.kind !== "remote" ||
-        (!reserved && this.busySessions.has(id)) ||
-        this.sessions.isRestoring(id)
+        (!reserved && this.sessions.operationInProgress(id))
       )
         throw new ApplicationError("session-busy");
     };
@@ -833,7 +846,7 @@ export class WorkspaceContext {
     validate();
     if (!(await unavailable())) throw new ApplicationError("session-busy");
     validate();
-    this.busySessions.add(id);
+    const release = this.sessions.claim(id);
     try {
       await this.sessions.forget(id, async () => {
         validate(true);
@@ -841,7 +854,7 @@ export class WorkspaceContext {
         validate(true);
       });
     } finally {
-      this.busySessions.delete(id);
+      release();
     }
   }
 
@@ -855,8 +868,9 @@ export class WorkspaceContext {
     const checkout = !entry.home && !entry.config;
     const hold = checkout ? this.checkoutHolds.acquire(entry.worktree, parentHold) : undefined;
     if (checkout && !hold) throw new ApplicationError("session-busy");
+    let release: (() => void) | undefined;
     try {
-      this.busySessions.add(entry.id);
+      release = this.sessions.claim(entry.id);
       entry.closeState = "closing";
       this.deps.terminals.setClosing?.(entry.id, true);
       this.refresh();
@@ -865,12 +879,12 @@ export class WorkspaceContext {
       await cleanup(hold);
       if (this.launched.get(entry.id) === entry) delete entry.closeState;
     } catch (error) {
-      if (this.launched.get(entry.id) === entry) entry.closeState = "failed";
+      if (release && this.launched.get(entry.id) === entry) entry.closeState = "failed";
       throw error;
     } finally {
-      this.busySessions.delete(entry.id);
       hold?.release();
-      this.deps.terminals.setClosing?.(entry.id, false);
+      release?.();
+      if (release) this.deps.terminals.setClosing?.(entry.id, false);
       this.persist();
       this.refresh();
     }
@@ -1011,9 +1025,10 @@ export class WorkspaceContext {
     this.features.executionEvents,
   );
 
-  removed: WorkspaceMethods["removed"] = orchestrationCommands.removed.bind(
-    this.features.executionEvents,
-  );
+  removed: WorkspaceMethods["removed"] = (id) => {
+    this.sessions.removed(id);
+    orchestrationCommands.removed.call(this.features.executionEvents, id);
+  };
 
   input: WorkspaceMethods["input"] = orchestrationCommands.input.bind(
     this.features.executionEvents,
@@ -1027,6 +1042,7 @@ export class WorkspaceContext {
     if (this.closed) return;
     this.unsubscribeHostRemoval?.();
     this.closed = true;
+    this.sessions.releaseRestorePause();
     this.launchAbort.abort();
     await (await this.probeHttp?.catch(() => undefined))?.close();
     await this.cleanup.dispose();

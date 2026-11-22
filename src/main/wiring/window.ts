@@ -344,15 +344,23 @@ export async function buildWindow(
   const settingsLaunches = new Set<Promise<string>>();
   let settingsStop: Promise<void> | undefined;
   let settingsStopping = 0;
+  let quitStopping = 0;
+  let showingStopping: boolean | "quit" = false;
   // An owner close and a confirmed app quit can both be waiting on this board.
-  const beginSettingsStopping = () => {
-    settingsStopping++;
-    if (settingsStopping === 1 && !window.isDestroyed())
-      window.webContents.send("windows:settings-stopping", true);
+  const beginSettingsStopping = (kind?: "quit") => {
+    const publish = () => {
+      const next = quitStopping ? "quit" : settingsStopping > 0;
+      if (showingStopping === next) return;
+      showingStopping = next;
+      if (!window.isDestroyed()) window.webContents.send("windows:settings-stopping", next);
+    };
+    if (kind === "quit") quitStopping++;
+    else settingsStopping++;
+    publish();
     return () => {
-      settingsStopping--;
-      if (settingsStopping === 0 && !window.isDestroyed())
-        window.webContents.send("windows:settings-stopping", false);
+      if (kind === "quit") quitStopping--;
+      else settingsStopping--;
+      publish();
     };
   };
   const startRecipe = async (

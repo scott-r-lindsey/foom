@@ -96,7 +96,7 @@ export interface WorkspaceMethods {
     configEnvironment?: Readonly<Record<string, string>>,
     checkout?: Awaited<ReturnType<Orchestration["remoteCheckout"]>>,
     remoteOverride?: RemoteTarget,
-    validateLaunch?: () => void | Promise<void>,
+    validateLaunch?: (dispatch?: true) => void | Promise<void>,
     signal?: AbortSignal,
     parentHold?: CheckoutHold,
     localRecipe?: { command: string; args: readonly string[] },
@@ -117,7 +117,7 @@ export interface WorkspaceMethods {
   startHomeShell(
     restoreId?: string,
     remote?: RemoteTarget,
-    validateLaunch?: () => void,
+    validateLaunch?: (dispatch?: true) => void,
     signal?: AbortSignal,
   ): Promise<string>;
   resumeId(
@@ -134,7 +134,7 @@ export interface WorkspaceMethods {
     restoring?: boolean,
     authorityIdentity?: ParentIdentity,
     pastedId?: string,
-    validateLaunch?: () => void,
+    validateLaunch?: (dispatch?: true) => void,
     signal?: AbortSignal,
     heldReservation?: string,
     parentHold?: CheckoutHold,
@@ -143,7 +143,11 @@ export interface WorkspaceMethods {
   bindConfig(id: string, token: string): void;
   ensureProbeOpen(): void;
   configCredential(): Promise<{ token: string; env: Record<string, string> }>;
-  startConfig(run: AgentId, replacement?: { id: string; conversationId?: string }): Promise<void>;
+  startConfig(
+    run: AgentId,
+    replacement?: { id: string; conversationId?: string },
+    validateLaunch?: (dispatch?: true) => void,
+  ): Promise<void>;
   probeState(id: string, state: TerminalState | null): TerminalState | null;
   sidebarInventory(): Promise<SidebarInventory>;
   sidebarCommand(

@@ -1029,6 +1029,7 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   exited: either(absent, boolean),
   conversationId: either(absent, text),
   dormant: either(absent, boolean),
+  restoring: either(absent, boolean),
   launchVersion: either(absent, count),
   bypass: either(absent, boolean),
   home: either(absent, boolean),
@@ -1933,7 +1934,7 @@ const desktop: DesktopApi = {
     id: windowArgument("window-id") ?? "main",
     onSettingsStopping: (callback) => {
       const listener = (_event: IpcRendererEvent, stopping: unknown) => {
-        if (typeof stopping === "boolean") callback(stopping);
+        if (typeof stopping === "boolean" || stopping === "quit") callback(stopping);
       };
       ipcRenderer.on("windows:settings-stopping", listener);
       return () => {

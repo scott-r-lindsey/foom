@@ -436,6 +436,7 @@ export class OrchestrationAuthority {
     id: string,
     trees: readonly OwnedWorktree[],
     uncertain = 0,
+    current?: () => boolean,
   ): Promise<void> {
     const parent = this.parents.get(id);
     if (!parent?.active) return;
@@ -444,7 +445,7 @@ export class OrchestrationAuthority {
       const tree = await this.host
         .restoreWorktree(parent.repository, saved.path)
         .catch(() => undefined);
-      if (this.active(parent.repository) !== id) return;
+      if (this.active(parent.repository) !== id || current?.() === false) return;
       const key = locationId(saved.path);
       if (!tree || tree.identity !== saved.identity) {
         parent.refusedWorktrees.add(key);
@@ -458,8 +459,13 @@ export class OrchestrationAuthority {
     this.changed();
   }
 
-  /** Reserve restored children before launches, so they count against the live limit. */
-  async restoreChild(parentId: string, entry: WorkspaceTerminal): Promise<boolean> {
+  /** Recover a saved child relationship, checking the owner after validating its worktree. */
+  async restoreChild(
+    parentId: string,
+    entry: WorkspaceTerminal,
+    current?: () => boolean,
+  ): Promise<boolean> {
+    if (current?.() === false) return false;
     const parent = this.parents.get(parentId);
     const existing = parent?.children.get(entry.id);
     if (existing) return parent?.active === true && !existing.takenOver;
@@ -470,11 +476,15 @@ export class OrchestrationAuthority {
       (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
+    const generation = parent.generation;
     const tree = await this.host
       .restoreWorktree(parent.repository, entry.worktree)
       .catch(() => undefined);
     if (
       !tree ||
+      current?.() === false ||
+      this.parents.get(parentId) !== parent ||
+      parent.generation !== generation ||
       this.active(parent.repository) !== parentId ||
       (!entry.exited && this.running(parent) >= this.childLimit())
     )
@@ -637,7 +647,7 @@ export class OrchestrationAuthority {
         !child ||
         child.takenOver ||
         !child.exited ||
-        this.running(parent) >= this.childLimit()
+        this.running(parent) + parent.starting >= this.childLimit()
       )
         throw new ControlError("forbidden");
       child.exited = false;

@@ -66,12 +66,10 @@ it("restores running parents and owned children with new launches and retains hi
     Promise.resolve(),
   );
   deps.sessions = { load: () => Promise.resolve(entries), save, flush: async () => {} };
-  launch.mockImplementation((request) =>
-    Promise.resolve({
-      id: request.terminalId ?? "new",
-      attention: "evaluator",
-    }),
-  );
+  launch.mockImplementation((request) => {
+    request.beforeSpawn?.();
+    return Promise.resolve({ id: request.terminalId ?? "new", attention: "evaluator" });
+  });
   const workspace = createWorkspace(deps);
   workspace.configure({
     hooks: false,
@@ -129,6 +127,120 @@ it("restores running parents and owned children with new launches and retains hi
   expect(save).toHaveBeenCalledTimes(before);
   await workspace.dispose();
 });
+
+it("leaves a slot free when a queued child is skipped after restore is disabled", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  deps.sessions = {
+    load: () =>
+      Promise.resolve(
+        readSessions([
+          {
+            id: "parent",
+            agent: "claude",
+            repository: repo.path,
+            worktree: repo.path,
+            branch: "main",
+            running: true,
+            conversationId: "parent-conversation",
+            orchestrator: { identity: "identity", history: [] },
+          },
+          {
+            id: "queued",
+            agent: "claude",
+            repository: repo.path,
+            worktree: child.path,
+            branch: child.branch,
+            conversationId: "queued-conversation",
+            running: true,
+            parentId: "parent",
+          },
+        ]),
+      ),
+    save: async () => {},
+    flush: async () => {},
+  };
+  const workspace = createWorkspace();
+  const settings = { hooks: false, agents: { claude: true }, concurrentChildren: 1 };
+  workspace.configure(settings);
+  const restoreChild = workspace.orchestration.restoreChild.bind(workspace.orchestration);
+  vi.spyOn(workspace.orchestration, "restoreChild").mockImplementation(async (...args) => {
+    const registered = await restoreChild(...args);
+    if (args[1].id === "queued") {
+      expect(registered).toBe(true);
+      expect(workspace.orchestration.view("parent")).toMatchObject({ children: 0 });
+      workspace.configure({ ...settings, restoreSessions: false });
+    }
+    return registered;
+  });
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(launch).toHaveBeenCalledOnce();
+  expect(workspace.orchestration.view("parent")).toMatchObject({ active: true, children: 0 });
+  await expect(
+    restoreChild("parent", {
+      id: "next",
+      agent: "claude",
+      kind: "agent",
+      repository: repo.path,
+      worktree: child.path,
+      branch: child.branch,
+      attention: "evaluator",
+      state: null,
+      exited: false,
+    }),
+  ).resolves.toBe(true);
+});
+
+it.each([false, true])(
+  "Close defeats stale startup daemon inventory (retry: %s)",
+  async (retry) => {
+    const { homedir } = await import("node:os");
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const inventory = Promise.withResolvers<{ host: string; session: { id: string } }[]>();
+    const record = {
+      id: "remote-shell",
+      agent: "shell",
+      repository: homedir(),
+      worktree: homedir(),
+      home: true,
+      remote: true,
+      placement: { kind: "remote", host: "worker" },
+      branch: null,
+      running: true,
+      ...(retry ? { closeState: "failed" } : {}),
+    };
+    deps.hosts = {
+      registered: () => ({ host: "worker", codeFolder: "/code" }),
+      sessions: () => inventory.promise,
+      fleet: () => Promise.resolve([]),
+      worktree: () => Promise.reject(new Error("Unexpected remote worktree")),
+      requireAgent: () => Promise.resolve(),
+    };
+    const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(async () => {});
+    deps.sessions = {
+      load: () => Promise.resolve(readSessions([record])),
+      save,
+      flush: async () => {},
+    };
+    const kill = vi.fn<WorkspaceDependencies["terminals"]["kill"]>(async () => {});
+    const create = vi.fn<WorkspaceDependencies["terminals"]["create"]>((spec) =>
+      Promise.resolve(spec.id ?? "new"),
+    );
+    deps.terminals = { ...deps.terminals, kill, create };
+    const workspace = createWorkspace();
+    await workspace.restore();
+    const restoring = workspace.restartSaved();
+    await workspace.sidebarCommand({ kind: "close", id: record.id }, confirm);
+    expect(kill).toHaveBeenCalledWith(record.id, "worker");
+    expect(workspace.snapshot().terminals).toEqual([]);
+    inventory.resolve([{ host: "worker", session: { id: record.id } }]);
+    await restoring;
+    expect(create).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals).toEqual([]);
+    await workspace.prepareQuit();
+    expect(save).toHaveBeenLastCalledWith([]);
+  },
+);
 
 it("restores a child as exited instead of spawning it with bypass defaults", async () => {
   const { readSessions } = await import("../../../../src/main/workspace/session-store");

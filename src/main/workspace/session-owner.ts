@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { ParentIdentity } from "../control/orchestration.d";
 import type { AgentInstallation, AgentLaunch } from "../../shared/agents";
 import type { WorkspaceTerminal } from "../../shared/workspace";
@@ -7,6 +8,8 @@ import { restoreAuthority, restorePlan, runRestore } from "./session-restore";
 import type { StoredSession, RemoteSavedPlacement } from "./session-restore.d";
 import type { SessionStore } from "./session-store";
 import { ApplicationError } from "../../shared/application-errors";
+
+const RESTORE_PAUSED = new Error("Startup restore paused");
 
 export interface SessionOwnerDependencies {
   registeredHost?: (host: string) => boolean;
@@ -24,6 +27,7 @@ export interface SessionOwnerDependencies {
     | "uncertainWorktrees"
     | "exited"
     | "reserve"
+    | "relaunched"
     | "restoreChild"
     | "restoreHistory"
     | "restoreWorktrees"
@@ -34,14 +38,14 @@ export interface SessionOwnerDependencies {
   terminal: (id: string) => WorkspaceTerminal | undefined;
   restoreRow: (row: WorkspaceTerminal) => void;
   failed: (id: string, error?: unknown) => void;
-  busy: (id: string, value: boolean) => void;
   closed: () => boolean;
   identity: (repository: string) => Promise<string>;
   agents: () => Promise<readonly AgentInstallation[]>;
   launch: (
     entry: StoredSession,
-    control?: AgentLaunch["control"],
-    identity?: ParentIdentity,
+    control: AgentLaunch["control"],
+    identity: ParentIdentity | undefined,
+    validateLaunch: (dispatch?: true) => void,
   ) => Promise<string | undefined>;
   onChange?: (localOnly?: boolean) => void;
 }
@@ -51,7 +55,17 @@ export class SessionOwner {
   private restoreEnabled = true;
   private readonly saved = new Map<string, StoredSession>();
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
-  private readonly restoring = new Set<string>();
+  // The identity of a claim is its generation. Settled claims remain visible to
+  // discovery that started before them, even if their row has since been deleted.
+  private readonly claims = new Map<
+    string,
+    { generation: number; owner: "startup" | "operation" | "settled"; active: boolean }
+  >();
+  private generation = 0;
+  private readonly pending = new Set<Promise<unknown>>();
+  private resume: (() => void) | undefined;
+  private paused: Promise<void> | undefined;
+  private discoveryGeneration = 0;
   private readonly unrestoredRoles = new Set<string>();
   private restoreWork: Promise<void> | undefined;
   private discovery: Promise<readonly StoredSession[]> | undefined;
@@ -66,11 +80,45 @@ export class SessionOwner {
     this.restoreEnabled = enabled;
   }
   isRestoring(id: string): boolean {
-    return this.restoring.has(id);
+    return this.claims.get(id)?.owner === "startup";
   }
   roleNotRestored(id: string): boolean {
-    return !this.restoring.has(id) && this.unrestoredRoles.has(id);
+    return !this.isRestoring(id) && this.unrestoredRoles.has(id);
   }
+  operationInProgress(id: string): boolean {
+    const claim = this.claims.get(id);
+    return claim?.owner === "operation" || claim?.active === true;
+  }
+
+  private assign(id: string, owner: "startup" | "operation" | "settled") {
+    const claim = { generation: ++this.generation, owner, active: false };
+    if (owner === "settled" && !this.discovery) this.claims.delete(id);
+    else this.claims.set(id, claim);
+    return claim;
+  }
+
+  claim(id: string): () => void {
+    if (this.quitting || this.operationInProgress(id)) throw new ApplicationError("session-busy");
+    const queued = this.isRestoring(id);
+    const operation = this.assign(id, "operation");
+    this.saved.delete(id);
+    this.unrestoredRoles.delete(id);
+    return () => {
+      if (this.claims.get(id) !== operation) return;
+      this.assign(id, "settled");
+      if (queued && this.deps.terminal(id)?.dormant) {
+        this.persist();
+        this.deps.onChange?.();
+      }
+    };
+  }
+
+  removed(id: string): void {
+    if (this.claims.get(id)?.owner !== "operation") this.assign(id, "settled");
+    this.saved.delete(id);
+    this.unrestoredRoles.delete(id);
+  }
+
   rememberRemote(id: string, value: RemoteSavedPlacement): void {
     const placement = {
       repository: value.repository,
@@ -90,18 +138,24 @@ export class SessionOwner {
   async save(): Promise<void> {
     await this.deps.store?.save(this.records());
   }
+  releaseRestorePause(): void {
+    this.resume?.();
+    this.resume = undefined;
+    this.paused = undefined;
+  }
   async flush(): Promise<void> {
     await this.deps.store?.flush();
   }
 
   async restore(): Promise<void> {
     // Network discovery must not delay creating the board windows.
-    this.discovery = this.deps.discover?.().catch(() => []);
     const loaded = (await this.deps.store?.load()) ?? [];
     const retained = this.retained(loaded);
     // Repair stale profiles before importing rows or granting saved authority.
     if (retained.length !== loaded.length) await this.deps.store?.save(retained);
     this.importEntries(retained);
+    this.discoveryGeneration = this.generation;
+    this.discovery = this.deps.discover?.().catch(() => []);
   }
 
   private forgotten(entry: WorkspaceTerminal): boolean {
@@ -143,7 +197,7 @@ export class SessionOwner {
         !entry ||
         this.deps.terminal(id) !== entry ||
         (!current?.dormant && !current?.exited) ||
-        this.restoring.has(id)
+        this.isRestoring(id)
       )
         throw new ApplicationError("session-busy");
     };
@@ -165,9 +219,7 @@ export class SessionOwner {
         throw error;
       }
       this.forgottenSessions.add(id);
-      this.saved.delete(id);
-      this.restoring.delete(id);
-      this.unrestoredRoles.delete(id);
+      this.removed(id);
       this.remotePlacements.delete(id);
       this.deps.removeRow?.(id);
       this.deps.onChange?.(true);
@@ -186,11 +238,11 @@ export class SessionOwner {
       for (const entry of this.deps.terminals()) {
         if (
           this.forgottenSessions.has(entry.id) &&
+          !this.operationInProgress(entry.id) &&
           !entry.closeState &&
           (entry.exited || entry.dormant)
         ) {
-          this.restoring.delete(entry.id);
-          this.unrestoredRoles.delete(entry.id);
+          this.removed(entry.id);
           this.remotePlacements.delete(entry.id);
           this.deps.removeRow?.(entry.id);
         }
@@ -202,9 +254,13 @@ export class SessionOwner {
 
   private importEntries(entries: readonly StoredSession[], discovered = false): void {
     for (const entry of this.retained(entries)) {
-      if (this.forgettingSessions.has(entry.id)) continue;
+      if (this.forgettingSessions.has(entry.id) || this.operationInProgress(entry.id)) continue;
       if (discovered) {
-        if (this.forgottenSessions.has(entry.id)) continue;
+        if (
+          this.forgottenSessions.has(entry.id) ||
+          (this.claims.get(entry.id)?.generation ?? 0) > this.discoveryGeneration
+        )
+          continue;
         const previous = this.saved.get(entry.id);
         const reconcile =
           previous?.remote &&
@@ -236,7 +292,7 @@ export class SessionOwner {
         this.remotePlacements.set(entry.id, entry.remoteCheckout);
         this.deps.rememberRemote?.(entry);
       }
-      const row = { ...entry };
+      const row = { ...entry, dormant: true };
       if (row.closeState) row.closeState = "failed";
       delete row.sharedReview;
       delete row.running;
@@ -247,7 +303,7 @@ export class SessionOwner {
       delete row.handoffs;
       this.deps.restoreRow(row);
       // Reserve eligible saved tiles before the first window requests inventory.
-      if (restorePlan([entry], this.restoreEnabled).length) this.restoring.add(entry.id);
+      if (restorePlan([entry], this.restoreEnabled).length) this.assign(entry.id, "startup");
     }
   }
 
@@ -264,7 +320,7 @@ export class SessionOwner {
           const sharedReview = this.deps.sharedReview?.(entry.id);
           const role = this.deps.orchestration.view(entry.id);
           const identity = this.deps.orchestration.identity(entry.id);
-          const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
+          const saved = this.isRestoring(entry.id) ? this.saved.get(entry.id) : undefined;
           return {
             ...entry,
             ...(sharedReview ? { sharedReview } : {}),
@@ -272,7 +328,7 @@ export class SessionOwner {
             handoffs: this.deps.orchestration.handoffs.entries(entry.id),
             ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
             ...(saved?.parentId ? { parentId: saved.parentId } : {}),
-            running: this.restoring.has(entry.id) || !entry.exited,
+            running: entry.dormant ? saved?.running === true : !entry.exited,
             ...(role?.role === "orchestrator" && role.active && identity !== undefined
               ? {
                   orchestrator: {
@@ -298,78 +354,120 @@ export class SessionOwner {
     });
   }
 
+  private track<T>(work: Promise<T>): Promise<T> {
+    this.pending.add(work);
+    return work.finally(() => this.pending.delete(work));
+  }
+
+  /** Stop dispatching new restores and give in-flight work a bounded window to settle. */
+  pauseRestore(): Promise<boolean> | undefined {
+    this.paused ??= new Promise<void>((resolve) => {
+      this.resume = resolve;
+    });
+    if (!this.pending.size) return undefined;
+    const timeout = new AbortController();
+    return Promise.race([
+      Promise.allSettled(this.pending).then(() => false),
+      delay(750, true, { signal: timeout.signal }),
+    ]).finally(() => {
+      timeout.abort();
+    });
+  }
+
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
   async prepareQuit(): Promise<void> {
-    await this.restoreWork;
     this.quitting = true;
     try {
-      await this.deps.store?.save(this.records());
-      await this.deps.store?.flush();
+      await this.save();
+      await this.flush();
     } catch (error) {
-      this.quitting = false;
+      this.cancelQuit();
       throw error;
     }
   }
 
   cancelQuit(): void {
+    if (!this.quitting && !this.paused) return;
     this.quitting = false;
+    this.releaseRestorePause();
     this.persist();
   }
 
+  private async waitForResume(): Promise<void> {
+    while (this.paused && !this.quitting) await this.paused;
+  }
+
   /** Called only after all saved windows have been shown. */
-  restartSaved(): Promise<void> {
-    if (this.restoreWork) return this.restoreWork;
-    this.restoreWork = this.discovery
-      ? this.discovery.then((entries) => {
-          this.importEntries(entries, true);
-          return this.restartEntries();
-        })
-      : this.restartEntries();
+  restartSaved(settings?: Promise<void>): Promise<void> {
+    this.restoreWork ??= this.restartEntries(settings);
     return this.restoreWork;
   }
 
-  private restartEntries(): Promise<void> {
-    const plan = restorePlan(
-      [...this.saved.values()].filter(
-        (entry) => !this.forgettingSessions.has(entry.id) && !this.forgottenSessions.has(entry.id),
-      ),
-      this.restoreEnabled,
-    );
-    this.restoring.clear();
+  private async restartEntries(settings?: Promise<void>): Promise<void> {
+    const [, discovered] = await this.track(Promise.all([settings, this.discovery]));
+    await this.waitForResume();
+    if (this.quitting || this.deps.closed()) return;
+    if (discovered) this.importEntries(discovered, true);
+    this.discovery = undefined;
+    for (const [id, claim] of this.claims) {
+      if (claim.owner === "settled") this.claims.delete(id);
+    }
+    const plan = restorePlan([...this.saved.values()], this.restoreEnabled);
+    const planned = new Set(plan.map(({ id }) => id));
+    for (const [id, claim] of this.claims) {
+      if (claim.owner === "startup" && !planned.has(id)) this.assign(id, "settled");
+    }
     for (const entry of plan) {
-      this.restoring.add(entry.id);
-      this.deps.busy(entry.id, true);
+      if (!this.claims.has(entry.id)) this.assign(entry.id, "startup");
     }
     this.deps.onChange?.();
-    return runRestore(plan, async (entry) => {
-      try {
-        if (
-          this.quitting ||
-          this.deps.closed() ||
-          !this.restoreEnabled ||
-          this.forgettingSessions.has(entry.id) ||
-          this.forgottenSessions.has(entry.id) ||
-          this.deps.terminal(entry.id) === undefined
-        )
-          return;
-        await this.restartSavedEntry(entry);
-      } catch (error) {
-        this.deps.failed(entry.id, error);
-        this.deps.orchestration.exited(entry.id);
-      } finally {
-        if (this.deps.terminal(entry.id)?.dormant) this.deps.orchestration.exited(entry.id);
-        this.restoring.delete(entry.id);
-        this.deps.busy(entry.id, false);
-        this.saved.delete(entry.id);
-        this.persist();
-        this.deps.onChange?.();
-      }
-    });
+    await runRestore(plan, (entry) => this.runEntry(entry));
   }
 
-  private async restartSavedEntry(entry: StoredSession): Promise<void> {
+  private async runEntry(entry: StoredSession): Promise<void> {
+    const id = entry.id;
+    const claim = this.claims.get(id);
+    if (claim?.owner !== "startup") return;
+    const current = () => !this.quitting && !this.deps.closed() && this.claims.get(id) === claim;
+    let dispatched = false;
+    const validate = (dispatch?: true) => {
+      if (!current()) throw new ApplicationError("session-busy");
+      if (dispatch && !dispatched) {
+        if (this.paused || !this.restoreEnabled) throw RESTORE_PAUSED;
+        dispatched = true;
+      }
+    };
+    while (current()) {
+      await this.waitForResume();
+      if (!current()) break;
+      claim.active = true;
+      try {
+        if (this.restoreEnabled && this.deps.terminal(id)?.dormant)
+          await this.track(this.restartSavedEntry(entry, current, validate));
+        break;
+      } catch (error) {
+        if (error === RESTORE_PAUSED) continue;
+        if (current()) this.deps.failed(id, error);
+        break;
+      } finally {
+        claim.active = false;
+      }
+    }
+    if (this.quitting || this.claims.get(id) !== claim) return;
+    if (this.deps.terminal(id)?.dormant) this.deps.orchestration.exited(id);
+    this.assign(id, "settled");
+    this.saved.delete(id);
+    this.persist();
+    this.deps.onChange?.();
+  }
+
+  private async restartSavedEntry(
+    entry: StoredSession,
+    current: () => boolean,
+    validateLaunch: (dispatch?: true) => void,
+  ): Promise<void> {
     if (entry.home || entry.config) {
-      await this.deps.launch(entry);
+      await this.deps.launch(entry, undefined, undefined, validateLaunch);
       return;
     }
     let control: AgentLaunch["control"];
@@ -379,6 +477,7 @@ export class SessionOwner {
       this.unrestoredRoles.add(entry.id);
       const identity = await this.deps.identity(entry.repository).catch(() => undefined);
       const agents = await this.deps.agents();
+      validateLaunch();
       if (
         restoreAuthority(
           entry,
@@ -401,27 +500,47 @@ export class SessionOwner {
       }
     } else if (
       entry.parentId &&
-      (await this.deps.orchestration.restoreChild(entry.parentId, { ...entry, exited: false }))
+      (await this.deps.orchestration.restoreChild(
+        entry.parentId,
+        { ...entry, exited: true },
+        current,
+      ))
     ) {
       control = { parentId: entry.parentId };
     }
     try {
-      const id = await this.deps.launch(entry, control, authorityIdentity);
-      if (id && slot && !("existing" in slot)) {
+      const childParent = control && "parentId" in control ? control.parentId : undefined;
+      let proceeding = false;
+      validateLaunch();
+      const id = await this.deps.launch(entry, control, authorityIdentity, (dispatch) => {
+        validateLaunch(dispatch);
+        if (dispatch && !proceeding) {
+          if (childParent) this.deps.orchestration.relaunched(entry.id, childParent);
+          proceeding = true;
+        }
+      });
+      if (current() && id && slot && !("existing" in slot)) {
         slot.bind(id);
         this.deps.orchestration.restoreHistory(id, entry.orchestrator?.history ?? []);
         await this.deps.orchestration.restoreWorktrees(
           id,
           entry.orchestrator?.worktrees ?? [],
           entry.orchestrator?.uncertain ?? 0,
+          current,
         );
+        if (!current()) return;
         this.unrestoredRoles.delete(id);
         for (const child of this.saved.values()) {
-          if (child.parentId === id)
-            await this.deps.orchestration.restoreChild(id, {
-              ...child,
-              exited: !this.restoring.has(child.id),
-            });
+          if (child.parentId !== id) continue;
+          const childClaim = this.claims.get(child.id);
+          await this.deps.orchestration.restoreChild(
+            id,
+            { ...child, exited: true },
+            () =>
+              current() &&
+              this.claims.get(child.id) === childClaim &&
+              this.deps.terminal(child.id)?.dormant === true,
+          );
         }
       }
     } finally {

@@ -205,6 +205,7 @@ export class SettingsStore {
   private text: string | null = null;
   /** Digests of the interface theme files this profile last applied, by config path. */
   private themeDigests: Readonly<Record<string, string>> = {};
+  private deferredWriter: ConfigWriter | undefined;
   private writer: ConfigWriter | undefined;
 
   private constructor(private readonly file: string) {}
@@ -381,6 +382,11 @@ export class SettingsStore {
     return this.digest;
   }
 
+  /** Route portable edits through the shared writer while startup attachment is pending. */
+  deferConfig(writer: ConfigWriter): void {
+    this.deferredWriter = writer;
+  }
+
   /**
    * Hands the agent-editable settings to the config folder. The same write removes
    * them from the profile, so the migration happens exactly once.
@@ -469,12 +475,13 @@ export class SettingsStore {
         throw new Error("A commit guard requires a registeredHosts-only patch");
       snapshot = { registeredHosts: value };
     }
+    const writer = this.writer ?? this.deferredWriter;
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
     for (const [key, value] of Object.entries(structuredClone(snapshot)))
-      Object.assign(this.writer && isConfigSetting(key) ? config : profile, { [key]: value });
-    if (this.writer && Object.keys(config).length)
-      await this.writer(config, ...(themeDigest ? [themeDigest] : []));
+      Object.assign(writer && isConfigSetting(key) ? config : profile, { [key]: value });
+    if (writer && Object.keys(config).length)
+      await writer(config, ...(themeDigest ? [themeDigest] : []));
     if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;
     await this.write(() => {
       const argumentsPatch = profile.agentArguments;

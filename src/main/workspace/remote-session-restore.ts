@@ -62,7 +62,7 @@ export async function reattachRemoteSession(
   terminals: { create(spec: TerminalSpec): Promise<string> },
   launch: (request: AgentLaunch) => Promise<AgentLaunched>,
   control?: AgentLaunch["control"],
-  guard: () => void = () => {},
+  guard: (dispatch?: true) => void = () => {},
 ): Promise<AgentLaunched> {
   const placement = entry.placement;
   if (placement?.kind !== "remote") throw new Error("Missing remote placement");
@@ -91,8 +91,8 @@ export async function reattachRemoteSession(
         control,
         ...(entry.conversationId ? { conversationId: entry.conversationId } : {}),
         beforeSpawn: () => {
-          guard();
           hosts.registered(placement.host);
+          guard(true);
         },
         remoteCheckout: {
           target: { host: placement.host, unavailable },
@@ -110,6 +110,7 @@ export async function reattachRemoteSession(
   }
   // Missing/taken-over parents and recovered records get only human terminal access.
   try {
+    guard(true);
     await terminals.create({
       id: entry.id,
       command: `ssh ${placement.host}`,

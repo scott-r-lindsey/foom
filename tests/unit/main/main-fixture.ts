@@ -223,7 +223,12 @@ vi.mock("../../../src/main/config/service", () => ({
     constructor(deps: ConfigServiceDependencies) {
       mock.config.deps = deps;
     }
-    initialize = (legacy: unknown) => mock.config.initialize(legacy);
+    initialize = async (legacy: unknown, attach: (values: ConfigSettings) => Promise<void>) => {
+      const values = await mock.config.initialize(legacy);
+      await attach(parseConfigSettings(values));
+      return values;
+    };
+    finishSettingsStartup = mock.config.finishSettingsStartup;
     write = (patch: unknown) => mock.config.write(patch);
     status = () => mock.config.status;
     dispose = () => Promise.resolve();
@@ -234,6 +239,7 @@ vi.mock("../../../src/main/config/ipc", () => ({ attachConfig: mock.attachConfig
 
 import type { WindowPlacement } from "../../../src/main/window/window-placement";
 
+import { parseConfigSettings } from "../../../src/shared/config-settings";
 import type { ConfigServiceDependencies } from "../../../src/main/config/service";
 
 import type * as SettingsModule from "../../../src/main/setup/settings";
@@ -331,9 +337,10 @@ vi.mock("../../../src/main/setup/environment-ipc", () => ({
 vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
     restore = mock.workspace.restore;
-    restartSaved = async () => {};
+    restartSaved = mock.workspace.restartSaved;
+    pauseRestore = mock.workspace.pauseRestore;
     prepareQuit = async () => {};
-    cancelQuit = () => {};
+    cancelQuit = mock.workspace.cancelQuit;
     snapshot = () => ({
       terminals: forgeUi.rows ?? [
         {
@@ -539,6 +546,9 @@ const mock = vi.hoisted(() => {
   const instances: BrowserWindow[] = [];
   const workspace = {
     restore: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+    restartSaved: vi.fn((settings: Promise<void>) => settings),
+    pauseRestore: vi.fn<() => Promise<boolean> | undefined>(),
+    cancelQuit: vi.fn(),
     deps: undefined as WorkspaceDependencies | undefined,
     startLocalAgentInstall: vi.fn<(_id: string) => Promise<string>>(() =>
       Promise.resolve("local-install"),
@@ -652,6 +662,7 @@ const mock = vi.hoisted(() => {
     config: {
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
+      finishSettingsStartup: vi.fn(() => Promise.resolve(true)),
       activePalette: vi.fn(() => undefined),
       write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),
       status: { folder: "/home/.foom/config", available: true, changes: [] },
@@ -665,6 +676,7 @@ const mock = vi.hoisted(() => {
       legacyConfig: vi.fn<() => ConfigSettings | undefined>(() => ({ terminalFontSize: 16 })),
       configDigest: vi.fn(() => null),
       attachConfig: vi.fn(() => Promise.resolve()),
+      deferConfig: vi.fn(),
       setConfig: vi.fn(),
       themeDigest: vi.fn<(_file: string) => string | null>(() => null),
       setThemeDigest: vi.fn((_file: string, _digest: string | null) => Promise.resolve()),

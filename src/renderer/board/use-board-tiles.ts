@@ -304,7 +304,7 @@ export function useBoardTiles({
             ? leaves(next.tree).flatMap((tile) => (sessionId(tile) ? [sessionId(tile) ?? ""] : []))
             : source
                 .getSnapshot()
-                .filter((row) => !(row.dormant && row.exited))
+                .filter((row) => !row.dormant || !row.exited || row.restoring === true)
                 .map((row) => row.id),
         );
         for (const id of startupIdsRef.current) sessions.add(id);
@@ -363,7 +363,10 @@ export function useBoardTiles({
     for (const id of failedRoles) unrestoredRolesRef.current.add(id);
     const sessions = new Set(
       rows
-        .filter((row) => !(row.dormant && row.exited) && !failedRoles.has(row.id))
+        .filter(
+          (row) =>
+            (!row.dormant || !row.exited || row.restoring === true) && !failedRoles.has(row.id),
+        )
         .map((row) => row.id),
     );
     if (

@@ -116,7 +116,7 @@ function StopInstallDialog({ stop, keep }: { stop: () => void; keep: () => void 
 }
 
 export function SettingsStoppingDialog() {
-  const [stopping, setStopping] = useState(false);
+  const [stopping, setStopping] = useState<boolean | "quit">(false);
   useEffect(() => window.desktop.windows?.onSettingsStopping?.(setStopping), []);
   const show = useCallback((element: HTMLDialogElement | null) => {
     if (!element) return;
@@ -132,7 +132,7 @@ export function SettingsStoppingDialog() {
     <dialog
       ref={show}
       className="stop-install-dialog"
-      aria-label="Stopping Settings repairs"
+      aria-label={stopping === "quit" ? "Stopping Foom" : "Stopping Settings repairs"}
       onCancel={(event) => {
         event.preventDefault();
       }}

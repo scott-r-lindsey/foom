@@ -492,7 +492,7 @@ export async function sidebarCommand(
     await this.revokeOrchestrator(command.id);
     return;
   }
-  if ("id" in command && this.busySessions.has(command.id)) {
+  if ("id" in command && this.sessions.operationInProgress(command.id)) {
     if (command.kind === "close") throw new ApplicationError("session-busy");
     throw new Error("Session is busy");
   }
@@ -515,7 +515,7 @@ export async function sidebarCommand(
     if (this.executionOwner.view(entry.id).exitCode === undefined)
       throw new Error("Session is still running");
     if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
-    this.busySessions.add(entry.id);
+    const release = this.sessions.claim(entry.id);
     try {
       const replacement = {
         id: entry.id,
@@ -562,7 +562,7 @@ export async function sidebarCommand(
           remoteRole?.role === "child" ? { parentId: remoteRole.parentId } : undefined,
         );
     } finally {
-      this.busySessions.delete(entry.id);
+      release();
     }
     return;
   }
@@ -593,34 +593,6 @@ export async function sidebarCommand(
           (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
         ).length,
       );
-    if (command.kind === "restart") {
-      if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-      if (entry.machine)
-        await this.startMachine(
-          entry.placement?.kind === "remote" ? entry.placement.host : null,
-          "shell",
-        );
-      else if (
-        entry.remote &&
-        entry.placement?.kind === "remote" &&
-        entry.branch === "Main checkout"
-      )
-        await this.startMachine(entry.placement.host, "shell", undefined, {
-          repository: entry.repository,
-          worktree: entry.repository,
-          branch: null,
-        });
-      else if (entry.config) await this.startConfig("shell");
-      else if (entry.home && entry.remote) {
-        const target =
-          entry.placement?.kind === "remote"
-            ? this.deps.hosts?.shellTarget?.(entry.placement.host)
-            : undefined;
-        if (!target) throw new LaunchFailure("remote_host_unreachable");
-        await this.startHomeShell(undefined, target);
-      } else if (entry.home) await this.startHomeShell();
-      else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
-    }
     const identity =
       command.kind === "close" &&
       entry &&
@@ -718,8 +690,45 @@ export async function sidebarCommand(
       } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
       this.removed(command.id);
     };
-    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup, heldCheckout);
-    else await cleanup();
+    if (command.kind === "close" && entry) {
+      await this.closeSession(entry, cleanup, heldCheckout);
+      return;
+    }
+    if (command.kind === "restart" && (!entry || entry.kind !== "shell"))
+      throw new Error("Only shells can restart");
+    const release = this.sessions.claim(command.id);
+    try {
+      if (command.kind === "restart" && entry) {
+        if (entry.machine)
+          await this.startMachine(
+            entry.placement?.kind === "remote" ? entry.placement.host : null,
+            "shell",
+          );
+        else if (
+          entry.remote &&
+          entry.placement?.kind === "remote" &&
+          entry.branch === "Main checkout"
+        )
+          await this.startMachine(entry.placement.host, "shell", undefined, {
+            repository: entry.repository,
+            worktree: entry.repository,
+            branch: null,
+          });
+        else if (entry.config) await this.startConfig("shell");
+        else if (entry.home && entry.remote) {
+          const target =
+            entry.placement?.kind === "remote"
+              ? this.deps.hosts?.shellTarget?.(entry.placement.host)
+              : undefined;
+          if (!target) throw new LaunchFailure("remote_host_unreachable");
+          await this.startHomeShell(undefined, target);
+        } else if (entry.home) await this.startHomeShell();
+        else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
+      }
+      await cleanup();
+    } finally {
+      release();
+    }
     return;
   }
   this.known(command.repository);
@@ -917,6 +926,7 @@ export async function startConfig(
   this: ConfigLaunchContext,
   run: AgentId,
   replacement?: { id: string; conversationId?: string },
+  validateLaunch?: (dispatch?: true) => void,
 ): Promise<void> {
   const config = this.deps.config;
   if (!config) throw new Error("Foom config is unavailable");
@@ -929,6 +939,9 @@ export async function startConfig(
         replacement?.id,
         config.cliDirectory,
         credential.env,
+        undefined,
+        undefined,
+        validateLaunch,
       );
       this.bindConfig(id, credential.token);
     } catch (error) {
@@ -939,6 +952,7 @@ export async function startConfig(
   }
   if (this.enabled[run] !== true) throw new Error("This agent is turned off in preflight");
   await this.scanAgents(false);
+  validateLaunch?.();
   if (replacement) {
     const old = this.launched.get(replacement.id);
     if (!old || this.executionOwner.view(old.id).exitCode === undefined)
@@ -956,6 +970,13 @@ export async function startConfig(
     result = await this.agents.launch({
       agent: run,
       configEnvironment: credential.env,
+      ...(validateLaunch
+        ? {
+            beforeSpawn: () => {
+              validateLaunch(true);
+            },
+          }
+        : {}),
       repository: config.root,
       worktree: config.root,
       cols: 80,
@@ -973,6 +994,7 @@ export async function startConfig(
           }
         : {}),
     });
+    validateLaunch?.();
   } catch (error) {
     await this.probes?.revoke(credential.token);
     if (replacement) this.executionOwner.markExited(replacement.id, -1);

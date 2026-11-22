@@ -489,7 +489,8 @@ test("queued restores project Starting without the saved host's failure verdict"
       {
         ...agent("queued", { ...verdict("queued", 10), state: "failed" }),
         dormant: true,
-        exited: false,
+        restoring: true,
+        exited: true,
       },
     ],
   });
@@ -498,7 +499,7 @@ test("queued restores project Starting without the saved host's failure verdict"
   expect(source.getSnapshot()[0]).toMatchObject({
     id: "queued",
     dormant: true,
-    exited: false,
+    exited: true,
     state: "quiet_ok",
     reason: "Starting",
   });

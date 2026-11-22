@@ -144,6 +144,7 @@ export class ConfigService {
   private notice: string | undefined;
   private closed = false;
   private started = false;
+  private settingsDeferred = false;
 
   private readonly files: ConfigFiles;
   private readonly plugins: ConfigCatalog;
@@ -166,10 +167,13 @@ export class ConfigService {
    * Creates the layout, refreshes unedited Foom-owned docs, and moves `legacy` profile values into
    * `settings.json` if that file does not exist yet. Returns the applied values.
    */
-  initialize(legacy?: ConfigSettings): Promise<ConfigSettings> {
+  initialize(
+    legacy?: ConfigSettings,
+    attach?: (values: ConfigSettings) => Promise<void>,
+  ): Promise<ConfigSettings> {
     return this.serial(async () => {
       try {
-        return await this.setUp(legacy);
+        return await this.setUp(legacy, attach);
       } catch (error) {
         this.available = false;
         this.error = "The Foom config folder is unavailable.";
@@ -184,7 +188,10 @@ export class ConfigService {
     return this.started;
   }
 
-  private async setUp(legacy?: ConfigSettings): Promise<ConfigSettings> {
+  private async setUp(
+    legacy: ConfigSettings | undefined,
+    attach: ((values: ConfigSettings) => Promise<void>) | undefined,
+  ): Promise<ConfigSettings> {
     const info = await settle(lstat(this.deps.root), null);
     if (info && !info.isDirectory()) throw new Error("Foom config is not a folder");
     for (const folder of [
@@ -237,11 +244,47 @@ export class ConfigService {
     }
     if (migrated && this.applied === migrated) await this.recordBaseline(migrated.text);
     this.applyLive(this.applied.values);
-    // Startup reviews a read-only snapshot before attaching the config writer.
-    await this.scan(false);
+    if (attach) {
+      this.settingsDeferred = true;
+      await this.tryAttachSettings(attach, () => true);
+      await this.scanCatalogs();
+    } else {
+      // Standalone config users load a read-only snapshot.
+      await this.scan(false);
+    }
     this.startWatching();
     this.started = true;
     return this.liveValues ?? this.applied.values;
+  }
+
+  finishSettingsStartup(
+    attach: (values: ConfigSettings) => Promise<void>,
+    current: () => boolean,
+  ): Promise<boolean> {
+    return this.serial(() => this.tryAttachSettings(attach, current));
+  }
+
+  private async tryAttachSettings(
+    attach: (values: ConfigSettings) => Promise<void>,
+    current: () => boolean,
+  ): Promise<boolean> {
+    if (!this.settingsDeferred || this.closed) return true;
+    const canAttach = () => current() && !this.closed;
+    if (!canAttach()) return false;
+    try {
+      return await this.files.withSettingsLock(async () => {
+        if (!canAttach()) return false;
+        await this.scanSettings();
+        if (!canAttach()) return false;
+        await attach(this.liveValues ?? this.applied.values);
+        this.settingsDeferred = false;
+        this.publish();
+        return true;
+      });
+    } catch (error) {
+      if (error instanceof ApplicationError && error.code === "settings-busy") return false;
+      throw error;
+    }
   }
 
   /** The profile keeps the digest and a copy of the settings file it last applied. */
@@ -336,8 +379,14 @@ export class ConfigService {
 
   private async scan(lockSettings = true): Promise<void> {
     if (this.closed) return;
-    if (lockSettings) await this.files.withSettingsLock(() => this.scanSettings());
-    else await this.scanSettings();
+    if (!this.settingsDeferred) {
+      if (lockSettings) await this.files.withSettingsLock(() => this.scanSettings());
+      else await this.scanSettings();
+    }
+    await this.scanCatalogs();
+  }
+
+  private async scanCatalogs(): Promise<void> {
     await this.scanPlugins();
     // Known names too, so a removed theme clears its applied, held or rejected state.
     const themes = new Set([

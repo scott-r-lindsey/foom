@@ -94,6 +94,21 @@ it("rejects stop while a restored child is queued instead of claiming it stopped
   expect(fixture.host.stop).toHaveBeenCalledWith(row.id);
 });
 
+it("checks that a queued restore is still current after worktree validation", async () => {
+  const h = harness();
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  const row = { ...parent, id: "claimed", worktree: join(repo, "claimed") };
+  const current = vi.fn(() => false);
+  await expect(h.orchestration.restoreChild("parent", row, current)).resolves.toBe(false);
+  expect(h.host.restoreWorktree).not.toHaveBeenCalled();
+  current.mockReturnValueOnce(true);
+  await expect(h.orchestration.restoreChild("parent", row, current)).resolves.toBe(false);
+  expect(h.host.restoreWorktree).toHaveBeenCalledOnce();
+  expect(h.orchestration.view(row.id)).toBeUndefined();
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([]);
+});
+
 it("restores unused ownership for launch and used ownership for confirmed removal", async () => {
   const h = harness();
   const path = join(repo, "trees", "saved");

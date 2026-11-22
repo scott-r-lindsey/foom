@@ -309,8 +309,7 @@ export function createAppSource(): BoardSource {
       if (entry.execution) acceptExecution(entry.execution);
       // A queued restore has no host yet; its old exited verdict is not a
       // failure of the replacement that is still starting.
-      if (entry.state && !(entry.dormant && entry.exited === false))
-        snapshotStates.set(entry.id, entry.state);
+      if (entry.state && !entry.restoring) snapshotStates.set(entry.id, entry.state);
       else snapshotStates.delete(entry.id);
       return latest({
         id: entry.id,
@@ -324,7 +323,7 @@ export function createAppSource(): BoardSource {
         agent: entry.agent,
         state: entry.dormant || entry.kind === "agent" ? "quiet_ok" : "working",
         reason: entry.dormant
-          ? entry.exited === false
+          ? entry.restoring
             ? "Starting"
             : "Exited · saved session"
           : "Running",
@@ -336,7 +335,7 @@ export function createAppSource(): BoardSource {
         ...(entry.dormant
           ? {
               state: "quiet_ok",
-              reason: entry.exited === false ? "Starting" : "Exited · saved session",
+              reason: entry.restoring ? "Starting" : "Exited · saved session",
               seen: false,
             }
           : {}),
@@ -393,6 +392,7 @@ export function createAppSource(): BoardSource {
                 (entry.placement?.kind === "remote" ? entry.placement.host : undefined) &&
               machine.available,
           ),
+        restoring: entry.restoring === true,
         dormant:
           entry.dormant === true ||
           (entry.placement?.kind === "remote" &&

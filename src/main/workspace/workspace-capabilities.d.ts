@@ -96,6 +96,7 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
+  readonly sessions: Pick<SessionOwner, "claim" | "operationInProgress">;
   readonly forgetSession: (id: string) => Promise<void>;
   readonly closeSession: (
     entry: WorkspaceTerminal,
@@ -106,7 +107,6 @@ export interface SidebarCommandsContext {
   readonly scanAgents: WorkspaceMethods["scanAgents"];
   readonly enabled: Readonly<Record<AgentId, boolean>>;
   readonly auditHuman: WorkspaceMethods["auditHuman"];
-  readonly busySessions: Set<string>;
   readonly busyWorktrees: Set<string>;
   readonly checkoutHolds: CheckoutHolds;
   readonly cleanup: Pick<
