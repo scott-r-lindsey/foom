@@ -1,3 +1,4 @@
+import { addAbortListener } from "node:events";
 import { ApplicationError } from "../../shared/application-errors";
 import { ConfigCatalog } from "./catalog";
 import { ConfigFiles, decode, ignore, MAX_CONFIG_FILE_BYTES, settle } from "./files";
@@ -65,6 +66,8 @@ export interface ConfigServiceDependencies {
   platform?: NodeJS.Platform;
   rename?: typeof rename;
 }
+
+type SettingsAttachment = (values: ConfigSettings, signal: AbortSignal) => Promise<void>;
 
 interface Applied {
   text: string;
@@ -145,6 +148,7 @@ export class ConfigService {
   private closed = false;
   private started = false;
   private settingsDeferred = false;
+  private readonly settingsStartup = new AbortController();
 
   private readonly files: ConfigFiles;
   private readonly plugins: ConfigCatalog;
@@ -167,10 +171,7 @@ export class ConfigService {
    * Creates the layout, refreshes unedited Foom-owned docs, and moves `legacy` profile values into
    * `settings.json` if that file does not exist yet. Returns the applied values.
    */
-  initialize(
-    legacy?: ConfigSettings,
-    attach?: (values: ConfigSettings) => Promise<void>,
-  ): Promise<ConfigSettings> {
+  initialize(legacy?: ConfigSettings, attach?: SettingsAttachment): Promise<ConfigSettings> {
     return this.serial(async () => {
       try {
         return await this.setUp(legacy, attach);
@@ -190,7 +191,7 @@ export class ConfigService {
 
   private async setUp(
     legacy: ConfigSettings | undefined,
-    attach: ((values: ConfigSettings) => Promise<void>) | undefined,
+    attach: SettingsAttachment | undefined,
   ): Promise<ConfigSettings> {
     const info = await settle(lstat(this.deps.root), null);
     if (info && !info.isDirectory()) throw new Error("Foom config is not a folder");
@@ -257,15 +258,22 @@ export class ConfigService {
     return this.liveValues ?? this.applied.values;
   }
 
-  finishSettingsStartup(
-    attach: (values: ConfigSettings) => Promise<void>,
-    current: () => boolean,
-  ): Promise<boolean> {
-    return this.serial(() => this.tryAttachSettings(attach, current));
+  finishSettingsStartup(attach: SettingsAttachment, current: () => boolean): Promise<boolean> {
+    return this.serial(async () => {
+      try {
+        return await this.tryAttachSettings(attach, current);
+      } catch (error) {
+        // An attachment failure leaves the verified config service running.
+        // Resume ordinary lock-protected scans even if migration could not commit.
+        this.settingsDeferred = false;
+        this.schedule();
+        throw error;
+      }
+    });
   }
 
   private async tryAttachSettings(
-    attach: (values: ConfigSettings) => Promise<void>,
+    attach: SettingsAttachment,
     current: () => boolean,
   ): Promise<boolean> {
     if (!this.settingsDeferred || this.closed) return true;
@@ -276,7 +284,18 @@ export class ConfigService {
         if (!canAttach()) return false;
         await this.scanSettings();
         if (!canAttach()) return false;
-        await attach(this.liveValues ?? this.applied.values);
+        const signal = this.settingsStartup.signal;
+        let cancel: (() => void) | undefined;
+        const cancelled = new Promise<void>((resolve) => {
+          cancel = resolve;
+        });
+        const listener = addAbortListener(signal, () => cancel?.());
+        try {
+          await Promise.race([attach(this.liveValues ?? this.applied.values, signal), cancelled]);
+          if (signal.aborted) return false;
+        } finally {
+          listener[Symbol.dispose]();
+        }
         this.settingsDeferred = false;
         this.publish();
         return true;
@@ -958,6 +977,7 @@ export class ConfigService {
 
   async dispose(): Promise<void> {
     this.closed = true;
+    this.settingsStartup.abort();
     clearTimeout(this.timer);
     for (const watcher of this.watchers.values()) watcher.close();
     this.watchers.clear();

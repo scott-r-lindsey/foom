@@ -401,7 +401,42 @@ test("attaches deferred Settings under the shared lock once startup is current",
   await expect(f.service.finishSettingsStartup(attach, current)).resolves.toBe(false);
   expect(attach).not.toHaveBeenCalled();
   await expect(f.service.finishSettingsStartup(attach, () => true)).resolves.toBe(true);
-  expect(attach).toHaveBeenCalledExactlyOnceWith({ interfaceScale: 110 });
+  expect(attach).toHaveBeenCalledExactlyOnceWith({ interfaceScale: 110 }, expect.any(AbortSignal));
   await expect(f.service.finishSettingsStartup(attach, () => true)).resolves.toBe(true);
   expect(attach).toHaveBeenCalledOnce();
 });
+
+test.each(["cancel", "failure"] as const)(
+  "deferred attachment releases the Settings lock after %s",
+  async (outcome) => {
+    const f = await fixture();
+    await mkdir(f.folder);
+    await f.settings({ interfaceScale: 110 });
+    const lock = join(f.folder, lockName);
+    await writeFile(lock, owner());
+    const entered = Promise.withResolvers<AbortSignal>();
+    const completion = Promise.withResolvers<undefined>();
+    const attach = (_values: unknown, signal: AbortSignal) => {
+      entered.resolve(signal);
+      return completion.promise;
+    };
+    await f.service.initialize(undefined, attach);
+    await rm(lock);
+    const pending = f.service.finishSettingsStartup(attach, () => true);
+    const signal = await entered.promise;
+    if (outcome === "cancel") {
+      await f.service.dispose();
+      expect(signal.aborted).toBe(true);
+      await expect(pending).resolves.toBe(false);
+      completion.resolve(undefined);
+    } else {
+      const error = new Error("Fixture profile write failed");
+      completion.reject(error);
+      await expect(pending).rejects.toBe(error);
+      await f.settings({ interfaceScale: 120 });
+      await f.service.refresh();
+      expect(f.applied.at(-1)).toEqual({ interfaceScale: 120 });
+    }
+    expect(await readdir(f.folder)).not.toContain(lockName);
+  },
+);

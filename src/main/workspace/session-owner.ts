@@ -90,6 +90,17 @@ export class SessionOwner {
     return claim?.owner === "operation" || claim?.active === true;
   }
 
+  childCount(parentId: string): number {
+    return this.deps.terminals().filter((row) => {
+      const role = this.deps.orchestration.view(row.id);
+      return (role?.role === "child" ? role.parentId : this.savedParent(row.id)) === parentId;
+    }).length;
+  }
+
+  private savedParent(id: string): string | undefined {
+    return this.saved.get(id)?.parentId;
+  }
+
   private assign(id: string, owner: "startup" | "operation" | "settled") {
     const claim = { generation: ++this.generation, owner, active: false };
     if (owner === "settled" && !this.discovery) this.claims.delete(id);
@@ -232,9 +243,9 @@ export class SessionOwner {
     if (this.pruning) return;
     this.pruning = true;
     try {
-      const retained = this.retained([...this.saved.values()]);
-      this.saved.clear();
-      for (const entry of retained) this.saved.set(entry.id, entry);
+      for (const entry of this.saved.values()) {
+        if (this.forgotten(entry) && !entry.closeState) this.saved.delete(entry.id);
+      }
       for (const entry of this.deps.terminals()) {
         if (
           this.forgottenSessions.has(entry.id) &&
@@ -321,26 +332,37 @@ export class SessionOwner {
           const role = this.deps.orchestration.view(entry.id);
           const identity = this.deps.orchestration.identity(entry.id);
           const saved = this.isRestoring(entry.id) ? this.saved.get(entry.id) : undefined;
+          const parentId =
+            role?.role === "child"
+              ? role.takenOver
+                ? undefined
+                : role.parentId
+              : this.savedParent(entry.id);
+          const orchestrator =
+            role?.role === "orchestrator"
+              ? role.active && identity !== undefined
+                ? {
+                    identity: identity.repository,
+                    worktreeIdentity: identity.worktree,
+                    history: role.history,
+                    // Startup owns the saved list until validation of the whole list settles.
+                    worktrees:
+                      saved?.orchestrator?.worktrees ??
+                      this.deps.orchestration.ownedWorktrees(entry.id),
+                    uncertain:
+                      saved?.orchestrator?.uncertain ??
+                      this.deps.orchestration.uncertainWorktrees(entry.id),
+                  }
+                : undefined
+              : saved?.orchestrator;
           return {
             ...entry,
             ...(sharedReview ? { sharedReview } : {}),
             ...(remoteCheckout ? { remoteCheckout } : {}),
             handoffs: this.deps.orchestration.handoffs.entries(entry.id),
-            ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
-            ...(saved?.parentId ? { parentId: saved.parentId } : {}),
+            ...(orchestrator ? { orchestrator } : {}),
+            ...(parentId ? { parentId } : {}),
             running: entry.dormant ? saved?.running === true : !entry.exited,
-            ...(role?.role === "orchestrator" && role.active && identity !== undefined
-              ? {
-                  orchestrator: {
-                    identity: identity.repository,
-                    worktreeIdentity: identity.worktree,
-                    history: role.history,
-                    worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
-                    uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
-                  },
-                }
-              : {}),
-            ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
           };
         }),
     );
@@ -529,18 +551,25 @@ export class SessionOwner {
           current,
         );
         if (!current()) return;
+        // Transfer persistence to live authority without dropping pending child metadata.
+        const hydrated = { ...entry };
+        delete hydrated.orchestrator;
+        this.saved.set(id, hydrated);
         this.unrestoredRoles.delete(id);
         for (const child of this.saved.values()) {
           if (child.parentId !== id) continue;
           const childClaim = this.claims.get(child.id);
-          await this.deps.orchestration.restoreChild(
+          const childCurrent = () =>
+            current() &&
+            this.claims.get(child.id) === childClaim &&
+            this.saved.get(child.id) === child &&
+            this.deps.terminal(child.id)?.dormant === true;
+          const restored = await this.deps.orchestration.restoreChild(
             id,
             { ...child, exited: true },
-            () =>
-              current() &&
-              this.claims.get(child.id) === childClaim &&
-              this.deps.terminal(child.id)?.dormant === true,
+            childCurrent,
           );
+          if (!restored && childCurrent()) delete child.parentId;
         }
       }
     } finally {

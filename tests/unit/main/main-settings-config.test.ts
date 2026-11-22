@@ -152,7 +152,12 @@ test("Foom config migrates profile values, applies file changes live and broadca
   mock.window.webContents.isDestroyed.mockReturnValue(false);
   await start();
   expect(mock.config.initialize).toHaveBeenCalledWith({ terminalFontSize: 16 });
-  expect(mock.settingsStore.attachConfig).toHaveBeenCalledWith(expect.any(Function), {}, null);
+  expect(mock.settingsStore.attachConfig).toHaveBeenCalledWith(
+    expect.any(Function),
+    {},
+    null,
+    expect.any(AbortSignal),
+  );
   const [writer] = mock.settingsStore.attachConfig.mock.calls[0] as unknown as [
     (patch: object) => Promise<void>,
   ];

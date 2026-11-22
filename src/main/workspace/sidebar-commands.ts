@@ -581,18 +581,10 @@ export async function sidebarCommand(
       if (command.kind === "close") throw new ApplicationError("session-running");
       throw new Error("Session is still running");
     }
-    if (
-      command.kind === "close" &&
-      this.snapshot().terminals.some(
-        (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
-      )
-    )
-      throw new ApplicationError(
-        "session-has-children",
-        this.snapshot().terminals.filter(
-          (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
-        ).length,
-      );
+    if (command.kind === "close") {
+      const children = this.sessions.childCount(command.id);
+      if (children) throw new ApplicationError("session-has-children", children);
+    }
     const identity =
       command.kind === "close" &&
       entry &&

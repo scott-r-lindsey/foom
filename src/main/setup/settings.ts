@@ -395,16 +395,20 @@ export class SettingsStore {
     writer: ConfigWriter,
     values: ConfigSettings,
     digest: string | null,
+    signal?: AbortSignal,
   ): Promise<void> {
     const snapshot = structuredClone(values);
-    await this.write(() => {
-      this.writer = writer;
-      this.migrated = true;
-      this.legacy = undefined;
-      this.argumentsToMove = undefined;
-      this.digest = digest;
-      this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...snapshot };
-    });
+    await this.write(
+      () => {
+        this.writer = writer;
+        this.migrated = true;
+        this.legacy = undefined;
+        this.argumentsToMove = undefined;
+        this.digest = digest;
+        this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...snapshot };
+      },
+      signal ? () => !signal.aborted : undefined,
+    );
   }
 
   /** Values from a validated config file; the file, not the profile, stores them. */
@@ -501,6 +505,7 @@ export class SettingsStore {
     const write = this.pending
       .catch(() => undefined)
       .then(async () => {
+        if (canCommit?.() === false) return;
         const snapshot = {
           settings: this.settings,
           migrated: this.migrated,

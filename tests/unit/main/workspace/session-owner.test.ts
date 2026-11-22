@@ -824,3 +824,55 @@ it("ignores a launch result after quit freezes the startup claim", async () => {
   expect(f.release).toHaveBeenCalledOnce();
   expect(f.store.save.mock.lastCall?.[0].map(({ running }) => running)).toEqual([true, true]);
 });
+
+it("persists the saved ownership list until the current parent finishes validating it", async () => {
+  const owned = { path: "/repo/used", identity: "owned-tree", state: "used" as const };
+  const savedParent = parent({
+    orchestrator: {
+      identity: "identity",
+      worktreeIdentity: "identity",
+      history: [],
+      worktrees: [owned],
+      uncertain: 1,
+    },
+  });
+  const f = fixture([savedParent]);
+  const hydration = Promise.withResolvers<undefined>();
+  f.orchestration.restoreWorktrees.mockReturnValueOnce(hydration.promise);
+  f.orchestration.view.mockReturnValue({
+    role: "orchestrator",
+    active: true,
+    children: 0,
+    history: [],
+  });
+  f.orchestration.identity.mockReturnValue({ repository: "identity", worktree: "identity" });
+  await f.owner.restore();
+  const startup = f.owner.restartSaved();
+  await vi.waitFor(() => {
+    expect(f.orchestration.restoreWorktrees).toHaveBeenCalled();
+  });
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
+    { orchestrator: { worktrees: [owned], uncertain: 1 } },
+  ]);
+  hydration.resolve(undefined);
+  await startup;
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
+    { orchestrator: { worktrees: [], uncertain: 0 } },
+  ]);
+});
+
+it("counts saved and live child links once and releases a saved link with its claim", async () => {
+  const f = fixture([parent(), row("child", { parentId: "parent", running: false })]);
+  await f.owner.restore();
+  expect(f.owner.childCount("parent")).toBe(1);
+  f.orchestration.view.mockImplementation((id) =>
+    id === "child" ? { role: "child", parentId: "parent", takenOver: false } : undefined,
+  );
+  expect(f.owner.childCount("parent")).toBe(1);
+  f.orchestration.view.mockReset();
+  const release = f.owner.claim("child");
+  expect(f.owner.childCount("parent")).toBe(0);
+  release();
+});

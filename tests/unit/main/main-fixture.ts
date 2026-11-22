@@ -223,9 +223,12 @@ vi.mock("../../../src/main/config/service", () => ({
     constructor(deps: ConfigServiceDependencies) {
       mock.config.deps = deps;
     }
-    initialize = async (legacy: unknown, attach: (values: ConfigSettings) => Promise<void>) => {
+    initialize = async (
+      legacy: unknown,
+      attach: (values: ConfigSettings, signal: AbortSignal) => Promise<void>,
+    ) => {
       const values = await mock.config.initialize(legacy);
-      await attach(parseConfigSettings(values));
+      await attach(parseConfigSettings(values), new AbortController().signal);
       return values;
     };
     finishSettingsStartup = mock.config.finishSettingsStartup;
@@ -664,7 +667,7 @@ const mock = vi.hoisted(() => {
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
       finishSettingsStartup: vi.fn<
         (
-          attach: (values: ConfigSettings) => Promise<void>,
+          attach: (values: ConfigSettings, signal: AbortSignal) => Promise<void>,
           current: () => boolean,
         ) => Promise<boolean>
       >(() => Promise.resolve(true)),

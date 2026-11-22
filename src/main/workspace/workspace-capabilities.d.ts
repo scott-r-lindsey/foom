@@ -96,7 +96,7 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
-  readonly sessions: Pick<SessionOwner, "claim" | "operationInProgress">;
+  readonly sessions: Pick<SessionOwner, "claim" | "operationInProgress" | "childCount">;
   readonly forgetSession: (id: string) => Promise<void>;
   readonly closeSession: (
     entry: WorkspaceTerminal,

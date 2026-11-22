@@ -39,11 +39,13 @@ state belong to ExecutionOwner. Terminal hosts own live PTYs.
 - **Claimed.** Each row has one generation for its current owner. Resume,
   New conversation, Restart, Close and explicit metadata removal replace a
   queued startup claim before they start asynchronous work. Startup rechecks
-  its claim and the dormant row before launching. Daemon discovery uses its
+  its claim and the dormant row before launching. Close checks both saved child
+  links and hydrated roles. Daemon discovery uses its
   starting generation and cannot recreate a row claimed or closed since it began.
 - **Starting.** The startup claim protects launch preparation and settlement.
   Launch adapters check it before dispatching a PTY and before publishing the
-  result. Parents restore saved child relationships as exited. The child
+  result. Parent records retain saved worktree ownership until validation
+  settles. Parents restore saved child relationships as exited. The child
   consumes a live slot at dispatch and releases it if launch fails. Pending
   intent can keep a tile reserved, but quit inventories the terminal host.
 - **Paused for quit.** Main stops new dispatch and shows **Stopping…** while
@@ -51,7 +53,8 @@ state belong to ExecutionOwner. Terminal hosts own live PTYs.
   dispatch while paused, its reservation is released and it retries after Cancel.
   Cancel resumes the same startup pass and makes queued dormant rows available
   for manual claims. Confirm freezes and flushes the session file before
-  shutdown. The saved running flag retains the next-start intent for queued
+  shutdown. Config disposal cancels an outstanding Settings attachment and
+  releases its shared lock. The saved running flag retains the next-start intent for queued
   and in-flight startup rows. Shutdown exits cannot overwrite that snapshot.
   After stopping the PTYs, main releases agent, control and hook services and
   drains outstanding session writes.

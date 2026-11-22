@@ -773,8 +773,11 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   };
   const writeConfig: Parameters<SettingsStore["attachConfig"]>[0] = (...args) =>
     wiring.config.write(...args);
-  const attachSettings = async (values: Parameters<SettingsStore["attachConfig"]>[1]) => {
-    await wiring.settings.attachConfig(writeConfig, values, wiring.settings.configDigest());
+  const attachSettings = async (
+    values: Parameters<SettingsStore["attachConfig"]>[1],
+    signal: AbortSignal,
+  ) => {
+    await wiring.settings.attachConfig(writeConfig, values, wiring.settings.configDigest(), signal);
   };
   try {
     // Include the old window scale only in no-clobber initial creation. Never

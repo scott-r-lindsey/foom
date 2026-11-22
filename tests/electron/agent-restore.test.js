@@ -513,7 +513,7 @@ async function deferredStartup(context, makeSessions, options = {}) {
   const page = await boardPage(app);
   const rows = () => page.evaluate(async () => (await window.desktop.workspace()).terminals);
   const saved = async () => JSON.parse(await readFile(sessionsFile, "utf8"));
-  return { app, page, rows, saved, unlock: () => require("node:fs/promises").rm(lock) };
+  return { app, page, rows, saved, root, lock, unlock: () => require("node:fs/promises").rm(lock) };
 }
 
 async function requestDeferredQuit(app, page, capture = false) {
@@ -731,85 +731,91 @@ test("Close persists across a stale startup daemon discovery reply", {
     .toEqual(["discovery-follower"]);
 });
 
+async function seedRestoreParent({ root, profile }, savedOwnership = false) {
+  const repo = path.join(root, "restore-parent");
+  const child = path.join(root, "skipped-child");
+  isolatedGit(["init", "-q", "-b", "main", repo]);
+  isolatedGit([
+    "-C",
+    repo,
+    "-c",
+    "user.name=Foom",
+    "-c",
+    "user.email=foom@example.com",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "init",
+  ]);
+  isolatedGit(["-C", repo, "worktree", "add", "-b", "skipped-child", child]);
+  const { lstat } = require("node:fs/promises");
+  const identity = async (checkout, gitDir) => {
+    const entries = await Promise.all(
+      [checkout, path.join(checkout, ".git"), gitDir].map(async (entry) => {
+        const stat = await lstat(entry, { bigint: true });
+        return [stat.dev, stat.ino, stat.birthtimeNs].map(String);
+      }),
+    );
+    return JSON.stringify([gitDir, entries]);
+  };
+  const childIdentity = await identity(
+    child,
+    path.join(repo, ".git", "worktrees", "skipped-child"),
+  );
+  await writeFile(
+    path.join(profile, "worktrees.json"),
+    JSON.stringify({
+      version: 1,
+      repositories: [repo],
+      managed: [
+        {
+          path: child,
+          repository: repo,
+          root,
+          identity: childIdentity,
+        },
+      ],
+    }),
+  );
+  const parent = {
+    id: "restore-parent",
+    agent: "claude",
+    repository: repo,
+    worktree: repo,
+    branch: "main",
+    conversationId: "saved-parent",
+    running: true,
+    orchestrator: {
+      identity: await identity(repo, path.join(repo, ".git")),
+      history: [],
+      ...(savedOwnership
+        ? { worktrees: [{ path: child, identity: childIdentity, state: "used" }] }
+        : {}),
+    },
+  };
+  return [
+    parent,
+    {
+      id: "skipped-child",
+      agent: "claude",
+      repository: repo,
+      worktree: child,
+      branch: "skipped-child",
+      conversationId: "saved-child",
+      running: true,
+      parentId: parent.id,
+    },
+  ];
+}
+
 test("a skipped queued restore leaves the orchestrator child slot available", {
   timeout: deadline(45000),
   skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
 }, async (context) => {
-  let credentials;
-  const { app, page, rows, unlock } = await deferredStartup(
-    context,
-    async ({ root, profile }) => {
-      const repo = path.join(root, "restore-parent");
-      const child = path.join(root, "skipped-child");
-      credentials = path.join(root, "credentials.restore-parent");
-      isolatedGit(["init", "-q", "-b", "main", repo]);
-      isolatedGit([
-        "-C",
-        repo,
-        "-c",
-        "user.name=Foom",
-        "-c",
-        "user.email=foom@example.com",
-        "commit",
-        "--allow-empty",
-        "-qm",
-        "init",
-      ]);
-      isolatedGit(["-C", repo, "worktree", "add", "-b", "skipped-child", child]);
-      const { lstat } = require("node:fs/promises");
-      const identity = async (checkout, gitDir) => {
-        const entries = await Promise.all(
-          [checkout, path.join(checkout, ".git"), gitDir].map(async (entry) => {
-            const stat = await lstat(entry, { bigint: true });
-            return [stat.dev, stat.ino, stat.birthtimeNs].map(String);
-          }),
-        );
-        return JSON.stringify([gitDir, entries]);
-      };
-      await writeFile(
-        path.join(profile, "worktrees.json"),
-        JSON.stringify({
-          version: 1,
-          repositories: [repo],
-          managed: [
-            {
-              path: child,
-              repository: repo,
-              root,
-              identity: await identity(
-                child,
-                path.join(repo, ".git", "worktrees", "skipped-child"),
-              ),
-            },
-          ],
-        }),
-      );
-      const parent = {
-        id: "restore-parent",
-        agent: "claude",
-        repository: repo,
-        worktree: repo,
-        branch: "main",
-        conversationId: "saved-parent",
-        running: true,
-        orchestrator: { identity: await identity(repo, path.join(repo, ".git")), history: [] },
-      };
-      return [
-        parent,
-        {
-          id: "skipped-child",
-          agent: "claude",
-          repository: repo,
-          worktree: child,
-          branch: "skipped-child",
-          conversationId: "saved-child",
-          running: true,
-          parentId: parent.id,
-        },
-      ];
-    },
-    { claude: true, config: { concurrentChildren: 1 } },
-  );
+  const { app, page, rows, root, unlock } = await deferredStartup(context, seedRestoreParent, {
+    claude: true,
+    config: { concurrentChildren: 1 },
+  });
   await app.evaluate(({ app }) => {
     const load = process
       .getBuiltinModule("node:module")
@@ -844,7 +850,7 @@ test("a skipped queued restore leaves the orchestrator child slot available", {
   await expect
     .poll(async () => (await rows()).find((row) => row.id === "skipped-child")?.restoring)
     .toBeUndefined();
-  const parent = JSON.parse(await readFile(credentials, "utf8"));
+  const parent = JSON.parse(await readFile(path.join(root, "credentials.restore-parent"), "utf8"));
   const call = async (method, params) => {
     const response = await fetch(parent.controlUrl, {
       method: "POST",
@@ -871,4 +877,147 @@ test("a skipped queued restore leaves the orchestrator child slot available", {
         (await rows()).find((row) => row.id === "restore-parent")?.orchestration?.children,
     )
     .toBe(1);
+});
+
+test("confirmed quit abandons a stalled Settings attachment and releases the shared lock", {
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, page, saved, lock, unlock } = await deferredStartup(context, ({ shell }) => [
+    shell("pending-settings"),
+  ]);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SettingsStore } = load("./build/main/setup/settings.js");
+    const attach = SettingsStore.prototype.attachConfig;
+    SettingsStore.prototype.attachConfig = async function (...args) {
+      await new Promise((resolve) => {
+        globalThis.releaseSettingsAttachment = resolve;
+      });
+      return attach.apply(this, args);
+    };
+  });
+  await unlock();
+  await expect
+    .poll(() => app.evaluate(() => typeof globalThis.releaseSettingsAttachment))
+    .toBe("function");
+  try {
+    await quitAndWait(app, async () => {
+      const prompt = await requestDeferredQuit(app, page);
+      await prompt.getByRole("button", { name: "Stop all and quit", exact: true }).click();
+    });
+  } catch (error) {
+    await app.evaluate(() => globalThis.releaseSettingsAttachment?.()).catch(() => {});
+    throw error;
+  }
+  await assert.rejects(readFile(lock), { code: "ENOENT" });
+  assert.equal((await saved()).find((row) => row.id === "pending-settings")?.running, true);
+});
+
+test("live Settings scans recover after a deferred profile attachment fails", {
+  timeout: deadline(30000),
+}, async (context) => {
+  const { app, page, rows, lock, unlock } = await deferredStartup(context, ({ shell }) => [
+    shell("settings-follower"),
+  ]);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { SettingsStore } = load("./build/main/setup/settings.js");
+    const attach = SettingsStore.prototype.attachConfig;
+    SettingsStore.prototype.attachConfig = async function () {
+      SettingsStore.prototype.attachConfig = attach;
+      globalThis.attachmentFailed = true;
+      throw new Error("Fixture transient Settings attachment failure");
+    };
+  });
+  await unlock();
+  await expect
+    .poll(async () => (await rows()).find((row) => row.id === "settings-follower")?.exited)
+    .toBe(false);
+  assert.equal(await app.evaluate(() => globalThis.attachmentFailed), true);
+  await writeFile(
+    path.join(path.dirname(lock), "settings.json"),
+    JSON.stringify({
+      kind: "settings",
+      agents: { claude: true },
+      hooks: false,
+      interfaceScale: 120,
+    }),
+  );
+  await expect
+    .poll(
+      async () => (await page.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
+    )
+    .toBe(120);
+});
+
+test("confirmed quit preserves saved orchestrator ownership during worktree hydration", {
+  timeout: deadline(30000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { app, page, saved, unlock } = await deferredStartup(
+    context,
+    (fixture) => seedRestoreParent(fixture, true),
+    { claude: true },
+  );
+  const previous = (await saved()).find((row) => row.id === "restore-parent").orchestrator;
+  assert.equal(previous.worktrees.length, 1);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { OrchestrationAuthority } = load("./build/main/control/orchestration-authority.js");
+    const restore = OrchestrationAuthority.prototype.restoreWorktrees;
+    OrchestrationAuthority.prototype.restoreWorktrees = function (id, ...args) {
+      if (id !== "restore-parent") return restore.call(this, id, ...args);
+      globalThis.hydratingSavedWorktrees = true;
+      return new Promise(() => {});
+    };
+  });
+  await unlock();
+  await expect.poll(() => app.evaluate(() => globalThis.hydratingSavedWorktrees)).toBe(true);
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await expect(page.getByRole("dialog", { name: "Stopping Foom" })).toBeVisible();
+    const prompt = await confirmationPage(app, "Quit with 1 terminal running?");
+    await prompt.getByRole("button", { name: "Stop all and quit", exact: true }).click();
+  });
+  const parent = (await saved()).find((row) => row.id === "restore-parent");
+  assert.equal(parent.running, true);
+  assert.deepEqual(parent.orchestrator.worktrees, previous.worktrees);
+});
+
+test("Close refuses a queued parent with an unhydrated saved child link", {
+  timeout: deadline(30000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { page, rows, saved, unlock } = await deferredStartup(context, seedRestoreParent, {
+    claude: true,
+  });
+  try {
+    const before = await rows();
+    assert.equal(before.find((row) => row.id === "skipped-child").orchestration, undefined);
+    await assert.rejects(
+      page.evaluate(() => window.desktop.sidebarCommand({ kind: "close", id: "restore-parent" })),
+      /session-has-children/,
+    );
+    assert.deepEqual((await rows()).map((row) => row.id).sort(), [
+      "restore-parent",
+      "skipped-child",
+    ]);
+    assert.equal(
+      (await saved()).find((row) => row.id === "skipped-child").parentId,
+      "restore-parent",
+    );
+  } finally {
+    await unlock();
+  }
+  await expect
+    .poll(
+      async () => (await rows()).find((row) => row.id === "skipped-child")?.orchestration?.parentId,
+    )
+    .toBe("restore-parent");
 });
