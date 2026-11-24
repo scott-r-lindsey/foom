@@ -266,7 +266,9 @@ insertion syntax separately before enabling it. In particular, an argument such
 as `--image` cannot be retroactively appended to a running CLI's argv. Do not type
 a new command, alter agent permissions or auto-approve a file read to compensate.
 
-### Interactive hand checks (Linux, 2026-10-30)
+### Interactive hand checks (Linux)
+
+#### Claude, Codex and Pi (2026-10-30)
 
 A disposable working directory under `test-results/image-paste-interactive-fz5z3uc7/`
 was used. A generated 64×64 PNG outside the checkout had yellow above cyan, with
@@ -282,13 +284,28 @@ edits were used. Ordinary CLI credential handling remained the CLI's responsibil
 | Claude Code 2.1.314, Opus 5.5 | Resolved the literal path, requested normal Read permission; one-time approval, then “Top: yellow. Bottom: cyan.” | Enabled. Foom never approves reads on behalf of the user. |
 | Codex 0.163.0, gpt-6.1-sol | Read-only sandbox, `--no-alt-screen`; Viewed image, then “Yellow, cyan.” | Enabled. |
 | Pi 1.4.0, gpt-6.1-sol | `--no-session --model gpt-6.1-sol`; discovery of extensions/MCP/context/skills disabled; Read tool, then “Yellow, cyan”. | Enabled. |
-| Copilot, OpenCode, Antigravity | No passing exact interactive check in this implementation. Optional retries were not used. | Unsupported. |
+| Antigravity (agy) 1.5.16, “gemini flash 3.8” as reported by the user | Both color tests passed in a local Foom session using manually pasted references on 2026-11-24. See the [Antigravity hand check](#antigravity-2026-11-24). | Enabled (#1186). |
+| Copilot, OpenCode | No passing interactive check. | Unsupported. |
 | Shells and config providers | No declared bundled image-paste recipient. | Unsupported. |
 
 These Linux checks establish file-reference prompting, not automatic attachment or
 cross-platform certification. Windows ancestors use PowerShell literal quoting;
 POSIX ancestors use POSIX literal quoting. Remote Linux/macOS paths are serialized
 as POSIX references. Neither mode invokes a shell. Automated tests use fixtures only.
+
+#### Antigravity (2026-11-24)
+
+The user reported running agy 1.5.16 with model “gemini flash 3.8” in a local
+interactive Foom session on Linux. Foom refused image paste in that
+session, so the user pasted the reference text `[pasted image '<path>'] ` by
+hand, followed by a question asking for the top and bottom colors. The first
+image was a 64×64 PNG, red over blue, at a plain path. The second image was lime
+over magenta in a directory named `foom image's test`, with the path POSIX-quoted.
+
+The user reported that both color tests passed and agy did not request permission
+to read the files. The user believes agy opened the images directly. The tool
+transcript was not inspected. A real Foom clipboard paste, remote sessions, macOS
+and Windows were not checked.
 
 ### Earlier noninteractive evidence (historical)
 
@@ -331,9 +348,9 @@ permissions and prompt interpretation all matter. A path can remain plain text,
 trigger a permission request or fail. Before implementation is enabled for any
 provider, repeat the exact **quoted interactive paste**, with no auto-submit,
 spaces/apostrophes in ancestor paths, and an image outside the checkout on that
-provider/platform. Current manual evidence verifies a narrower initial-prompt
-workflow for three CLIs. Do not add an ID-based special case or claim all six
-are supported from these checks; any future manifest capability needs its own
+provider/platform. The historical initial-prompt checks cover three CLIs. The
+interactive checks above support enabling Antigravity, Claude, Codex and Pi in
+the build-owned recipient catalog. Any future manifest capability needs its own
 measured version/syntax gates through the shared provider engine.
 
 ## Privacy wording for implementation

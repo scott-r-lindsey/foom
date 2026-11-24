@@ -2104,7 +2104,7 @@ test.skipIf(process.platform === "win32")(
     expect(mock.endLegacy).not.toHaveBeenCalled();
   },
 );
-async function imageAgent() {
+async function imageAgent(agent = "claude") {
   const c = await client();
   c.send({ type: "hello", build });
   await c.wait(1);
@@ -2116,7 +2116,7 @@ async function imageAgent() {
     cols: 80,
     rows: 24,
     spec: {
-      agent: "claude",
+      agent,
       repository: "/remote/repo",
       worktree: "/remote/tree",
       defaults: [],
@@ -2137,7 +2137,7 @@ test.skipIf(process.platform === "win32")(
     const { createHash } = await import("node:crypto");
     const { readFile, readdir } = await import("node:fs/promises");
     await start();
-    const { c, owner } = await imageAgent();
+    const { c, owner } = await imageAgent("agy");
     const png = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
       "base64",

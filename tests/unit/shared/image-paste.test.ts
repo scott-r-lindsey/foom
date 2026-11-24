@@ -131,7 +131,8 @@ test("cleanup retries only bounded transient failures and preserves the last fai
 
 test("measured recipient metadata enables only the hand-checked built-in identities", async () => {
   const { imagePasteRecipient } = await import("../../../src/shared/image-paste");
-  for (const agent of ["claude", "codex", "pi"]) expect(imagePasteRecipient(agent)).toBe(true);
-  for (const agent of ["agy", "copilot", "opencode", "custom", "toString", "constructor"])
+  for (const agent of ["agy", "claude", "codex", "pi"])
+    expect(imagePasteRecipient(agent)).toBe(true);
+  for (const agent of ["copilot", "opencode", "custom", "toString", "constructor"])
     expect(imagePasteRecipient(agent)).toBe(false);
 });

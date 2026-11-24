@@ -265,7 +265,8 @@ Limits after clipboard acquisition are 4 MiB encoded and normalized bytes, 8,192
 pixels and 16 retained files / 32 MiB per session. Paste operations are serialized per session, with at most 16 queued gestures;
 overflow refuses with a fixed result. Each gesture captures its own snapshot.
 
-Only hand-checked bundled Claude, Codex and Pi launches receive image references.
+Only hand-checked bundled Antigravity (agy), Claude, Codex and Pi launches receive
+image references.
 Shells, other agents and config providers show “Image paste is not supported for
 this session.” Text paste is unchanged. Foom inserts exactly one
 `[pasted image '<absolute path>'] ` reference with recipient quoting and a trailing

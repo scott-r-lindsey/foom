@@ -118,14 +118,16 @@ describe("launch", () => {
     agentFixture.service.dispose();
     expect(cleanup).toHaveBeenCalledOnce();
   });
-  it("disables all attachment with the setting and never hooks Antigravity", async () => {
+  it("launches Antigravity with image paste when its lifecycle plugin is absent", async () => {
     agentFixture.service.setHooksEnabled(false);
     await agentFixture.service.launch({ ...request, agent: "codex" });
     agentFixture.service.release("terminal-id");
     agentFixture.service.setHooksEnabled(true);
     await agentFixture.service.launch({ ...request, agent: "agy" });
     expect(prepare).not.toHaveBeenCalled();
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ args: [], env: { PATH: root } }));
+    expect(create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ args: [], env: { PATH: root }, imagePaste: true }),
+    );
   });
   it("uses evaluation when a hook receiver is unavailable", async () => {
     agentFixture.service = enabledAgentService({ listWorktrees, launchIdentity }, { create });

@@ -1729,10 +1729,10 @@ test("shared paste authorizes attached sender, keeps text precedence, and gates 
   });
   mock.normalize.mockRejectedValueOnce(new Error("decoder"));
   expect(await invoke("paste", [id])).toEqual({ kind: "failed" });
-  for (const agent of [undefined, "copilot", "opencode", "agy"]) {
+  for (const imagePaste of [undefined, false]) {
     const unsupported = await terminalControl.create({
       ...spec,
-      ...(agent ? { imagePaste: false } : {}),
+      ...(imagePaste === undefined ? {} : { imagePaste }),
     });
     await invoke("attach", [unsupported]);
     expect(await invoke("paste", [unsupported])).toEqual({ kind: "unsupported" });
