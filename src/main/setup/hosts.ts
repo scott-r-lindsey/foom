@@ -718,6 +718,10 @@ export class Hosts {
           this.invalidateWorktrees(host);
       });
       this.registered(host, entry.codeFolder);
+      if (action.operation === "inspect-worktree" && !result.ok) {
+        if (result.reason === "unreachable") throw new LaunchFailure("remote_host_unreachable");
+        if (result.reason === "timed-out") throw new LaunchFailure("timed-out");
+      }
       if (!result.ok || !result.worktree) throw new LaunchFailure("remote_worktree_unavailable");
       if (
         action.operation === "create-worktree"

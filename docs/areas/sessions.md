@@ -50,6 +50,20 @@ Git identity before granting worktree ownership or relaunching. Credentials and 
 malformed IDs, paths, agents and duplicate terminal IDs. Unregistered repositories keep exited rows without launch authority. With restore enabled, eligible running records launch after all saved windows are shown, at most three at a time, with parents first and shared checkouts serialized. Local launches use the manual resume path and fresh credentials; remote sessions
 reattach existing daemon PTYs through [profile-scoped recovery](hosts.md#persistent-remote-sessions-757-pr-2); views attach only once the new host exists. Orchestrator re-grants additionally require the saved repository-root and parent-checkout identities to match their respective paths, supported per-launch MCP and provider restore capability (bundled Claude Code/Codex, or a valid v2 config provider declaring it); see [provider loading](providers.md#agent-provider-registry-and-manifest-approval-407) and [orchestration](../contracts/control-identity.md#identity-and-capability-model). Restoring a parent validates every owned checkout against the live Git inventory: it must still be a Foom-managed linked worktree in the parent's repository, with matching checkout identity; main, missing, foreign and replaced checkouts grant no ownership. Restored children, including already exited children, recover owned worktrees as used; legacy records without an ownership list use the child path and the host's current branch and identity. Unused owned worktrees remain launchable after restart, within the four-worktree unused budget; used worktrees cannot be launched into again. In-flight launches are saved as used to prevent reuse after an ambiguous shutdown. Restored running children still count against the configured child limit. Shutdown freezes the running records before terminating PTYs, so shutdown exits cannot overwrite the saved state.
 
+An unavailable child worktree check, such as a Git timeout or unreachable SSH
+host, keeps the saved parent link and any recorded worktree identity for a later
+startup. This metadata stays private and confers no child authority while the
+check is unproven. An otherwise eligible child starts with human access. A
+refused worktree, identity mismatch or replaced parent cannot restore the link
+or its authority. The retained link expires when the original parent grant ends
+or a manual action claims the child.
+
+An accepted manual Resume, New conversation, Restart or Close claims the row
+before launch or cleanup awaits. Startup skips claimed rows, including results
+from in-flight daemon discovery. Removing a row also suppresses stale discovery
+for that ID. Discovery can reconcile eligible daemon-live rows that
+were saved as exited and have not been claimed in this startup.
+
 Resume and New conversation retain the terminal ID. Main drains the previous
 terminal's evaluation queue, removes its exited host screen and launches a fresh
 PTY under that ID after the usual worktree/confirmation checks. An existing live

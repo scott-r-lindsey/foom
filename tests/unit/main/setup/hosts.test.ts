@@ -3823,3 +3823,20 @@ test("a slow global locations read does not queue another host's capability chec
     checked.locations.find((entry) => entry.host === "fast"),
   );
 });
+
+test.each([
+  ["unreachable", "remote_host_unreachable"],
+  ["timed-out", "timed-out"],
+  ["checkout-refused", "remote_worktree_unavailable"],
+] as const)("reports %s distinctly during remote worktree inspection", async (reason, expected) => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  run.mockResolvedValueOnce({ ok: false, reason });
+  await expect(
+    hosts.worktree("worker", "/local/repo", {
+      operation: "inspect-worktree",
+      path: `${facts.codeFolder}/.foom-worktree-fixture`,
+      identity: "a".repeat(64),
+    }),
+  ).rejects.toMatchObject({ reason: expected });
+});

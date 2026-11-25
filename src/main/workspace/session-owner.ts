@@ -20,7 +20,7 @@ export interface SessionOwnerDependencies {
     | "identity"
     | "handoffs"
     | "view"
-    | "ownedWorktrees"
+    | "savedWorktrees"
     | "uncertainWorktrees"
     | "exited"
     | "reserve"
@@ -52,6 +52,12 @@ export class SessionOwner {
   private readonly saved = new Map<string, StoredSession>();
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
   private readonly restoring = new Set<string>();
+  private readonly claimedDuringDiscovery = new Set<string>();
+  private readonly restoredParents = new Map<string, () => boolean>();
+  private readonly unverifiedParents = new Map<
+    string,
+    { id: string; stillActive: () => boolean }
+  >();
   private readonly unrestoredRoles = new Set<string>();
   private restoreWork: Promise<void> | undefined;
   private discovery: Promise<readonly StoredSession[]> | undefined;
@@ -70,6 +76,14 @@ export class SessionOwner {
   }
   roleNotRestored(id: string): boolean {
     return !this.restoring.has(id) && this.unrestoredRoles.has(id);
+  }
+
+  /** Accepted manual actions take precedence over saved rows and in-flight discovery. */
+  claim(id: string): void {
+    if (this.discovery) this.claimedDuringDiscovery.add(id);
+    this.restoring.delete(id);
+    this.saved.delete(id);
+    this.unverifiedParents.delete(id);
   }
   rememberRemote(id: string, value: RemoteSavedPlacement): void {
     const placement = {
@@ -165,8 +179,7 @@ export class SessionOwner {
         throw error;
       }
       this.forgottenSessions.add(id);
-      this.saved.delete(id);
-      this.restoring.delete(id);
+      this.claim(id);
       this.unrestoredRoles.delete(id);
       this.remotePlacements.delete(id);
       this.deps.removeRow?.(id);
@@ -204,7 +217,8 @@ export class SessionOwner {
     for (const entry of this.retained(entries)) {
       if (this.forgettingSessions.has(entry.id)) continue;
       if (discovered) {
-        if (this.forgottenSessions.has(entry.id)) continue;
+        if (this.claimedDuringDiscovery.has(entry.id) || this.forgottenSessions.has(entry.id))
+          continue;
         const previous = this.saved.get(entry.id);
         const reconcile =
           previous?.remote &&
@@ -265,13 +279,24 @@ export class SessionOwner {
           const role = this.deps.orchestration.view(entry.id);
           const identity = this.deps.orchestration.identity(entry.id);
           const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
+          const pendingParent = saved?.parentId;
+          const unverified = this.unverifiedParents.get(entry.id);
+          const parentId = role
+            ? role.role === "child" && !role.takenOver
+              ? role.parentId
+              : undefined
+            : unverified?.stillActive()
+              ? unverified.id
+              : pendingParent && this.restoring.has(pendingParent)
+                ? pendingParent
+                : undefined;
           return {
             ...entry,
             ...(sharedReview ? { sharedReview } : {}),
             ...(remoteCheckout ? { remoteCheckout } : {}),
             handoffs: this.deps.orchestration.handoffs.entries(entry.id),
             ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
-            ...(saved?.parentId ? { parentId: saved.parentId } : {}),
+            ...(parentId ? { parentId } : {}),
             running: this.restoring.has(entry.id) || !entry.exited,
             ...(role?.role === "orchestrator" && role.active && identity !== undefined
               ? {
@@ -279,12 +304,11 @@ export class SessionOwner {
                     identity: identity.repository,
                     worktreeIdentity: identity.worktree,
                     history: role.history,
-                    worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
+                    worktrees: this.deps.orchestration.savedWorktrees(entry.id),
                     uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
                   },
                 }
               : {}),
-            ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
           };
         }),
     );
@@ -322,6 +346,8 @@ export class SessionOwner {
     this.restoreWork = this.discovery
       ? this.discovery.then((entries) => {
           this.importEntries(entries, true);
+          this.discovery = undefined;
+          this.claimedDuringDiscovery.clear();
           return this.restartEntries();
         })
       : this.restartEntries();
@@ -349,6 +375,7 @@ export class SessionOwner {
           !this.restoreEnabled ||
           this.forgettingSessions.has(entry.id) ||
           this.forgottenSessions.has(entry.id) ||
+          !this.saved.has(entry.id) ||
           this.deps.terminal(entry.id) === undefined
         )
           return;
@@ -364,7 +391,28 @@ export class SessionOwner {
         this.persist();
         this.deps.onChange?.();
       }
+    }).finally(() => {
+      this.restoredParents.clear();
     });
+  }
+
+  private async restoreSavedChild(entry: StoredSession, parentId: string, exited: boolean) {
+    const parentCurrent = this.restoredParents.get(parentId);
+    if (!parentCurrent || this.unverifiedParents.has(entry.id)) return false;
+    const eligible = () =>
+      parentCurrent() &&
+      this.saved.has(entry.id) &&
+      !this.forgettingSessions.has(entry.id) &&
+      this.deps.terminal(entry.id) !== undefined;
+    const result = await this.deps.orchestration.restoreChild(
+      parentId,
+      { ...entry, exited },
+      eligible,
+    );
+    if (typeof result === "boolean") return result && eligible();
+    if (eligible())
+      this.unverifiedParents.set(entry.id, { id: parentId, stillActive: result.parentStillActive });
+    return false;
   }
 
   private async restartSavedEntry(entry: StoredSession): Promise<void> {
@@ -399,16 +447,14 @@ export class SessionOwner {
           }
         }
       }
-    } else if (
-      entry.parentId &&
-      (await this.deps.orchestration.restoreChild(entry.parentId, { ...entry, exited: false }))
-    ) {
+    } else if (entry.parentId && (await this.restoreSavedChild(entry, entry.parentId, false))) {
       control = { parentId: entry.parentId };
     }
     try {
       const id = await this.deps.launch(entry, control, authorityIdentity);
       if (id && slot && !("existing" in slot)) {
         slot.bind(id);
+        this.restoredParents.set(id, slot.isCurrent);
         this.deps.orchestration.restoreHistory(id, entry.orchestrator?.history ?? []);
         await this.deps.orchestration.restoreWorktrees(
           id,
@@ -416,12 +462,9 @@ export class SessionOwner {
           entry.orchestrator?.uncertain ?? 0,
         );
         this.unrestoredRoles.delete(id);
-        for (const child of this.saved.values()) {
+        for (const child of [...this.saved.values()]) {
           if (child.parentId === id)
-            await this.deps.orchestration.restoreChild(id, {
-              ...child,
-              exited: !this.restoring.has(child.id),
-            });
+            await this.restoreSavedChild(child, id, !this.restoring.has(child.id));
         }
       }
     } finally {

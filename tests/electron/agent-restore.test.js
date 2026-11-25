@@ -17,13 +17,14 @@ const {
   removeAfterApps,
 } = require("./harness.js");
 
-for (const { agent, linked, replaced } of [
+for (const { agent, linked, replaced, transient } of [
   { agent: "claude", linked: false },
   { agent: "codex", linked: false },
   { agent: "claude", linked: true },
   { agent: "claude", linked: true, replaced: true },
+  { agent: "claude", transient: true },
 ])
-  test(`restores running ${agent}${linked ? " in a linked worktree" : ""}${replaced ? " with a replaced checkout" : ""}, shell and orchestrator children across windows`, {
+  test(`restores running ${agent}${linked ? " in a linked worktree" : ""}${replaced ? " with a replaced checkout" : ""}${transient ? " with transient child checks" : ""}, shell and orchestrator children across windows`, {
     timeout: deadline(90000),
     skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
   }, async (context) => {
@@ -224,7 +225,13 @@ req.end(JSON.stringify(payload));
       isolatedGit(["-C", repo, "worktree", "remove", parentCheckout]);
       isolatedGit(["-C", repo, "worktree", "add", parentCheckout, "parent-topic"]);
     }
-    const restored = await launchApp(context, { ...options, fixture: "restored" });
+    const childIds = [childId, exitedChild.resultId];
+    const childPaths = saved.filter((row) => childIds.includes(row.id)).map((row) => row.worktree);
+    const restored = await launchApp(context, {
+      ...options,
+      fixture: "restored",
+      ...(transient ? { restoreFixture: { failChildChecks: childPaths } } : {}),
+    });
     let pages;
     await expect
       .poll(() => {
@@ -233,6 +240,40 @@ req.end(JSON.stringify(payload));
       })
       .toBe(2);
     const page = pages[0];
+    if (transient) {
+      await expect
+        .poll(() => restored.evaluate(() => globalThis.restoreFixture.completed))
+        .toBe(true);
+      assert.deepEqual(
+        (await restored.evaluate(() => globalThis.restoreFixture.failedChecks)).sort(),
+        childPaths.sort(),
+      );
+      const restoredRows = await rows(page);
+      assert.equal(restoredRows.find((row) => row.id === parentId).orchestration?.active, true);
+      for (const id of childIds)
+        assert.equal(restoredRows.find((row) => row.id === id).orchestration, undefined);
+      assert.equal(restoredRows.find((row) => row.id === childId).exited, false);
+      await quit(restored);
+      const after = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"));
+      assert.deepEqual(
+        after.filter((row) => childIds.includes(row.id)).map((row) => row.parentId),
+        [parentId, parentId],
+      );
+      const childProofs = (records) =>
+        records
+          .find((row) => row.id === parentId)
+          .orchestrator.worktrees.filter((tree) => childPaths.includes(tree.path))
+          .sort((left, right) => left.path.localeCompare(right.path));
+      assert.deepEqual(childProofs(after), childProofs(saved));
+      const retried = await launchApp(context, { ...options, fixture: "restored" });
+      const retryPage = await boardPage(retried);
+      await expect
+        .poll(async () => (await rows(retryPage)).filter((row) => childIds.includes(row.id)))
+        .toMatchObject(
+          childIds.map(() => ({ orchestration: { role: "child", parentId, takenOver: false } })),
+        );
+      return;
+    }
     if (replaced) {
       await expect
         .poll(async () => (await rows(page)).find((row) => row.id === parentId))

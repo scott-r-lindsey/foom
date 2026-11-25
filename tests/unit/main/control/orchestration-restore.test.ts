@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { locationId } from "../../../../src/main/control/metadata";
 import { Orchestration } from "../../../../src/main/control/orchestration";
+import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 
 import { harness, other, repo } from "./orchestration-helpers";
@@ -244,4 +245,75 @@ it("counts starting reservations at a changed limit", async () => {
   );
   release();
   expect(await pending).toMatchObject({ status: "succeeded" });
+});
+
+it("keeps a timed-out owned worktree's identity for a later check without granting ownership", async () => {
+  const h = harness();
+  const worktree = join(repo, "trees", "child");
+  const saved = { path: worktree, identity: "old-identity", state: "used" as const };
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  const child = { ...parent, id: "unverified", worktree, exited: true };
+  h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("remote_host_unreachable"));
+  await h.orchestration.restoreWorktrees("parent", [saved]);
+  h.rows.set(child.id, child);
+  const result = await h.orchestration.restoreChild("parent", child);
+  if (typeof result === "boolean") throw new Error("expected an unproven child link");
+  expect(result.parentStillActive()).toBe(true);
+  expect(h.host.restoreWorktree).toHaveBeenCalledOnce();
+  expect(h.orchestration.view(child.id)).toBeUndefined();
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([]);
+  expect(h.host.forge.track).not.toHaveBeenCalled();
+  await expect(h.call("read_handoff", { id: child.id })).rejects.toThrow();
+  const retry = harness();
+  const savedWorktrees = h.orchestration.savedWorktrees("parent");
+  expect(savedWorktrees).toEqual([saved]);
+  await retry.orchestration.restoreWorktrees("parent", savedWorktrees);
+  // The new tree at the same path still has to match the original identity.
+  expect(await retry.orchestration.restoreChild("parent", child)).toBe(false);
+  expect(retry.orchestration.savedWorktrees("parent")).toEqual([]);
+});
+
+it("drops a child proof if a human claims the row or replaces the parent during the check", async () => {
+  const h = harness();
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  const child = { ...parent, id: "checking", worktree: join(repo, "trees", "child"), exited: true };
+  const proof = { branch: "child", identity: "child-tree" };
+  const pending = Promise.withResolvers<typeof proof>();
+  h.host.restoreWorktree.mockReturnValueOnce(pending.promise);
+  let eligible = true;
+  const checking = h.orchestration.restoreChild("parent", child, () => eligible);
+  eligible = false;
+  pending.resolve(proof);
+  await expect(checking).resolves.toBe(false);
+
+  const next = Promise.withResolvers<typeof proof>();
+  h.host.restoreWorktree.mockReturnValueOnce(next.promise);
+  const replacing = h.orchestration.restoreChild("parent", child);
+  h.exit("parent");
+  h.launchParent("parent");
+  next.resolve(proof);
+  await expect(replacing).resolves.toBe(false);
+  expect(h.orchestration.view(child.id)).toBeUndefined();
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([]);
+});
+
+it("preserves an unavailable legacy child link only for the same active parent", async () => {
+  const h = harness();
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("timed-out"));
+  const result = await h.orchestration.restoreChild("parent", {
+    ...parent,
+    id: "legacy",
+    worktree: join(repo, "legacy"),
+    exited: true,
+  });
+  if (typeof result === "boolean") throw new Error("expected an unproven child link");
+  expect(result.parentStillActive()).toBe(true);
+  h.exit("parent");
+  h.launchParent("parent");
+  expect(result.parentStillActive()).toBe(false);
+  expect(h.orchestration.view("legacy")).toBeUndefined();
 });

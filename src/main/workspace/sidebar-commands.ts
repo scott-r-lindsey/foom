@@ -515,6 +515,7 @@ export async function sidebarCommand(
     if (this.executionOwner.view(entry.id).exitCode === undefined)
       throw new Error("Session is still running");
     if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
+    this.sessions.claim(entry.id);
     this.busySessions.add(entry.id);
     try {
       const replacement = {
@@ -593,34 +594,6 @@ export async function sidebarCommand(
           (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
         ).length,
       );
-    if (command.kind === "restart") {
-      if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-      if (entry.machine)
-        await this.startMachine(
-          entry.placement?.kind === "remote" ? entry.placement.host : null,
-          "shell",
-        );
-      else if (
-        entry.remote &&
-        entry.placement?.kind === "remote" &&
-        entry.branch === "Main checkout"
-      )
-        await this.startMachine(entry.placement.host, "shell", undefined, {
-          repository: entry.repository,
-          worktree: entry.repository,
-          branch: null,
-        });
-      else if (entry.config) await this.startConfig("shell");
-      else if (entry.home && entry.remote) {
-        const target =
-          entry.placement?.kind === "remote"
-            ? this.deps.hosts?.shellTarget?.(entry.placement.host)
-            : undefined;
-        if (!target) throw new LaunchFailure("remote_host_unreachable");
-        await this.startHomeShell(undefined, target);
-      } else if (entry.home) await this.startHomeShell();
-      else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
-    }
     const identity =
       command.kind === "close" &&
       entry &&
@@ -718,7 +691,41 @@ export async function sidebarCommand(
       } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
       this.removed(command.id);
     };
-    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup, heldCheckout);
+    if (command.kind === "restart") {
+      if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
+      this.sessions.claim(entry.id);
+      this.busySessions.add(entry.id);
+      try {
+        if (entry.machine)
+          await this.startMachine(
+            entry.placement?.kind === "remote" ? entry.placement.host : null,
+            "shell",
+          );
+        else if (
+          entry.remote &&
+          entry.placement?.kind === "remote" &&
+          entry.branch === "Main checkout"
+        )
+          await this.startMachine(entry.placement.host, "shell", undefined, {
+            repository: entry.repository,
+            worktree: entry.repository,
+            branch: null,
+          });
+        else if (entry.config) await this.startConfig("shell");
+        else if (entry.home && entry.remote) {
+          const target =
+            entry.placement?.kind === "remote"
+              ? this.deps.hosts?.shellTarget?.(entry.placement.host)
+              : undefined;
+          if (!target) throw new LaunchFailure("remote_host_unreachable");
+          await this.startHomeShell(undefined, target);
+        } else if (entry.home) await this.startHomeShell();
+        else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
+        await cleanup();
+      } finally {
+        this.busySessions.delete(entry.id);
+      }
+    } else if (entry) await this.closeSession(entry, cleanup, heldCheckout);
     else await cleanup();
     return;
   }
