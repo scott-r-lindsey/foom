@@ -117,6 +117,15 @@ test.each<[AgentId, string[], boolean]>([
 });
 
 test.each([
+  ["--dangerouslySkipPermissions"],
+  ["--dangerouslySkipPermissions=true"],
+  ["--dangerouslySkipPermissions", "true"],
+])("discloses the OpenCode parser's camel-case bypass spelling %j", (...args) => {
+  expect(parseAgentArguments("opencode", args)).toEqual(args);
+  expect(hasBypassArgument("opencode", args)).toBe(true);
+});
+
+test.each([
   ["--sandbox", "danger-full-access"],
   ["--sandbox=danger-full-access"],
   ["-s", "danger-full-access"],

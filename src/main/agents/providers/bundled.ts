@@ -43,7 +43,7 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     opencode,
     "opencode",
-    "b99c2c6de262d3fe6128f1bb0fe1f1021c012171413bb906e6529b139984ca5e",
+    "e7e87ec3bf60ef69cf13afd1e0735175aad6dc831844e1b3128293a80a2c6012",
   ),
   bundledProvider(pi, "pi", "ae24e1b71a95436084cee548fda9c3babb5d873217e5bd9d6223a44a0d00ad80"),
 ];

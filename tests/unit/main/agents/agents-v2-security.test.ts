@@ -45,6 +45,7 @@ it("requires human acknowledgement to launch Codex with the bypass alias", async
 
 it.each([
   ["opencode", "--auto"],
+  ["opencode", "--dangerouslySkipPermissions"],
   ["copilot", "--yolo"],
 ])(
   "%s bundled launches require current provider consent for inherited config-origin bypass defaults",
@@ -70,6 +71,12 @@ it.each([
     );
     const inherited = { ...request, agent: provider.id, defaultArguments: [bypass] };
     service.setHooksEnabled(false);
+    service.setBypassIdentities({ [provider.id]: currentIdentity });
+    await expect(service.launch({ ...inherited, control: { parentId: "parent" } })).rejects.toThrow(
+      "Unattended child bypass is unavailable",
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
     service.setBypassIdentities({ [provider.id]: priorIdentity });
     await expect(service.launch(inherited)).rejects.toThrow("cancelled");
     expect(create).not.toHaveBeenCalled();
