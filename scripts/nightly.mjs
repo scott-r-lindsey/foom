@@ -93,6 +93,42 @@ export function checksums(packages) {
     .join("");
 }
 
+const siteComplete = "\n<!-- nightly site publication complete -->";
+
+function releaseMatches(release, sha) {
+  return !release.draft && release.prerelease && release.body?.startsWith(`Commit: ${sha}\n`);
+}
+
+async function publishedRelease(github, repo) {
+  try {
+    return (await github.rest.repos.getReleaseByTag({ ...repo, tag: "nightly" })).data;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    return null;
+  }
+}
+
+export async function nightlyPublished({ github, context, siteEnabled }) {
+  const release = await publishedRelease(github, context.repo);
+  return Boolean(
+    release &&
+      releaseMatches(release, context.sha) &&
+      (!siteEnabled || release.body.endsWith(siteComplete)),
+  );
+}
+
+export async function markSitePublished({ github, context }) {
+  const release = await publishedRelease(github, context.repo);
+  if (!release || !releaseMatches(release, context.sha))
+    throw new Error("Rolling nightly no longer matches the published site commit");
+  if (!release.body.endsWith(siteComplete))
+    await github.rest.repos.updateRelease({
+      ...context.repo,
+      release_id: release.id,
+      body: `${release.body.trimEnd()}${siteComplete}`,
+    });
+}
+
 // Called only by the gated, serialized contents:write job. GitHub data is text,
 // never shell source; even commit ranges are validated full hashes.
 export async function publish({ github, context, directory = "nightly-packages" }) {
@@ -156,7 +192,7 @@ export async function publish({ github, context, directory = "nightly-packages" 
     previousSha === info.sha && previous?.body?.startsWith(`Commit: ${info.sha}\n`)
       ? previous.body
       : generatedBody;
-  await replaceAssets({ github, repo, previous, previousSha, info, packages, body });
+  return replaceAssets({ github, repo, previous, previousSha, info, packages, body });
 }
 
 export async function replaceAssets({ github, repo, previous, previousSha, info, packages, body }) {
@@ -183,7 +219,7 @@ export async function replaceAssets({ github, repo, previous, previousSha, info,
     oldSums &&
     oldAssets.some((asset) => asset.name === "SHA256SUMS" && asset.digest === digest(oldSums))
   )
-    return;
+    return true; // The site must reuse the original prerelease bytes on a same-commit retry.
   const release =
     previous ??
     (

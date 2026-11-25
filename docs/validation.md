@@ -228,7 +228,7 @@ CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push r
 
 Desktop validation is skipped only when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, direct HTML mockups under `docs/mockups/`, or reference/prototype material under `inspiration/` or `spikes/` (the exact allowlist is in [`scripts/ci-changes.mjs`](../scripts/ci-changes.mjs)). Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails change detection.
 
-CI retains HTML/LCOV coverage for three days. Platform installers and ZIPs are built and validated on every required desktop run, and are uploaded on main pushes, for scheduled nightlies or **Actions → CI → Run workflow → publish_nightly** on `main`. Only the nightly publication job has repository contents write permission in CI, and it waits for the Quality gate. An unchanged or failing night leaves the previous nightly up. Manual runs without `publish_nightly` never publish. The separate `upload_packages` option uploads development ZIPs without publishing. These manually requested ZIPs are retained for three days. macOS CI also uploads its tested ZIP on PRs and other desktop runs, then downloads it to exercise the release artifact layout with ad-hoc signing; this artifact has the same three-day retention. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `pnpm install --frozen-lockfile`, and Node comes from `.nvmrc`.
+CI retains HTML/LCOV coverage for three days. Platform installers and ZIPs are built and validated on every required desktop run, and are uploaded on main pushes, for scheduled nightlies or **Actions → CI → Run workflow → publish_nightly** on `main`. Only the nightly publication job has repository contents write permission in CI, and it waits for the Quality gate. The schedule skips desktop validation once the current main commit has a completed nightly. Manual runs without `publish_nightly` never publish. The separate `upload_packages` option uploads development ZIPs without publishing. These manually requested ZIPs are retained for three days. macOS CI also uploads its tested ZIP on PRs and other desktop runs, then downloads it to exercise the release artifact layout with ad-hoc signing; this artifact has the same three-day retention. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `pnpm install --frozen-lockfile`, and Node comes from `.nvmrc`.
 
 `main` requires a pull request, an up-to-date branch, and a passing **Quality gate**, including for administrators. No second-person approval is required. Force pushes and deletion are blocked. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
 
@@ -496,8 +496,11 @@ The user-approved URL contract is in [architecture](architecture.md#nightly-upda
 `scripts/nightly-feed.mjs` generates metadata from the same tested packages used
 by the rolling prerelease publisher. The existing `nightly` job remains gated by
 successful Quality and macOS signing jobs, main, and schedule/opt-in publication.
-It downloads only this run's tested Linux/Windows packages and Developer ID signed,
-notarized and stapled macOS package; no rebuild or ad-hoc fallback is allowed.
+The publisher uses this run's tested Linux/Windows packages and Developer ID signed,
+notarized and stapled macOS packages for new commits. To repair a partial
+publication for the same commit, the publisher downloads the original tested
+prerelease assets and verifies their SHA-256 checksums. Fresh signing can change
+macOS package bytes. The Quality and macOS signing gates still apply on retry.
 `scripts/nightly-feed.test.mjs` tests generation, conditional writes, failure and
 retry behavior through a fake AWS boundary. App update tests use fake HTTP/updaters,
 including the `/u/v1/` counting proxy and per-channel fallback. The proxy does not
@@ -582,10 +585,20 @@ and per-file fixed name, SHA-256 and immutable URL (see the
 Failure before metadata publication leaves previous JSON pointers intact.
 Failure between mutable writes can leave downloads or architectures on different
 nightlies; each published JSON pointer references complete immutable artifacts.
-A same-commit retry repairs the set, including files already written by that commit. These are individual atomic object replacements, not a
-cross-object transaction. A conflicting conditional upload fails closed and may
-be retried without replacing bytes.
-Existing immutable objects are trusted only within this dedicated writer's prefix.
+A same-commit retry repairs the set, including files already written by that
+commit. Each object replacement is atomic. PUTs allow one retry for recognized
+transport errors and transient service failures. Each AWS CLI call keeps its
+60-second timeout. A shared nine-minute AWS deadline is measured from the start
+of the ten-minute publisher job. After an ambiguous immutable PUT, the publisher
+lists the existing scoped prefix and checks the stored SHA-256 and length if the
+key is present. A missing key can be retried with the same conditional create.
+Access denial, precondition failures and mismatched bytes stop publication
+immediately.
+
+The last site step records completion in the matching GitHub prerelease body
+after the upload and invalidation succeed. The next schedule retries an
+incomplete publication even if main is unchanged. When the site feed is disabled,
+the matching prerelease is sufficient for the schedule to skip publication.
 
 One invalidation contains exactly these paths after all writes succeed:
 

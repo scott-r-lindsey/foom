@@ -10,6 +10,8 @@ import {
   buildIdentity,
   checksums,
   identity,
+  markSitePublished,
+  nightlyPublished,
   nightlyRequested,
   publish,
   replaceAssets,
@@ -123,6 +125,32 @@ function api(previous, failure) {
     },
   };
 }
+
+test("the schedule retries a matching prerelease until the site upload is recorded", async () => {
+  const context = { sha, repo: { owner: "test", repo: "foom" } };
+  const release = { id: 10, prerelease: true, draft: false, body: `Commit: ${sha}\nNotes\n` };
+  const mock = api(release);
+  const status = { ...mock, context, siteEnabled: true };
+  assert.equal(await nightlyPublished(status), false);
+  assert.equal(await nightlyPublished({ ...status, siteEnabled: false }), true);
+  assert.equal(await nightlyPublished({ ...status, ...api() }), false);
+  await assert.rejects(
+    nightlyPublished({ ...status, ...api(release, "getReleaseByTag") }),
+    /unavailable/,
+  );
+  await markSitePublished(status);
+  const [method, args] = mock.calls.at(-1);
+  assert.equal(method, "updateRelease");
+  assert.equal(args.release_id, release.id);
+  assert.match(args.body, /^Commit: .+\nNotes\n<!-- nightly site publication complete -->$/);
+  release.body = args.body;
+  assert.equal(await nightlyPublished(status), true);
+  await markSitePublished(status);
+  assert.equal(mock.calls.filter(([name]) => name === "updateRelease").length, 1);
+  const other = { ...context, sha: "b".repeat(40) };
+  assert.equal(await nightlyPublished({ ...status, context: other }), false);
+  await assert.rejects(markSitePublished({ ...status, context: other }), /no longer matches/);
+});
 test("complete asset set is validated before publication; hashes cover exact bytes", async (t) => {
   const { info, context } = fixture(t);
   const packages = assets("nightly-packages", info);
