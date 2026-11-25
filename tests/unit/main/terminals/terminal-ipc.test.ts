@@ -1,6 +1,7 @@
 import type { WakeInput } from "../../../../src/shared/agent-wake";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 import type { ChildInput } from "../../../../src/shared/child-input";
+import type { TerminalHostClient } from "../../../../src/main/terminals/terminal-host-client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -31,6 +32,7 @@ const mock = vi.hoisted(() => ({
   imageClose: vi.fn(),
   imageDiscard: vi.fn(),
   imagePath: vi.fn(),
+  imagePasteStatus: vi.fn<TerminalHostClient["imagePasteStatus"]>(),
   recheckWake: vi.fn(),
 }));
 vi.mock("../../../../src/main/terminals/image-clipboard", () => ({ readPaste: mock.readPaste }));
@@ -64,6 +66,7 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
         this.manager = new TerminalManager(onExit, events);
       }
       imagePath = mock.imagePath;
+      imagePasteStatus = mock.imagePasteStatus;
       create(spec: TerminalSpec) {
         return this.manager.create(spec);
       }
@@ -203,6 +206,7 @@ let terminalControl: ReturnType<typeof attachTerminal>;
 const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.imagePasteStatus.mockReturnValue("available");
   contents.isCrashed.mockReturnValue(false);
   ptys = [];
   mock.app.isPackaged = false;
@@ -1729,15 +1733,34 @@ test("shared paste authorizes attached sender, keeps text precedence, and gates 
   });
   mock.normalize.mockRejectedValueOnce(new Error("decoder"));
   expect(await invoke("paste", [id])).toEqual({ kind: "failed" });
-  for (const agent of [undefined, "copilot", "opencode", "agy"]) {
+  for (const imagePaste of [undefined, false]) {
     const unsupported = await terminalControl.create({
       ...spec,
-      ...(agent ? { imagePaste: false } : {}),
+      ...(imagePaste === undefined ? {} : { imagePaste }),
     });
     await invoke("attach", [unsupported]);
     expect(await invoke("paste", [unsupported])).toEqual({ kind: "unsupported" });
   }
 });
+test.each([
+  { status: "unsupported", kind: "unsupported" },
+  { status: "unavailable", kind: "failed" },
+] as const)(
+  "a remote terminal with $status image paste still accepts text and returns $kind for images",
+  async ({ status, kind }) => {
+    const id = await terminalControl.create({ ...spec, imagePaste: true });
+    await invoke("attach", [id]);
+    mock.imagePasteStatus.mockReturnValue(status);
+    mock.readPaste.mockResolvedValueOnce({ kind: "text", text: "visible" });
+    expect(await invoke("paste", [id])).toEqual({ kind: "text", text: "visible" });
+    mock.readPaste.mockResolvedValueOnce({ kind: "image", bytes: new Uint8Array([1]) });
+    expect(await invoke("paste", [id])).toEqual({ kind });
+    expect(mock.normalize).not.toHaveBeenCalled();
+    expect(mock.imagePath).not.toHaveBeenCalled();
+    expect(mock.imagePut).not.toHaveBeenCalled();
+  },
+);
+
 test("terminal exit contains image cleanup failure and emits only a fixed diagnostic", async () => {
   const id = await terminalControl.create({ ...spec, imagePaste: true });
   await invoke("attach", [id]);

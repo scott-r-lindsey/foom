@@ -37,6 +37,7 @@ import { MCP_ID_LIMIT, MCP_RESPONSE_LIMIT, mcpToolResponse } from "../../node-co
 export type DecisionForge = (
   repository: string,
   pullRequest: number,
+  after: number,
 ) => { headSha: string; checks?: NonNullable<BoardDecision["checks"]> } | undefined;
 
 function addressKey({ post, index }: DecisionAddress): string {
@@ -45,6 +46,10 @@ function addressKey({ post, index }: DecisionAddress): string {
 
 function answeredPosts(posts: MessagePost[]): Set<string> {
   return new Set(posts.flatMap((post) => post.answers?.map(addressKey) ?? []));
+}
+
+function pendingDecision({ status }: BoardDecision): boolean {
+  return status === "open" || status === "checking";
 }
 
 export function stateAfterBoardPost(state: ThreadState, post: MessagePost): ThreadState {
@@ -114,7 +119,10 @@ export class MessageBoard {
   private data: Data = { version: 1, threads: [], posts: [], receipts: [] };
   private failed = false;
   private readonly observedStale = new Map<string, Map<number, string>>();
-  private savingQuestion: { post: MessagePost; heads: Map<number, string> } | undefined;
+  private readonly postedAfter = new Map<string, number>();
+  private savingQuestion:
+    | { post: MessagePost; after: number; heads: Map<number, string> }
+    | undefined;
   private childWrites: Promise<unknown> = Promise.resolve();
   private writes: Promise<unknown> = Promise.resolve();
   constructor(
@@ -123,12 +131,14 @@ export class MessageBoard {
     private readonly changed: (answers?: readonly BoardAnswerNotice[]) => void = () => {},
     private readonly limits = { bytes: LIMIT, receipts: 65536 },
     private readonly forge: DecisionForge = () => undefined,
+    private readonly forgeRevision: () => number = () => 0,
   ) {}
   static async open(
     directory: string,
     repositories: () => BoardRepository[],
     changed: (answers?: readonly BoardAnswerNotice[]) => void,
     forge?: DecisionForge,
+    forgeRevision?: () => number,
   ): Promise<MessageBoard> {
     const board = new MessageBoard(
       (data, beforeCommit) => atomicPrivate(directory, "board.json", data, beforeCommit),
@@ -136,6 +146,7 @@ export class MessageBoard {
       changed,
       undefined,
       forge,
+      forgeRevision,
     );
     const path = join(directory, "board.json");
     try {
@@ -255,13 +266,7 @@ export class MessageBoard {
   private displayThread(thread: MessageThread, posts: MessagePost[] = []): MessageThread {
     if (thread.state === "resolved" || !posts.some((post) => post.questions)) return thread;
     const answered = answeredPosts(posts);
-    if (
-      posts.some((post) =>
-        this.project(post, thread, answered).some(
-          ({ status }) => status === "open" || status === "checking",
-        ),
-      )
-    )
+    if (posts.some((post) => this.project(post, thread, answered).some(pendingDecision)))
       return { ...thread, state: "waiting-human" };
     const state = posts
       .filter((post) => !post.questions)
@@ -275,14 +280,15 @@ export class MessageBoard {
     answered: Set<string>,
   ): BoardDecision[] {
     const repository = post.author.slice(13);
+    const after = this.postedAfter.get(post.id) ?? 0;
     return (post.questions ?? []).map((question, index) => {
       const address = { post: post.id, index };
       const subject = question.subject;
-      const current = subject && this.forge(repository, subject.pullRequest);
+      const current = subject && this.forge(repository, subject.pullRequest, after);
       const mismatch =
         subject && current && subject.headSha !== current.headSha ? current.headSha : undefined;
       const movedHead =
-        mismatch ?? this.observedStale.get(post.id)?.get(index) ?? post.staleHeads?.[String(index)];
+        post.staleHeads?.[String(index)] ?? this.observedStale.get(post.id)?.get(index) ?? mismatch;
       const status = answered.has(addressKey(address))
         ? "answered"
         : post.withdrawn || thread.state === "resolved"
@@ -320,7 +326,7 @@ export class MessageBoard {
       const thread = threads.get(post.thread);
       if (!post.questions || !thread) continue;
       for (const row of this.project(post, thread, answered)) {
-        const open = row.status === "open" || row.status === "checking";
+        const open = pendingDecision(row);
         if (open) counts.set(row.repository, (counts.get(row.repository) ?? 0) + 1);
         if ((open && repository === row.repository) || watched.has(addressKey(row)))
           questions.push(row);
@@ -329,8 +335,8 @@ export class MessageBoard {
     return structuredClone({ counts: Object.fromEntries(counts), questions });
   }
 
-  pendingSubjects(): { repository: string; number: number }[] {
-    const subjects = new Map<string, { repository: string; number: number }>();
+  pendingSubjects(): { repository: string; number: number; after: number }[] {
+    const subjects = new Map<string, { repository: string; number: number; after: number }>();
     const answered = answeredPosts(this.data.posts);
     const threads = new Map(this.data.threads.map((thread) => [thread.id, thread]));
     for (const post of this.data.posts) {
@@ -338,12 +344,12 @@ export class MessageBoard {
       if (!post.questions || !thread) continue;
       for (const row of this.project(post, thread, answered)) {
         const subject = row.question.subject;
-        if (subject && (row.status === "open" || row.status === "checking")) {
+        if (subject && pendingDecision(row)) {
           const number = subject.pullRequest;
-          subjects.set(`${row.repository}:${String(number)}`, {
-            repository: row.repository,
-            number,
-          });
+          const key = `${row.repository}:${String(number)}`;
+          const after = this.postedAfter.get(post.id) ?? 0;
+          if (after >= (subjects.get(key)?.after ?? 0))
+            subjects.set(key, { repository: row.repository, number, after });
         }
       }
     }
@@ -364,7 +370,7 @@ export class MessageBoard {
     const repository = pending.post.author.slice(13);
     for (const [index, { subject }] of (pending.post.questions ?? []).entries()) {
       if (!subject || pending.heads.has(index)) continue;
-      const current = this.forge(repository, subject.pullRequest);
+      const current = this.forge(repository, subject.pullRequest, pending.after);
       if (current && current.headSha !== subject.headSha) pending.heads.set(index, current.headSha);
     }
   }
@@ -586,12 +592,23 @@ export class MessageBoard {
         const post = data.posts.find((row) => row.id === input.post && row.thread === thread.id);
         if (!post?.questions) throw new ControlError("not_found");
         if (post.author !== `orchestrator:${repository}`) throw new ControlError("forbidden");
-        const open = this.project(post, thread, answeredPosts(data.posts)).some(
-          ({ status }) => status === "open" || status === "checking",
-        );
+        const open = this.project(post, thread, answeredPosts(data.posts)).some(pendingDecision);
         if (!open) throw new ControlError("conflict");
         post.withdrawn = true;
         return { thread: thread.id, post: post.id };
+      }
+      if (repository !== undefined) {
+        const answered = answeredPosts(data.posts);
+        if (
+          data.posts.some(
+            (post) =>
+              post.thread === thread.id &&
+              post.questions &&
+              post.author !== `orchestrator:${repository}` &&
+              this.project(post, thread, answered).some(pendingDecision),
+          )
+        )
+          throw new ControlError("forbidden");
       }
       const index = data.threads.findIndex((row) => row.id === thread.id);
       data.threads[index] = { ...thread, state: "resolved", updatedAt: new Date().toISOString() };
@@ -796,7 +813,9 @@ export class MessageBoard {
             throw error;
           }
         });
-      const saving = question && { post: question, heads: new Map<number, string>() };
+      const saving = question?.questions?.some(({ subject }) => subject)
+        ? { post: question, after: this.forgeRevision(), heads: new Map<number, string>() }
+        : undefined;
       this.savingQuestion = saving;
       try {
         if (saving) {
@@ -829,6 +848,7 @@ export class MessageBoard {
         this.savingQuestion = undefined;
       }
       this.data = next;
+      if (saving) this.postedAfter.set(saving.post.id, saving.after);
       this.changed(answerEffects?.notices);
       return { ...result };
     });

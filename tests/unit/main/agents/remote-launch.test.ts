@@ -66,6 +66,25 @@ function fixture(hooks = true) {
     },
   };
 }
+test("remote Antigravity launch grants image paste to the hub terminal", async () => {
+  const f = fixture(false);
+  const launched = await launchRemoteChild(
+    { ...request, agent: "agy" },
+    mapping,
+    [],
+    false,
+    { create: f.create },
+    f.control,
+    f.validate,
+  );
+  try {
+    expect(f.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ imagePaste: true }));
+    expect(f.remote().spec.agent).toBe("agy");
+  } finally {
+    launched.dispose();
+  }
+});
+
 test("remote launch keeps hub identity and credentials out of process data and binds reduced hooks to a separate key", async () => {
   const f = fixture();
   const launched = await launchRemoteChild(

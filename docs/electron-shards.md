@@ -1,6 +1,6 @@
 # Electron test layout and shard balance
 
-Full CI runs use four named-test shards on Linux, five on Windows and seven on macOS.
+Full CI runs use four named-test shards on Linux, six on Windows and eight on macOS.
 Draft PRs with entirely mapped changes run the affected suites once per platform
 using shard `1/1`; any unmapped path retains the full matrix. Ready PRs always run
 the full matrix, including the readiness event without another push. `tests/electron/shard-plan.json`
@@ -8,7 +8,7 @@ stores assignments keyed by shard count and the CI count for each platform; `tes
 and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
 companion job per platform, alongside the Electron shards and static checks.
-The Quality gate requires all sixteen Electron jobs and all three companion jobs.
+The Quality gate requires all eighteen Electron jobs and all three companion jobs.
 Draft quality gate requires the selected Electron matrix and the same companions;
 it cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
@@ -827,9 +827,9 @@ After #1220, the issue reports repeated six-way timeouts in runs
 [43909947998](https://github.com/scott-r-lindsey/foom/actions/runs/43909947998) and
 [43928221344](https://github.com/scott-r-lindsey/foom/actions/runs/43928221344).
 The user approved a seventh macOS shard. Linux stays at four and Windows at five.
-The matrix now requires sixteen Electron jobs through the existing Quality gate's
-aggregate desktop result, plus three native/packaging jobs. Each desktop run
-requests nine macOS jobs: seven Electron shards, the native/packaging companion
+The #1214 matrix required sixteen Electron jobs through the Quality gate's
+aggregate desktop result, plus three native/packaging jobs. Each full run
+requested nine macOS jobs: seven Electron shards, the native/packaging companion
 and the combined Darwin host builder.
 
 Reuse #1220's recorded maxima for its 399 measured cases, whose passing macOS
@@ -1019,3 +1019,81 @@ Windows 3/5 observed 699 seconds on main run 44665936702. Its slowest passing
 replay is now 687.7 seconds. The combined maximum estimate leaves at least
 10 seconds under the existing 840-second limit on every shard. These are
 projections from passing runs. A new CI run measures the reassigned shards.
+
+## Sixth Windows and eighth macOS shards (#1295)
+
+The plan uses 48 passing Electron reports from main runs
+[44716973671](https://github.com/scott-r-lindsey/foom/actions/runs/44716973671),
+[44784501944](https://github.com/scott-r-lindsey/foom/actions/runs/44784501944) and
+[44833390270](https://github.com/scott-r-lindsey/foom/actions/runs/44833390270).
+They contain 444, 447 and 448 named cases per platform, respectively, and cover
+all 448 current registrations. The source matrix is four/five/seven. The new
+six- and eight-way assignments start from the generator output. Four macOS
+case swaps balance the slowest replay (44716973671) while keeping each macOS
+shard's maximum-duration sum below 600 seconds.
+
+```sh
+for run in 44716973671 44784501944 44833390270; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "/tmp/foom-1295-junit/$run"
+done
+node --input-type=module <<'JS'
+import { readFileSync } from "node:fs";
+import { writePlan } from "./scripts/rebalance-electron-shards.mjs";
+const path = "tests/electron/shard-plan.json";
+const plan = JSON.parse(readFileSync(path, "utf8"));
+for (const [platform, count] of [["windows-2025", 6], ["macos-15", 8]]) {
+  plan.shardCounts[platform] = count;
+  plan.shards[count] ??= Array.from({ length: count }, () => ({}));
+}
+writePlan(path, plan);
+JS
+node scripts/rebalance-electron-shards.mjs /tmp/foom-1295-junit/{44716973671,44784501944,44833390270} --source-shards=4,5,7 --write
+node --input-type=module <<'JS'
+import { readFileSync } from "node:fs";
+import { writePlan } from "./scripts/rebalance-electron-shards.mjs";
+const path = "tests/electron/shard-plan.json";
+const plan = JSON.parse(readFileSync(path, "utf8"));
+const shards = plan.shards[8];
+for (const [left, right, outgoing, incoming] of [
+  [8, 1, "restores running claude in a linked worktree, shell and orchestrator children across windows",
+    "preview live reload follows retargeted symlinks and junctions"],
+  [4, 2, "Hosts opens saved checks without SSH and keeps ready repositories compact",
+    "local and registered-host installers stop their whole group after supervisor SIGKILL"],
+  [3, 5, "Antigravity plugin Settings disclosure installs and removes an observer that reports lifecycle",
+    "sidebar machines launch human shells and agents and keep remote worktrees under repositories"],
+  [6, 5, "preview history restores scroll, goes forward and recovers missing html links",
+    "Hosts repository reloads bypass the SSH master and update the completed SSH row"],
+]) {
+  const a = shards[left - 1];
+  const b = shards[right - 1];
+  if (!Object.hasOwn(a, outgoing) || !Object.hasOwn(b, incoming))
+    throw new Error(`Unexpected assignments for shards ${left} and ${right}`);
+  b[outgoing] = a[outgoing];
+  a[incoming] = b[incoming];
+  delete a[outgoing];
+  delete b[incoming];
+}
+plan.shards[8] = shards.map(shard =>
+  Object.fromEntries(Object.entries(shard).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
+);
+writePlan(path, plan);
+JS
+pnpm exec biome format --write tests/electron/shard-plan.json
+```
+
+The table lists values in shard order. Each replay uses one run's measured case
+times and adds that run's largest difference between an Electron step's wall
+time and its original named-case sum. The table takes the slowest replay per
+shard. Headroom is relative to the 840-second step limit.
+
+| Platform | Named-case sums (s) | Slowest observed-run replay (s) | Minimum replay headroom (s) |
+| --- | --- | --- | --- |
+| Linux / 4 | 735.7 / 732.0 / 728.9 / 740.2 | 701.6 / 700.6 / 688.8 / 690.0 | 138.4 |
+| Windows / 6 | 626.0 / 626.8 / 627.3 / 626.1 / 625.4 / 625.9 | 651.7 / 652.8 / 677.6 / 677.2 / 625.7 / 645.9 | 162.4 |
+| macOS / 8 | 586.4 / 599.9 / 599.6 / 581.5 / 599.6 / 597.2 / 597.1 / 576.0 | 711.5 / 712.0 / 712.4 / 711.9 / 706.7 / 711.4 / 713.0 / 711.7 | 127.0 |
+
+Combining the maximum case sums with the largest observed residual per platform
+(65.2 / 80.1 / 161.1 seconds) gives peak step estimates of 805.4 / 707.4 /
+761.1 seconds on Linux / Windows / macOS. Actual headroom will be measured in
+the first full ready-PR run.

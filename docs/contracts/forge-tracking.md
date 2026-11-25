@@ -172,12 +172,14 @@ The private forge envelope retains the resolved branch for restart validation.
 ## Decision subjects (#1297)
 
 A decision subject names an exact PR in the posting repository. The serial poller
-can reuse a settled checkout sample. Publishing a newer observation for that PR
+can reuse a settled checkout sample from a request begun after the question
+started saving. A new question requests a read past that point, even when
+the poller already watches the PR. Publishing a newer observation for that PR
 retires older decision evidence across both checkout and numeric sources.
 If the newest checkout disappears before another source confirms the head,
 the board waits for a fresh observation.
 
-When no checkout covers the subject, the manifest uses the existing numbered
+When no fresh checkout sample covers the subject, the manifest uses the existing numbered
 refresh and checks workflow. It validates the requested number, same-repository
 ownership, branch, head and state, including the final refresh. This read-only
 subject lookup permits a PR sourced from the default branch.

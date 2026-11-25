@@ -316,6 +316,7 @@ export function remoteResponse(value: unknown): value is RemoteResponse {
       "request" in value &&
       hostResponse({ type: "error", id: value.id, request: value.request }) &&
       "state" in value &&
+      (!("imageOwner" in value) || (value.state === "live" && imageNonce(value.imageOwner))) &&
       (((value.state === "live" || value.state === "gone") && !("code" in value)) ||
         (value.state === "exited" &&
           "code" in value &&

@@ -1852,6 +1852,60 @@ it("reuses a settled checkout for a decision subject and retires a superseded nu
   expect(tracker.readDecision(locationId(tree.repository), 340)).toBeUndefined();
 });
 
+it("refreshes a decision subject past a cached checkout and an in-flight numeric read", async () => {
+  const repository = locationId(tree.repository);
+  const target = { repository, number: pending.number };
+  const remote = "https://github.com/foom/foom";
+  const started = Promise.withResolvers<undefined>();
+  const old = Promise.withResolvers<PullRequest>();
+  const fresh = { ...pending, headSha: "b".repeat(40) };
+  const lookupNumber = vi
+    .fn(() => Promise.resolve(fresh))
+    .mockImplementationOnce(() => {
+      started.resolve(undefined);
+      return old.promise;
+    });
+  const changed = vi.fn();
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(remote),
+    changed,
+    () => ({ lookup: () => Promise.resolve(pending), lookupNumber }),
+    () => 0,
+    () => Promise.resolve(remote),
+  );
+  trackers.push(tracker);
+  tracker.track(tree, pending.number);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(pending);
+  const afterCheckout = tracker.revision();
+  tracker.watchDecisions([{ ...target, after: afterCheckout }]);
+  const first = tracker.poll();
+  try {
+    await started.promise;
+    const afterInFlight = tracker.revision();
+    tracker.watchDecisions([{ ...target, after: afterInFlight }]);
+    old.resolve(pending);
+    await first;
+    expect(tracker.readDecision(repository, pending.number, afterCheckout)).toEqual(pending);
+    expect(tracker.readDecision(repository, pending.number, afterInFlight)).toBeUndefined();
+    await tracker.poll();
+    expect(lookupNumber).toHaveBeenCalledTimes(2);
+    expect(tracker.readDecision(repository, pending.number, afterInFlight)).toEqual(fresh);
+
+    const afterFresh = tracker.revision();
+    changed.mockClear();
+    tracker.watchDecisions([{ ...target, after: afterFresh }]);
+    await tracker.poll();
+    expect(lookupNumber).toHaveBeenCalledTimes(3);
+    expect(tracker.readDecision(repository, pending.number, afterFresh)).toEqual(fresh);
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    old.resolve(pending);
+    await first;
+  }
+});
+
 it("backs off on disabled routing, bad identity and failed numeric reads", async () => {
   let now = 0;
   const repository = locationId("/repo");

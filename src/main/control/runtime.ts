@@ -35,6 +35,7 @@ export class ControlRuntime {
     repositories: () => BoardRepository[] = () => [],
     decisions?: {
       forge: DecisionForge;
+      forgeRevision: () => number;
       subjectsChanged?: (subjects: ReturnType<MessageBoard["pendingSubjects"]>) => void;
       preview: NonNullable<ControlRuntime["decisionPreview"]>;
     },
@@ -58,6 +59,7 @@ export class ControlRuntime {
         service.boardChanged(answers);
       },
       decisions?.forge,
+      decisions?.forgeRevision,
     );
     const service = new ControlService(
       operations,

@@ -296,6 +296,8 @@ Every mutation uses the existing durable intent/audit and actor-scoped operation
 lookup. Lost responses must be reconciled using `operation_status` with the same
 key. Human replies and resolution also require idempotency keys, with receipts
 persisted atomically with the accepted write. No author field is accepted.
+Agent thread resolution refuses while a question from another repository is
+open or checking. Agents can withdraw their own question posts by post ID.
 
 ```text
 foom board threads [--category topics|children] [--state S] [--after THREAD]

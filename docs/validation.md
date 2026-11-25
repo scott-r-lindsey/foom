@@ -30,8 +30,9 @@ policy without network requests in `scripts/audit.test.mjs`.
 
 Real-app integration tests are split into discovered feature suites, with a separate
 packaged smoke test. See [Electron test layout and sharding](electron-shards.md)
-for suite ownership, four Linux, five Windows and seven macOS named-test shards and local commands, and
-[explicit Electron fixtures](electron-fixtures.md) for fixture selection and timing.
+for suite ownership, local commands and the named-test matrix with four Linux,
+six Windows and eight macOS shards. See [explicit Electron fixtures](electron-fixtures.md)
+for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
 Unit coverage includes every executable TypeScript file under `src/`, including
@@ -128,10 +129,13 @@ shell removal on native exit and shutdown.
 
 ## Refreshing the Electron shard plan
 
-Use Node 24 and installed dependencies. Download every `electron-results-*` artifact per selected recent passing CI run
-(sixteen for the current matrix, fifteen for the earlier four/five/six matrix, fourteen for the earlier four/five/five matrix, and twelve for historical four-shard runs). Keep numeric run-ID directories and
-artifact subdirectories intact, outside the repository or under ignored
-`test-results/`. Use a fresh source directory for each refresh:
+Use Node 24 and installed dependencies. Download every `electron-results-*`
+artifact per selected recent passing CI run
+(eighteen for the current matrix, sixteen for four/five/seven, fifteen for
+four/five/six, fourteen for four/five/five, and twelve for four shards on every
+platform). Keep numeric run-ID directories and artifact subdirectories intact,
+outside the repository or under ignored `test-results/`. Use a fresh source
+directory for each refresh:
 
 ```sh
 for run in 39918020774 39946804406 39970696968 39973853488 39981523976; do
@@ -151,7 +155,8 @@ cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
 and headroom under the 840s Linux, Windows and macOS step limits.
 The examples select historical four-shard inputs with `--source-shards=4`. Omit
-that option for current runs with four Linux, five Windows and seven macOS shards. Each source run must have the expected report count per platform.
+that option for current runs with four Linux, six Windows and eight macOS
+shards. Each source run must have the expected report count per platform.
 When combining old and current matrices, specify per-run counts explicitly. For
 example, `--source-shards=4 --source-shards=41409300263:4,5,5` uses four reports
 per platform for historical sources and four/five/five for that newer run, in
@@ -175,9 +180,12 @@ for the assignment method and measurement history.
 Draft PRs select Electron suites using the existing mapping in
 `scripts/electron-affected.mjs` against the PR merge-base diff. When every changed
 path is mapped, those suites run once on each platform using shard `1/1`.
-Unmapped paths, empty diffs or missing mapped suites retain the full sixteen-shard
-matrix. Static checks, unit tests, coverage and native-check/packaging are unchanged.
-The `ready_for_review` event and every push while ready run the full matrix.
+Unmapped paths, empty diffs or missing mapped suites retain the full eighteen-shard
+matrix. The full desktop gate requires all eighteen Electron jobs and the three
+native-check/packaging jobs. Each full desktop run requests ten macOS jobs,
+including the eight Electron shards, native-check/packaging and combined Darwin
+host build. The `ready_for_review` event and every push while ready run the full
+matrix.
 `converted_to_draft` also starts a new run. Main pushes, schedules, manual runs,
 nightly publication and the documentation-only desktop skip retain their policy.
 
@@ -220,9 +228,16 @@ CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push r
 
 Desktop validation is skipped only when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, direct HTML mockups under `docs/mockups/`, or reference/prototype material under `inspiration/` or `spikes/` (the exact allowlist is in [`scripts/ci-changes.mjs`](../scripts/ci-changes.mjs)). Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails change detection.
 
-CI retains HTML/LCOV coverage for three days. Platform installers and ZIPs are built and validated on every required desktop run, and are uploaded on main pushes, for scheduled nightlies or **Actions → CI → Run workflow → publish_nightly** on `main`. Only the nightly publication job has repository contents write permission in CI, and it waits for the Quality gate. An unchanged or failing night leaves the previous nightly up. Manual runs without `publish_nightly` never publish. The separate `upload_packages` option uploads development ZIPs without publishing. These manually requested ZIPs are retained for three days. macOS CI also uploads its tested ZIP on PRs and other desktop runs, then downloads it to exercise the release artifact layout with ad-hoc signing; this artifact has the same three-day retention. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `pnpm install --frozen-lockfile`, and Node comes from `.nvmrc`.
+CI retains HTML/LCOV coverage for three days. Platform installers and ZIPs are built and validated on every required desktop run, and are uploaded on main pushes, for scheduled nightlies or **Actions → CI → Run workflow → publish_nightly** on `main`. Only the nightly publication job has repository contents write permission in CI, and it waits for the Quality gate. The schedule skips desktop validation once the current main commit has a completed nightly. Manual runs without `publish_nightly` never publish. The separate `upload_packages` option uploads development ZIPs without publishing. These manually requested ZIPs are retained for three days. macOS CI also uploads its tested ZIP on PRs and other desktop runs, then downloads it to exercise the release artifact layout with ad-hoc signing; this artifact has the same three-day retention. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `pnpm install --frozen-lockfile`, and Node comes from `.nvmrc`.
 
 `main` requires a pull request, an up-to-date branch, and a passing **Quality gate**, including for administrators. No second-person approval is required. Force pushes and deletion are blocked. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
+
+The macOS packaging job requests the tested artifact by the upload step's ID
+through the GitHub REST API. It logs each request and waits two seconds after
+HTTP 404, for at most three attempts. Other request failures stop immediately.
+The job downloads the ZIP from the signed redirect without sending the job
+token, verifies the upload step's SHA-256 digest and extracts the archive into
+`tested-macos` before signing.
 
 Follow [AGENTS.md](../AGENTS.md#validation-and-delivery) for pre-push checks and delivery. Keep cancellation of superseded runs enabled.
 
@@ -488,8 +503,11 @@ The user-approved URL contract is in [architecture](architecture.md#nightly-upda
 `scripts/nightly-feed.mjs` generates metadata from the same tested packages used
 by the rolling prerelease publisher. The existing `nightly` job remains gated by
 successful Quality and macOS signing jobs, main, and schedule/opt-in publication.
-It downloads only this run's tested Linux/Windows packages and Developer ID signed,
-notarized and stapled macOS package; no rebuild or ad-hoc fallback is allowed.
+The publisher uses this run's tested Linux/Windows packages and Developer ID signed,
+notarized and stapled macOS packages for new commits. To repair a partial
+publication for the same commit, the publisher downloads the original tested
+prerelease assets and verifies their SHA-256 checksums. Fresh signing can change
+macOS package bytes. The Quality and macOS signing gates still apply on retry.
 `scripts/nightly-feed.test.mjs` tests generation, conditional writes, failure and
 retry behavior through a fake AWS boundary. App update tests use fake HTTP/updaters,
 including the `/u/v1/` counting proxy and per-channel fallback. The proxy does not
@@ -574,10 +592,25 @@ and per-file fixed name, SHA-256 and immutable URL (see the
 Failure before metadata publication leaves previous JSON pointers intact.
 Failure between mutable writes can leave downloads or architectures on different
 nightlies; each published JSON pointer references complete immutable artifacts.
-A same-commit retry repairs the set, including files already written by that commit. These are individual atomic object replacements, not a
-cross-object transaction. A conflicting conditional upload fails closed and may
-be retried without replacing bytes.
-Existing immutable objects are trusted only within this dedicated writer's prefix.
+A same-commit retry reuses a fixed download only when its HEAD reports the
+expected commit, timestamp, SHA-256 and length. It completes pending downloads
+before writing the checksum file and JSON pointers. Each object replacement is
+atomic. PUTs allow one retry for the transient responses documented for
+[AWS CLI v2 Standard mode](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-retries.html#cli-configure-retries-modes-standard)
+and recognized process and S3 server errors. Each AWS CLI call keeps its
+60-second timeout. The AWS CLI retains its own retry policy for inventory,
+verification and invalidation. A shared nine-minute AWS deadline is measured
+from the start of the ten-minute publisher job. After an ambiguous immutable PUT, the publisher
+lists the existing scoped prefix and checks the stored SHA-256 and length if the
+key is present. A missing key can be retried with the same conditional create.
+Access denial, precondition failures and mismatched bytes stop publication
+immediately.
+
+The last site step records completion in the matching GitHub prerelease body
+after the upload and invalidation succeed. The next schedule retries an
+incomplete publication even if main is unchanged. When the site feed is disabled,
+the schedule skips publication only after verifying the matching prerelease has
+the complete asset set and its checksum file matches GitHub's asset digests.
 
 One invalidation contains exactly these paths after all writes succeed:
 

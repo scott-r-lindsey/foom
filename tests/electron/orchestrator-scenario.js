@@ -765,6 +765,30 @@ process.stdout.write("FOOM_AGENT_READY`,
     await expect(parentBoard).toHaveAttribute("data-state", "needs_input");
     await expect(summary).toContainText("1 need you");
     await expect(boardButton(12)).toBeVisible();
+
+    const askAt = async (headSha, key) => {
+      assert.equal(
+        (
+          await control("board_post", {
+            thread,
+            kind: "question",
+            text: key,
+            idempotencyKey: key,
+            questions: [
+              { title: "Confirm the current revision?", options, subject: { ...subject, headSha } },
+            ],
+          })
+        ).status,
+        "succeeded",
+      );
+    };
+    const latestDecision = async () => (await board()).posts.at(-1).decisions[0].status;
+    await askAt("b".repeat(64), "warm-subject");
+    await expect.poll(latestDecision, { timeout: deadline(20000) }).toBe("open");
+    await decisionForge("c".repeat(64));
+    await askAt("c".repeat(64), "fresh-subject");
+    await expect.poll(latestDecision, { timeout: deadline(20000) }).toBe("open");
+    await expect(summary).toContainText("1 need you");
     return;
   }
 
@@ -1093,6 +1117,31 @@ process.stdout.write("FOOM_AGENT_READY`,
     ).toBeVisible();
     const human = (await directCall(parent.controlToken, "board_read", { thread })).body.result;
     assert.equal(human.posts.at(-1).author, "human");
+    const asked = await directCall(siteAgent.controlToken, "board_post", {
+      thread,
+      kind: "question",
+      text: "Confirm the rollout",
+      idempotencyKey: "site-question",
+      questions: [
+        {
+          title: "Use the nightly build?",
+          options: [
+            { id: "go", label: "Use it" },
+            { id: "wait", label: "Wait" },
+          ],
+        },
+      ],
+    });
+    assert.equal(asked.body.result.status, "succeeded");
+    const resolve = await directCall(parent.controlToken, "board_resolve", {
+      thread,
+      idempotencyKey: "foreign-resolve",
+    });
+    assert.equal(resolve.body.result.status, "failed");
+    assert.equal(resolve.body.result.reason, "refused");
+    const stillOpen = (await directCall(siteAgent.controlToken, "board_read", { thread })).body
+      .result;
+    assert.equal(stillOpen.posts.at(-1).decisions[0].status, "open");
     await panel.getByRole("button", { name: "Mark resolved" }).click();
     await expect(
       panel.locator(".message-thread > header").getByText("Resolved", { exact: true }),

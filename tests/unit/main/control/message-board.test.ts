@@ -670,7 +670,7 @@ describe("structured decisions", () => {
     const other = { post: first.post, index: 1, other: "<b>Later</b>" };
     const batch = { idempotencyKey: "human-first", answers: [selected, other] };
     expect(board.decisions({ repository: "a", watch: [] }).questions[0]?.status).toBe("checking");
-    expect(board.pendingSubjects()).toEqual([{ repository: "a", number: 1 }]);
+    expect(board.pendingSubjects()).toEqual([{ repository: "a", number: 1, after: 0 }]);
     await expect(board.answer(batch)).rejects.toThrow("conflict");
     headSha = expected;
     await expect(
@@ -703,6 +703,82 @@ describe("structured decisions", () => {
     expect(restored.threads({ state: "waiting-human" }).threads).toEqual([]);
     expect(await restored.answer(batch)).toEqual(result);
   });
+});
+
+it.each(["open", "checking"])(
+  "preserves another repository's %s question at thread resolution",
+  async (status) => {
+    const board = new MessageBoard(() => Promise.resolve(), repos);
+    const row =
+      status === "open"
+        ? question
+        : { ...question, subject: { pullRequest: 1, headSha: "a".repeat(40) } };
+    const asking = await board.append("orchestrator:a", "grant-a", decisions([row]));
+    const thread = { thread: asking.thread };
+    const cursor = board.event("a");
+    const key = { ...thread, idempotencyKey: "resolve" };
+    await expect(board.resolve("grant-b", key, "b")).rejects.toThrow("forbidden");
+    expect(board.event("a")).toBe(cursor);
+    expect(board.read(thread, "a")).toMatchObject({
+      thread: { state: "waiting-human" },
+      posts: [{ decisions: [{ status }] }],
+    });
+    const close =
+      status === "open" ? board.resolve("human", key) : board.resolve("grant-a", key, "a");
+    await expect(close).resolves.toEqual({ ...thread, post: null });
+    expect(board.read(thread, "a")).toMatchObject({
+      thread: { state: "resolved" },
+      posts: [{ decisions: [{ status: "withdrawn" }] }],
+    });
+  },
+);
+
+it("accepts a new subject only after its post and preserves the first subsequently observed mismatch", async () => {
+  const a = "a".repeat(40);
+  const b = "b".repeat(40);
+  const c = "c".repeat(40);
+  let revision = 1;
+  let headSha = a;
+  const board = new MessageBoard(
+    () => Promise.resolve(),
+    repos,
+    undefined,
+    undefined,
+    (_repository, _number, after) => (revision > after ? { headSha } : undefined),
+    () => revision,
+  );
+  const original = await board.append(
+    "orchestrator:a",
+    "grant-a",
+    decisions([{ ...question, subject: { pullRequest: 1, headSha: b } }]),
+  );
+  const request = { thread: original.thread };
+  const result = () => board.read(request).posts[0]?.decisions?.[0];
+  const answer = {
+    answers: [{ post: original.post, index: 0, option: "go" }],
+    idempotencyKey: "reply",
+  };
+  board.observe();
+  expect(result()).toMatchObject({ status: "checking" });
+  expect(result()?.movedHead).toBeUndefined();
+  expect(board.pendingSubjects()).toEqual([{ repository: "a", number: 1, after: 1 }]);
+  await expect(board.answer(answer)).rejects.toThrow("conflict");
+  const cursor = board.event("a");
+  revision++;
+  headSha = b;
+  board.observe();
+  expect(result()).toMatchObject({ status: "open" });
+  expect(board.event("a")).toBe(cursor);
+  revision++;
+  headSha = c;
+  board.observe();
+  expect(board.event("a")).not.toBe(cursor);
+  revision++;
+  headSha = a;
+  board.observe();
+  await board.flush();
+  expect(result()).toMatchObject({ status: "stale", movedHead: c });
+  await expect(board.answer(answer)).rejects.toThrow("conflict");
 });
 
 it("rechecks the subject at atomic commit and cleanly refuses a head change during the write", async () => {

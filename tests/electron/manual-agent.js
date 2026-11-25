@@ -50,9 +50,10 @@ if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); proces
   await request({ method: 'notifications/initialized' });
   const tools = await request({ id: 2, method: 'tools/list' });
   const list = await request({ id: 3, method: 'tools/call', params: { name: 'manual' } });
+  const section = ${JSON.stringify(configSession ? "registered-hosts" : "shortcuts")};
   let text = '', page = 0;
   for (;;) {
-    const result = await request({ id: 4 + page, method: 'tools/call', params: { name: 'manual', arguments: { section: 'shortcuts', page } } });
+    const result = await request({ id: 4 + page, method: 'tools/call', params: { name: 'manual', arguments: { section, page } } });
     text += result.structuredContent.text;
     if (result.structuredContent.nextPage === undefined) break;
     page = result.structuredContent.nextPage;

@@ -3,6 +3,7 @@ import type { TerminalSpec } from "../../shared/desktop";
 import type { StoredSession } from "./session-restore.d";
 import type { Hosts } from "../setup/hosts";
 import { builtinAgent } from "../../shared/providers/catalog";
+import { imagePasteRecipient } from "../../shared/image-paste";
 import { homeDirectory } from "./home-shell";
 
 /** Only this profile's daemon inventory is eligible; discovery never restores grants. */
@@ -118,6 +119,9 @@ export async function reattachRemoteSession(
       cols: 80,
       rows: 24,
       env: {},
+      ...(entry.machine && entry.kind === "agent" && imagePasteRecipient(entry.agent)
+        ? { imagePaste: true }
+        : {}),
       remote: { host: placement.host, reattach: true, human: true, unavailable },
     });
   } catch (error) {

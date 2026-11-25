@@ -269,8 +269,9 @@ export async function initializeWorkspace(
             })),
           {
             subjectsChanged: (subjects) => forge?.watchDecisions(subjects),
-            forge: (repository, number) => {
-              const pr = forge?.readDecision(repository, number);
+            forgeRevision: () => forge?.revision() ?? 0,
+            forge: (repository, number, after) => {
+              const pr = forge?.readDecision(repository, number, after);
               return pr && { headSha: pr.headSha, checks: pr.requiredChecks };
             },
             preview: async (preview) => {

@@ -327,8 +327,9 @@ always references complete immutable artifacts, and a retry repairs the set.
 A newer interrupted publication therefore blocks queued older commits even when
 all JSON pointers still describe the previous night. Same-commit retries can
 repair a partial set; missing or invalid fixed-object identities fail closed.
-There is no cross-object transaction. Unchanged or failing CI nights do not
-publish; older or same-time different commits are refused before any writes.
+Each object replacement is atomic. The next schedule retries an incomplete site
+publication for unchanged main using the original prerelease bytes. Older or
+same-time different commits are refused before any writes.
 
 Nightly macOS uses the same never-restart, ordinary quit installation, explicit
 restart barrier and opt-out behavior as [stable updates](areas/application.md#updates-603).

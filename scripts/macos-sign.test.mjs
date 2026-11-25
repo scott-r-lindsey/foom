@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { inspect } from "node:util";
+import { downloadTestedMacOS } from "../.github/scripts/download-tested-macos.mjs";
 import {
   testedZip,
   releaseSecretNames,
@@ -690,9 +691,148 @@ test("PR ad-hoc signing downloads the same artifact and uses the release ZIP dis
   const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
   assert.match(platform, /runner.os == 'macOS' \|\|/);
   assert.match(platform, /name: Foom-\$\{\{ matrix.os \}\}\n {10}path: out\/make\//);
-  assert.match(platform, /name: Foom-macos-15\n {10}path: tested-macos/);
+  assert.match(platform, /id: tested-packages/);
+  assert.match(
+    platform,
+    /TESTED_ARTIFACT_ID: \$\{\{ steps\.tested-packages\.outputs\.artifact-id \}\}/,
+  );
+  assert.match(
+    platform,
+    /TESTED_ARTIFACT_DIGEST: \$\{\{ steps\.tested-packages\.outputs\.artifact-digest \}\}/,
+  );
+  assert.match(platform, /await downloadTestedMacOS\(\{ github, repository: context\.repo \}\)/);
   assert.match(platform, /macos-sign.mjs adhoc-zip tested-macos/);
   assert.match(workflow, /macos-sign.mjs release tested-macos/);
+});
+
+function artifactDownloadFixture(t, lookups, { blob, extract } = {}) {
+  const temp = mkdtempSync(join(tmpdir(), "foom-tested-artifact-"));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const bytes = "fixture archive";
+  const calls = [];
+  const waits = [];
+  const logs = [];
+  const repository = { owner: "fixture-owner", repo: "fixture-repo" };
+  const restUrl =
+    "https://api.github.example/repos/fixture-owner/fixture-repo/actions/artifacts/42/zip";
+  const restHeaders = { authorization: "Bearer fixture-token" };
+  const signedUrl = "https://storage.example/artifact?signature=fixture";
+  return {
+    calls,
+    waits,
+    logs,
+    download: () =>
+      downloadTestedMacOS({
+        github: {
+          rest: {
+            actions: {
+              downloadArtifact: async (options) => {
+                calls.push("REST");
+                const { request, ...parameters } = options;
+                assert.deepEqual(parameters, {
+                  ...repository,
+                  artifact_id: "42",
+                  archive_format: "zip",
+                });
+                await request.fetch(restUrl, { headers: restHeaders });
+                const response = lookups.shift();
+                if (response instanceof Error) throw response;
+                return response === "found"
+                  ? { status: 302, headers: { location: signedUrl } }
+                  : response;
+              },
+            },
+          },
+        },
+        repository,
+        env: {
+          TESTED_ARTIFACT_ID: "42",
+          TESTED_ARTIFACT_DIGEST: createHash("sha256").update(bytes).digest("hex"),
+          RUNNER_TEMP: temp,
+        },
+        request: async (url, options) => {
+          if (url === restUrl) {
+            assert.deepEqual(options, { redirect: "manual", headers: restHeaders });
+            return;
+          }
+          calls.push("blob");
+          assert.equal(url, signedUrl);
+          assert.deepEqual(options, { redirect: "error", credentials: "omit" });
+          return blob ?? new Response(bytes);
+        },
+        sleep: async (delay) => waits.push(delay),
+        log: (line) => logs.push(line),
+        extract: (zip) => {
+          calls.push("extract");
+          assert.equal(readFileSync(zip, "utf8"), bytes);
+          extract?.();
+        },
+      }),
+  };
+}
+
+test("the tested macOS REST request retries HTTP 404, then downloads and extracts once", async (t) => {
+  const notFound = Object.assign(new Error("Not found"), { status: 404 });
+  const fixture = artifactDownloadFixture(t, [notFound, "found"]);
+  await fixture.download();
+  assert.deepEqual(fixture.calls, ["REST", "REST", "blob", "extract"]);
+  assert.deepEqual(fixture.waits, [2000]);
+  assert.deepEqual(
+    fixture.logs.filter((line) => line.includes("attempt")).map((line) => line.slice(-3)),
+    ["1/3", "2/3"],
+  );
+  assert.doesNotMatch(fixture.logs.join("\n"), /signature=fixture/);
+});
+
+test("the tested macOS REST request fails after three HTTP 404 responses", async (t) => {
+  const notFound = Object.assign(new Error("Not found"), { status: 404 });
+  const fixture = artifactDownloadFixture(t, [notFound, { status: 404 }, notFound]);
+  await assert.rejects(fixture.download, /HTTP 404 on attempt 3\/3/);
+  assert.deepEqual(fixture.calls, ["REST", "REST", "REST"]);
+  assert.deepEqual(fixture.waits, [2000, 2000]);
+});
+
+test("the tested macOS artifact download fails immediately on other errors", async (t) => {
+  for (const status of [401, 403, 410, 500]) {
+    const error = Object.assign(new Error("sensitive request diagnostic"), { status });
+    const fixture = artifactDownloadFixture(t, [error]);
+    await assert.rejects(fixture.download, {
+      message: `GitHub artifact REST request failed with HTTP ${status} on attempt 1/3`,
+    });
+    assert.deepEqual(fixture.calls, ["REST"]);
+    assert.deepEqual(fixture.waits, []);
+  }
+  for (const [response, message] of [
+    [new Error("network error"), /REST request failed$/],
+    [{ status: 302, headers: {} }, /did not contain an HTTPS download URL/],
+  ]) {
+    const fixture = artifactDownloadFixture(t, [response]);
+    await assert.rejects(fixture.download, message);
+    assert.deepEqual(fixture.calls, ["REST"]);
+    assert.deepEqual(fixture.waits, []);
+  }
+  for (const [options, message, laterCalls] of [
+    [
+      { blob: new Response(null, { status: 404 }) },
+      /Artifact download failed with HTTP 404/,
+      ["blob"],
+    ],
+    [{ blob: new Response("bad checksum") }, /digest mismatch/, ["blob"]],
+    [
+      {
+        extract: () => {
+          throw new Error("extraction failed");
+        },
+      },
+      /extraction failed/,
+      ["blob", "extract"],
+    ],
+  ]) {
+    const fixture = artifactDownloadFixture(t, ["found"], options);
+    await assert.rejects(fixture.download, message);
+    assert.deepEqual(fixture.calls, ["REST", ...laterCalls]);
+    assert.deepEqual(fixture.waits, []);
+  }
 });
 
 test("fixture notarytool polls ZIP/DMG, summarizes rejection, redacts diagnostics and bounds the shared deadline", {

@@ -3,7 +3,7 @@ name: CI
 # Every PR run validates Linux, Windows and macOS. Drafts select affected Electron
 # suites; ready PRs run the full suite. The required check exists only for full runs.
 # Platform failures surface while the work is in progress. A newer push cancels
-# the branch's previous run. Nightly runs validate main only when it changed.
+# the branch's previous run. Nightly runs validate main until publication succeeds.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
@@ -64,8 +64,20 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
+      - name: Check whether this main commit finished nightly publication
+        id: nightly-status
+        if: github.event_name == 'schedule'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          NIGHTLY_SITE_ENABLED: ${{ vars.NIGHTLY_FEED_ROLE_ARN != '' }}
+        with:
+          script: |
+            const { nightlyPublished } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/nightly.mjs`);
+            return nightlyPublished({ github, context, siteEnabled: process.env.NIGHTLY_SITE_ENABLED === 'true' });
       - name: Detect changes requiring desktop validation
         id: changes
+        env:
+          NIGHTLY_ALREADY_PUBLISHED: ${{ steps.nightly-status.outputs.result }}
         run: node scripts/ci-changes.mjs
 
   checks:
@@ -230,7 +242,7 @@ jobs:
           fi
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # The full suite uses four Linux, five Windows and seven macOS named-test shards.
+      # The full suite uses four Linux, six Windows and eight macOS named-test shards.
       # Affected draft suites use one 1/1 shard per platform instead.
       # See docs/electron-shards.md for measurements and the checked-in plan.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
@@ -487,6 +499,7 @@ jobs:
         if: runner.os != 'Linux'
         run: pnpm run test:installers
       - name: Upload tested installer and ZIP artifacts
+        id: tested-packages
         if: >-
           runner.os == 'macOS' || github.ref == 'refs/heads/main' ||
           (github.event_name == 'workflow_dispatch' && inputs.upload_packages)
@@ -498,10 +511,14 @@ jobs:
           retention-days: 3
       - name: Download tested macOS artifact for ad-hoc signing
         if: runner.os == 'macOS'
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v4
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          TESTED_ARTIFACT_ID: ${{ steps.tested-packages.outputs.artifact-id }}
+          TESTED_ARTIFACT_DIGEST: ${{ steps.tested-packages.outputs.artifact-digest }}
         with:
-          name: Foom-macos-15
-          path: tested-macos
+          script: |
+            const { downloadTestedMacOS } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/download-tested-macos.mjs`);
+            await downloadTestedMacOS({ github, repository: context.repo });
       - name: Exercise tested-ZIP signing path ad-hoc without Apple credentials
         if: runner.os == 'macOS'
         run: node scripts/macos-sign.mjs adhoc-zip tested-macos "$RUNNER_TEMP/adhoc-signed"
@@ -716,6 +733,8 @@ jobs:
       group: publish-nightly
       cancel-in-progress: false
     steps:
+      - name: Record publisher start time
+        run: echo "NIGHTLY_PUBLISH_STARTED_AT=$(date +%s%3N)" >> "$GITHUB_ENV"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
@@ -730,11 +749,18 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: gh run download "$RUN_ID" --name Foom-ubuntu-24.04 --name Foom-windows-2025 --name Foom-macos-signed --dir nightly-packages
       - name: Publish rolling prerelease
+        id: prerelease
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const { publish } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/nightly.mjs`);
-            await publish({ github, context });
+            return (await publish({ github, context })) === true;
+      - name: Download the original same-commit prerelease assets for site recovery
+        if: vars.NIGHTLY_FEED_ROLE_ARN != '' && steps.prerelease.outputs.result == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release download nightly --dir nightly-release-assets
       - name: Nightly feed upload disabled
         if: vars.NIGHTLY_FEED_ROLE_ARN == ''
         run: echo 'Nightly feed upload skipped; set NIGHTLY_FEED_ROLE_ARN after provisioning the scoped OIDC role and site path.'
@@ -753,5 +779,13 @@ jobs:
           NIGHTLY_FEED_BUCKET: ${{ vars.NIGHTLY_FEED_BUCKET }}
           NIGHTLY_FEED_DISTRIBUTION_ID: ${{ vars.NIGHTLY_FEED_DISTRIBUTION_ID }}
           NIGHTLY_FEED_REGION: ${{ vars.NIGHTLY_FEED_REGION }}
+          NIGHTLY_RELEASE_ASSETS: ${{ steps.prerelease.outputs.result }}
           PUBLISH_NIGHTLY: ${{ inputs.publish_nightly }}
         run: node scripts/nightly-feed.mjs
+      - name: Record completed site publication
+        if: vars.NIGHTLY_FEED_ROLE_ARN != ''
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { markSitePublished } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/nightly.mjs`);
+            await markSitePublished({ github, context });

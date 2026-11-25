@@ -123,9 +123,10 @@ reuses matching worktree observations and can look up a question's PR number
 when no tracked checkout covers it, including same-repository PRs from the default
 branch. After a newer observation replaces older checkout evidence, losing its
 source does not make that older head eligible for answers again. The poller stops
-watching once no open question uses that PR. Until the head is known,
-the question shows Checking subject and submission is disabled. Once a
-different head is observed, the board records that head, locks the options and
+watching once no open question uses that PR. Posting requests a fresh read.
+Until a forge request started after the question began saving confirms the head,
+the question shows Checking subject and submission is disabled. If a fresh
+read observes a different head, the board records that head, locks the options and
 removes the question from the count. The stepper shows the original and moved
 heads and **Waiting for a new question**, including changes observed while the
 question is saving. A force-push back to the original head does not reopen a stale
@@ -140,7 +141,9 @@ The orchestrator can withdraw an open question post through `board_resolve` with
 its post ID. The thread stays open and previously submitted answers remain in
 its history. Questions withdrawn while the stepper is open stay in that stepper
 struck through until it closes. Resolving the thread also closes its outstanding
-questions. The Board records questions, stale/withdrawn state and human answers
+questions. Agent thread resolution is refused while another repository's
+question is open or checking. The human can resolve the entire thread.
+The Board records questions, stale/withdrawn state and human answers
 in the same thread.
 
 The current orchestrator's tile has an amber decisions pill with the count and

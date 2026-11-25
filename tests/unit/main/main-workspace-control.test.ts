@@ -366,6 +366,7 @@ test("decision status and preview roots come from configured forge and registere
     close: vi.fn(),
     pause: vi.fn(),
     invalidate: vi.fn(),
+    revision: () => 3,
     readDecision,
     watchDecisions,
   });
@@ -385,9 +386,10 @@ test("decision status and preview roots come from configured forge and registere
   if (!options) throw new Error("Missing board decision options");
   const repo = locationId("/repo");
   const worktree = locationId("/tree");
-  expect(options.forge(repo, 7)).toEqual({ headSha, checks: "success" });
-  expect(readDecision).toHaveBeenCalledWith(repo, 7);
-  const subjects = [{ repository: repo, number: 7 }];
+  expect(options.forgeRevision()).toBe(3);
+  expect(options.forge(repo, 7, 3)).toEqual({ headSha, checks: "success" });
+  expect(readDecision).toHaveBeenCalledWith(repo, 7, 3);
+  const subjects = [{ repository: repo, number: 7, after: 3 }];
   options.subjectsChanged?.(subjects);
   expect(watchDecisions).toHaveBeenCalledWith(subjects);
   const remote = forgeMock.open.mock.calls[0]?.[4];

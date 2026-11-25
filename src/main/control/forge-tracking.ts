@@ -42,6 +42,7 @@ interface Entry extends ForgeWorktree {
 interface DecisionWatch {
   repository: string;
   number: number;
+  after: number;
   due: number;
   observation: number;
   failures: number;
@@ -423,7 +424,7 @@ export class ForgeTracking {
   }
 
   /** Prevent a retired source from exposing an older head from another checkout. */
-  private supersedeDecision(repository: string, number: number, observation: number): void {
+  private supersedeDecision(repository: string, number: number, observation: number): boolean {
     for (const entry of this.entries.values()) {
       if (
         entry.pr?.number === number &&
@@ -434,22 +435,30 @@ export class ForgeTracking {
     }
     const watch = this.decisions.get(`${repository}:${String(number)}`);
     if (watch && watch.observation < observation) delete watch.pr;
+    return watch !== undefined;
   }
 
-  readDecision(repository: string, number: number): PullRequest | undefined {
+  readDecision(repository: string, number: number, after = 0): PullRequest | undefined {
     const checkout = this.decisionCheckout(repository, number);
+    if (checkout && checkout.observation > after) return checkout.pr;
     const watch = this.decisions.get(`${repository}:${String(number)}`);
-    return checkout?.pr ?? watch?.pr;
+    return watch && watch.observation > after ? watch.pr : undefined;
   }
 
-  watchDecisions(subjects: ReadonlyArray<{ repository: string; number: number }>): void {
+  watchDecisions(
+    subjects: ReadonlyArray<{ repository: string; number: number; after?: number }>,
+  ): void {
     if (!this.decisionRemote || this.closed) return;
     const keys = new Set<string>();
-    for (const { repository, number } of subjects) {
+    for (const { repository, number, after = 0 } of subjects) {
       const key = `${repository}:${String(number)}`;
       keys.add(key);
-      if (!this.decisions.has(key)) {
-        this.decisions.set(key, { repository, number, due: 0, observation: 0, failures: 0 });
+      const watch = this.decisions.get(key);
+      if (!watch) {
+        this.decisions.set(key, { repository, number, after, due: 0, observation: 0, failures: 0 });
+      } else if (after > watch.after) {
+        watch.after = after;
+        if (!this.readDecision(repository, number, after)) watch.due = 0;
       }
     }
     for (const key of this.decisions.keys()) if (!keys.has(key)) this.decisions.delete(key);
@@ -464,7 +473,7 @@ export class ForgeTracking {
       generation === this.generation &&
       this.decisions.get(key) === watch;
     const tracked = this.decisionCheckout(watch.repository, watch.number);
-    if (tracked) {
+    if (tracked && tracked.observation > watch.after) {
       watch.due = this.now() + 120000;
       return;
     }
@@ -484,6 +493,8 @@ export class ForgeTracking {
           ),
         ).catch(() => undefined)
       : undefined;
+    const after = watch.after;
+    const observation = ++this.observation;
     const result = await (async () => {
       if (provider?.lookupNumber) return provider.lookupNumber(watch.number);
       const resolved = await provider?.resolve?.(watch.number);
@@ -494,11 +505,11 @@ export class ForgeTracking {
       () => false,
     );
     if (!active()) return;
-    const before = JSON.stringify(watch.pr);
+    const hadObservation = watch.pr !== undefined;
     const pr = current ? pullRequest(result) : undefined;
     if (pr?.number === watch.number) {
       watch.pr = pr;
-      watch.observation = ++this.observation;
+      watch.observation = observation;
       this.supersedeDecision(watch.repository, watch.number, watch.observation);
       watch.failures = 0;
     } else {
@@ -511,11 +522,14 @@ export class ForgeTracking {
         ? 20000
         : 120000
       : forgeDelay(watch.failures);
-    watch.due = this.now() + Math.max(interval, minimum);
-    if (JSON.stringify(watch.pr) !== before) this.changed();
+    watch.due =
+      after < watch.after && observation <= watch.after
+        ? 0
+        : this.now() + Math.max(interval, minimum);
+    if (watch.pr || hadObservation) this.changed();
   }
 
-  /** Main-only request clock. An exit records this before accepting later observations. */
+  /** Main-only request clock for consumers that require a subsequent observation. */
   revision(): number {
     return this.observation;
   }
@@ -625,8 +639,13 @@ export class ForgeTracking {
           const pr = valid ? pullRequest(result) : undefined;
           entry.available = pr !== undefined;
           const superseded = entry.decisionSuperseded;
+          let decisionWatched = false;
           if (pr) {
-            this.supersedeDecision(locationId(entry.repository), pr.number, observation);
+            decisionWatched = this.supersedeDecision(
+              locationId(entry.repository),
+              pr.number,
+              observation,
+            );
             delete entry.decisionSuperseded;
             entry.pr = pr;
             entry.observation = observation;
@@ -639,6 +658,7 @@ export class ForgeTracking {
               : 0;
           refreshed =
             (entry.sampledRefresh !== refresh && refresh === entry.refresh) ||
+            decisionWatched ||
             (superseded === true && pr !== undefined);
           entry.sampledRefresh = refresh;
         }
@@ -781,8 +801,13 @@ export class ForgeTracking {
       entry.available = pr !== undefined;
       entry.followUp = Boolean(discovered);
       const superseded = entry.decisionSuperseded;
+      let decisionWatched = false;
       if (pr) {
-        this.supersedeDecision(locationId(entry.repository), pr.number, observation);
+        decisionWatched = this.supersedeDecision(
+          locationId(entry.repository),
+          pr.number,
+          observation,
+        );
         delete entry.decisionSuperseded;
         const { board, ...metadata } = pr;
         entry.pr = metadata;
@@ -819,7 +844,8 @@ export class ForgeTracking {
         this.onCompleted?.(entry, pr.board);
       const current = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
       const settled = this.settleWaiters(entry);
-      if (settled || refreshed || previous !== current || (superseded && pr)) this.changed();
+      if (settled || refreshed || previous !== current || decisionWatched || (superseded && pr))
+        this.changed();
     }
     await this.save();
   }
