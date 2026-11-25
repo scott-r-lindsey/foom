@@ -13,6 +13,7 @@ const {
   mkdtemp,
   readFile,
   realpath,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -27,9 +28,126 @@ const {
   launchApp,
   openSettingsScreen,
   removeAfterApps,
+  stopSession,
   quitAndWait,
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
+
+test("Machines menu agent image paste survives SSH reconnect and cleans up on Stop", {
+  skip: process.platform === "win32",
+  timeout: deadline(45000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { bin, remoteHome, root, sshLog } = fixture;
+  const input = path.join(remoteHome, "fixture-agent-input");
+  const codeFolder = path.join(remoteHome, "code");
+  await mkdir(codeFolder, { mode: 0o700 });
+  await writeFile(
+    path.join(bin, "codex"),
+    `#!${process.execPath}
+const fs = require('node:fs');
+if (process.argv[2] === '--version') console.log('codex-cli 0.163.0');
+else if (process.argv[2] === '--help') console.log('--no-alt-screen');
+else {
+  fs.writeFileSync(${JSON.stringify(input)}, '');
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdout.write('\\x1b[?2004hMACHINE_IMAGE_READY\\r\\n');
+  process.stdin.on('data', data => fs.appendFileSync(${JSON.stringify(input)}, data));
+}
+`,
+    { mode: 0o700 },
+  );
+  const { app, page } = await remoteApp(context, fixture);
+  const enrolled = await page.evaluate(
+    (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
+    codeFolder,
+  );
+  assert.equal(enrolled.result.ok, true);
+  await page.getByRole("button", { name: "Actions for fixture-cloud", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New Codex", exact: true }).click();
+  const terminal = page.locator(".terminal-tile");
+  await expect(terminal.locator(".xterm-rows")).toContainText("MACHINE_IMAGE_READY");
+  const id = await page.evaluate(
+    async () =>
+      (await window.desktop.workspace()).terminals.find(
+        (row) => row.machine && row.agent === "codex",
+      )?.id,
+  );
+  assert.ok(id);
+
+  await app.evaluate(async ({ clipboard, ClipboardItem }) => {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3RwQkAMAwDsey/dDpEH6L0wAPo8OzO0/OCArSgAC0oQAsK0IICtKAALShACwrQggK0oAAtKEALCtCCArSgAC0oQAtuAzzh+wu4oAAtKEALCtCCArSgAC0oQAsK0IICtKAALShACwrQggK0oAAtKEALPg84Qafh0lRgkoQAAAAASUVORK5CYII=",
+      "base64",
+    );
+    await clipboard.write([new ClipboardItem({ "image/png": new Blob([png]) })]);
+  });
+  const pressPaste = async () => {
+    await terminal.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+  };
+  const paste = async (count) => {
+    const end = "\x1b[201~";
+    await pressPaste();
+    await expect
+      .poll(async () => {
+        const [error] = await terminal.locator(".tile-paste-result").allTextContents();
+        return error || (await readFile(input, "utf8")).split(end).length - 1;
+      })
+      .toBe(count);
+    const [prefix, ...batches] = (await readFile(input, "utf8")).split("\x1b[200~");
+    assert.equal(prefix, "");
+    assert.equal(batches.length, count);
+    const reference = batches.at(-1);
+    assert.ok(reference.endsWith(end));
+    const match = /^\[pasted image '([^'\p{Cc}]+)'\] $/u.exec(reference.slice(0, -end.length));
+    assert.ok(match, "Paste must send one bracketed reference with no Enter");
+    const file = match[1];
+    assert.equal(path.dirname(path.dirname(file)), path.join(remoteHome, ".foom-host/images"));
+    assert.equal((await stat(file)).mode & 0o777, 0o600);
+    assert.equal((await readFile(file)).subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+    return file;
+  };
+  const first = await paste(1);
+  const owners = await fixture.sshOwners(id);
+  assert.equal(owners.length, 1);
+  await page.evaluate((terminalId) => {
+    window.machineImageReplayed = false;
+    const unsubscribe = window.desktop.onData((id) => {
+      if (id !== terminalId) return;
+      window.machineImageReplayed = true;
+      unsubscribe();
+    });
+  }, id);
+  const offline = path.join(root, "offline");
+  await writeFile(offline, "offline");
+  process.kill(owners[0], "SIGTERM");
+  await expect.poll(() => readFile(sshLog, "utf8")).toContain("fixture offline request");
+  await pressPaste();
+  await expect(terminal.locator(".tile-paste-result")).toHaveText(
+    "Unable to paste clipboard contents.",
+  );
+  await rm(offline);
+  await expect.poll(() => fixture.sshOwners(id)).toHaveLength(2);
+  await page.waitForFunction(() => window.machineImageReplayed);
+  await expect(terminal.locator(".xterm-rows")).toContainText("MACHINE_IMAGE_READY");
+  const second = await paste(2);
+  assert.notEqual(second, first);
+  await stat(first);
+  await stopSession(page, id);
+  await expect
+    .poll(async () => {
+      try {
+        await stat(path.dirname(first));
+        return true;
+      } catch (error) {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      }
+    })
+    .toBe(false);
+});
 
 test("remote host fixture checks preflight failures and enrolls an incomplete code folder", {
   skip: process.platform === "win32",

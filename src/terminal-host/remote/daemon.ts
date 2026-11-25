@@ -356,7 +356,7 @@ export function serveHost(
         session.connection.destroy();
       }
       session.connection = socket;
-      if (session.agent) {
+      if (session.agent || session.imagePaste) {
         session.imageOwner = randomBytes(32).toString("hex");
       }
       pendingConnections.delete(socket);
@@ -368,7 +368,13 @@ export function serveHost(
           ready: session.agent.ready,
           ...(session.imageOwner ? { imageOwner: session.imageOwner } : {}),
         });
-      await send(socket, { type: "open-result", id, request, state: "live" });
+      await send(socket, {
+        type: "open-result",
+        id,
+        request,
+        state: "live",
+        ...(!session.agent && session.imageOwner ? { imageOwner: session.imageOwner } : {}),
+      });
       for (const signal of session.human ? [] : (session.hooks?.splice(0) ?? []))
         await send(socket, { type: "agent-hook", id, signal });
     };
@@ -528,7 +534,6 @@ export function serveHost(
           !cancellation.signal.aborted &&
           !disconnected() &&
           session !== undefined &&
-          session.agent !== undefined &&
           session.imagePaste === true &&
           session.exited === undefined &&
           !session.removing &&
@@ -929,8 +934,11 @@ export function serveHost(
                     throw new LaunchFailure("remote_worktree_unavailable");
                 }
                 cancellation.signal.throwIfAborted();
-                if (!machine.repository && !message.checkout && owned.context)
-                  owned.context = { ...owned.context, repository: home, worktree: home };
+                if (!machine.repository && !checkout) {
+                  if (model && found) owned.imagePaste = imagePasteRecipient(model.id);
+                  if (owned.context)
+                    owned.context = { ...owned.context, repository: home, worktree: home };
+                }
                 return {
                   command: found?.command ?? remoteShell(),
                   args: model && found ? [...(machine.defaults ?? [])] : ["-i", "-l"],

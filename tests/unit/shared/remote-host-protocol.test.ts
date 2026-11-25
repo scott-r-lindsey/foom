@@ -424,6 +424,17 @@ test("machine home capability requires an absolute bounded remote path", () => {
     expect(remoteResponse({ type: "hello", build: "a".repeat(64), machineHome })).toBe(false);
 });
 
+test("only a live open-result can carry an optional bounded image owner", () => {
+  const reply = { type: "open-result", id: "one", request: 1, state: "live" };
+  const imageOwner = "a".repeat(64);
+  expect(remoteResponse(reply)).toBe(true);
+  expect(remoteResponse({ ...reply, imageOwner })).toBe(true);
+  expect(remoteResponse({ ...reply, imageOwner: "x".repeat(64) })).toBe(false);
+  expect(remoteResponse({ ...reply, imageOwner: null })).toBe(false);
+  expect(remoteResponse({ ...reply, state: "gone", imageOwner })).toBe(false);
+  expect(remoteResponse({ ...reply, state: "exited", code: 0, imageOwner })).toBe(false);
+});
+
 test("remote launches validate optional startup palettes with the host theme validator", () => {
   for (const type of ["open", "agent-open"]) {
     const launch = {

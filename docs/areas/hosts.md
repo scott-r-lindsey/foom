@@ -704,6 +704,19 @@ active daemon lacking this capability before sending open; they never fall back
 to a code-folder shell. Existing PTYs still reattach. Machine launches use
 the existing host-preparation budget, in addition to bootstrap.
 
+Image paste (#1307) is available for supported bundled agents started in the
+remote home through the Machines menu. The daemon records eligibility after it
+resolves the bundled agent using its own login PATH. Protocol 3 adds one optional
+`imageOwner` nonce on the live `open-result` for these sessions. Reconnect and
+profile reattach rotate the nonce without restarting the agent or deleting its
+images. Image paste during an SSH outage reports “Unable to paste clipboard
+contents.” Interrupted uploads aren't replayed. Shells, unsupported agents, config
+providers, and direct human repository or worktree launches receive no grant.
+Compatible older daemons that support the machine launch can still launch and
+reattach the PTY with text paste. Without the nonce, image paste reports
+“Image paste is not supported for this session.” Images use the existing upload,
+quota, and cleanup rules in [Terminals](terminals.md#image-paste-937).
+
 ## Host card readiness and repository fixes (#1026)
 
 A host is Ready when SSH, platform, daemon, code folder and Git pass and at least

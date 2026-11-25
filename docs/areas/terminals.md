@@ -288,6 +288,12 @@ on the hub. SSH loss leaves a live remote session's completed images intact;
 actual exit/close and daemon startup own cleanup. See [privacy](privacy.md#image-paste-937)
 and the [design and hand checks](../design/937-image-paste.md).
 
+Supported agents launched in the remote account's home from a registered host's
+Machines menu can paste images (#1307). Main uses its validated launch or
+restore record, and the daemon independently authorizes the running agent from
+its own launch facts. See [human machine sessions](hosts.md#human-machine-sessions-1024)
+for reconnect and older-host behavior.
+
 ## Remote shell spike (#754)
 
 Every CI/release package carries a same-commit catalog for `linux-x64`, `linux-arm64`,
