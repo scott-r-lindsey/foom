@@ -921,6 +921,113 @@ const illustrated = (name: string, file: string) =>
     images: { board: { file } },
   });
 
+test.each(["available", "missing"] as const)(
+  "startup applies safe non-theme edits before decoding a selection with %s artwork",
+  async (availability) => {
+    const baseline = JSON.stringify({ kind: "settings", interfaceTheme: "moonlight" });
+    const load = vi.fn((...args: Parameters<ThemeBitmaps["load"]>) => bitmaps.load(...args));
+    const f = await fixture({
+      baseline: digest(baseline),
+      appliedText: baseline,
+      deferThemeDecoding: true,
+      loadThemeBitmaps: load,
+    });
+    const directory = path.join(f.folder, "themes");
+    const bitmaps = new ThemeBitmaps(directory, (png) => Promise.resolve({ png, colors: [] }));
+    const interfaceTheme = "user:selected.json";
+    const safe = { restoreSessions: false, concurrentChildren: 1 };
+    await mkdir(directory, { recursive: true });
+    await f.settings({ interfaceTheme, ...safe });
+    await f.write("themes/selected.json", illustrated("Selected", "selected.png"));
+    if (availability === "available") await f.write("themes/selected.png", "artwork");
+    const working = await f.read("settings.json");
+    try {
+      const startup = { interfaceTheme: "moonlight", ...safe };
+      expect(await f.service.initialize()).toEqual(startup);
+      expect(f.applied.at(-1)).toEqual(startup);
+      expect(JSON.parse(f.copy() ?? "")).toEqual({ kind: "settings", ...startup });
+      expect(await f.read("settings.json")).toBe(working);
+      expect(load).not.toHaveBeenCalled();
+      const { pending } = await f.service.startThemeDecoding();
+      if (availability === "available") {
+        expect(pending?.detail).toBe("interfaceTheme: theme-images");
+        expect(f.applied.at(-1)).toEqual(startup);
+        await f.decide("allow");
+      } else expect(pending).toBeNull();
+      expect(f.applied.at(-1)).toEqual({ interfaceTheme, ...safe });
+    } finally {
+      bitmaps.dispose();
+    }
+  },
+);
+
+test("startup holds weakenings alongside a deferred theme while applying safe settings", async () => {
+  const baseline = JSON.stringify({ kind: "settings", restoreSessions: false });
+  const f = await fixture({
+    baseline: digest(baseline),
+    appliedText: baseline,
+    deferThemeDecoding: true,
+    loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode),
+  });
+  const directory = path.join(f.folder, "themes");
+  const bitmaps = new ThemeBitmaps(directory, (png) => Promise.resolve({ png, colors: [] }));
+  await mkdir(directory, { recursive: true });
+  await f.write("themes/selected.json", illustrated("Selected", "selected.png"));
+  await f.write("themes/selected.png", "artwork");
+  await f.settings({
+    interfaceTheme: "user:selected.json",
+    restoreSessions: true,
+    hooks: false,
+    concurrentChildren: 1,
+  });
+  try {
+    const safe = { restoreSessions: false, concurrentChildren: 1 };
+    expect(await f.service.initialize()).toEqual(safe);
+    const weakening = "restoreSessions: off → on, hooks: on → off";
+    expect(f.service.status().pending?.detail).toBe(weakening);
+    expect((await f.service.startThemeDecoding()).pending?.detail).toBe(
+      `${weakening}, interfaceTheme: theme-images`,
+    );
+    expect(f.applied.at(-1)).toEqual(safe);
+    await f.decide("keep");
+    expect(JSON.parse(await f.read("settings.json"))).toEqual({ kind: "settings", ...safe });
+    expect(f.service.status().pending).toBeNull();
+  } finally {
+    bitmaps.dispose();
+  }
+});
+
+test("a deferred decode cannot apply settings replaced while it runs", async () => {
+  const decoding = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  const f = await fixture({
+    deferThemeDecoding: true,
+    loadThemeBitmaps: async () => {
+      decoding.resolve(undefined);
+      await release.promise;
+      return { slots: {}, sources: {}, diagnostics: [] };
+    },
+  });
+  await mkdir(path.join(f.folder, "themes"), { recursive: true });
+  await f.write("themes/selected.json", illustrated("Selected", "missing.png"));
+  const interfaceTheme = "user:selected.json";
+  await f.settings({ interfaceTheme, restoreSessions: false, concurrentChildren: 1 });
+  await f.service.initialize();
+  const loading = f.service.startThemeDecoding();
+  await decoding.promise;
+  const newer = { interfaceTheme: "moonlight", restoreSessions: false, concurrentChildren: 2 };
+  try {
+    await f.settings(newer);
+  } finally {
+    release.resolve(undefined);
+    await loading;
+  }
+  await f.service.refresh();
+  expect(f.applied.some((values) => values.interfaceTheme === interfaceTheme)).toBe(false);
+  expect(f.applied.at(-1)).toEqual(newer);
+  expect(JSON.parse(f.copy() ?? "")).toEqual({ kind: "settings", ...newer });
+});
+
 test("startup and the inactive catalog leave decoding to the selected theme after the window", async () => {
   const decode = vi.fn((bytes: Uint8Array) => Promise.resolve({ png: bytes, colors: [] }));
   const f = await fixture({

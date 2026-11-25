@@ -223,7 +223,9 @@ one-second cooldown. The loader schedules no automatic retry.
 
 The catalog fingerprints source bytes for an Appearance choice without
 decoding inactive themes. Foom starts bitmap decoding after the first window
-loads and decodes only the active theme or a theme being selected. When a
+loads and decodes only the active theme or a theme being selected. Safe edits
+to other settings apply at startup while a theme selection waits for decoding
+and any settings weakenings still require approval. When a
 settings change requires decoding, Foom prepares the snapshot before taking
 the shared settings lock, then rechecks the settings, theme JSON and source
 digests under the lock before using the verified snapshot.

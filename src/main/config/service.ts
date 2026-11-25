@@ -552,18 +552,35 @@ export class ConfigService {
     if (!current) return;
     const proposal =
       current.text === this.applied.text ? undefined : await this.inspectSettings(current);
-    if (proposal?.selection?.deferred) return;
     const apply = async () => {
       if (lock && !(await this.matchesSettings(current, proposal?.selection))) {
         this.schedule();
         return;
       }
       if (!proposal) this.pending = null;
+      else if (proposal.selection?.deferred) await this.applyDeferredSettings(proposal);
       else if (proposal.weak.length) this.pending = proposal;
       else await this.applyValues(proposal, proposal.selection);
     };
     if (lock) await this.files.withSettingsLock(apply);
     else await apply();
+  }
+
+  private async applyDeferredSettings(proposal: Pending): Promise<void> {
+    // Startup consumers need the safe edits now. Leave the working file intact
+    // so the post-window scan reviews its current theme and any held edits.
+    let approved = this.applied;
+    try {
+      approved = this.approvedSettings({
+        ...proposal,
+        values: this.retainInterfaceTheme(proposal.values),
+      });
+    } catch (error) {
+      // Restoring held fields can make an otherwise valid settings file too large.
+      if (!(error instanceof ThemeValidationError) || error.reason !== "too-large") throw error;
+    }
+    if (approved !== this.applied) await this.applyValues(approved);
+    this.pending = proposal.weak.length ? proposal : null;
   }
 
   private async matchesSettings(settings: Applied, selection?: Selection): Promise<boolean> {
@@ -1100,6 +1117,14 @@ export class ConfigService {
     }
   }
 
+  private retainInterfaceTheme(values: ConfigSettings): ConfigSettings {
+    const retained = { ...values };
+    const { interfaceTheme } = this.applied.values;
+    if (interfaceTheme === undefined) delete retained.interfaceTheme;
+    else retained.interfaceTheme = interfaceTheme;
+    return retained;
+  }
+
   private async commitSettings(
     next: Applied,
     approved: Applied,
@@ -1125,10 +1150,7 @@ export class ConfigService {
         )
           throw new ApplicationError("theme-selection-changed");
       }
-      const values = { ...approved.values };
-      if (this.applied.values.interfaceTheme === undefined) delete values.interfaceTheme;
-      else values.interfaceTheme = this.applied.values.interfaceTheme;
-      fallback = this.settingsFile(values);
+      fallback = this.settingsFile(this.retainInterfaceTheme(approved.values));
     }
     await this.files.writeFile(SETTINGS_FILE, next.text);
     // Palette writers do not take the settings lock. A replacement during the
