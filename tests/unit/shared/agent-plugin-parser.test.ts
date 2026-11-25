@@ -1,3 +1,5 @@
+import bundledCodex from "../../../src/shared/bundled-agents/codex.json";
+import { applyPermissionArguments } from "../../../src/shared/agent-permission-arguments";
 import { expect, it } from "vitest";
 import claude from "../../fixtures/agent-plugins-v2/claude.json";
 import codex from "../../fixtures/agent-plugins-v2/codex.json";
@@ -52,3 +54,17 @@ it.each([1, 0, 3, 99, "2", null, undefined])(
     }
   },
 );
+
+it("refuses permission arguments placed after a terminator or declared without their bypass classification", () => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  const facts = { permissionLevelSupported: true };
+  expect(() => applyPermissionArguments(model, "workspace", ["--", "prompt"], 2, facts)).toThrow(
+    "agent-permission-conflict",
+  );
+  const policy = model.permissionLevels;
+  if (!policy) throw new Error("Missing Codex permission declaration");
+  const invalid = { ...model, permissionLevels: { ...policy, full: policy.workspace } };
+  expect(() => applyPermissionArguments(invalid, "full", [], 0, facts)).toThrow(
+    "Invalid agent permission declaration",
+  );
+});
