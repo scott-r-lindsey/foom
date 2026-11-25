@@ -1,5 +1,10 @@
-import { eq, inArray, lte } from "drizzle-orm";
-import { parseMessageBoard } from "../control/message-board";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
+import {
+  parseMessageBoard,
+  parseMessagePost,
+  stateAfterBoardPost,
+  validateStoredBoardAnswers,
+} from "../control/message-board";
 import { locationId } from "../control/metadata";
 import { identifier, object } from "../../shared/control-validation";
 import { record } from "../../shared/remote-agent-protocol";
@@ -43,10 +48,36 @@ function post(db: DataTransaction, input: unknown, requireOpen = false) {
   const owner = thread(raw);
   if (requireOpen && owner.state === "resolved" && !owner.child)
     throw new Error("Thread is resolved");
-  const parsed = parseMessageBoard({ version: 1, threads: [raw], posts: [input], receipts: [] })
-    .posts[0];
-  if (!parsed) throw new Error("Invalid post");
-  return parsed;
+  const post = parseMessagePost(input, owner);
+  const posts = tables.boardPosts;
+  validateStoredBoardAnswers(
+    post,
+    (id) => {
+      const source = db
+        .select({ data: posts.data })
+        .from(posts)
+        .where(and(eq(posts.id, id), eq(posts.thread, owner.id), eq(posts.kind, "question")))
+        .get();
+      return source && parseMessagePost(JSON.parse(source.data), owner);
+    },
+    ({ post, index }) =>
+      db
+        .select({ id: posts.id })
+        .from(posts)
+        .where(
+          and(
+            eq(posts.thread, owner.id),
+            eq(posts.kind, "answer"),
+            sql`EXISTS (
+          SELECT 1 FROM json_each(${posts.data}, '$.answers') AS answer
+          WHERE json_extract(answer.value, '$.post') = ${post}
+            AND json_extract(answer.value, '$.index') = ${index}
+        )`,
+          ),
+        )
+        .get() !== undefined,
+  );
+  return post;
 }
 function receipt(input: unknown) {
   const parsed = parseMessageBoard({ version: 1, threads: [], posts: [], receipts: [input] })
@@ -76,14 +107,7 @@ export function appendDatabaseBoardPost(
       .get();
     if (!parent) throw new RelationshipError();
     const owner = thread(JSON.parse(parent.data));
-    const state = owner.child
-      ? owner.state
-      : value.author !== "human" &&
-          (value.kind === "decision-needed" || owner.state === "waiting-human")
-        ? "waiting-human"
-        : value.author === "human" || value.kind === "request"
-          ? "waiting-repo"
-          : "open";
+    const state = owner.child ? owner.state : stateAfterBoardPost(owner.state, value);
     db.update(tables.boardThreads)
       .set({ state, data: JSON.stringify({ ...owner, state, updatedAt: value.timestamp }) })
       .where(eq(tables.boardThreads.id, owner.id))

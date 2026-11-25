@@ -250,9 +250,10 @@ replacing it and holds a newer edit for review. If the prior JSON cannot be
 restored, it switches to Default. Allow revalidates the proposed digest before
 serving the reviewed snapshot.
 
-The board's only CSP change is `img-src 'self' foom-theme://bitmap`. The
-board session's scheme handler accepts GET requests for opaque IDs of active,
-approved PNGs. It serves memory only, with a PNG content type and no caching or
-fetch API access. The renderer bridge projects IDs and bounded placement values.
+Theme bitmaps add only `foom-theme://bitmap` to the board's `img-src`. The
+board keeps `data:` for decision previews. The scheme handler accepts GET
+requests for opaque IDs of active, approved PNGs. It serves memory only, with a
+PNG content type and no caching or fetch API access. The renderer bridge
+projects IDs and bounded placement values.
 The confirmation partition has its existing CSP and no bitmap handler. See
 [theme image privacy](privacy.md#theme-bitmaps-1189).

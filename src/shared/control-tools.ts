@@ -294,7 +294,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "board_post",
       description:
-        "Append a local post as your repository's current orchestrator. Supply thread, or to (open repository IDs from board_threads) and title. Text is 1–8192 UTF-8 bytes without control characters. Only human posts count as decisions. After a lost response use operation_status with the same key.",
+        "Append a local post as your repository's current orchestrator. Supply thread, or to (open repository IDs from board_threads) and title. Text is 1–8192 UTF-8 bytes without control characters. For kind question include 1–4 questions. Only the human can submit decisions. After a lost response use operation_status with the same key.",
       properties: {
         thread: id,
         to: { type: "array", minItems: 1, maxItems: 16, items: id },
@@ -302,6 +302,53 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
         kind: { type: "string", enum: POST_KINDS },
         text: { type: "string", maxLength: 8192 },
         links: { type: "array", maxItems: 10, items: { type: "string", maxLength: 2048 } },
+        questions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 4,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "options"],
+            properties: {
+              title: { type: "string", maxLength: 200 },
+              detail: { type: "string", maxLength: 8192 },
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: 4,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["id", "label"],
+                  properties: {
+                    id,
+                    label: { type: "string", maxLength: 120 },
+                    hint: { type: "string", maxLength: 200 },
+                  },
+                },
+              },
+              preview: {
+                type: "object",
+                additionalProperties: false,
+                required: ["path"],
+                properties: {
+                  path: { type: "string", maxLength: 1024 },
+                  relativeTo: { enum: ["repository", "worktree"] },
+                },
+              },
+              subject: {
+                type: "object",
+                additionalProperties: false,
+                required: ["pullRequest", "headSha"],
+                properties: {
+                  pullRequest: { type: "integer", minimum: 1 },
+                  headSha: { type: "string", pattern: "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$" },
+                },
+              },
+            },
+          },
+        },
         idempotencyKey: key,
       },
       required: ["kind", "text", "idempotencyKey"],
@@ -311,8 +358,8 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "board_resolve",
       description:
-        "Mark a local thread resolved. This does not approve work or merge anything. After a lost response use operation_status with the same key.",
-      properties: { thread: id, idempotencyKey: key },
+        "Mark a local thread resolved, or supply post to withdraw your own open question post. After a lost response use operation_status with the same key.",
+      properties: { thread: id, post: id, idempotencyKey: key },
       required: ["thread", "idempotencyKey"],
       readOnly: false,
       destructive: false,

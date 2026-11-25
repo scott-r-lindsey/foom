@@ -1,4 +1,4 @@
-import { MessageBoard } from "./message-board";
+import { MessageBoard, type DecisionForge } from "./message-board";
 import type { BoardRepository } from "../../shared/message-board";
 import type { McpConnection, WorkspaceTerminal } from "../../shared/workspace";
 import { rm } from "node:fs/promises";
@@ -20,6 +20,9 @@ export class ControlRuntime {
     readonly service: ControlService,
     private readonly http: ControlHttp,
     readonly audit: ControlStore,
+    readonly decisionPreview?: (
+      preview: NonNullable<ReturnType<MessageBoard["preview"]>>,
+    ) => Promise<string | null>,
   ) {}
   static async start(
     userData: string,
@@ -30,6 +33,12 @@ export class ControlRuntime {
     auditChanged?: () => void,
     previews?: PreviewBackend,
     repositories: () => BoardRepository[] = () => [],
+    decisions?: {
+      forge: DecisionForge;
+      forgeRevision: () => number;
+      subjectsChanged?: (subjects: ReturnType<MessageBoard["pendingSubjects"]>) => void;
+      preview: NonNullable<ControlRuntime["decisionPreview"]>;
+    },
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory, auditChanged);
@@ -41,10 +50,17 @@ export class ControlRuntime {
         service.assertActive(actor);
       },
     );
-    const board = await MessageBoard.open(directory, repositories, () => {
-      auditChanged?.();
-      service.boardChanged();
-    });
+    const board = await MessageBoard.open(
+      directory,
+      repositories,
+      (answers) => {
+        decisions?.subjectsChanged?.(board.pendingSubjects());
+        auditChanged?.();
+        service.boardChanged(answers);
+      },
+      decisions?.forge,
+      decisions?.forgeRevision,
+    );
     const service = new ControlService(
       operations,
       source,
@@ -72,11 +88,14 @@ export class ControlRuntime {
         endpoint: http.endpoint,
         instanceId: service.instanceId,
       });
-      return new ControlRuntime(directory, service, http, store);
+      return new ControlRuntime(directory, service, http, store, decisions?.preview);
     } catch (error) {
       await http.close();
       throw error;
     }
+  }
+  humanDecisions(input: unknown) {
+    return this.service.humanDecisions(input);
   }
   get board(): MessageBoard | undefined {
     return this.service.board;
@@ -111,7 +130,7 @@ export class ControlRuntime {
   }
   async close(): Promise<void> {
     await this.http.close();
-    await this.board?.flushChildren();
+    await this.board?.flush();
     await rm(join(this.directory, "discovery.json"), { force: true });
   }
 }

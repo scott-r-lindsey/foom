@@ -41,6 +41,8 @@ export interface ForgeProvider {
     matches: readonly ForgeMatch[],
   ): Promise<ReadonlyMap<string, ForgeObservation> | undefined>;
   resolve?(number: number): Promise<AdoptionHead | undefined>;
+  /** Explicit subject lookup, including same-repository PRs from the default branch. */
+  lookupNumber?(number: number): Promise<PullRequest | undefined>;
   /** Branch lookup is also reusable by PR-aware worktree creation (#337). */
   lookup(branch: string, number?: number, state?: "open" | "all"): Promise<PullRequest | undefined>;
 }

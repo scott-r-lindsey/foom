@@ -34,6 +34,7 @@ export function Sidebar(props: SidebarProps) {
     command,
     options,
     footer,
+    footerActions,
     pickPreview,
   } = props;
   const {
@@ -124,9 +125,7 @@ export function Sidebar(props: SidebarProps) {
       <header className="board-top">
         <AppMenu api={source.appMenu} development={source.isDevelopment} />
         <p className="board-summary" role="status">
-          {rows.filter((row) => row.state === "needs_input").length +
-            (configStatus?.pending ? 1 : 0)}{" "}
-          need you · {rows.filter((row) => row.state === "working").length} working
+          {needsCount} need you · {rows.filter((row) => row.state === "working").length} working
         </p>
         <div className="sidebar-filter">
           <input
@@ -666,21 +665,24 @@ export function Sidebar(props: SidebarProps) {
           </div>
         )}
         <div className="sidebar-footer-bar">
-          {footer}
-          <BackgroundErrorMark />
-          <button
-            ref={configGearRef}
-            type="button"
-            className="config-gear"
-            title="Foom config"
-            aria-label={configLabel}
-            aria-haspopup="dialog"
-            aria-expanded={menu?.id === "config"}
-            data-tone={configTone}
-            onClick={configPanel}
-          >
-            <PanelMark mark="config" />
-          </button>
+          {footerActions}
+          <div className="sidebar-footer-controls">
+            {footer}
+            <BackgroundErrorMark />
+            <button
+              ref={configGearRef}
+              type="button"
+              className="config-gear"
+              title="Foom config"
+              aria-label={configLabel}
+              aria-haspopup="dialog"
+              aria-expanded={menu?.id === "config"}
+              data-tone={configTone}
+              onClick={configPanel}
+            >
+              <PanelMark mark="config" />
+            </button>
+          </div>
         </div>
       </footer>
       {menu && panel && !inactive && (

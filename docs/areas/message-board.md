@@ -108,3 +108,59 @@ even when ordinary writes have reached the 32 MiB/receipt bounds. Local and
 registered-host human removal share this expiry notification. Other writes still
 refuse at capacity rather than silently evicting events. Serialized writes preserve event order; recording failure is exposed
 through mutation flushes and a fixed diagnostic without contents.
+
+## Structured decisions (#1297)
+
+The current repository orchestrator can post one to four questions on a topic.
+The board caps outstanding questions at 16 per authoring repository across
+threads. Each question has a title, two to four options with distinct IDs and
+optional detail, option hints, preview and PR subject. The Board remains the
+single private history. A question cannot approve a Foom action by itself.
+
+A PR subject names a PR in the posting repository. Main reads the settled head
+and required-check state from current forge tracking. The serial forge poller
+reuses matching worktree observations and can look up a question's PR number
+when no tracked checkout covers it, including same-repository PRs from the default
+branch. After a newer observation replaces older checkout evidence, losing its
+source does not make that older head eligible for answers again. The poller stops
+watching once no open question uses that PR. Posting requests a fresh read.
+Until a forge request started after the question began saving confirms the head,
+the question shows Checking subject and submission is disabled. If a fresh
+read observes a different head, the board records that head, locks the options and
+removes the question from the count. The stepper shows the original and moved
+heads and **Waiting for a new question**, including changes observed while the
+question is saving. A force-push back to the original head does not reopen a stale
+question. An accepted answer retains the original full head. Submit checks
+every selected question and its subject in the serialized board write.
+An invalid, stale, withdrawn or previously answered selection refuses the whole
+batch. The review shows the 8,192-byte limit and disables Submit when the draft
+exceeds it. Same-key retries return the original receipt. Reading a board page
+acknowledges only queued wake notices for the answer posts on that page.
+
+The orchestrator can withdraw an open question post through `board_resolve` with
+its post ID. The thread stays open and previously submitted answers remain in
+its history. Questions withdrawn while the stepper is open stay in that stepper
+struck through until it closes. Resolving the thread also closes its outstanding
+questions. Agent thread resolution is refused while another repository's
+question is open, checking, or stale. The human can resolve the entire thread.
+The Board records questions, stale/withdrawn state and human answers
+in the same thread.
+
+The current orchestrator's tile has an amber decisions pill with the count and
+the sidebar and Board button repeat it. The footer shows **Board ◇ 3** for three
+decisions and includes **3 decisions** in the button's accessible name. The pill
+and Board queue open the stepper. Options and **Other** share the same selection
+indicator. The PR chip aligns the number and head hashes on one baseline.
+Hide and Escape retain the draft in that window and leave questions pending. Back and
+Change return to earlier questions, Skip leaves a question open, and review
+submits the completed choices together. The renderer displays question text,
+options and answers as plain text.
+
+Previews bind to the posting checkout or repository. Main revalidates the
+current local checkout, runs the shared preview resolver and restricts the
+canonical preview root to that checkout. It loads the document in a sandboxed
+preview partition with network and JavaScript disabled and blocks navigation
+and popups. Main queues overlapping captures within a fixed bound. The board
+receives a bounded PNG capture. Missing, unsupported or
+refused documents show Preview unavailable. The preview cannot receive input
+or use Board IPC.

@@ -17,6 +17,7 @@ export interface SidebarProps {
   inactive: boolean;
   revealRef: RefObject<((row: BoardRow) => void) | undefined>;
   rows: readonly BoardRow[];
+  decisionCount?: (session: string) => number;
   preferences: SidebarPreferences;
   save: (next: SidebarPreferences) => void;
   selected: string | undefined;
@@ -29,6 +30,7 @@ export interface SidebarProps {
   command: (command: SidebarCommand) => Promise<void>;
   options: LaunchOptions | undefined;
   footer: ReactNode;
+  footerActions?: ReactNode;
   otherViews?: ReadonlySet<string>;
   previews?: readonly PreviewSummary[];
   openPreview?: (id: string) => void;

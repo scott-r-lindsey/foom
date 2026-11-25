@@ -243,6 +243,9 @@ existing trusted Git discovery. The manifest cannot claim `sameRepository`, supp
 a default-branch bypass or authorize a checkout. #337's ownership, branch locks,
 budget and identity rechecks are unchanged. Unsupported/default discovery failures
 remain `forge_unavailable`; existing distinct adoption refusal codes remain intact.
+The Board's explicit PR subject uses `refresh` by number and the same final
+ownership and identity checks. This path accepts same-repository PRs from the
+default branch because it only reads subject metadata.
 
 Repository batching must preserve #516's dynamic queries, numeric PR bindings,
 check counts, default-branch exclusion and verified head/check identity. Branch
@@ -401,7 +404,7 @@ the sole bounded array iteration. Mapping never retains arbitrary response field
 | Output | Main-owned validation |
 | --- | --- |
 | `number` | Positive safe integer (GitLab `iid`, not global `id`) |
-| `branch`, `headSha` | Existing branch validator; exactly 40 lowercase hex SHA characters |
+| `branch`, `headSha` | Existing branch validator; exactly 40 or 64 lowercase hex SHA characters |
 | `mergeCommit?` | Optional literal selector; numeric-project-ID mappings retain exactly 40 lowercase hex characters; legacy owner/cross mappings retain 40–64. Final single-PR refresh must report the same raw value |
 | `squashCommit?` | Optional literal selector for alternative integration evidence; exactly 40 lowercase hex characters; final single-PR refresh must report the same raw value |
 | `state`, `states` | Exact, case-sensitive table lookup to OPEN/CLOSED/MERGED |

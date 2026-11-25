@@ -31,7 +31,7 @@ export function pullRequest(value: unknown): PullRequest | undefined {
     !Number.isSafeInteger(data["number"]) ||
     data["number"] <= 0 ||
     typeof data["headSha"] !== "string" ||
-    !/^[a-f0-9]{40}$/u.test(data["headSha"]) ||
+    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(data["headSha"]) ||
     (data["state"] !== "OPEN" && data["state"] !== "CLOSED" && data["state"] !== "MERGED") ||
     (data["requiredChecks"] !== "pending" &&
       data["requiredChecks"] !== "success" &&

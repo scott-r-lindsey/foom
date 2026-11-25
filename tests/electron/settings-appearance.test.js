@@ -1470,15 +1470,23 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   const policyPage = await confirmationPage(app);
   const csp = (target) =>
     target.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
-  assert.equal((await csp(page)).replace(" foom-theme://bitmap", ""), await csp(policyPage));
-  assert.match(await csp(page), /; img-src 'self' foom-theme:\/\/bitmap;/u);
+  const confirmationPolicy = await csp(policyPage);
+  assert.match(confirmationPolicy, /; img-src 'self';/u);
+  assert.equal(
+    await csp(page),
+    confirmationPolicy.replace("img-src 'self';", "img-src 'self' foom-theme://bitmap data:;"),
+  );
+  const previewPng = (
+    await sharp({ create: { width: 1, height: 1, channels: 3, background: "#3366bb" } })
+      .png()
+      .toBuffer()
+  ).toString("base64");
+  assert.equal(await paintsImage(`data:image/png;base64,${previewPng}`), true);
   const violations = [];
   await page.exposeFunction("captureThemeCspViolation", (uri) =>
     violations.push(uri.split(":")[0]),
   );
-  await page.evaluate(async () => {
-    const png =
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=";
+  await page.evaluate(async (png) => {
     const blob = URL.createObjectURL(
       new Blob([Uint8Array.from(atob(png), (char) => char.charCodeAt(0))], { type: "image/png" }),
     );
@@ -1490,7 +1498,6 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
       await Promise.all(
         [
           blob,
-          `data:image/png;base64,${png}`,
           "file:///bitmap.png",
           "https://theme-test.invalid/art.png",
           "foom-theme://unapproved/anything",
@@ -1508,11 +1515,11 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
     } finally {
       URL.revokeObjectURL(blob);
     }
-  });
+  }, previewPng);
   // Chromium can reject file URLs before dispatching a policy violation.
   await expect
     .poll(() => [...new Set(violations.filter((uri) => uri !== "file"))].sort())
-    .toEqual(["blob", "data", "foom-theme", "https"]);
+    .toEqual(["blob", "foom-theme", "https"]);
   assert.equal(await paintsImage(oldBoard), true);
   assert.equal(await paintsImage(`foom-theme://bitmap/${"0".repeat(64)}`), false);
   const delivered = await app.evaluate(async ({ net }, url) => {
