@@ -1698,10 +1698,14 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   await expect(disclosure.getByRole("button", { name: "Cancel" })).toBeFocused();
   await expect(disclosure.getByRole("alertdialog")).toContainText("Codex before");
   await expect(disclosure.getByRole("alertdialog")).toContainText("Codex after");
-  assert.deepEqual(
-    await disclosure.locator(".argument-lines").last().locator("code").allTextContents(),
-    args,
-  );
+  const argumentLines = (label) =>
+    disclosure
+      .locator(".section")
+      .filter({ has: disclosure.getByRole("heading", { name: label, exact: true }) })
+      .locator(".argument-lines code");
+  const approvalBypass = ["--ask-for-approval", "never"];
+  assert.deepEqual(await argumentLines("Codex after").allTextContents(), args);
+  await expect(argumentLines("Codex bypass")).toHaveText(approvalBypass);
   await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(banner).toHaveCount(0);
   assert.deepEqual(
@@ -1751,7 +1755,7 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
     "Allow agent launch arguments?",
   );
   await expect(disclosure.getByRole("alertdialog")).toContainText("Codex bypass");
-  await expect(disclosure.locator(".argument-lines").last()).toHaveText(bypass);
+  await expect(argumentLines("Codex bypass")).toHaveText([...approvalBypass, bypass]);
   await assertAccessible(disclosure);
   await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(banner).toHaveCount(0);

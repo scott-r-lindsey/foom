@@ -181,14 +181,23 @@ function bypassArguments(agent: AgentId, args: readonly string[]): readonly stri
     const arg = args[index];
     if (arg === undefined) continue;
     const pair = args.slice(index, index + 2);
-    if (
-      ["--permission-mode", "--sandbox", "-s", "-c", "--config"].includes(arg) &&
+    if (hasBypassArgument(agent, [arg])) found.push(arg);
+    else if (
+      [
+        "--permission-mode",
+        "--ask-for-approval",
+        "-a",
+        "--sandbox",
+        "-s",
+        "-c",
+        "--config",
+      ].includes(arg) &&
       pair.length === 2 &&
       hasBypassArgument(agent, pair)
     ) {
       found.push(...pair);
       index += 1;
-    } else if (hasBypassArgument(agent, [arg])) found.push(arg);
+    }
   }
   return found;
 }
