@@ -317,3 +317,83 @@ it("preserves an unavailable legacy child link only for the same active parent",
   expect(result.parentStillActive()).toBe(false);
   expect(h.orchestration.view("legacy")).toBeUndefined();
 });
+
+it.each(["create", "adopt"] as const)(
+  "supersedes unavailable saved worktree provenance on %s",
+  async (action) => {
+    const h = harness();
+    const branch = action === "create" ? "new" : "adopted";
+    const path = join(repo, "trees", branch);
+    const saved = { path, identity: "original-checkout", state: "used" as const };
+    const parent = h.rows.get("parent");
+    if (!parent) throw new Error("missing parent");
+    const oldChild = { ...parent, id: "old-child", worktree: path, exited: true };
+    h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("timed-out"));
+    await h.orchestration.restoreWorktrees("parent", [saved]);
+    const pending = await h.orchestration.restoreChild("parent", oldChild);
+    if (typeof pending === "boolean") throw new Error("missing deferred proof");
+    expect(pending.parentStillActive()).toBe(true);
+
+    const replacement = await h.mutate(
+      "create_worktree",
+      action === "create" ? { branch } : { pullRequest: 7 },
+    );
+    expect(replacement.status).toBe("succeeded");
+    expect(h.orchestration.savedWorktrees("parent")).toEqual([
+      {
+        path,
+        identity: `id-${branch}`,
+        state: "unused",
+        ...(action === "adopt" ? { pullRequest: 7 } : {}),
+      },
+    ]);
+    expect(pending.parentStillActive()).toBe(false);
+    expect(await h.orchestration.restoreChild("parent", oldChild)).toBe(false);
+    expect(h.orchestration.view(oldChild.id)).toBeUndefined();
+
+    await expect(
+      h.mutate("launch", { worktreeId: replacement.resultId, agent: "claude" }),
+    ).resolves.toMatchObject({ status: "succeeded" });
+  },
+);
+
+it("charges unverified unused records to the persisted worktree budget", async () => {
+  const h = harness();
+  h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("timed-out"));
+  const tree = {
+    path: join(repo, "trees", "unverified"),
+    identity: "unverified",
+    state: "unused" as const,
+  };
+  await h.orchestration.restoreWorktrees("parent", [tree], 3);
+  await expect(h.mutate("create_worktree", { branch: "too-many" })).rejects.toThrow("capacity");
+  expect(h.orchestration.savedWorktrees("parent")).toEqual([tree]);
+});
+
+it("refuses an old child when creation supersedes the checkout during an outstanding check", async () => {
+  const h = harness();
+  const path = join(repo, "trees", "replacement");
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  const check = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(check.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", [
+    { path, identity: "old-checkout", state: "used" },
+  ]);
+  await expect(h.mutate("create_worktree", { branch: "replacement" })).resolves.toMatchObject({
+    status: "succeeded",
+  });
+  check.reject(new LaunchFailure("timed-out"));
+  await restoring;
+  expect(
+    await h.orchestration.restoreChild("parent", {
+      ...parent,
+      id: "old-child",
+      worktree: path,
+      exited: true,
+    }),
+  ).toBe(false);
+  expect(h.orchestration.savedWorktrees("parent")).toEqual([
+    { path, identity: "id-replacement", state: "unused" },
+  ]);
+});

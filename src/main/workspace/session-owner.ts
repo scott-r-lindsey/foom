@@ -52,6 +52,10 @@ export class SessionOwner {
   private readonly saved = new Map<string, StoredSession>();
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
   private readonly restoring = new Set<string>();
+  private readonly manualLaunches = new Map<
+    string,
+    { row: WorkspaceTerminal | undefined; settled: Promise<void> }
+  >();
   private readonly claimedDuringDiscovery = new Set<string>();
   private readonly restoredParents = new Map<string, () => boolean>();
   private readonly unverifiedParents = new Map<
@@ -72,7 +76,7 @@ export class SessionOwner {
     this.restoreEnabled = enabled;
   }
   isRestoring(id: string): boolean {
-    return this.restoring.has(id);
+    return this.restoring.has(id) && !this.manualLaunchReplaced(id);
   }
   roleNotRestored(id: string): boolean {
     return !this.restoring.has(id) && this.unrestoredRoles.has(id);
@@ -84,6 +88,27 @@ export class SessionOwner {
     this.restoring.delete(id);
     this.saved.delete(id);
     this.unverifiedParents.delete(id);
+  }
+
+  /** Hold the startup claim through confirmation and launch without discarding saved provenance. */
+  reserveManualLaunch(id: string): (started: boolean) => void {
+    let release = () => {};
+    const settled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.manualLaunches.set(id, { row: this.deps.terminal(id), settled });
+    return (started) => {
+      const claimed = started || this.manualLaunchReplaced(id);
+      if (claimed) this.claim(id);
+      this.manualLaunches.delete(id);
+      release();
+      if (claimed) this.persist();
+    };
+  }
+
+  private manualLaunchReplaced(id: string): boolean {
+    const manual = this.manualLaunches.get(id);
+    return manual !== undefined && this.deps.terminal(id) !== manual.row;
   }
   rememberRemote(id: string, value: RemoteSavedPlacement): void {
     const placement = {
@@ -278,16 +303,19 @@ export class SessionOwner {
           const sharedReview = this.deps.sharedReview?.(entry.id);
           const role = this.deps.orchestration.view(entry.id);
           const identity = this.deps.orchestration.identity(entry.id);
-          const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
+          const restoring = this.isRestoring(entry.id);
+          const saved = restoring ? this.saved.get(entry.id) : undefined;
           const pendingParent = saved?.parentId;
-          const unverified = this.unverifiedParents.get(entry.id);
+          const unverified = this.manualLaunchReplaced(entry.id)
+            ? undefined
+            : this.unverifiedParents.get(entry.id);
           const parentId = role
             ? role.role === "child" && !role.takenOver
               ? role.parentId
               : undefined
             : unverified?.stillActive()
               ? unverified.id
-              : pendingParent && this.restoring.has(pendingParent)
+              : pendingParent && this.isRestoring(pendingParent)
                 ? pendingParent
                 : undefined;
           return {
@@ -297,7 +325,7 @@ export class SessionOwner {
             handoffs: this.deps.orchestration.handoffs.entries(entry.id),
             ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
             ...(parentId ? { parentId } : {}),
-            running: this.restoring.has(entry.id) || !entry.exited,
+            running: restoring || !entry.exited,
             ...(role?.role === "orchestrator" && role.active && identity !== undefined
               ? {
                   orchestrator: {
@@ -344,14 +372,20 @@ export class SessionOwner {
   restartSaved(): Promise<void> {
     if (this.restoreWork) return this.restoreWork;
     this.restoreWork = this.discovery
-      ? this.discovery.then((entries) => {
-          this.importEntries(entries, true);
-          this.discovery = undefined;
-          this.claimedDuringDiscovery.clear();
-          return this.restartEntries();
-        })
-      : this.restartEntries();
+      ? this.discovery.then((entries) => this.finishDiscovery(entries))
+      : this.finishDiscovery([]);
     return this.restoreWork;
+  }
+
+  private finishDiscovery(entries: readonly StoredSession[]): Promise<void> {
+    const waiting = [...this.manualLaunches]
+      .filter(([id]) => this.restoring.has(id) || entries.some((entry) => entry.id === id))
+      .map(([, manual]) => manual.settled);
+    if (waiting.length) return Promise.all(waiting).then(() => this.finishDiscovery(entries));
+    this.importEntries(entries, true);
+    this.discovery = undefined;
+    this.claimedDuringDiscovery.clear();
+    return this.restartEntries();
   }
 
   private restartEntries(): Promise<void> {
@@ -399,20 +433,36 @@ export class SessionOwner {
   private async restoreSavedChild(entry: StoredSession, parentId: string, exited: boolean) {
     const parentCurrent = this.restoredParents.get(parentId);
     if (!parentCurrent || this.unverifiedParents.has(entry.id)) return false;
+    for (
+      let manual = this.manualLaunches.get(entry.id);
+      manual;
+      manual = this.manualLaunches.get(entry.id)
+    )
+      await manual.settled;
     const eligible = () =>
       parentCurrent() &&
       this.saved.has(entry.id) &&
       !this.forgettingSessions.has(entry.id) &&
       this.deps.terminal(entry.id) !== undefined;
-    const result = await this.deps.orchestration.restoreChild(
-      parentId,
-      { ...entry, exited },
-      eligible,
-    );
-    if (typeof result === "boolean") return result && eligible();
-    if (eligible())
-      this.unverifiedParents.set(entry.id, { id: parentId, stillActive: result.parentStillActive });
-    return false;
+    if (!eligible()) return false;
+    const reserveDormant = !this.restoring.has(entry.id);
+    if (reserveDormant) this.deps.busy(entry.id, true);
+    try {
+      const result = await this.deps.orchestration.restoreChild(
+        parentId,
+        { ...entry, exited },
+        eligible,
+      );
+      if (typeof result === "boolean") return result && eligible();
+      if (eligible())
+        this.unverifiedParents.set(entry.id, {
+          id: parentId,
+          stillActive: result.parentStillActive,
+        });
+      return false;
+    } finally {
+      if (reserveDormant) this.deps.busy(entry.id, false);
+    }
   }
 
   private async restartSavedEntry(entry: StoredSession): Promise<void> {

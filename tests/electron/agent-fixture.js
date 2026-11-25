@@ -15,7 +15,7 @@ async function launchFixtureRepository(context, repo, options) {
   return { app, page, repository };
 }
 
-async function codexFixture(context, { prefix = "foom-inline-", source, helpText }) {
+async function agentFixture(context, { agent, prefix = "foom-inline-", source, helpText }) {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -23,7 +23,7 @@ async function codexFixture(context, { prefix = "foom-inline-", source, helpText
   const home = path.join(root, "home");
   await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
   const help = path.join(root, "help");
-  const cli = path.join(bin, "codex");
+  const cli = path.join(bin, agent);
   await writeFile(cli, source({ help }));
   await chmod(cli, 0o755);
   gitSync(["init", "-q", "-b", "main"], { cwd: repo });
@@ -52,6 +52,10 @@ async function codexFixture(context, { prefix = "foom-inline-", source, helpText
   };
 }
 
+function codexFixture(context, options) {
+  return agentFixture(context, { ...options, agent: "codex" });
+}
+
 async function launchTrustedParent(context, { repo, credentials, options }) {
   const { app, page, repository } = await launchFixtureRepository(context, repo, options);
   await page.evaluate(
@@ -72,4 +76,4 @@ async function launchTrustedParent(context, { repo, credentials, options }) {
   return { app, page, repository: repository.path, parent };
 }
 
-module.exports = { codexFixture, launchTrustedParent };
+module.exports = { agentFixture, codexFixture, launchTrustedParent };

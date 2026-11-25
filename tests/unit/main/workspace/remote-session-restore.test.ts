@@ -149,6 +149,30 @@ test("exits observed while the hub was away retain their real code, with no blan
   ).rejects.toMatchObject({ code: 3 });
 });
 
+test.each([
+  { agent: "pi", kind: "agent", machine: true, imagePaste: true },
+  { agent: "codex", kind: "agent", machine: true, imagePaste: true },
+  { agent: "claude", kind: "agent", machine: true, imagePaste: true },
+  { agent: "claude", kind: "agent", machine: false, imagePaste: undefined },
+  { agent: "opencode", kind: "agent", machine: true, imagePaste: undefined },
+  { agent: "custom", kind: "agent", machine: true, imagePaste: undefined },
+  { agent: "shell", kind: "shell", machine: true, imagePaste: undefined },
+] as const)(
+  "human reattach limits image eligibility to supported Machines menu agents ($agent, $machine)",
+  async ({ agent, kind, machine, imagePaste }) => {
+    const create = vi.fn<(spec: TerminalSpec) => Promise<string>>().mockResolvedValue("one");
+    const launch = vi.fn<(request: AgentLaunch) => Promise<AgentLaunched>>();
+    await reattachRemoteSession(
+      { ...entry, agent, kind, ...(machine ? { machine: true } : {}) },
+      hosts,
+      { create },
+      launch,
+    );
+    expect(create.mock.calls[0]?.[0].imagePaste).toBe(imagePaste);
+    expect(launch).not.toHaveBeenCalled();
+  },
+);
+
 test("reattachment rechecks registration even without a conversation ID or optional parent guard", async () => {
   const withoutConversation = { ...entry };
   delete withoutConversation.conversationId;

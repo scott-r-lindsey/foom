@@ -56,10 +56,17 @@ startup. This metadata stays private and confers no child authority while the
 check is unproven. An otherwise eligible child starts with human access. A
 refused worktree, identity mismatch or replaced parent cannot restore the link
 or its authority. The retained link expires when the original parent grant ends
-or a manual action claims the child.
+or a manual action claims the child. A newly created or adopted checkout at the
+same path supersedes unverified provenance and invalidates its retained child
+links. Unverified unused checkouts still count toward the saved worktree budget.
+If a profile already contains duplicate worktree paths for an orchestrator,
+startup keeps the session rows and drops that saved grant and its child links.
 
-An accepted manual Resume, New conversation, Restart or Close claims the row
-before launch or cleanup awaits. Startup skips claimed rows, including results
+Manual Resume, New conversation and Restart reserve the row while they confirm
+and attempt a launch. Startup waits for a relevant reservation to settle. A
+successful launch claims the row. Declining or failing before a replacement
+launch lets startup use the original saved record. Close claims the row before
+cleanup. Startup skips claimed rows, including results
 from in-flight daemon discovery. Removing a row also suppresses stale discovery
 for that ID. Discovery can reconcile eligible daemon-live rows that
 were saved as exited and have not been claimed in this startup.

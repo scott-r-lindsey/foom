@@ -6,6 +6,7 @@ import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { LaunchFailure } from "../../shared/launch-failure";
+import { imagePasteRecipient } from "../../shared/image-paste";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
 import type { AgentId, AgentLaunch, AgentLaunched } from "../../shared/agents";
@@ -567,8 +568,6 @@ export async function startMachine(
         await this.deps.terminals.kill(restoreId, previous.placement.host);
       else if (previous && !previous.dormant) await this.deps.terminals.kill(restoreId);
       if (previous) previous.dormant = true;
-      this.executionOwner.reset(restoreId);
-      this.deps.verdicts.forget(restoreId);
     }
     ensureOpen();
     if (host !== null) hosts?.registered(host, remote?.machine?.codeFolder);
@@ -588,6 +587,10 @@ export async function startMachine(
     )
       throw new Error("This worktree is busy");
     try {
+      if (restoreId) {
+        this.executionOwner.reset(restoreId);
+        this.deps.verdicts.forget(restoreId);
+      }
       let agentResult: AgentLaunched | undefined;
       if (host === null && run !== "shell" && !location) {
         agentResult = await this.agents.launch({
@@ -628,6 +631,7 @@ export async function startMachine(
           rows: 24,
           env: environment.env,
           ...(remote ? { remote } : {}),
+          ...(remote && !location && imagePasteRecipient(run) ? { imagePaste: true } : {}),
           ...(run === "shell" ? { shellIntegration: true } : {}),
         }));
       const conversationId = agentResult?.conversationId ?? conversation;

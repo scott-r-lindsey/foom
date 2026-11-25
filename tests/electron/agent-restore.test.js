@@ -17,14 +17,15 @@ const {
   removeAfterApps,
 } = require("./harness.js");
 
-for (const { agent, linked, replaced, transient } of [
+for (const { agent, linked, replaced, transient, declined } of [
   { agent: "claude", linked: false },
   { agent: "codex", linked: false },
   { agent: "claude", linked: true },
   { agent: "claude", linked: true, replaced: true },
   { agent: "claude", transient: true },
+  { agent: "claude", declined: true },
 ])
-  test(`restores running ${agent}${linked ? " in a linked worktree" : ""}${replaced ? " with a replaced checkout" : ""}${transient ? " with transient child checks" : ""}, shell and orchestrator children across windows`, {
+  test(`restores running ${agent}${linked ? " in a linked worktree" : ""}${replaced ? " with a replaced checkout" : ""}${transient ? " with transient child checks" : ""}${declined ? " after declining manual Resume" : ""}, shell and orchestrator children across windows`, {
     timeout: deadline(90000),
     skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
   }, async (context) => {
@@ -231,6 +232,7 @@ req.end(JSON.stringify(payload));
       ...options,
       fixture: "restored",
       ...(transient ? { restoreFixture: { failChildChecks: childPaths } } : {}),
+      ...(declined ? { restoreFixture: { holdDiscovery: true } } : {}),
     });
     let pages;
     await expect
@@ -240,6 +242,58 @@ req.end(JSON.stringify(payload));
       })
       .toBe(2);
     const page = pages[0];
+    if (declined) {
+      try {
+        // Another live agent makes Resume require checkout-sharing consent.
+        await page.evaluate(
+          (repo) =>
+            window.desktop.sidebarCommand({
+              kind: "launch",
+              repository: repo,
+              worktree: repo,
+              run: "claude",
+            }),
+          repo,
+        );
+        const armed = await page.evaluate((id) => {
+          const armed = new Promise((resolve) => {
+            const unsubscribe = window.desktop.confirmations.subscribe((arm) => {
+              if (!arm) return;
+              unsubscribe();
+              resolve(arm.label);
+            });
+          });
+          window.manualResume = window.desktop.sidebarCommand({ kind: "resume", id });
+          return Promise.race([armed, window.manualResume.then(() => null)]);
+        }, parentId);
+        assert.equal(armed, "Click again for multiple agents here");
+        await restored.evaluate(() => globalThis.restoreFixture.release());
+        await page.evaluate(async () => {
+          await window.desktop.confirmations.cancel();
+          await window.manualResume;
+        });
+        await expect
+          .poll(() => restored.evaluate(() => globalThis.restoreFixture.completed))
+          .toBe(true);
+        const restoredRows = await rows(page);
+        assert.equal(restoredRows.find((row) => row.id === parentId)?.orchestration?.active, true);
+        assert.deepEqual(
+          restoredRows
+            .filter((row) => childIds.includes(row.id))
+            .map((row) => row.orchestration?.parentId),
+          [parentId, parentId],
+        );
+      } finally {
+        await restored.evaluate(() => globalThis.restoreFixture.release());
+      }
+      await quit(restored);
+      const persisted = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"));
+      assert.deepEqual(
+        persisted.filter((row) => childIds.includes(row.id)).map((row) => row.parentId),
+        [parentId, parentId],
+      );
+      return;
+    }
     if (transient) {
       await expect
         .poll(() => restored.evaluate(() => globalThis.restoreFixture.completed))

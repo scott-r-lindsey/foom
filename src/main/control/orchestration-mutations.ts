@@ -132,6 +132,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       if (number === undefined) this.host.forge?.track({ repository: parent.repository, ...tree });
       else this.host.forge?.track({ repository: parent.repository, ...tree }, number);
       const id = locationId(tree.path);
+      if (parent.unverifiedWorktrees.delete(id)) parent.refusedWorktrees.add(id);
       parent.worktrees.set(id, {
         path: tree.path,
         branch: tree.branch,

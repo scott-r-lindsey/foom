@@ -839,3 +839,65 @@ it("requires the parent's original startup grant before checking saved children"
     "parentId",
   );
 });
+
+it.each([false, true])(
+  "holds startup until a manual parent launch settles (started=%s)",
+  async (started) => {
+    const child = row("child", { parentId: "parent" });
+    const f = fixture([parent(), child]);
+    const discovery = Promise.withResolvers<readonly StoredSession[]>();
+    f.deps.discover = () => discovery.promise;
+    await f.owner.restore();
+    const settle = f.owner.reserveManualLaunch("parent");
+    const starting = f.owner.restartSaved();
+    discovery.resolve([]);
+    await discovery.promise;
+    await f.owner.save();
+    expect(f.deps.launch).not.toHaveBeenCalled();
+    expect(f.store.save.mock.lastCall?.[0][0]?.orchestrator).toBeDefined();
+    expect(f.store.save.mock.lastCall?.[0][1]?.parentId).toBe("parent");
+
+    if (started) {
+      const manual = row("parent", { exited: false, dormant: false });
+      f.rows.set(manual.id, manual);
+      // The launch path persists the new invocation before returning its ID.
+      await f.owner.save();
+      expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("orchestrator");
+      expect(f.store.save.mock.lastCall?.[0][1]).not.toHaveProperty("parentId");
+    }
+    settle(started);
+    await starting;
+    expect(
+      vi.mocked(f.deps.launch).mock.calls.map(([entry, control]) => [entry.id, control]),
+    ).toEqual(
+      started
+        ? [["child", undefined]]
+        : [
+            ["parent", { role: "orchestrator" }],
+            ["child", { parentId: "parent" }],
+          ],
+    );
+  },
+);
+
+it("delays daemon reconciliation for an exited row until a manual claim is released", async () => {
+  const remote = row("remote", {
+    running: false,
+    remote: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+  const f = fixture([remote]);
+  f.deps.discover = () => Promise.resolve([{ ...remote, running: true, recovered: true }]);
+  await f.owner.restore();
+  const settle = f.owner.reserveManualLaunch(remote.id);
+  const starting = f.owner.restartSaved();
+  await Promise.resolve();
+  expect(f.deps.launch).not.toHaveBeenCalled();
+  settle(false);
+  await starting;
+  expect(f.deps.launch).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: remote.id, recovered: true }),
+    undefined,
+    undefined,
+  );
+});

@@ -449,10 +449,11 @@ export class OrchestrationAuthority {
 
   /** Keep the original identities for the next startup, outside live ownership. */
   savedWorktrees(id: string): OwnedWorktree[] {
-    return [
-      ...this.ownedWorktrees(id),
-      ...(this.parents.get(id)?.unverifiedWorktrees.values() ?? []),
-    ];
+    const saved = new Map<string, OwnedWorktree>();
+    for (const tree of this.parents.get(id)?.unverifiedWorktrees.values() ?? [])
+      saved.set(tree.path, tree);
+    for (const tree of this.ownedWorktrees(id)) saved.set(tree.path, tree);
+    return [...saved.values()];
   }
 
   /** Saved identity must still match; invalid entries never grant capabilities. */
@@ -470,8 +471,17 @@ export class OrchestrationAuthority {
         .catch(restoreWorktreeFailure);
       if (this.slots.get(parent.repository) !== parent) return;
       const key = locationId(saved.path);
+      const owned = parent.worktrees.get(key);
+      if (owned && owned.identity !== saved.identity) {
+        parent.refusedWorktrees.add(key);
+        continue;
+      }
       if (tree === "unavailable") {
-        if (!parent.worktrees.has(key) && !parent.refusedWorktrees.has(key))
+        if (
+          !owned &&
+          !parent.refusedWorktrees.has(key) &&
+          (saved.state === "used" || this.unused(parent) < WORKTREE_LIMIT)
+        )
           parent.unverifiedWorktrees.set(key, saved);
         continue;
       }
@@ -480,7 +490,7 @@ export class OrchestrationAuthority {
         parent.refusedWorktrees.add(key);
         continue;
       }
-      if (parent.worktrees.has(key)) continue;
+      if (owned) continue;
       if (saved.state === "unused" && this.unused(parent) >= WORKTREE_LIMIT) continue;
       parent.worktrees.set(key, { ...tree, ...saved });
       this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
@@ -506,17 +516,25 @@ export class OrchestrationAuthority {
     )
       return false;
     const parentStillActive = () => parent.active && this.parents.get(parentId) === parent;
-    if (parent.unverifiedWorktrees.has(worktreeId)) return { parentStillActive };
+    const unverified = parent.unverifiedWorktrees.get(worktreeId);
+    const identity = parent.worktrees.get(worktreeId)?.identity;
+    const worktreeUnchanged = () =>
+      !parent.refusedWorktrees.has(worktreeId) &&
+      parent.unverifiedWorktrees.get(worktreeId) === unverified &&
+      parent.worktrees.get(worktreeId)?.identity === identity;
+    const pending = { parentStillActive: () => parentStillActive() && worktreeUnchanged() };
+    if (unverified) return pending;
     const tree = await this.host
       .restoreWorktree(parent.repository, entry.worktree)
       .catch(restoreWorktreeFailure);
     if (
       !parentStillActive() ||
       !eligible() ||
+      !worktreeUnchanged() ||
       (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
-    if (tree === "unavailable") return { parentStillActive };
+    if (tree === "unavailable") return pending;
     if (!tree) return false;
     const owned = parent.worktrees.get(worktreeId);
     if (owned && owned.identity !== tree.identity) return false;
@@ -904,7 +922,9 @@ export class OrchestrationAuthority {
     return (
       [...parent.worktrees.values()].filter(
         (tree) => tree.state === "unused" || tree.state === "starting",
-      ).length + parent.uncertain
+      ).length +
+      [...parent.unverifiedWorktrees.values()].filter((tree) => tree.state === "unused").length +
+      parent.uncertain
     );
   }
 
