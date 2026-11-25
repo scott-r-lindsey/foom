@@ -742,7 +742,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     },
     onStatus: wiring.configStatusChanged,
     onThemeBitmapsChanged: wiring.themesChanged,
-    loadThemeBitmaps: (parsed) => bitmaps.load(parsed),
+    loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode),
+    deferThemeDecoding: true,
     onThemeDecision: () => {
       void wiring.themes.reload();
     },
@@ -779,6 +780,10 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   if (placements.length)
     for (const placement of placements) await wiring.createWindow(undefined, placement);
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
+  if (wiring.config.ready)
+    void wiring.config.startThemeDecoding().catch(() => {
+      console.error("Unable to refresh theme bitmaps");
+    });
   wiring.workspace.configure(wiring.settings.get());
   void wiring.workspace
     .restartSaved()

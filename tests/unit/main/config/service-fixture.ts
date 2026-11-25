@@ -108,7 +108,7 @@ export async function fixture({
 /** Restarts the service on the same folder and profile, as relaunching Foom does. */
 export async function restart(
   f: Awaited<ReturnType<typeof fixture>>,
-  overrides: Pick<ConfigServiceDependencies, "loadThemeBitmaps"> = {},
+  overrides: Pick<ConfigServiceDependencies, "loadThemeBitmaps" | "deferThemeDecoding"> = {},
 ) {
   await f.service.dispose();
   const again = new ConfigService({

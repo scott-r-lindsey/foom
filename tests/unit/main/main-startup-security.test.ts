@@ -245,3 +245,29 @@ test("the board scheme serves only IDs that the active theme currently owns", as
   expect((await handler(url)).status).toBe(404);
   expect(mock.fetch).not.toHaveBeenCalled();
 });
+
+test("defers bitmap decoding until the first window loads", async () => {
+  const loading = Promise.withResolvers<undefined>();
+  mock.window.loadURL.mockReturnValueOnce(loading.promise);
+  await start();
+  try {
+    expect(mock.config.deps?.deferThemeDecoding).toBe(true);
+    expect(mock.config.startThemeDecoding).not.toHaveBeenCalled();
+  } finally {
+    loading.resolve(undefined);
+  }
+  await vi.waitFor(() => {
+    expect(mock.config.startThemeDecoding).toHaveBeenCalledOnce();
+  });
+});
+
+test("a failed deferred bitmap refresh leaves the first window open", async () => {
+  mock.config.startThemeDecoding.mockRejectedValueOnce(new Error("Config refresh failed"));
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  await start();
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to refresh theme bitmaps");
+  });
+  expect(mock.window.loadURL).toHaveBeenCalledOnce();
+  expect(mock.quit).not.toHaveBeenCalled();
+});

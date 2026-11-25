@@ -80,10 +80,11 @@ settings file includes the profile arguments directly; empty profile defaults
 leave the key absent.
 Settings saves split
 the patch: config keys are written to the file atomically and applied; profile
-keys go to the profile. Settings saves acquire an exclusive
-`.foom-settings.lock` file shared by all profiles before reading, validating and
-merging only the patched keys into the current settings file, and hold it through
-atomic replacement. Contention waits at most 20 intervals of 25 ms, then refuses
+keys go to the profile. Settings saves prepare the working settings and any
+selected palette before acquiring the exclusive `.foom-settings.lock` shared by
+all profiles. Under the lock they recheck those inputs, merge only the patched
+keys and replace the settings file atomically. Contention waits at most 20
+intervals of 25 ms, then refuses
 the save; the caller can retry the unchanged patch. No stale-baseline fallback is
 allowed. The lock is published exclusively by hard-linking a complete, fsynced private
 temporary file in the same directory, on Windows as well as POSIX. A filesystem

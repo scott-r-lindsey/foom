@@ -74,7 +74,9 @@ export interface ConfigServiceDependencies {
   onThemeBitmapsChanged?(): void;
   loadThemeBitmaps?(
     parsed: Extract<ParsedThemeFile, { kind: "theme" }>,
+    mode: "decode" | "sources",
   ): Promise<ThemeBitmapSnapshot>;
+  deferThemeDecoding?: boolean;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
   delay?: number;
   platform?: NodeJS.Platform;
@@ -186,12 +188,29 @@ interface Selection {
   source: string | null;
   palette: Palette | undefined;
   unavailable: boolean;
+  deferred?: boolean;
 }
 
 interface Pending extends Applied {
   id: string;
   weak: Weakening[];
   selection: Selection | undefined;
+}
+
+const attentionWeakening = {
+  action: "use a theme where needs-you is hard to tell apart",
+  detail: "attention-distinctness",
+};
+
+function appearanceOffer(palette: Palette): string {
+  return palette.bitmaps
+    ? digest(
+        JSON.stringify([
+          "theme-image-offer",
+          bitmapApproval(palette.text, palette.bitmaps.sources).digest,
+        ]),
+      )
+    : palette.digest;
 }
 
 const watchFolder = (directory: string, listener: (file: string | null) => void) => {
@@ -237,7 +256,7 @@ export class ConfigService {
       previous: Palette | undefined;
       settings: string | null;
       id: string;
-      bitmapChange: boolean;
+      reasons: Pick<Weakening, "action" | "detail">[];
     }
   >();
   /** Each rejected file: the digest of the bytes rejected and a fixed reason. */
@@ -250,10 +269,12 @@ export class ConfigService {
   private notice: string | undefined;
   private closed = false;
   private started = false;
+  private deferThemeDecoding: boolean;
 
   private readonly files: ConfigFiles;
   private readonly plugins: ConfigCatalog;
   constructor(private readonly deps: ConfigServiceDependencies) {
+    this.deferThemeDecoding = deps.deferThemeDecoding ?? false;
     this.files = new ConfigFiles(deps);
     this.plugins = new ConfigCatalog(this.files, this.rejected, () => this.closed, deps);
   }
@@ -283,6 +304,12 @@ export class ConfigService {
         throw error;
       }
     });
+  }
+
+  /** The application calls this after creating its first window. */
+  startThemeDecoding(): Promise<ConfigStatus> {
+    this.deferThemeDecoding = false;
+    return this.refresh();
   }
 
   /** True once the folder and its settings are in use. */
@@ -442,8 +469,7 @@ export class ConfigService {
 
   private async scan(lockSettings = true): Promise<void> {
     if (this.closed) return;
-    if (lockSettings) await this.files.withSettingsLock(() => this.scanSettings());
-    else await this.scanSettings();
+    await this.scanSettings(lockSettings);
     await this.scanPlugins();
     // Known names too, so a removed theme clears its applied, held or rejected state.
     const themes = new Set([
@@ -495,10 +521,13 @@ export class ConfigService {
     return { text, values };
   }
 
-  private async inspectSettings(current: Applied): Promise<Pending> {
+  private async inspectSettings(
+    current: Applied,
+    defer = this.deferThemeDecoding,
+  ): Promise<Pending> {
     const before = effective(this.deps.defaults, this.applied.values);
     const after = effective(this.deps.defaults, current.values);
-    const selection = await this.readSelection(before.interfaceTheme, after.interfaceTheme);
+    const selection = await this.readSelection(before.interfaceTheme, after.interfaceTheme, defer);
     const weak = [
       ...weakenings(before, after),
       ...argumentChanges(before, after),
@@ -518,16 +547,44 @@ export class ConfigService {
     return { ...current, weak, id, selection };
   }
 
-  private async scanSettings(): Promise<void> {
+  private async scanSettings(lock = true): Promise<void> {
     const current = await this.readSettings();
     if (!current) return;
-    if (current.text === this.applied.text) {
-      this.pending = null;
-      return;
-    }
-    const proposal = await this.inspectSettings(current);
-    if (proposal.weak.length) this.pending = proposal;
-    else await this.applyValues(proposal, proposal.selection);
+    const proposal =
+      current.text === this.applied.text ? undefined : await this.inspectSettings(current);
+    if (proposal?.selection?.deferred) return;
+    const apply = async () => {
+      if (lock && !(await this.matchesSettings(current, proposal?.selection))) {
+        this.schedule();
+        return;
+      }
+      if (!proposal) this.pending = null;
+      else if (proposal.weak.length) this.pending = proposal;
+      else await this.applyValues(proposal, proposal.selection);
+    };
+    if (lock) await this.files.withSettingsLock(apply);
+    else await apply();
+  }
+
+  private async matchesSettings(settings: Applied, selection?: Selection): Promise<boolean> {
+    return (
+      (await this.matchesSelection(selection)) &&
+      (await this.readSettings())?.text === settings.text
+    );
+  }
+
+  private async matchesSelection(selection?: Selection): Promise<boolean> {
+    if (!selection) return true;
+    if (!selection.unavailable && !(await this.matchesSources(selection.palette))) return false;
+    const bytes = await this.files.read(selection.file).catch(ignore);
+    if (!bytes) return selection.source === null && selection.unavailable === (bytes === undefined);
+    return selection.source === digest(bytes);
+  }
+
+  private async matchesSources(palette?: Palette): Promise<boolean> {
+    if (palette?.parsed.kind !== "theme" || !palette.bitmaps) return true;
+    const observed = await this.deps.loadThemeBitmaps?.(palette.parsed, "sources");
+    return isDeepStrictEqual(observed?.sources, palette.bitmaps.sources);
   }
 
   /** The active palette comes from the same snapshot as the applied selection. */
@@ -608,27 +665,60 @@ export class ConfigService {
       // or replace the profile's approval baseline.
       const bytes = await settle(this.files.read(file), null);
       if (bytes && decode(bytes) === text) {
-        const candidate = await this.readPalette(text, parsed);
+        const candidate = await this.themeCandidate(file, text, parsed, true);
         await this.reviewThemeValue(file, candidate);
         this.publish();
         const snapshot = this.appliedThemes.get(file);
         return (
           snapshot && {
             parsed: snapshot.parsed,
-            digest: snapshot.digest,
+            digest: this.isActiveTheme(file) ? snapshot.digest : appearanceOffer(snapshot),
             ...(candidate.bitmaps && { imageDiagnostics: candidate.bitmaps.diagnostics }),
           }
         );
       }
       const snapshot = this.appliedThemes.get(file);
-      if (snapshot) return { parsed: snapshot.parsed, digest: snapshot.digest };
+      if (snapshot)
+        return {
+          parsed: snapshot.parsed,
+          digest: this.isActiveTheme(file) ? snapshot.digest : appearanceOffer(snapshot),
+        };
     });
   }
 
-  private async readPalette(text: string, parsed: ParsedThemeFile): Promise<Palette> {
+  private isActiveTheme(file: string): boolean {
+    return (
+      file.startsWith("themes/") &&
+      effective(this.deps.defaults, this.applied.values).interfaceTheme ===
+        `user:${file.slice("themes/".length)}`
+    );
+  }
+
+  private themeCandidate(
+    file: string,
+    text: string,
+    parsed: ParsedThemeFile,
+    offer = false,
+  ): Promise<Palette> {
+    const mode =
+      this.isActiveTheme(file) && !this.deferThemeDecoding
+        ? "decode"
+        : offer
+          ? "sources"
+          : "palette";
+    return this.readPalette(text, parsed, mode);
+  }
+
+  private async readPalette(
+    text: string,
+    parsed: ParsedThemeFile,
+    mode: "decode" | "sources" | "palette" = "decode",
+  ): Promise<Palette> {
     const bitmaps =
-      parsed.kind === "theme" && parsed.images
-        ? await this.deps.loadThemeBitmaps?.(parsed)
+      parsed.kind === "theme" && parsed.images && this.deps.loadThemeBitmaps
+        ? mode === "palette"
+          ? { slots: {}, sources: {}, diagnostics: [] }
+          : await this.deps.loadThemeBitmaps(parsed, mode)
         : undefined;
     const jsonDigest = digest(text);
     if (!bitmaps) return { text, parsed, digest: jsonDigest, approval: jsonDigest };
@@ -657,11 +747,14 @@ export class ConfigService {
       this.appliedThemes.set(file, candidate);
       return;
     }
-    const active =
-      effective(this.deps.defaults, this.applied.values).interfaceTheme ===
-      `user:${file.slice("themes/".length)}`;
-    if (!active) {
+    if (!this.isActiveTheme(file)) {
       await this.acceptTheme(file, candidate, false);
+      return;
+    }
+    if (this.deferThemeDecoding && candidate.bitmaps) {
+      const approved = persistedPalette(candidate, this.deps.themeBaseline.get(file));
+      if (approved) this.appliedThemes.set(file, approved);
+      else this.appliedThemes.delete(file);
       return;
     }
     const previous =
@@ -681,10 +774,12 @@ export class ConfigService {
         typeof candidate.approval === "object" &&
         !sourcesMatch(priorApproval, candidate.approval.sources));
 
-    if (
-      bitmapChange ||
-      attentionConflicts(parsed.theme).some((conflict) => !approved.has(conflict))
-    ) {
+    const reasons = [];
+    if (attentionConflicts(parsed.theme).some((conflict) => !approved.has(conflict)))
+      reasons.push(attentionWeakening);
+    if (bitmapChange)
+      reasons.push({ action: "apply changed theme images", detail: "theme-images" });
+    if (reasons.length) {
       const settings = await settle(this.files.read(SETTINGS_FILE), null);
       const settingsDigest = settings && digest(settings);
       this.heldThemes.set(file, {
@@ -692,7 +787,7 @@ export class ConfigService {
         previous,
         settings: settingsDigest,
         id: digest(JSON.stringify([settingsDigest, file, candidate.digest])),
-        bitmapChange,
+        reasons,
       });
       if (previous) {
         const observed = sameImages
@@ -709,8 +804,12 @@ export class ConfigService {
 
   private async refreshApprovedAvailability(file: string): Promise<void> {
     const previous = this.appliedThemes.get(file);
-    if (!previous?.bitmaps) return;
-    const observed = await this.readPalette(previous.text, previous.parsed);
+    if (!this.isActiveTheme(file) || !previous?.bitmaps) return;
+    const observed = await this.readPalette(
+      previous.text,
+      previous.parsed,
+      this.deferThemeDecoding ? "palette" : "decode",
+    );
     this.appliedThemes.set(file, availablePalette(previous, observed));
   }
 
@@ -728,6 +827,7 @@ export class ConfigService {
   private async readSelection(
     before: EffectiveConfig["interfaceTheme"],
     after: EffectiveConfig["interfaceTheme"],
+    defer = false,
   ): Promise<Selection | undefined> {
     if (before === after || !isUserThemeId(after)) return undefined;
     const file = `themes/${after.slice(5)}`;
@@ -737,8 +837,11 @@ export class ConfigService {
       if (bytes) {
         source = digest(bytes);
         const text = decode(bytes);
-        const palette = await this.readPalette(text, parseThemeFile(text, "theme"));
-        return { file, source: palette.digest, palette, unavailable: false };
+        const parsed = parseThemeFile(text, "theme");
+        if (defer && parsed.kind === "theme" && parsed.images && this.deps.loadThemeBitmaps)
+          return { file, source, palette: undefined, unavailable: false, deferred: true };
+        const palette = await this.readPalette(text, parsed);
+        return { file, source, palette, unavailable: false };
       }
     } catch {
       return { file, source, palette: this.appliedThemes.get(file), unavailable: true };
@@ -758,39 +861,34 @@ export class ConfigService {
   }
 
   private themeSelectionWeakening(selection?: Selection): Weakening[] {
+    const weak: Weakening[] = [];
     const parsed = selection?.palette?.parsed;
     if (
       parsed?.kind === "theme" &&
       parsed.warnings?.some((warning) => warning.reason === "attention-distinctness")
     )
-      return [
-        {
-          field: ["interfaceTheme"],
-          action: "use a theme where needs-you is hard to tell apart",
-          detail: "interfaceTheme: attention-distinctness",
-        },
-      ];
+      weak.push({
+        field: ["interfaceTheme"],
+        ...attentionWeakening,
+        detail: "interfaceTheme: attention-distinctness",
+      });
     if (
       selection?.palette?.bitmaps &&
       Object.keys(selection.palette.bitmaps.slots).length > 0 &&
       !this.approvedSelection(selection.file, selection.palette)
     )
-      return [
-        {
-          field: ["interfaceTheme"],
-          action: "use a theme with new images",
-          detail: "interfaceTheme: theme-images",
-        },
-      ];
+      weak.push({
+        field: ["interfaceTheme"],
+        action: "use a theme with new images",
+        detail: "interfaceTheme: theme-images",
+      });
     if (selection?.unavailable)
-      return [
-        {
-          field: ["interfaceTheme"],
-          action: "use a theme whose needs-you colors could not be checked",
-          detail: "interfaceTheme: palette unavailable",
-        },
-      ];
-    return [];
+      weak.push({
+        field: ["interfaceTheme"],
+        action: "use a theme whose needs-you colors could not be checked",
+        detail: "interfaceTheme: palette unavailable",
+      });
+    return weak;
   }
 
   private async scanTheme(relative: string): Promise<void> {
@@ -816,7 +914,7 @@ export class ConfigService {
       const text = decode(bytes);
       await this.reviewThemeValue(
         relative,
-        await this.readPalette(text, parseThemeFile(text, kind)),
+        await this.themeCandidate(relative, text, parseThemeFile(text, kind)),
       );
     } catch (error) {
       this.heldThemes.delete(relative);
@@ -889,10 +987,8 @@ export class ConfigService {
           ? {
               id: held[1].id,
               file: held[0],
-              action: held[1].bitmapChange
-                ? "apply changed theme images"
-                : "use a theme where needs-you is hard to tell apart",
-              detail: held[1].bitmapChange ? "theme-images" : "attention-distinctness",
+              action: held[1].reasons.map(({ action }) => action).join(" and "),
+              detail: held[1].reasons.map(({ detail }) => detail).join(", "),
             }
           : null,
       rejected,
@@ -914,19 +1010,45 @@ export class ConfigService {
 
   /** Settings UI writes go through the same file. */
   write(patch: ConfigSettings, themeDigest?: string): Promise<void> {
-    return this.serial(() =>
-      this.files.withSettingsLock(() => this.writeSettingsLocked(patch, undefined, themeDigest)),
-    );
+    return this.serial(async () => {
+      const before = effective(this.deps.defaults, this.applied.values);
+      const requested = patch.interfaceTheme;
+      const explicit = requested !== undefined;
+      const offered = explicit ? (themeDigest ?? null) : undefined;
+      const chosen = explicit
+        ? await this.readSelection(before.interfaceTheme, requested)
+        : undefined;
+      // Cooperating profiles may replace settings while the decoder is running.
+      // Plan again from their latest file, with a bounded number of attempts.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const current = await this.readSettings();
+        const proposal = current ? await this.inspectSettings(current, false) : null;
+        const committed = await this.files.withSettingsLock(async () => {
+          if (current && !(await this.matchesSettings(current, proposal?.selection))) return false;
+          await this.writeSettingsLocked(
+            patch,
+            proposal,
+            explicit ? chosen : proposal?.selection,
+            offered,
+          );
+          return true;
+        });
+        if (committed) {
+          await this.reconcileSettings();
+          this.publish();
+          return;
+        }
+      }
+      throw new ApplicationError("settings-busy");
+    });
   }
 
   private async writeSettingsLocked(
     patch: ConfigSettings,
-    settings?: Applied,
-    themeDigest?: string,
+    proposal: Pending | null,
+    selection?: Selection,
+    offered?: string | null,
   ): Promise<void> {
-    // Read and merge while other profiles are excluded through the atomic rename.
-    const current = settings ?? (await this.readSettings());
-    const proposal = current ? await this.inspectSettings(current) : null;
     if (proposal?.weak.length) this.pending = proposal;
     if (!proposal || (proposal.weak.length && this.applied === DEFAULTS)) {
       this.publish();
@@ -943,12 +1065,17 @@ export class ConfigService {
     } catch {
       throw new Error("This setting cannot be stored in the Foom config folder");
     }
-    await this.commitSettings(
-      next,
-      approved,
-      patch.interfaceTheme === undefined ? undefined : (themeDigest ?? null),
-    );
-    this.publish();
+    await this.commitSettings(next, approved, selection, offered);
+  }
+
+  private async reconcileSettings(): Promise<void> {
+    if ((await this.readSettings())?.text === this.applied.text) return;
+    try {
+      await this.scanSettings();
+    } catch (error) {
+      if (!(error instanceof ApplicationError) || error.code !== "settings-busy") throw error;
+      this.schedule();
+    }
   }
 
   private mergeSettings(values: ConfigSettings, patch: ConfigSettings): ConfigSettings {
@@ -976,6 +1103,7 @@ export class ConfigService {
   private async commitSettings(
     next: Applied,
     approved: Applied,
+    selection?: Selection,
     offeredThemeDigest?: string | null,
   ): Promise<void> {
     const before = effective(this.deps.defaults, this.applied.values);
@@ -983,33 +1111,33 @@ export class ConfigService {
     let reviewed: Selection | undefined;
     let fallback: Applied | undefined;
     if (before.interfaceTheme !== after.interfaceTheme && isUserThemeId(after.interfaceTheme)) {
+      reviewed = selection;
       if (offeredThemeDigest !== undefined) {
-        reviewed = await this.readSelection(before.interfaceTheme, after.interfaceTheme);
         if (
           offeredThemeDigest === null ||
-          reviewed?.source !== offeredThemeDigest ||
-          !reviewed.palette
+          !reviewed?.source ||
+          reviewed.unavailable ||
+          !reviewed.palette ||
+          ![appearanceOffer(reviewed.palette), reviewed.palette.digest].includes(
+            offeredThemeDigest,
+          ) ||
+          !(await this.matchesSelection(reviewed))
         )
           throw new ApplicationError("theme-selection-changed");
-      } else {
-        const values = { ...approved.values };
-        if (this.applied.values.interfaceTheme === undefined) delete values.interfaceTheme;
-        else values.interfaceTheme = this.applied.values.interfaceTheme;
-        fallback = this.settingsFile(values);
       }
+      const values = { ...approved.values };
+      if (this.applied.values.interfaceTheme === undefined) delete values.interfaceTheme;
+      else values.interfaceTheme = this.applied.values.interfaceTheme;
+      fallback = this.settingsFile(values);
     }
     await this.files.writeFile(SETTINGS_FILE, next.text);
-    // Palette writers do not take the settings lock. Inspect the working
-    // palette after rename, then use the exact checked snapshot for display.
-    if (fallback) {
-      reviewed = await this.readSelection(before.interfaceTheme, after.interfaceTheme);
-      if (this.themeSelectionWeakening(reviewed).length) {
-        approved = fallback;
-        reviewed = undefined;
-      }
+    // Palette writers do not take the settings lock. A replacement during the
+    // rename stays a proposal, and is decoded after this lock is released.
+    if (fallback && (!reviewed || !(await this.matchesSelection(reviewed)))) {
+      approved = fallback;
+      reviewed = undefined;
     }
     await this.applyValues(approved, reviewed);
-    if (next.text !== this.applied.text) await this.scanSettings();
   }
 
   private settingsFile(values: ConfigSettings): Applied {
@@ -1043,13 +1171,17 @@ export class ConfigService {
     const after = effective(this.deps.defaults, pending.values);
     const confirm = decision === "allow" && argumentChanges(before, after).length > 0;
     if (confirm) {
-      if (!(await this.files.withSettingsLock(() => this.matchSettings(pending))))
+      const current = await this.matchSettings(pending);
+      if (
+        !current ||
+        !(await this.files.withSettingsLock(() => this.matchesSettings(current, current.selection)))
+      )
         await this.changedProposal();
       if (!(await this.deps.confirmArguments?.(argumentDisclosure(before, after)))) return;
     }
+    const current = await this.matchSettings(pending);
     const committed = await this.files.withSettingsLock(async () => {
-      let current = await this.matchSettings(pending);
-      if (!current) return false;
+      if (!current || !(await this.matchesSettings(current, current.selection))) return false;
       if (decision === "keep") {
         await this.keepSettings(current);
         return true;
@@ -1062,21 +1194,21 @@ export class ConfigService {
         );
         if (bypass.length) {
           await this.deps.acknowledgeBypass?.(bypass);
-          current = await this.matchSettings(pending);
-          if (!current) return false;
+          if (!(await this.matchesSettings(current, current.selection))) return false;
         }
       }
       await this.applyValues(current, current.selection);
       return true;
     });
     if (!committed) await this.changedProposal();
+    else if (decision === "keep") await this.reconcileSettings();
   }
 
   private async keepSettings(current: Pending): Promise<void> {
     try {
       const approved = this.approvedSettings(current);
       // commitSettings serializes any defensive palette fallback before replacing the file.
-      await this.commitSettings(approved, approved);
+      await this.commitSettings(approved, approved, current.selection);
       return;
     } catch (error) {
       if (!(error instanceof ThemeValidationError) || error.reason !== "too-large") throw error;
@@ -1089,7 +1221,7 @@ export class ConfigService {
   private async matchSettings(pending: Pending): Promise<Pending | undefined> {
     const current = await this.readSettings();
     if (current?.text !== pending.text) return undefined;
-    const proposal = await this.inspectSettings(current);
+    const proposal = await this.inspectSettings(current, false);
     if (proposal.id === pending.id) return proposal;
     return undefined;
   }
@@ -1099,10 +1231,14 @@ export class ConfigService {
     if (!held) throw new Error("No change is waiting for approval");
     const [file, proposal] = held;
     if (id !== proposal.id) throw new Error("The change was replaced. Review it again.");
+    const text = proposal.proposal.text;
+    const expected = Buffer.from(text);
+    const fresh = await this.readPalette(text, proposal.proposal.parsed);
+    const previous = proposal.previous;
     const committed = await this.files.withSettingsLock(async () => {
+      if (fresh.digest !== proposal.proposal.digest || !(await this.matchesSources(fresh)))
+        return false;
       const current = await this.readSettings();
-      const text = proposal.proposal.text;
-      const expected = Buffer.from(text);
       const matches = async () =>
         (await settle(this.files.read(file), null))?.equals(expected) === true;
       if (
@@ -1112,16 +1248,13 @@ export class ConfigService {
         !(await matches())
       )
         return false;
-      const fresh = await this.readPalette(text, proposal.proposal.parsed);
-      if (fresh.digest !== proposal.proposal.digest) return false;
-      const previous = proposal.previous;
       if (
         decision === "keep" &&
         previous &&
         (typeof previous.approval === "string" ||
           sourcesMatch(
             previous.approval,
-            (await this.readPalette(previous.text, previous.parsed)).bitmaps?.sources,
+            (await this.readPalette(previous.text, previous.parsed, "sources")).bitmaps?.sources,
           ))
       ) {
         if (!(await this.files.writeFile(file, previous.text, expected))) return false;
@@ -1132,7 +1265,7 @@ export class ConfigService {
         else
           await this.writeSettingsLocked(
             { interfaceTheme: this.deps.defaults.interfaceTheme },
-            current,
+            await this.inspectSettings(current, true),
           );
       }
       this.heldThemes.delete(file);

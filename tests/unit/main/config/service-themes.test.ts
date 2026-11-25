@@ -313,7 +313,7 @@ test("file selection checks the warned palette retained after an invalid edit", 
     expect(library.snapshot().interface).toEqual(retained);
     await f.settings({ interfaceTheme: "user:personal.json" });
     expect((await f.service.refresh()).pending?.detail).toBe(
-      "interfaceTheme: attention-distinctness",
+      "interfaceTheme: attention-distinctness, interfaceTheme: palette unavailable",
     );
     expect(f.applied.at(-1)?.interfaceTheme).not.toBe("user:personal.json");
     await f.decide("keep");
@@ -520,7 +520,7 @@ test.each(["save", "scan"])(
     let paletteReads = 0;
     const barrier = vi.spyOn(ConfigFiles.prototype, "read").mockImplementation(async (relative) => {
       const bytes = await read(relative);
-      if (relative === file && ++paletteReads === (operation === "save" ? 2 : 1))
+      if (relative === file && ++paletteReads === (operation === "save" ? 3 : 2))
         await f.write(file, warned);
       return bytes;
     });
@@ -745,7 +745,7 @@ test("theme Keep succeeds when the reconciliation scan finds Settings busy", asy
 test("bitmap approval binds original bytes, revokes deleted slots and rejects stale decisions", async () => {
   const changed = vi.fn();
   const f = await fixture({
-    loadThemeBitmaps: (parsed) => bitmaps.load(parsed),
+    loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode),
     onThemeBitmapsChanged: changed,
   });
   const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), () =>
@@ -765,7 +765,7 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
   await f.write(image, "original source");
   await f.service.refresh();
   const offered = await f.service.reviewTheme(file, text, parseThemeFile(text, "theme"));
-  expect(offered?.imageDiagnostics).toMatchObject([{ reason: "image-status-color" }]);
+  expect(offered?.imageDiagnostics).toEqual([]);
   expect(offered?.digest).not.toBe(digest(text));
   await f.write(image, "different metadata");
   await expect(
@@ -777,6 +777,8 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
   await f.service.refresh();
   expect(f.service.status().pending?.detail).toBe("interfaceTheme: theme-images");
   await f.decide("allow");
+  const reviewed = await f.service.reviewTheme(file, text, parseThemeFile(text, "theme"));
+  expect(reviewed?.imageDiagnostics).toMatchObject([{ reason: "image-status-color" }]);
   const active = f.service.activePalette();
   const id = active?.bitmaps?.board?.id ?? "";
   expect(id).toMatch(/^[a-f0-9]{64}$/u);
@@ -810,7 +812,7 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
 });
 
 test("Keep restores bitmap placement edits and switches to Default if original bytes changed", async () => {
-  const f = await fixture({ loadThemeBitmaps: (parsed) => bitmaps.load(parsed) });
+  const f = await fixture({ loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode) });
   const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), () =>
     Promise.resolve({ png: Uint8Array.of(1), colors: [] }),
   );
@@ -843,7 +845,7 @@ test("Keep restores bitmap placement edits and switches to Default if original b
 async function realBitmapFixture() {
   const { default: sharp } = await import("sharp");
   const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
-  const f = await fixture({ loadThemeBitmaps: (parsed) => bitmaps.load(parsed) });
+  const f = await fixture({ loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode) });
   const directory = path.join(f.folder, "themes");
   const bitmaps = new ThemeBitmaps(directory, decodeThemeBitmap);
   const file = "themes/art.json";
@@ -872,6 +874,170 @@ async function realBitmapFixture() {
   return { ...f, file, original, directory, image, bitmaps };
 }
 
+test.each(["active edit", "settings selection"] as const)(
+  "%s discloses both new artwork and indistinct needs-you colors before Allow",
+  async (path) => {
+    const f = await realBitmapFixture();
+    try {
+      const baseline = f.themeBaselines.get(f.file);
+      const original = f.service.activePalette();
+      if (path === "settings selection") await f.service.write({ interfaceTheme: "follow" });
+      await f.write(
+        f.file,
+        f.original.replace(
+          `"attention":"${palette.colors.attention}"`,
+          `"attention":"${palette.colors.ink}"`,
+        ),
+      );
+      await f.image("board.png", "#407a35");
+      if (path === "settings selection") await f.settings({ interfaceTheme: "user:art.json" });
+      const status = await f.service.refresh();
+      const active = path === "active edit";
+      expect(status.pending).toMatchObject({
+        file: active ? f.file : "settings.json",
+        action: `use a theme where needs-you is hard to tell apart and ${active ? "apply changed theme images" : "use a theme with new images"}`,
+        detail: active
+          ? "attention-distinctness, theme-images"
+          : "interfaceTheme: attention-distinctness, interfaceTheme: theme-images",
+      });
+      expect(f.service.activePalette()).toEqual(active ? original : undefined);
+      expect(f.themeBaselines.get(f.file)).toEqual(baseline);
+      await f.decide("allow");
+      const approved = f.service.activePalette();
+      expect(approved?.theme?.colors.attention).toBe(palette.colors.ink);
+      expect(approved?.bitmaps?.board?.id).not.toBe(original?.bitmaps?.board?.id);
+      expect(f.themeBaselines.get(f.file)).toMatchObject({ digest: approved?.digest });
+    } finally {
+      f.bitmaps.dispose();
+    }
+  },
+);
+
+const illustrated = (name: string, file: string) =>
+  JSON.stringify({
+    ...palette,
+    name,
+    version: 2,
+    images: { board: { file } },
+  });
+
+test("startup and the inactive catalog leave decoding to the selected theme after the window", async () => {
+  const decode = vi.fn((bytes: Uint8Array) => Promise.resolve({ png: bytes, colors: [] }));
+  const f = await fixture({
+    deferThemeDecoding: true,
+    loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode),
+  });
+  const directory = path.join(f.folder, "themes");
+  const bitmaps = new ThemeBitmaps(directory, decode);
+  const selected = illustrated("Selected", "selected.png");
+  const inactive = illustrated("Inactive", "inactive.png");
+  await mkdir(directory, { recursive: true });
+  await f.write("themes/selected.json", selected);
+  await f.write("themes/inactive.json", inactive);
+  await f.write("themes/selected.png", "selected bytes");
+  await f.write("themes/inactive.png", "unselected bytes");
+  await f.settings({ interfaceTheme: "user:selected.json" });
+  try {
+    await f.service.initialize();
+    const offer = await f.service.reviewTheme(
+      "themes/inactive.json",
+      inactive,
+      parseThemeFile(inactive, "theme"),
+    );
+    expect(offer?.digest).not.toBe(digest(inactive));
+    expect(decode).not.toHaveBeenCalled();
+    expect(f.service.status().pending).toBeNull();
+    await f.service.startThemeDecoding();
+    expect(f.service.status().pending?.detail).toBe("interfaceTheme: theme-images");
+    expect(decode).toHaveBeenCalledOnce();
+    expect(decode.mock.calls[0]?.[0]).toEqual(Buffer.from("selected bytes"));
+    expect(f.service.activePalette()).toBeUndefined();
+  } finally {
+    bitmaps.dispose();
+  }
+});
+
+test.each(["Appearance", "Allow"] as const)(
+  "%s decodes before locking and refuses sources replaced at lock acquisition",
+  async (method) => {
+    const paused = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let pause = method === "Appearance";
+    const decode = vi.fn(async (bytes: Uint8Array) => {
+      if (pause) {
+        paused.resolve(undefined);
+        await release.promise;
+      }
+      return { png: bytes, colors: [] };
+    });
+    const f = await fixture({ loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode) });
+    const other = await fixture({ root: f.folder });
+    const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), decode);
+    const file = "themes/art.json";
+    const image = "themes/art.png";
+    const text = illustrated("Art", "art.png");
+    const interfaceTheme = "user:art.json";
+    await f.service.initialize();
+    await other.service.initialize();
+    await f.write(file, text);
+    await f.write(image, "initial source");
+    const offer = await f.service.reviewTheme(file, text, parseThemeFile(text, "theme"));
+    if (method === "Allow") {
+      await f.settings({ interfaceTheme });
+      await f.service.refresh();
+      expect(f.service.status().pending?.detail).toBe("interfaceTheme: theme-images");
+      // Pause this revalidation even though the underlying normalizer has a cache.
+      const load = bitmaps.load.bind(bitmaps);
+      vi.spyOn(bitmaps, "load").mockImplementation(async (parsed, mode) => {
+        if (mode === "decode") {
+          paused.resolve(undefined);
+          await release.promise;
+        }
+        return load(parsed, mode);
+      });
+    }
+    const saving =
+      method === "Appearance"
+        ? f.service.write({ interfaceTheme }, offer?.digest)
+        : f.decide("allow");
+    const rejected = expect(saving).rejects.toThrow(
+      method === "Appearance" ? "theme-selection-changed" : "file changed",
+    );
+    await paused.promise;
+    const files = new ConfigFiles({ root: f.folder });
+    const lock = files.withSettingsLock.bind(files);
+    let barrier: { mockRestore(): void } | undefined;
+    try {
+      // A different profile can take the same lock while normalization is paused.
+      if (method === "Appearance") await other.service.write({ interfaceScale: 120 });
+      else await lock(() => Promise.resolve());
+      barrier = vi.spyOn(ConfigFiles.prototype, "withSettingsLock").mockImplementationOnce((work) =>
+        lock(async () => {
+          await f.write(image, "replacement source");
+          return work();
+        }),
+      );
+    } finally {
+      pause = false;
+      release.resolve(undefined);
+      try {
+        await rejected;
+      } finally {
+        barrier?.mockRestore();
+        bitmaps.dispose();
+      }
+    }
+    expect(f.service.activePalette()).toBeUndefined();
+    expect(f.themeBaselines.has(file)).toBe(false);
+    if (method === "Appearance")
+      expect(JSON.parse(await f.read("settings.json"))).toEqual({
+        kind: "settings",
+        interfaceScale: 120,
+      });
+    else expect(f.service.status().pending?.detail).toBe("interfaceTheme: theme-images");
+  },
+);
+
 test("a missing-file edit is held and Keep restores the original bitmap declaration", async () => {
   const f = await realBitmapFixture();
   const previous = f.service.activePalette();
@@ -896,7 +1062,13 @@ test("restart preserves the palette and other slot when an approved bitmap was d
   const baseline = f.themeBaselines.get(f.file);
   await f.service.dispose();
   await rm(path.join(f.directory, "board.png"));
-  const service = await restart(f, { loadThemeBitmaps: (parsed) => f.bitmaps.load(parsed) });
+  const service = await restart(f, {
+    deferThemeDecoding: true,
+    loadThemeBitmaps: (parsed, mode) => f.bitmaps.load(parsed, mode),
+  });
+  expect(service.activePalette()?.theme).toEqual(previous?.theme);
+  expect(service.activePalette()?.bitmaps).toBeUndefined();
+  await service.startThemeDecoding();
   expect(service.status().pending).toBeNull();
   expect(service.activePalette()).toEqual({
     ...previous,
@@ -940,7 +1112,9 @@ test("restart holds changed and newly added bytes while preserving approved miss
   await rm(path.join(f.directory, "board.png"));
   await f.image("sidebar.png", "#115588");
   await f.image("gutter.png", "#118855");
-  const service = await restart(f, { loadThemeBitmaps: (parsed) => f.bitmaps.load(parsed) });
+  const service = await restart(f, {
+    loadThemeBitmaps: (parsed, mode) => f.bitmaps.load(parsed, mode),
+  });
 
   expect(service.status().pending?.detail).toBe("theme-images");
   expect(service.activePalette()?.theme?.name).toBe("Art");
@@ -963,7 +1137,7 @@ test.each(["settings", "Appearance", "active Allow"] as const)(
   async (method) => {
     const { default: sharp } = await import("sharp");
     const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
-    const f = await fixture({ loadThemeBitmaps: (parsed) => bitmaps.load(parsed) });
+    const f = await fixture({ loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode) });
     const directory = path.join(f.folder, "themes");
     const bitmaps = new ThemeBitmaps(directory, () =>
       Promise.reject(new Error("decode timed out")),
@@ -1001,7 +1175,9 @@ test.each(["settings", "Appearance", "active Allow"] as const)(
     expect(f.service.activePalette()?.bitmaps).toBeUndefined();
     const baseline = f.themeBaselines.get(file);
     const recovered = new ThemeBitmaps(directory, decodeThemeBitmap);
-    const service = await restart(f, { loadThemeBitmaps: (parsed) => recovered.load(parsed) });
+    const service = await restart(f, {
+      loadThemeBitmaps: (parsed, mode) => recovered.load(parsed, mode),
+    });
     expect(service.activePalette()?.bitmaps).toBeUndefined();
     expect(service.status().pending?.detail).toBe("theme-images");
     expect(baseline).toMatchObject({ sources: {} });
@@ -1015,9 +1191,9 @@ test.each(["settings", "Appearance", "active Allow"] as const)(
 test("Keep re-holds a newer JSON edit written while the approved bitmap is revalidated", async () => {
   let beforeRead: (() => Promise<void>) | undefined;
   const f = await fixture({
-    loadThemeBitmaps: async (parsed) => {
+    loadThemeBitmaps: async (parsed, mode) => {
       if (parsed.images?.board?.opacity === 0.25) await beforeRead?.();
-      return bitmaps.load(parsed);
+      return bitmaps.load(parsed, mode);
     },
   });
   const { default: sharp } = await import("sharp");
@@ -1064,8 +1240,8 @@ test.each(["Appearance", "Allow"] as const)(
   async (method) => {
     let recover = false;
     const f = await fixture({
-      loadThemeBitmaps: async (parsed) => {
-        const loaded = await bitmaps.load(parsed);
+      loadThemeBitmaps: async (parsed, mode) => {
+        const loaded = await bitmaps.load(parsed, mode);
         if (recover) return loaded;
         const slots = { ...loaded.slots };
         delete slots.board;
@@ -1092,10 +1268,17 @@ test.each(["Appearance", "Allow"] as const)(
     );
     const offered = await f.service.reviewTheme(file, text, parseThemeFile(text, "theme"));
     if (method === "Appearance") {
+      await f.service.write({ interfaceTheme: "user:offer.json" }, offered?.digest);
+      const partial = f.service.activePalette();
+      expect(partial?.bitmaps).toHaveProperty("sidebar.id");
+      expect(partial?.bitmaps).not.toHaveProperty("board");
+      const approved = f.themeBaselines.get(file);
+      await f.service.write({ interfaceTheme: "follow" });
       recover = true;
       await expect(
-        f.service.write({ interfaceTheme: "user:offer.json" }, offered?.digest),
+        f.service.write({ interfaceTheme: "user:offer.json" }, partial?.digest),
       ).rejects.toThrow("theme-selection-changed");
+      expect(f.themeBaselines.get(file)).toEqual(approved);
     } else {
       await f.settings({ interfaceTheme: "user:offer.json" });
       await f.service.refresh();
@@ -1103,9 +1286,9 @@ test.each(["Appearance", "Allow"] as const)(
       recover = true;
       await expect(f.service.decide("allow", pending)).rejects.toThrow("changed");
       expect(f.service.status().pending?.id).not.toBe(pending);
+      expect(f.themeBaselines.has(file)).toBe(false);
     }
     expect(f.service.activePalette()).toBeUndefined();
-    expect(f.themeBaselines.has(file)).toBe(false);
     bitmaps.dispose();
   },
 );

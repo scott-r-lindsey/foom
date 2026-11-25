@@ -221,13 +221,21 @@ alone do not hold a theme. An explicit decoder refusal is cached for identical
 bytes. A timeout or premature exit can retry on a later refresh after a
 one-second cooldown. The loader schedules no automatic retry.
 
+The catalog fingerprints source bytes for an Appearance choice without
+decoding inactive themes. Foom starts bitmap decoding after the first window
+loads and decodes only the active theme or a theme being selected. When a
+settings change requires decoding, Foom prepares the snapshot before taking
+the shared settings lock, then rechecks the settings, theme JSON and source
+digests under the lock before using the verified snapshot.
+
 A proposal binds the JSON, each readable source digest, and which slots decoded
 successfully. The profile records approval only for decoded artwork and retains
 previously approved bytes for unavailable slots with the same declaration.
 An earlier draft approval without verified decode provenance requires reapproval
 before its artwork can paint. Changing an active slot's file or paint settings needs **Allow /
-Keep it on**, even when the proposed file is missing. An exact offered Appearance
-choice is a direct approval.
+Keep it on**, even when the proposed file is missing. The hold lists both image
+changes and newly indistinct needs-you colors when both apply. An exact offered
+Appearance choice directly approves artwork that decodes from those source bytes.
 
 An unavailable asset leaves its slot on the normal background and stops being
 served. This preserves the approval record and applies even if the theme folder

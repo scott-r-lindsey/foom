@@ -226,6 +226,7 @@ vi.mock("../../../src/main/config/service", () => ({
       mock.config.deps = deps;
     }
     initialize = (legacy: unknown) => mock.config.initialize(legacy);
+    startThemeDecoding = () => mock.config.startThemeDecoding();
     write = (patch: unknown) => mock.config.write(patch);
     activeThemeImage = (id: string) => mock.config.activeThemeImage(id);
     status = () => mock.config.status;
@@ -655,6 +656,7 @@ const mock = vi.hoisted(() => {
     config: {
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
+      startThemeDecoding: vi.fn(() => Promise.resolve()),
       activePalette: vi.fn(() => undefined),
       activeThemeImage: vi.fn<(id: string) => Uint8Array | undefined>(),
       write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),

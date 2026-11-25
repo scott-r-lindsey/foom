@@ -26,7 +26,10 @@ export class ThemeBitmaps {
     ) => Promise<DecodedThemeBitmap>,
   ) {}
 
-  async load(parsed: Extract<ParsedThemeFile, { kind: "theme" }>): Promise<ThemeBitmapSnapshot> {
+  async load(
+    parsed: Extract<ParsedThemeFile, { kind: "theme" }>,
+    mode: "decode" | "sources" = "decode",
+  ): Promise<ThemeBitmapSnapshot> {
     const diagnostics: ThemeDiagnostic[] = [];
     const slots: ThemeBitmapSnapshot["slots"] = {};
     const sources: ThemeBitmapSnapshot["sources"] = {};
@@ -66,6 +69,7 @@ export class ThemeBitmaps {
       }
       const source = createHash("sha256").update(bytes).digest("hex");
       sources[slot] = source;
+      if (mode === "sources") continue;
       let bitmap: DecodedThemeBitmap;
       try {
         bitmap = await this.decode(source, bytes);
