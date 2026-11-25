@@ -100,3 +100,13 @@ test("theme decode samples dominant visible colors without accepting GIF", async
   expect((await decodeThemeBitmap(blank)).colors).toEqual([]);
   await expect(decodeThemeBitmap(await source.gif().toBuffer())).rejects.toThrow("format");
 });
+
+test("theme decode ranks sampled colors by visible weight", async () => {
+  const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
+  const source = await sharp(Buffer.from([255, 0, 0, 64, 0, 255, 0, 255, 0, 0, 255, 128]), {
+    raw: { width: 3, height: 1, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+  expect((await decodeThemeBitmap(source)).colors).toEqual(["#00ff00", "#0000ff", "#ff0000"]);
+});

@@ -161,3 +161,31 @@ test("bitmap protocol resolves only exact GET IDs for currently approved images"
     themeBitmapResponse(new Request(`foom-theme://bitmap/${"0".repeat(64)}`), lookup).status,
   ).toBe(404);
 });
+
+test("an unavailable folder omits all paint and a recovered sidebar uses its own palette", async () => {
+  const { directory, file, bitmaps, normalize } = await fixture();
+  await rm(directory, { recursive: true });
+  for (const create of [() => Promise.resolve(), () => writeFile(directory, "not a directory")]) {
+    await create();
+    const snapshot = await bitmaps.load(parsed);
+    expect(snapshot.slots).toEqual({});
+    expect(snapshot.diagnostics.map(({ reason }) => reason)).toEqual(
+      Array.from({ length: 3 }, () => "image-unavailable"),
+    );
+  }
+  expect(normalize).not.toHaveBeenCalled();
+  await rm(directory);
+  await mkdir(directory);
+  await writeFile(file, "board");
+  await writeFile(join(directory, "gone.webp"), "sidebar");
+  normalize.mockImplementationOnce((bytes) => Promise.resolve({ png: bytes, colors: [] }));
+  normalize.mockImplementationOnce((bytes) => Promise.resolve({ png: bytes, colors: ["#00ffee"] }));
+  const snapshot = await bitmaps.load({
+    ...parsed,
+    theme: { ...base, areas: { sidebar: { failed: "#00ffee" } } },
+  });
+  expect(snapshot.slots.sidebar?.paint).toBeDefined();
+  expect(snapshot.diagnostics).toEqual([
+    { file: "", path: "$.images.sidebar", severity: "warning", reason: "image-status-color" },
+  ]);
+});
