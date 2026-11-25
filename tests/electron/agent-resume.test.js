@@ -175,6 +175,9 @@ if (resumed) {
     assert.ok(firstLaunch.token);
     assert.ok(resumedLaunch.token);
     assert.notEqual(resumedLaunch.token, firstLaunch.token);
+    const tile = restored.locator(".terminal-tile");
+    await expect(tile.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
+    await expect(tile.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
     await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
     await restored.locator(".xterm-helper-textarea").press("Control+c");
     await expect
@@ -182,15 +185,34 @@ if (resumed) {
         restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
       )
       .toBe(true);
-    const exitedTile = restored.locator(".terminal-tile");
+    const hide = tile.getByRole("button", { name: "Hide", exact: true });
+    const close = tile.getByRole("button", { name: "Close", exact: true });
+    await expect(hide).toHaveText("−");
+    await expect(close).toHaveText("×");
+    await expect(close).toHaveAttribute("title", "Close");
     if (agent === "codex") {
+      const header = tile.locator(".tile-title");
+      const narrow = await header.evaluate((element) => {
+        element.style.maxWidth = "160px";
+        try {
+          const headerBounds = element.getBoundingClientRect();
+          return [...element.querySelectorAll("button")].map((button) => {
+            const bounds = button.getBoundingClientRect();
+            return bounds.left >= headerBounds.left && bounds.right <= headerBounds.right;
+          });
+        } finally {
+          element.style.removeProperty("max-width");
+        }
+      });
+      assert.deepEqual(narrow, [true, true, true, true]);
       for (const theme of ["eclipse-light", "eclipse-dark"]) {
         await restored.evaluate(
           (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
           theme,
         );
-        await exitedTile.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+        await tile.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
         await expect(restored.getByRole("menuitem", { name: "Hide", exact: true })).toBeVisible();
+        await expect(restored.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
         await restored.screenshot({
           path: evidencePath(`975-exited-agent-${theme}.png`),
           animations: "disabled",
@@ -198,8 +220,7 @@ if (resumed) {
         await restored.getByRole("dialog", { name: "Tile 1 menu", exact: true }).press("Escape");
       }
     }
-    await expect(exitedTile.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
-    await exitedTile.getByRole("button", { name: "Hide", exact: true }).click();
+    await hide.click();
     await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
     await expect(
       restored.getByRole("button", {
@@ -224,16 +245,15 @@ if (resumed) {
       `RESUMED_CONVERSATION ${secondResume.pid}`,
     );
     await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
-    await restored.locator(".xterm-helper-textarea").press("q");
+    await restored.locator(".xterm-helper-textarea").press("Control+c");
     await expect
       .poll(() =>
         restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
       )
       .toBe(true);
-    await restored
-      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
-      .click();
-    await restored.getByRole("menuitem", { name: "Close", exact: true }).click();
+    await close.click();
+    await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
+    await expect(restored.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
     await expect
       .poll(() =>
         restored.evaluate(async () => (await window.desktop.workspace()).terminals.length),

@@ -82,12 +82,16 @@
   max-width: 45%;
   color: var(--muted);
 }
-.tile-name {
-  flex-shrink: 0;
-  max-width: 35%;
+.tile-name,
+.tile-title .session-program {
+  min-width: 0;
+  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.tile-name {
+  max-width: 35%;
 }
 .tile-number {
   flex-shrink: 0;
@@ -107,6 +111,7 @@
 }
 .tile-controls {
   display: flex;
+  flex-shrink: 0;
   opacity: 0;
 }
 .terminal-tile:hover .tile-controls,

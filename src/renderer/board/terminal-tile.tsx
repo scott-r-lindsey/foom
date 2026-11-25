@@ -26,7 +26,7 @@ import {
   previewOpener,
   sidebarParent,
 } from "./sidebar-model";
-import { tileRemovalAction, landingSpace } from "./tiles";
+import { tileRemovalControls, landingSpace } from "./tiles";
 
 import type {
   TerminalViewSource,
@@ -579,16 +579,19 @@ export function Tile({
                 </svg>
               </button>
             )}
-            <button
-              type="button"
-              aria-label={tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide"}
-              title={tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide"}
-              onClick={() => {
-                action(tileRemovalAction(row, Boolean(preview)));
-              }}
-            >
-              {tileRemovalAction(row, Boolean(preview)) === "close" ? "×" : "−"}
-            </button>
+            {tileRemovalControls(row, Boolean(preview)).map((control) => (
+              <button
+                key={control.action}
+                type="button"
+                aria-label={control.label}
+                title={control.label}
+                onClick={() => {
+                  action(control.action);
+                }}
+              >
+                {control.glyph}
+              </button>
+            ))}
           </div>
         </header>
       )}

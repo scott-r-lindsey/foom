@@ -47,9 +47,8 @@ another tile, that tile empties.
 
 Terminal title bars show the state light, agent badge, location and session name, followed by
 an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
-Hide (running) or Close (exited) appear on hover, focus, or the focused tile.
-Exited agents with saved conversations keep Hide, except config agents: every
-exited config-agent tile offers Close, including those with a saved conversation.
+the Hide and Close controls appear on hover, focus, or the focused tile, as
+applicable to the session.
 Child terminals also show the sidebar’s robot mark, named Worker, including after takeover.
 Review-loop reviewers use the lens variant named Reviewer; authors and other children keep Worker.
 Double-clicking the title bar toggles maximize. Right-click opens the same tile
@@ -220,13 +219,14 @@ Swap with the nearest tile using Command+Alt+arrow on macOS, or the tile leader
 then Shift+arrow on Windows/Linux. The View menu exposes the same four commands.
 Focus follows the moved tile.
 
-## Exited resumable agents (#975)
+## Exited resumable agents (#975, #1311)
 
-The tile removal button and tile menu offer **Hide** for running sessions and
-exited agents with a saved conversation ID outside the config environment.
-Exited config sessions always offer Close. Hide clears the tile and keeps the
-sidebar row and Resume conversation. Exited shells, agents without a saved
-conversation and previews offer **Close**. The session sidebar menu retains Close.
+The tile header and tile menu offer **Hide** for running sessions and both
+**Hide** and **Close** for exited agents with a saved conversation ID outside the
+config environment. Hide clears the tile and keeps the sidebar row and Resume
+conversation. Exited config agents, exited shells, exited agents without a saved
+conversation and previews offer **Close** only. Tile Close uses the same command
+as Close in the session sidebar menu.
 A retained dormant tile on an unavailable host offers **Forget…** in its menu,
 with the same local-only confirmation as the [sidebar](sidebar.md).
 A refused Close keeps the tile and shows a fixed reason. Parents with child rows
