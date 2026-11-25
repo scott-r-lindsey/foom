@@ -1354,8 +1354,9 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
         spec.command !== (windows ? "powershell.exe" : process.env.SHELL)
       )
         throw new Error("Expected the local test shell in the fixture home");
-      // Foom's Bash integration rcfile explicitly sources login profiles.
-      // For this screenshot fixture, run the harness shell with a literal prompt instead.
+      // The harness shell stays alive on the PTY while the test places its tile.
+      // Print the fixture text ourselves so no startup file or shell prompt can
+      // add account, machine or platform-specific text to a capture.
       return create.call(this, {
         ...spec,
         shellIntegration: false,
@@ -1365,17 +1366,19 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
               "-NoProfile",
               "-NonInteractive",
               "-Command",
-              "[Console]::WriteLine($env:PS1); [void][Console]::ReadLine()",
+              "[Console]::Clear(); [Console]::Write($env:FIXTURE_PROMPT + ' '); [void][Console]::ReadLine()",
             ]
-          : ["--norc", "-i"],
+          : [
+              "--norc",
+              "-c",
+              String.raw`printf '\033[2J\033[H%s ' "$FIXTURE_PROMPT"; IFS= read -r fixture_input`,
+            ],
         env: {
           ...spec.env,
           HOME: home,
           USERPROFILE: home,
           PATH: process.env.PATH,
-          PS1: `${prompt} `,
-          PROMPT_COMMAND: "",
-          PS0: "",
+          FIXTURE_PROMPT: prompt,
           HISTFILE: "",
           BASH_ENV: "",
           ENV: "",

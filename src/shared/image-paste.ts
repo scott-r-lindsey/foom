@@ -8,6 +8,7 @@ export const IMAGE_SESSION_BYTES = 32 * 1024 * 1024;
 export const IMAGE_TIMEOUT_MS = 60_000;
 /** Build-owned, measured recipient facts; config manifests cannot claim this gate. */
 const imageRecipients: Readonly<Record<string, boolean>> = Object.freeze({
+  agy: true,
   claude: true,
   codex: true,
   pi: true,

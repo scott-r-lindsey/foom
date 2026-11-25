@@ -314,24 +314,15 @@ test("draft pull requests run CI and desktop jobs start without waiting for stat
   assert.match(quality, /\n {4}needs: \[changes, checks, unit, desktop, platform\]\n/);
 });
 
-test("nightly runs validate desktop only when main changed recently", () => {
+test("nightly runs validate desktop until the current main commit is published", () => {
   const unexpectedDiff = () => {
     throw new Error("Unexpected diff");
   };
-  assert.equal(
-    detectDesktop("schedule", {}, unexpectedDiff, () => `${head}\n`),
-    true,
-  );
-  assert.equal(
-    detectDesktop("schedule", {}, unexpectedDiff, () => ""),
-    false,
-  );
+  assert.equal(detectDesktop("schedule", {}, unexpectedDiff, "false"), true);
+  assert.equal(detectDesktop("schedule", {}, unexpectedDiff, "true"), false);
   assert.throws(
-    () =>
-      detectDesktop("schedule", {}, unexpectedDiff, () => {
-        throw new Error("Missing history");
-      }),
-    /Missing history/,
+    () => detectDesktop("schedule", {}, unexpectedDiff, ""),
+    /Missing scheduled nightly publication status/,
   );
 });
 

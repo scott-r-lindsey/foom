@@ -653,6 +653,7 @@ test("routes remote shell capabilities independently while leaving local termina
   mock.remote.mockReturnValue(remote);
   const target = { host: "fixture", artifact: "/fixture/foom-host" };
   const id = await client.create({ ...spec, id: "remote", remote: target });
+  expect(client.imagePasteStatus(id)).toBe("unavailable");
   expect(mock.fork).not.toHaveBeenCalled();
   expect(client.runningCount).toBe(1);
   expect(client.hasPendingExits).toBe(true);
@@ -829,6 +830,7 @@ test("image staging distinguishes a live local session from a missing/expired ta
     "unavailable",
   );
   const id = await create();
+  expect(client.imagePasteStatus(id)).toBe("available");
   await expect(client.imagePath(id, new Uint8Array(), signal)).resolves.toBeUndefined();
   child.emit("message", { type: "exit", id, code: 0 });
   await expect(client.imagePath(id, new Uint8Array(), signal)).rejects.toThrow("unavailable");

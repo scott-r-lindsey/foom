@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { generateFeed, uploadFeed } from "./nightly-feed.mjs";
-import { identity } from "./nightly.mjs";
+import { generateFeed, releasePackages, uploadFeed } from "./nightly-feed.mjs";
+import { checksums, identity } from "./nightly.mjs";
 
 const info = identity("a".repeat(40), "2026-10-23T01:00:00Z", "0.1.0");
 const zip = Buffer.from([0x50, 0x4b, 3, 4, 1]);
@@ -19,6 +23,11 @@ const packages = [
 ];
 const config = { bucket: "example-site", distribution: "EXAMPLE123", region: "us-east-1" };
 const objects = () => generateFeed([...packages, { name: "test-RELEASES", data: zip }], info);
+const awsError = (code, operation = "PutObject", prefix = "") =>
+  Object.assign(new Error("private diagnostic"), {
+    stderr: `${prefix}An error occurred (${code}) when calling the ${operation} operation: private diagnostic`,
+  });
+const timeout = () => Object.assign(new Error("private diagnostic"), { code: "ETIMEDOUT" });
 
 test("feed paths and immutable URLs bind version, full commit, architecture and checksum", () => {
   const result = objects();
@@ -98,13 +107,12 @@ function fakeAws({ existing = new Map(), failPut, failHead, expected = objects()
     calls.push(args);
     if (args[1] === "list-objects-v2") {
       assert.ok(args.includes("updates/nightly/"));
-      if (failHead) throw new Error("Access denied");
+      if (failHead) throw awsError("AccessDenied", "ListObjectsV2");
       return JSON.stringify([...existing.keys()]);
     }
     const key = args[args.indexOf("--key") + 1];
     const value = existing.get(key);
     if (args[1] === "head-object") {
-      if (failHead) throw new Error("Access denied");
       if (!value) throw Object.assign(new Error("missing"), { stderr: "(404)" });
       return JSON.stringify({
         Metadata: value.metadata ?? {
@@ -120,7 +128,8 @@ function fakeAws({ existing = new Map(), failPut, failHead, expected = objects()
       return "{}";
     }
     if (args[1] === "put-object") {
-      if (key === failPut) throw new Error("upload failed");
+      if (key === failPut) throw awsError("AccessDenied");
+      if (value && args.includes("--if-none-match")) throw awsError("PreconditionFailed");
       const data = readFileSync(args[args.indexOf("--body") + 1]);
       const object = expected.find((o) => o.key === key);
       assert.deepEqual(data, object.data);
@@ -181,7 +190,7 @@ test("identical immutable bytes are reused; changed bytes refuse all writes", ()
 });
 test("failed assets, denied access and newer existing feeds never publish metadata", () => {
   let fixture = fakeAws({ failPut: objects()[1].key });
-  assert.throws(() => uploadFeed(objects(), config, fixture.aws), /upload failed/);
+  assert.throws(() => uploadFeed(objects(), config, fixture.aws), /put-object failed/);
   assert.equal(
     fixture.calls.some(
       (a) =>
@@ -190,7 +199,7 @@ test("failed assets, denied access and newer existing feeds never publish metada
     false,
   );
   fixture = fakeAws({ failHead: true });
-  assert.throws(() => uploadFeed(objects(), config, fixture.aws), /Access denied/);
+  assert.throws(() => uploadFeed(objects(), config, fixture.aws), /AccessDenied/);
   const feed = objects().at(-1);
   const data = Buffer.from(
     JSON.stringify({ commit: "b".repeat(40), commitDate: "2026-10-24T00:00:00Z" }),
@@ -231,7 +240,13 @@ test("workflow keeps feed upload inert without role variable and behind Quality/
     workflow,
     /if: vars.NIGHTLY_FEED_ROLE_ARN == ''\n.*run: echo 'Nightly feed upload skipped/,
   );
-  assert.equal((workflow.match(/if: vars.NIGHTLY_FEED_ROLE_ARN != ''/g) ?? []).length, 2);
+  assert.equal((workflow.match(/if: vars.NIGHTLY_FEED_ROLE_ARN != ''\n/g) ?? []).length, 3);
+  assert.match(workflow, /timeout-minutes: 10/);
+  assert.match(workflow, /gh release download nightly --dir nightly-release-assets/);
+  assert.ok(
+    workflow.indexOf("run: node scripts/nightly-feed.mjs") <
+      workflow.indexOf("await markSitePublished"),
+  );
   assert.match(workflow, /role-to-assume: \$\{\{ vars.NIGHTLY_FEED_ROLE_ARN \}\}/);
   assert.doesNotMatch(workflow, /secrets\.|environment:|aws-access-key-id|aws-secret-access-key/);
 });
@@ -293,7 +308,7 @@ test("every failed write stops publication; metadata only references uploaded im
   for (const failed of objects()) {
     const existing = new Map();
     const fixture = fakeAws({ existing, failPut: failed.key });
-    assert.throws(() => uploadFeed(objects(), config, fixture.aws), /upload failed/);
+    assert.throws(() => uploadFeed(objects(), config, fixture.aws), /put-object failed/);
     const position = objects().findIndex((o) => o.key === failed.key);
     assert.deepEqual(
       [...existing.keys()],
@@ -344,7 +359,7 @@ test("interrupted newer downloads refuse a queued older commit before any write;
   const existing = new Map();
   uploadFeed(baseline, config, fakeAws({ existing, expected: baseline }).aws);
   const interrupted = fakeAws({ existing, expected: newer, failPut: manifestKey });
-  assert.throws(() => uploadFeed(newer, config, interrupted.aws), /upload failed/);
+  assert.throws(() => uploadFeed(newer, config, interrupted.aws), /put-object failed/);
   // Every JSON pointer still describes P, while every fixed file describes B.
   for (const object of baseline.filter((o) => !o.immutable && o.key.endsWith(".json"))) {
     assert.deepEqual(existing.get(object.key).data, object.data);
@@ -363,7 +378,7 @@ test("interrupted newer downloads refuse a queued older commit before any write;
   assert.deepEqual(existing, before);
   const retry = fakeAws({ existing, expected: newer });
   uploadFeed(newer, config, retry.aws);
-  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 12);
+  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 5);
   assert.equal(retry.calls.filter((a) => a[1] === "create-invalidation").length, 1);
   for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
 });
@@ -407,7 +422,7 @@ test("same-commit retry repairs fixed files split between the baseline and an in
     expected: newer,
     failPut: "updates/nightly/download/Foom-nightly-linux-x64.rpm",
   });
-  assert.throws(() => uploadFeed(newer, config, interrupted.aws), /upload failed/);
+  assert.throws(() => uploadFeed(newer, config, interrupted.aws), /put-object failed/);
   const fixed = newer.filter((o) => !o.immutable && !o.key.endsWith(".json"));
   assert.deepEqual(
     new Set(fixed.map((o) => existing.get(o.key).metadata.commit)),
@@ -416,6 +431,302 @@ test("same-commit retry repairs fixed files split between the baseline and an in
   const retry = fakeAws({ existing, expected: newer });
   uploadFeed(newer, config, retry.aws);
   for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
-  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 12);
+  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 9);
   assert.equal(retry.calls.filter((a) => a[1] === "create-invalidation").length, 1);
+});
+
+test("consecutive recoveries reach latest.json within budget when fixed downloads already match", () => {
+  const baseline = publication("c", "2026-10-23T00:00:00Z");
+  const newer = publication("b", "2026-10-23T02:00:00Z");
+  const existing = new Map();
+  uploadFeed(baseline, config, fakeAws({ existing, expected: baseline }).aws);
+  const downloads = newer.filter(({ filename }) => filename);
+  for (const object of [...newer.filter(({ immutable }) => immutable), ...downloads.slice(0, 6)])
+    existing.set(object.key, object);
+
+  const writes = [];
+  const failures = [];
+  for (let run = 0; run < 2; run++) {
+    let now = 4 * 60_000;
+    const { aws, calls } = fakeAws({ existing, expected: newer });
+    try {
+      uploadFeed(
+        newer,
+        config,
+        (args) => {
+          if (args[1] === "put-object" && args.includes("--content-disposition")) now += 35_000;
+          return aws(args);
+        },
+        { startedAt: 0, now: () => now },
+      );
+    } catch (error) {
+      failures.push(error.message);
+    }
+    writes.push(
+      calls
+        .filter((args) => args[1] === "put-object")
+        .map((args) => args[args.indexOf("--key") + 1]),
+    );
+  }
+  const metadata = newer
+    .filter(({ immutable, filename }) => !immutable && !filename)
+    .map(({ key }) => key);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(writes, [[downloads[6].key, ...metadata], metadata]);
+  for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
+});
+
+test("fixed downloads are rewritten when any HEAD evidence differs or the checksum is absent", () => {
+  const result = objects();
+  const download = result.find(({ filename }) => filename);
+  const metadata = { sha256: download.sha256, commit: info.sha, commitdate: info.date };
+  for (const change of [
+    { metadata: { ...metadata, commit: "b".repeat(40), commitdate: "2026-10-23T00:00:00Z" } },
+    { metadata: { ...metadata, commitdate: "2026-10-23T00:00:00Z" } },
+    { metadata: { ...metadata, sha256: "b".repeat(64) } },
+    { metadata: { ...metadata, sha256: undefined } },
+    { data: Buffer.alloc(download.data.length + 1) },
+  ]) {
+    const existing = new Map(result.map((object) => [object.key, object]));
+    existing.set(download.key, { ...download, ...change });
+    const { aws, calls } = fakeAws({ existing });
+    uploadFeed(result, config, aws);
+    const downloadWrites = calls.filter(
+      (args) => args[1] === "put-object" && args.includes("--content-disposition"),
+    );
+    assert.equal(downloadWrites.length, 1);
+    assert.ok(downloadWrites[0].includes(download.key));
+    assert.deepEqual(existing.get(download.key).data, download.data);
+    assert.deepEqual(existing.get(download.key).metadata, metadata);
+  }
+});
+
+test("same-commit recovery loads only the checksum-verified original release bytes", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "foom-nightly-original-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const original = [
+    ...packages,
+    {
+      name: `Foom-nightly-${info.day}-${info.short}-RELEASES`,
+      data: Buffer.from("squirrel fixture"),
+    },
+  ];
+  for (const { name, data } of original) writeFileSync(join(directory, name), data);
+  writeFileSync(join(directory, "SHA256SUMS"), checksums(original));
+  assert.deepEqual(
+    generateFeed(releasePackages(directory, info), info).slice(8),
+    generateFeed(original, info).slice(8),
+  );
+  writeFileSync(join(directory, original[0].name), zip);
+  assert.throws(() => releasePackages(directory, info), /checksum mismatch/);
+});
+
+test("a stalled fixed download retries in place and stops after a second timeout", () => {
+  const result = objects();
+  const target = result.find((o) => o.key.endsWith("/Foom-nightly-win32-x64.zip"));
+  for (const recover of [true, false]) {
+    const { aws, calls } = fakeAws();
+    let attempts = 0;
+    const publish = () =>
+      uploadFeed(result, config, (args) => {
+        if (args[1] === "put-object" && args.includes(target.key)) {
+          if (++attempts === 1 || !recover) {
+            assert.equal(
+              calls.some((call) => call.includes("application/json")),
+              false,
+            );
+            throw timeout();
+          }
+        }
+        return aws(args);
+      });
+    if (recover) publish();
+    else assert.throws(publish, /retry failed.*ETIMEDOUT/);
+    assert.equal(attempts, 2);
+    assert.equal(calls.at(-1)[1] === "create-invalidation", recover);
+  }
+});
+
+test("AWS CLI SlowDown retries with and without the AWS CLI 2.39 error prefix", () => {
+  const result = objects()
+    .filter(({ immutable }) => !immutable)
+    .slice(0, 1);
+  for (const prefix of ["aws: [ERROR]: ", ""]) {
+    const { aws, calls } = fakeAws({ expected: result });
+    let attempts = 0;
+    uploadFeed(result, config, (args) => {
+      if (args[1] === "put-object" && ++attempts === 1)
+        throw awsError("SlowDown", "PutObject", prefix);
+      return aws(args);
+    });
+    assert.equal(attempts, 2);
+    assert.equal(calls.at(-1)[1], "create-invalidation");
+  }
+});
+
+test("PUT retries the AWS CLI standard transient codes", () => {
+  const result = objects()
+    .filter(({ filename }) => filename)
+    .slice(0, 1);
+  for (const code of [
+    "Throttling",
+    "ThrottlingException",
+    "ThrottledException",
+    "RequestThrottledException",
+    "TooManyRequestsException",
+    "ProvisionedThroughputExceededException",
+    "TransactionInProgressException",
+    "RequestLimitExceeded",
+    "BandwidthLimitExceeded",
+    "LimitExceededException",
+    "RequestThrottled",
+    "SlowDown",
+    "EC2ThrottledException",
+    "RequestTimeout",
+    "RequestTimeoutException",
+    "PriorRequestNotComplete",
+    "ConnectionError",
+    "HTTPClientError",
+    "500",
+    "502",
+    "503",
+    "504",
+  ]) {
+    const { aws } = fakeAws({ expected: result });
+    let attempts = 0;
+    uploadFeed(result, config, (args) => {
+      if (args[1] === "put-object" && ++attempts === 1)
+        throw awsError(code, "PutObject", "aws: [ERROR]: ");
+      return aws(args);
+    });
+    assert.equal(attempts, 2, code);
+  }
+});
+
+test("the production AWS boundary leaves CLI retries available except for PUT", (t) => {
+  const result = objects();
+  const { aws } = fakeAws({
+    expected: result,
+    existing: new Map([[result.at(-1).key, result.at(-1)]]),
+  });
+  const operations = new Set();
+  const originalMaxAttempts = process.env.AWS_MAX_ATTEMPTS;
+  process.env.AWS_MAX_ATTEMPTS = "4";
+  const exec = t.mock.method(childProcess, "execFileSync", (file, args, options) => {
+    assert.equal(file, "aws");
+    assert.equal(options.timeout, 60_000);
+    const operation = args[1];
+    const maxAttempts = options.env?.AWS_MAX_ATTEMPTS ?? process.env.AWS_MAX_ATTEMPTS;
+    if (operation === "list-objects-v2" && !operations.has(operation) && maxAttempts === "1")
+      throw awsError("ServiceUnavailable", "ListObjectsV2");
+    assert.equal(maxAttempts, operation === "put-object" ? "1" : "4");
+    operations.add(operation);
+    return aws(args);
+  });
+  t.after(() => {
+    exec.mock.restore();
+    syncBuiltinESMExports();
+    if (originalMaxAttempts === undefined) delete process.env.AWS_MAX_ATTEMPTS;
+    else process.env.AWS_MAX_ATTEMPTS = originalMaxAttempts;
+  });
+  syncBuiltinESMExports();
+  uploadFeed(result, config);
+  assert.deepEqual(
+    [...operations],
+    ["list-objects-v2", "head-object", "get-object", "put-object", "create-invalidation"],
+  );
+});
+
+test("conditional retries verify an ambiguous immutable upload before later writes", () => {
+  const result = objects();
+  const target = result[0];
+  for (const stored of ["first", "second", "different checksum", "different size"]) {
+    const existing = new Map();
+    const { aws, calls } = fakeAws({ existing });
+    let attempts = 0;
+    const publish = () =>
+      uploadFeed(result, config, (args) => {
+        if (args[1] !== "put-object" || !args.includes(target.key)) return aws(args);
+        assert.ok(args.includes("--if-none-match"));
+        if (++attempts === 1 && stored === "second") throw awsError("ServiceUnavailable");
+        aws(args);
+        const saved = existing.get(target.key);
+        if (stored === "different checksum") saved.metadata.sha256 = "b".repeat(64);
+        if (stored === "different size") saved.data = Buffer.alloc(0);
+        throw timeout();
+      });
+    if (stored.startsWith("different")) {
+      assert.throws(publish, /Immutable nightly artifact differs/);
+      assert.equal(existing.size, 1);
+    } else {
+      publish();
+      assert.equal(existing.size, result.length);
+    }
+    assert.equal(attempts, stored === "second" ? 2 : 1);
+    assert.deepEqual(
+      calls.slice(1, stored === "second" ? 5 : 4).map((a) => a[1]),
+      stored === "second"
+        ? ["list-objects-v2", "put-object", "list-objects-v2", "head-object"]
+        : ["put-object", "list-objects-v2", "head-object"],
+    );
+  }
+});
+
+test("permanent failures stop after one call and redact AWS output", () => {
+  for (const code of [
+    "AccessDenied",
+    "PreconditionFailed",
+    "ConditionalRequestConflict",
+    "BadDigest",
+    "InvalidDigest",
+    "ValidationError",
+  ]) {
+    let attempts = 0;
+    const { aws, calls } = fakeAws();
+    assert.throws(
+      () =>
+        uploadFeed(objects(), config, (args) => {
+          if (args[1] === "put-object") {
+            attempts++;
+            throw awsError(code, "PutObject", "aws: [ERROR]: ");
+          }
+          return aws(args);
+        }),
+      (error) => {
+        assert.equal(error.cause, undefined);
+        const diagnostic = code === "ValidationError" ? "unclassified AWS error" : code;
+        assert.equal(error.message, `Nightly AWS put-object failed (${diagnostic})`);
+        return true;
+      },
+    );
+    assert.deepEqual(
+      calls.map((a) => a[1]),
+      ["list-objects-v2"],
+    );
+    assert.equal(attempts, 1);
+  }
+});
+
+test("a retry cannot start if less than one call remains in the job budget", () => {
+  let now = 0;
+  const { aws } = fakeAws();
+  const attempts = [];
+  assert.throws(
+    () =>
+      uploadFeed(
+        objects(),
+        config,
+        (args) => {
+          attempts.push(args[1]);
+          if (args[1] === "put-object") {
+            now = 8 * 60_000 + 1;
+            throw timeout();
+          }
+          return aws(args);
+        },
+        { startedAt: 0, now: () => now },
+      ),
+    /budget exhausted/,
+  );
+  assert.deepEqual(attempts, ["list-objects-v2", "put-object"]);
 });

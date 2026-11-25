@@ -265,9 +265,12 @@ Limits after clipboard acquisition are 4 MiB encoded and normalized bytes, 8,192
 pixels and 16 retained files / 32 MiB per session. Paste operations are serialized per session, with at most 16 queued gestures;
 overflow refuses with a fixed result. Each gesture captures its own snapshot.
 
-Only hand-checked bundled Claude, Codex and Pi launches receive image references.
-Shells, other agents and config providers show “Image paste is not supported for
-this session.” Text paste is unchanged. Foom inserts exactly one
+Image paste is available for local launches of bundled Antigravity (agy), Claude,
+Codex and Pi, their orchestrator-owned remote child launches, and their launches
+in the remote account's home from a registered host's Machines menu (#1307).
+Direct human launches into a registered-host repository or worktree, shells,
+other agents and config providers show “Image paste is not supported for this
+session.” Text paste is unchanged. Foom inserts exactly one
 `[pasted image '<absolute path>'] ` reference with recipient quoting and a trailing
 space, using xterm paste and no Enter. It never rewrites or submits the message.
 User input is ordered behind a pending paste, so Enter cannot overtake clipboard
@@ -287,6 +290,11 @@ canonical base64, PNG dimensions, size and SHA-256; remote paths are never opene
 on the hub. SSH loss leaves a live remote session's completed images intact;
 actual exit/close and daemon startup own cleanup. See [privacy](privacy.md#image-paste-937)
 and the [design and hand checks](../design/937-image-paste.md).
+
+For Machines-menu launches, main uses its validated launch or restore record, and
+the daemon independently authorizes the running agent from its own launch facts.
+See [human machine sessions](hosts.md#human-machine-sessions-1024) for reconnect
+and older-host behavior.
 
 ## Remote shell spike (#754)
 
