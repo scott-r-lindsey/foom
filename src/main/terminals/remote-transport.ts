@@ -793,6 +793,7 @@ export class RemoteTransport extends EventEmitter {
                 });
                 return;
               }
+              if (!this.target.agent) this.imageOwner = value.imageOwner;
               this.restoring = undefined;
               this.restoreState(true);
               // A hidden restored session may have neither a view nor a
@@ -823,6 +824,7 @@ export class RemoteTransport extends EventEmitter {
               value.state !== "live"
             )
               throw new Error("Unexpected open result");
+            if (!this.target.agent) this.imageOwner = value.imageOwner;
             clearTimeout(deadline);
             this.opened = true;
             if (this.openingThemeKey !== undefined) this.confirmedThemeKey = this.openingThemeKey;
@@ -925,6 +927,10 @@ export class RemoteTransport extends EventEmitter {
     this.checkAwaiting = true;
     this.management = request;
     this.send(request);
+  }
+
+  get hasImageOwner(): boolean {
+    return this.imageOwner !== undefined;
   }
 
   async putImage(png: Uint8Array, signal: AbortSignal): Promise<string> {

@@ -31,6 +31,7 @@ const mock = vi.hoisted(() => ({
   imageClose: vi.fn(),
   imageDiscard: vi.fn(),
   imagePath: vi.fn(),
+  imagePasteAvailable: vi.fn<() => boolean>(),
   recheckWake: vi.fn(),
 }));
 vi.mock("../../../../src/main/terminals/image-clipboard", () => ({ readPaste: mock.readPaste }));
@@ -64,6 +65,7 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
         this.manager = new TerminalManager(onExit, events);
       }
       imagePath = mock.imagePath;
+      imagePasteAvailable = mock.imagePasteAvailable;
       create(spec: TerminalSpec) {
         return this.manager.create(spec);
       }
@@ -203,6 +205,7 @@ let terminalControl: ReturnType<typeof attachTerminal>;
 const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.imagePasteAvailable.mockReturnValue(true);
   contents.isCrashed.mockReturnValue(false);
   ptys = [];
   mock.app.isPackaged = false;
@@ -1738,6 +1741,19 @@ test("shared paste authorizes attached sender, keeps text precedence, and gates 
     expect(await invoke("paste", [unsupported])).toEqual({ kind: "unsupported" });
   }
 });
+test("a remote terminal without an image owner still accepts text but refuses images", async () => {
+  const id = await terminalControl.create({ ...spec, imagePaste: true });
+  await invoke("attach", [id]);
+  mock.imagePasteAvailable.mockReturnValue(false);
+  mock.readPaste.mockResolvedValueOnce({ kind: "text", text: "visible" });
+  expect(await invoke("paste", [id])).toEqual({ kind: "text", text: "visible" });
+  mock.readPaste.mockResolvedValueOnce({ kind: "image", bytes: new Uint8Array([1]) });
+  expect(await invoke("paste", [id])).toEqual({ kind: "unsupported" });
+  expect(mock.normalize).not.toHaveBeenCalled();
+  expect(mock.imagePath).not.toHaveBeenCalled();
+  expect(mock.imagePut).not.toHaveBeenCalled();
+});
+
 test("terminal exit contains image cleanup failure and emits only a fixed diagnostic", async () => {
   const id = await terminalControl.create({ ...spec, imagePaste: true });
   await invoke("attach", [id]);

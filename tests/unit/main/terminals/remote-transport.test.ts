@@ -1431,6 +1431,16 @@ test.each([false, true].flatMap((supported) => ["a", "b"].map((build) => ({ supp
           }) as unknown,
         }),
       );
+      // Older, compatible daemons can open the normal PTY without approving uploads.
+      child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+      expect(transport.hasImageOwner).toBe(false);
+      transport.postMessage({ type: "write", id: "one", request: 2, data: "text still works" });
+      expect(child.messages).toContainEqual({
+        type: "write",
+        id: "one",
+        request: 2,
+        data: "text still works",
+      });
     } else
       expect(
         child.messages.some(

@@ -148,9 +148,15 @@ test("host setup starts a local machine agent with a main-owned, spawn-validated
   expect(workspace.snapshot().terminals[0]?.placement).toEqual({ kind: "local" });
 });
 
-test.each(["shell", "claude"] as const)(
-  "remote machine %s launch records the daemon home and sends no hub environment",
-  async (run) => {
+test.each([
+  { run: "shell", imagePaste: undefined },
+  { run: "copilot", imagePaste: undefined },
+  { run: "claude", imagePaste: true },
+  { run: "codex", imagePaste: true },
+  { run: "pi", imagePaste: true },
+])(
+  "remote machine $run launch records the daemon home and sends no hub environment",
+  async ({ run, imagePaste }) => {
     deps.hosts = {
       fleet: vi.fn(),
       registered: vi.fn(() => ({ host: "dozer", codeFolder: "/home/fixture/code" })),
@@ -175,7 +181,9 @@ test.each(["shell", "claude"] as const)(
         env: {},
       }),
     );
-    expect(vi.spyOn(deps.terminals, "create").mock.calls[0]?.[0].remote).toMatchObject({
+    const spec = vi.spyOn(deps.terminals, "create").mock.calls[0]?.[0];
+    expect(spec?.imagePaste).toBe(imagePaste);
+    expect(spec?.remote).toMatchObject({
       host: "dozer",
       profile: "a".repeat(32),
       human: true as const,

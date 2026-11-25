@@ -115,7 +115,8 @@ export type RemoteFragment = {
   data: string;
 };
 export type RemoteOpenResult = { type: "open-result"; request: number; id: string } & (
-  | { state: "live" | "gone" }
+  | { state: "live"; imageOwner?: string }
+  | { state: "gone" }
   | { state: "exited"; code: number }
 );
 export type RemoteResponse =
