@@ -136,7 +136,7 @@ see the [per-launch disclosure](mcp-attachment.md#claude-code).
 | flag + forms | flag matches --?[A-Za-z][A-Za-z0-9-]* <=64, value optional Text <=128, 1–4 unique forms; forms subset of exact, equals, separate, attached-short. exact matches the flag token; equals matches flag=value. separate consumes the next argv token for matching only; attached-short requires a one-letter short flag. Optional value restricts the value; otherwise any value matches. No option permutation/cancellation inference |
 | word | Text <=64, exact argv token, useful for resume/fork subcommands |
 | prefix | Text <=64, literal prefix match, used to preserve conservative -r/-c selector guards; no regex |
-| override | `{flags,keys,value?}`; <=8 flags, <=8 literal dotted key segments. Parse separate, long equals, attached short and -c= forms; normalize key whitespace/single/double quotes as current code. keys match any path segment, or final segment when value supplied. Strip one matching quote pair on values for comparison |
+| override | `{flags,keys,value?}`; <=8 flags, <=8 literal dotted key segments. Parse separate, long equals, attached short and -c= forms. Normalize key whitespace and quotes. Keys match any path segment, or the final segment when a value is supplied. Compare trimmed bare values and decoded TOML string values, with boundary quotes removed when TOML parsing fails |
 | bypassEnvironment record | `{name,match,values?,caseInsensitive?,trim?}`; name [A-Za-z_][A-Za-z0-9_]* <=64, match present-nonempty or values; values <=16 Text <=128; no reserved/unsafe env names |
 
 The engine always rejects -- and --no-alt-screen (= included) in user defaults,

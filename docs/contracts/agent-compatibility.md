@@ -144,3 +144,46 @@ conversation rows, but automatic restart and role restore skip those rows until 
 explicit bundled Resume replaces their origin. All ordinary ID-keyed preferences
 retain the existing recovery and bypass-disclosure rules. See
 [provider collision behavior](../areas/providers.md#bundled-opencode-824).
+
+## Launch argument bypass audit (#1318)
+
+Verified on 2026-11-25 against the Codex CLI reference and the source for Codex
+CLI 0.172.0, published 2026-11-24. [CLI reference](https://learn.chatgpt.com/docs/cli/reference),
+[0.172.0 release](https://github.com/openai/codex/releases/tag/rust-v0.172.0).
+
+| Effect | Codex launch arguments recognized by Foom | Upstream source |
+| --- | --- | --- |
+| Disable approval prompts and the sandbox | Exact switches `--dangerously-bypass-approvals-and-sandbox` and `--yolo` | [Shared flag declarations](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/shared_options.rs), [interactive startup policy](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/tui/src/startup_orchestration.rs) |
+| Disable approval prompts | `--ask-for-approval never`, `--ask-for-approval=never`, `-a never`, `-a=never`, `-anever` and `approval_policy=never` via a config override | [Interactive parser](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/tui/src/cli.rs), [approval values](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/approval_mode_cli_arg.rs) |
+| Disable the sandbox | `--sandbox danger-full-access`, `--sandbox=danger-full-access`, `-s danger-full-access`, `-s=danger-full-access`, `-sdanger-full-access` and config overrides selecting `sandbox_mode=danger-full-access` or `default_permissions=:danger-full-access` | [Sandbox values](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/sandbox_mode_cli_arg.rs), [built-in permission presets](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/approval-presets/src/lib.rs) |
+
+Each override accepts `--config KEY=VALUE`, `--config=KEY=VALUE`,
+`-c KEY=VALUE`, `-c=KEY=VALUE` and `-cKEY=VALUE`. Codex parses TOML values
+and falls back to bare strings. Foom matches decoded string values, so quotes,
+TOML escapes and comments on quoted values cannot hide a selector. Any
+combination of an approval-off and a sandbox-off selector is caught regardless
+of argument order. A single selector is enough for acknowledgement or refusal.
+Foom checks explicit arguments and does not read vendor profiles or infer the
+effect of custom permission profiles. [Config override parser](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/config_override.rs).
+
+`--approve-for-me` and `--not-so-yolo` route requests through automated review
+with workspace-write sandboxing. Historical `--full-auto` used on-request
+approval and workspace-write sandboxing in 0.100.0 (2026-02-12). Codex's bypass
+switches take no value. Hook trust bypass remains a reserved argument.
+[Shared flag declarations](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/shared_options.rs),
+[historical interactive parser](https://github.com/openai/codex/blob/rust-v0.100.0/codex-rs/tui/src/cli.rs).
+
+The other bundled startup flags were checked against vendor sources on the same
+date. No agent executable was run for this audit.
+
+| Provider | Audit result | Vendor evidence |
+| --- | --- | --- |
+| Claude Code 2.1.332 | Existing matchers cover the two ways to start in bypass mode. `--allow-dangerously-skip-permissions` exposes the interactive mode switch without selecting bypass mode at startup. | [CLI reference](https://code.claude.com/docs/en/cli-reference#cli-flags) |
+| Antigravity CLI | Google documents the existing `--dangerously-skip-permissions` switch. An alias or an explicit false form of the sandbox switch could not be confirmed from the reference. | [CLI flags](https://antigravity.google/docs/cli/reference/#command-line-flags) |
+| GitHub Copilot CLI 1.0.115 | Existing matchers cover `--allow-all`, `--yolo` and the three blanket permission switches. The documented `--no-sandbox` switch now requires acknowledgement too. An equals form of that switch could not be confirmed. | [Command-line options](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#command-line-options) |
+| OpenCode 1.19.6 | Both `--yolo` and `--dangerously-skip-permissions` are hidden aliases for `--auto`. Foom applies the same conservative exact and equals matching to all three. | [Interactive parser](https://github.com/anomalyco/opencode/blob/v1.19.6/packages/opencode/src/cli/cmd/tui.ts), [run parser](https://github.com/anomalyco/opencode/blob/v1.19.6/packages/opencode/src/cli/cmd/run.ts) |
+| Pi 1.6.1 | Both project-trust flags, `--approve` and `-a`, are already covered. | [Tagged parser](https://github.com/earendil-works/pi/blob/v1.6.1/packages/coding-agent/src/cli/args.ts) |
+
+Human launches require acknowledgement for the current manifest identity.
+Child and reviewer launches with matched defaults are refused before spawn,
+including when those defaults have human acknowledgement.

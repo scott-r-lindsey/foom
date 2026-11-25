@@ -1,6 +1,21 @@
+import { parse as parseToml } from "smol-toml";
+import { isRecord } from "./agent-manifest-values";
 import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 type Matcher = AgentManifestV2["reservedArguments"][number];
+
+function overrideValueMatches(raw: string, expected: string): boolean {
+  if (raw === expected) return true;
+  if (!raw.startsWith('"') && !raw.startsWith("'")) return false;
+  try {
+    const parsed = parseToml(`value = ${raw}`, { maxDepth: 24, unsafeKeyBehaviour: "throw" });
+    return isRecord(parsed) && parsed["value"] === expected;
+  } catch {
+    // Codex falls back to the literal value with boundary quotes removed.
+    return raw.replace(/^["']+|["']+$/gu, "") === expected;
+  }
+}
+
 export function matchesArguments(matchers: readonly Matcher[], args: readonly string[]): boolean {
   return argumentMatchIndex(matchers, args) >= 0;
 }
@@ -23,16 +38,10 @@ export function argumentMatchIndex(matchers: readonly Matcher[], args: readonly 
         const segments = (equals < 0 ? config : config.slice(0, equals))
           .replace(/[\s"']/gu, "")
           .split(".");
-        const value =
-          equals < 0
-            ? ""
-            : config
-                .slice(equals + 1)
-                .trim()
-                .replace(/^(?:"(.*)"|'(.*)')$/u, "$1$2");
         return rule.value === undefined
           ? segments.some((key) => rule.keys.includes(key))
-          : rule.keys.includes(segments.at(-1) ?? "") && value === rule.value;
+          : rule.keys.includes(segments.at(-1) ?? "") &&
+              overrideValueMatches(equals < 0 ? "" : config.slice(equals + 1).trim(), rule.value);
       }
       return matcher.forms.some((form) => {
         if (form === "exact") return arg === matcher.flag && matcher.value === undefined;

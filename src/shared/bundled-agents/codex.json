@@ -129,6 +129,20 @@
       "forms": ["exact"]
     },
     {
+      "flag": "--yolo",
+      "forms": ["exact"]
+    },
+    {
+      "flag": "--ask-for-approval",
+      "forms": ["separate", "equals"],
+      "value": "never"
+    },
+    {
+      "flag": "-a",
+      "forms": ["separate", "equals", "attached-short"],
+      "value": "never"
+    },
+    {
       "flag": "--sandbox",
       "forms": ["separate", "equals"],
       "value": "danger-full-access"
@@ -143,6 +157,20 @@
         "flags": ["-c", "--config"],
         "keys": ["sandbox_mode"],
         "value": "danger-full-access"
+      }
+    },
+    {
+      "override": {
+        "flags": ["-c", "--config"],
+        "keys": ["approval_policy"],
+        "value": "never"
+      }
+    },
+    {
+      "override": {
+        "flags": ["-c", "--config"],
+        "keys": ["default_permissions"],
+        "value": ":danger-full-access"
       }
     }
   ],

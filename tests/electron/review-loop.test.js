@@ -114,6 +114,7 @@ for (const scenario of [
   "unresolved",
   "continue",
   "one-shot",
+  "codex-bypass",
 ]) {
   test("owned child review loop: " + scenario, {
     timeout: deadline(90000),
@@ -140,6 +141,20 @@ for (const scenario of [
     await writeFile(path.join(bin, "claude"), REVIEW_AGENT);
     await writeFile(path.join(bin, "gh"), FAKE_GH);
     for (const name of ["claude", "gh"]) await chmod(path.join(bin, name), 0o755);
+    if (scenario === "codex-bypass") {
+      const codex = path.join(bin, "codex");
+      await writeFile(
+        codex,
+        `#!/bin/sh
+case "$1" in
+  --version) echo 'codex-cli 0.172.0';;
+  --help) echo '-c, --config <key=value>';;
+  *) printf '%s\\n' "$@" > "$TEST_REVIEW_ROOT/codex-spawned";;
+esac
+`,
+      );
+      await chmod(codex, 0o755);
+    }
     await symlink(process.execPath, path.join(bin, "node"));
     const git = (...args) =>
       isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
@@ -285,7 +300,10 @@ for (const scenario of [
       agent: "claude",
       prompt: "Fixture task",
       ...(scenario === "binding" ? { pullRequest: 340 } : {}),
-      review: { rounds: scenario === "cap" ? 1 : 3 },
+      review: {
+        rounds: scenario === "cap" ? 1 : 3,
+        ...(scenario === "codex-bypass" && { agent: "codex" }),
+      },
       idempotencyKey: "author",
     });
     assert.equal(result.status, "succeeded");
@@ -481,6 +499,33 @@ for (const scenario of [
       await writeFile(file + ".tmp", JSON.stringify(command));
       await rename(file + ".tmp", file);
     };
+    if (scenario === "codex-bypass") {
+      await waitStep("build");
+      const save = page.evaluate(() =>
+        window.desktop.saveSetup({ agentArguments: { codex: ["--yolo"] } }),
+      );
+      const consent = await confirmationPage(app, "Save bypass defaults for Codex?");
+      await consent.getByRole("button", { name: "Save bypass defaults", exact: true }).click();
+      await save;
+      const childTree = await call("create_worktree", {
+        branch: "child-bypass",
+        idempotencyKey: "bypass-tree",
+      });
+      await call(
+        "launch",
+        { worktreeId: childTree.resultId, agent: "codex", idempotencyKey: "bypass-child" },
+        "forbidden",
+      );
+      await go("build");
+      await expect.poll(state).toMatchObject({ phase: "escalated", reason: "launch failed" });
+      assert.equal(existsSync(path.join(root, "codex-spawned")), false);
+      const workspace = await page.evaluate(() => window.desktop.workspace());
+      assert.equal(
+        workspace.terminals.some((row) => row.agent === "codex"),
+        false,
+      );
+      return;
+    }
     if (scenario === "continue") {
       await waitStep("build");
       await call("stop", { id: authorId, idempotencyKey: "stop-old-author" });
