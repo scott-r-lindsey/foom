@@ -1,5 +1,6 @@
 import type { InterfaceTheme } from "./interface-theme";
 import type { TerminalTheme } from "./terminal-theme";
+import type { ActiveThemeBitmaps, ThemeBitmapFiles } from "./theme-bitmap";
 export type UserThemeId = `user:${string}`;
 export type ThemeKind = "theme" | "terminal-theme";
 export type ThemeReason =
@@ -18,7 +19,10 @@ export type ThemeReason =
   | "unsafe-file"
   | "too-many-files"
   | "invalid-value"
-  | "unreadable";
+  | "unreadable"
+  | "image-unavailable"
+  | "image-format"
+  | "image-status-color";
 export interface ThemeDiagnostic {
   severity?: "error" | "warning";
   file: string;
@@ -28,13 +32,20 @@ export interface ThemeDiagnostic {
   detail?: string;
 }
 export type ParsedThemeFile =
-  | { kind: "theme"; theme: InterfaceTheme; warnings?: readonly ThemeDiagnostic[] }
+  | {
+      kind: "theme";
+      theme: InterfaceTheme;
+      images?: ThemeBitmapFiles;
+      warnings?: readonly ThemeDiagnostic[];
+    }
   | { kind: "terminal-theme"; name: string; theme: TerminalTheme };
 export interface ThemeSnapshot {
   parsed: ParsedThemeFile;
   digest: string;
+  imageDiagnostics?: readonly ThemeDiagnostic[];
 }
 export interface ThemeCatalog {
+  activeBitmaps?: ActiveThemeBitmaps;
   interface: readonly { id: UserThemeId; theme: InterfaceTheme; digest?: string }[];
   terminal: readonly { id: UserThemeId; name: string; theme: TerminalTheme }[];
   errors: readonly (ThemeDiagnostic & { kind: ThemeKind })[];

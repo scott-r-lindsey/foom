@@ -1,3 +1,4 @@
+import { readThemeDirectory } from "../theme-directory";
 import { readdir } from "node:fs/promises";
 import { parsePluginManifest } from "../../shared/plugin-parser";
 import { AgentManifestError } from "../../shared/agent-manifest";
@@ -33,13 +34,13 @@ export class ConfigCatalog {
     const paths: string[] = [];
     for (const folder of Object.values(THEME_FOLDERS)) {
       if (!(await this.files.contained(folder))) continue;
-      const names = await settle(readdir(this.files.path(folder)), [] as string[]);
+      const entries = await settle(readThemeDirectory(this.files.path(folder)), []);
       paths.push(
-        ...names
-          .filter((name) => validThemeFile(name))
-          .sort()
+        ...entries
+          .filter(({ name }) => validThemeFile(name))
+          .sort((a, b) => Number(b.isFile()) - Number(a.isFile()) || a.name.localeCompare(b.name))
           .slice(0, MAX_THEMES)
-          .map((name) => `${folder}/${name}`),
+          .map(({ name }) => `${folder}/${name}`),
       );
     }
     return paths;

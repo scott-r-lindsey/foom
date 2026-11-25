@@ -624,6 +624,17 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   expect((await SettingsStore.open(dir)).themeDigest("themes/mine.json")).toBe("b".repeat(64));
   await reopened.setThemeDigest("themes/mine.json", null);
   expect((await SettingsStore.open(dir)).themeDigest("themes/mine.json")).toBeNull();
+  const bitmapApproval = {
+    decoded: true as const,
+    digest: "a".repeat(64),
+    jsonDigest: "b".repeat(64),
+    sources: { board: "c".repeat(64) },
+  };
+  await reopened.setConfigBaseline("a".repeat(64), '{"kind":"settings"}', {
+    file: "themes/art.json",
+    digest: bitmapApproval,
+  });
+  expect((await SettingsStore.open(dir)).themeDigest("themes/art.json")).toEqual(bitmapApproval);
   const raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   await writeFile(
     file,
@@ -631,6 +642,14 @@ test("attaching Foom config moves agent-editable values out of the profile exact
       ...raw,
       themeDigests: {
         "themes/ok.json": "c".repeat(64),
+        "themes/art.json": bitmapApproval,
+        "themes/bad-assets.json": { ...bitmapApproval, sources: { sidebar: "not-a-hash" } },
+        "themes/bad-slot.json": { ...bitmapApproval, sources: { terminal: "a".repeat(64) } },
+        "themes/old-bitmap.json": {
+          digest: bitmapApproval.digest,
+          jsonDigest: bitmapApproval.jsonDigest,
+          sources: bitmapApproval.sources,
+        },
         "agents/old.json": "c".repeat(64),
         "../x": "c".repeat(64),
         "themes/y": 1,
@@ -639,6 +658,10 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   );
   const filtered = await SettingsStore.open(dir);
   expect(filtered.themeDigest("themes/ok.json")).toBe("c".repeat(64));
+  expect(filtered.themeDigest("themes/art.json")).toEqual(bitmapApproval);
+  expect(filtered.themeDigest("themes/bad-assets.json")).toBeNull();
+  expect(filtered.themeDigest("themes/bad-slot.json")).toBeNull();
+  expect(filtered.themeDigest("themes/old-bitmap.json")).toBeNull();
   // Plugin approvals were removed in #539; their old digests are dropped.
   expect(filtered.themeDigest("agents/old.json")).toBeNull();
   expect(filtered.themeDigest("../x")).toBeNull();

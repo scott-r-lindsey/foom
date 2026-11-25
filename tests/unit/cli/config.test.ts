@@ -512,3 +512,43 @@ test("offline theme validation reports new bounded fields and fixed gradient err
     '"gradient.json": $.areas.tiles.gradient: gradient-not-allowed\n',
   );
 });
+
+test("offline bitmap checks disclose only fixed slots and count artwork in the folder limit", async () => {
+  const root = await fixture();
+  const themes = join(root, "themes");
+  await mkdir(themes);
+  const file = await put(
+    themes,
+    "gallery.json",
+    JSON.stringify({
+      ...interfaceThemes["eclipse-dark"],
+      version: 2,
+      images: { board: { file: "private.png" } },
+    }),
+  );
+  expect(await validateConfig(file)).toEqual({ code: 0, problems: [] });
+  expect(await validateConfig(themes)).toEqual({
+    code: 1,
+    problems: [
+      {
+        file: "gallery.json",
+        path: "$.images.board",
+        reason: "image-unavailable",
+        severity: "error",
+      },
+    ],
+  });
+  await put(themes, "private.png", "GIF89a");
+  expect(await validateConfig(themes)).toMatchObject({
+    code: 1,
+    problems: [{ file: "gallery.json", path: "$.images.board", reason: "image-format" }],
+  });
+  await put(themes, "private.png", Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  expect(await validateConfig(themes)).toEqual({ code: 0, problems: [] });
+  for (let i = 0; i < 49; i++) await put(themes, `unused-${String(i)}.jpeg`, "");
+  expect((await validateConfig(themes)).problems).toContainEqual({
+    file: "",
+    path: "$",
+    reason: "too-many-files",
+  });
+});
