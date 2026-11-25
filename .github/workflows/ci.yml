@@ -499,6 +499,7 @@ jobs:
         if: runner.os != 'Linux'
         run: pnpm run test:installers
       - name: Upload tested installer and ZIP artifacts
+        id: tested-packages
         if: >-
           runner.os == 'macOS' || github.ref == 'refs/heads/main' ||
           (github.event_name == 'workflow_dispatch' && inputs.upload_packages)
@@ -510,10 +511,14 @@ jobs:
           retention-days: 3
       - name: Download tested macOS artifact for ad-hoc signing
         if: runner.os == 'macOS'
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v4
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          TESTED_ARTIFACT_ID: ${{ steps.tested-packages.outputs.artifact-id }}
+          TESTED_ARTIFACT_DIGEST: ${{ steps.tested-packages.outputs.artifact-digest }}
         with:
-          name: Foom-macos-15
-          path: tested-macos
+          script: |
+            const { downloadTestedMacOS } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/download-tested-macos.mjs`);
+            await downloadTestedMacOS();
       - name: Exercise tested-ZIP signing path ad-hoc without Apple credentials
         if: runner.os == 'macOS'
         run: node scripts/macos-sign.mjs adhoc-zip tested-macos "$RUNNER_TEMP/adhoc-signed"

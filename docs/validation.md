@@ -232,6 +232,12 @@ CI retains HTML/LCOV coverage for three days. Platform installers and ZIPs are b
 
 `main` requires a pull request, an up-to-date branch, and a passing **Quality gate**, including for administrators. No second-person approval is required. Force pushes and deletion are blocked. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
 
+The macOS packaging job looks up the tested artifact by the upload step's ID
+before ad-hoc signing. It logs each lookup and waits two seconds after an empty
+result, for at most three attempts. Other lookup failures stop immediately. The
+job downloads the ZIP from GitHub once, verifies it against the upload step's
+SHA-256 digest and extracts it into `tested-macos` before signing.
+
 Follow [AGENTS.md](../AGENTS.md#validation-and-delivery) for pre-push checks and delivery. Keep cancellation of superseded runs enabled.
 
 Account owners should configure an Actions budget with **Stop usage when budget limit is reached** enabled in GitHub billing settings, plus usage alerts. Budget alerts alone do not stop spending. Review and delete obsolete development artifacts in Actions after preserving any needed downloads; reducing workflow retention affects new uploads, and deleting old artifacts prevents future storage accrual without reversing existing charges. Billing settings and existing artifact cleanup are account operations, not changes this workflow applies. See [GitHub budgets](https://docs.github.com/en/billing/how-tos/set-up-budgets) and [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
