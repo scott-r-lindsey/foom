@@ -1,3 +1,4 @@
+import { themeBitmapSlots } from "../../shared/theme-bitmaps";
 import type { InterfaceTheme, InterfaceGradient } from "../../shared/interface-theme";
 import {
   interfaceAreas,
@@ -80,6 +81,18 @@ export function attachInterfaceTheme(
     target.dataset["themeGradients"] = interfaceAreas
       .filter((area) => theme.areas?.[area]?.gradient)
       .join(" ");
+    const activeBitmaps = catalog?.activeBitmaps;
+    const slots =
+      activeBitmaps?.theme === settings.interfaceTheme ? activeBitmaps.slots : undefined;
+    target.dataset["themeBitmaps"] = themeBitmapSlots.filter((slot) => slots?.[slot]).join(" ");
+    for (const slot of themeBitmapSlots) {
+      const paint = slots?.[slot];
+      property(`--bitmap-${slot}-image`, paint && `url("foom-theme://bitmap/${paint.id}")`);
+      property(`--bitmap-${slot}-opacity`, paint && String(paint.opacity));
+      property(`--bitmap-${slot}-size`, paint && (paint.fit === "tile" ? "auto" : paint.fit));
+      property(`--bitmap-${slot}-repeat`, paint && (paint.fit === "tile" ? "repeat" : "no-repeat"));
+      property(`--bitmap-${slot}-position`, paint?.anchor.replace("-", " "));
+    }
     applyInterfaceTypography(theme, target);
     for (const key of interfaceStates) property(`--state-${key}`, theme.states?.[key]);
     for (const key of ["radius", "panel-radius", "border", "shadow"] as const) {
@@ -133,6 +146,7 @@ export function attachInterfaceTheme(
     delete target.dataset["themeReady"];
     delete target.dataset["themeAreas"];
     delete target.dataset["themeGradients"];
+    delete target.dataset["themeBitmaps"];
     delete target.dataset["panelColor"];
     delete target.dataset["panelContrast"];
   };

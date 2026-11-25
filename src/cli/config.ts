@@ -1,3 +1,6 @@
+import { IMAGE_BYTES, rasterImageFormat } from "../shared/image-paste";
+import { themeBitmapSlots, themeFolderLimit, validThemeBitmapFile } from "../shared/theme-bitmaps";
+import { parseThemeFile } from "../shared/theme-files";
 import { testCaptureRules } from "../node-common/probe-captures";
 import { bundledAgentData } from "../shared/bundled-agent-data";
 import { parseAgentManifest } from "../shared/agent-plugin-parser";
@@ -59,10 +62,15 @@ async function checkDirectory(identity: ConfigDirectory): Promise<void> {
     fail("unsafe-file");
 }
 /** Descriptor-bounded read. Refuse links and special files before opening, then recheck identity. */
-async function read(path: string, max: number, parent: ConfigDirectory): Promise<Uint8Array> {
+async function read(
+  path: string,
+  max: number,
+  parent: ConfigDirectory,
+  refuseHardLinks = false,
+): Promise<Uint8Array> {
   await checkDirectory(parent);
   const before = await lstat(path);
-  if (!before.isFile()) fail("unsafe-file");
+  if (!before.isFile() || (refuseHardLinks && before.nlink !== 1)) fail("unsafe-file");
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
   try {
     await checkDirectory(parent);
@@ -82,6 +90,7 @@ async function read(path: string, max: number, parent: ConfigDirectory): Promise
       after.ino !== info.ino ||
       after.dev !== info.dev ||
       !after.isFile() ||
+      (refuseHardLinks && after.nlink !== 1) ||
       after.size !== info.size ||
       after.mtimeMs !== info.mtimeMs
     )
@@ -92,6 +101,34 @@ async function read(path: string, max: number, parent: ConfigDirectory): Promise
     await file.close();
   }
 }
+/** Offline validation checks references, sizes and signatures. Decoding belongs to main. */
+async function validateBitmap(path: string, parent: ConfigDirectory): Promise<void> {
+  const bytes = await read(path, IMAGE_BYTES, parent, true);
+  const format = rasterImageFormat(bytes);
+  if (!format || format === "gif") fail("image-format");
+}
+
+async function validateBitmaps(text: string, parent: ConfigDirectory): Promise<ThemeDiagnostic[]> {
+  const parsed = parseThemeFile(text, "theme");
+  if (parsed.kind !== "theme") return [];
+  const diagnostics: ThemeDiagnostic[] = [];
+  for (const slot of themeBitmapSlots) {
+    const file = parsed.images?.[slot]?.file;
+    if (!file) continue;
+    try {
+      await validateBitmap(join(parent.path, file), parent);
+    } catch (error) {
+      diagnostics.push({
+        file: "",
+        path: `$.images.${slot}`,
+        reason: error instanceof ThemeValidationError ? error.reason : "image-unavailable",
+        severity: "error",
+      });
+    }
+  }
+  return diagnostics;
+}
+
 async function validateFile(
   path: string,
   parent: ConfigDirectory,
@@ -126,7 +163,10 @@ async function validateFile(
         ? kind
         : undefined,
     );
-    if (kind === "agent" || kind === "forge" || configJson(text)["kind"] === "agent") {
+    const value = configJson(text);
+    if (kind === "theme" && Object.hasOwn(value, "images"))
+      return [...diagnostics, ...(await validateBitmaps(text, parent))];
+    if (kind === "agent" || kind === "forge" || value["kind"] === "agent") {
       const loaded = parsePluginManifest(text);
       const identifier = loaded.kind === "agent" ? loaded.plugin.model.id : loaded.plugin.id;
       if (basename(path) !== `${identifier}.json`) fail("invalid-value");
@@ -204,7 +244,7 @@ export async function validateConfig(
           ? 16
           : kind === "sounds"
             ? 4
-            : 50;
+            : themeFolderLimit;
       for await (const entry of entries) {
         if (++count > limit) {
           report(label, new ThemeValidationError("$", "too-many-files"));
@@ -267,6 +307,11 @@ export async function validateConfig(
         } else if (kind === "sounds") child = SOUND_KINDS.find((value) => value === entry.name);
         else {
           if (soundKind(kind) && entry.name === ".gitkeep") continue;
+          if (kind === "theme" && validThemeBitmapFile(entry.name)) {
+            // Referenced assets are validated at their slots, without exposing their names.
+            if (!entry.isFile()) report(label, new ThemeValidationError("$", "unsafe-file"));
+            continue;
+          }
           if (!(soundKind(kind) ? validSoundFile(entry.name) : validThemeFile(entry.name)))
             report(name, new ThemeValidationError("$", "unsafe-file"));
           else await visitFile(file, name, identity, kind);

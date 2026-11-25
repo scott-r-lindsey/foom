@@ -4,7 +4,7 @@ import { terminalLink } from "../../shared/terminal-link";
 import type { DialogContent } from "../../shared/confirmation";
 import { randomUUID } from "node:crypto";
 import { readPaste } from "./image-clipboard";
-import { normalizeImage } from "./image-decoder";
+import { normalizeImage } from "../image-decoder";
 import { ImageFiles } from "./image-files";
 import { imageLabel } from "../../shared/image-paste";
 import type { TerminalPaste } from "../../shared/image-paste.d";

@@ -42,7 +42,8 @@ import { EnvironmentStore, safeStorageCipher } from "../setup/environment";
 import { DEFAULT_SETTINGS, SettingsStore } from "../setup/settings";
 import type { Setup } from "../setup/setup";
 import type { attachTerminal } from "../terminals/terminal-ipc";
-import { ThemeLibrary } from "../themes/library";
+import { normalizeThemeBitmap } from "../image-decoder";
+import { ThemeBitmaps, ThemeLibrary, themeBitmapResponse } from "../themes/library";
 import type { attachAppMenu } from "../window/app-menu";
 import type { Size } from "../window/appearance";
 import { updateAttention } from "../window/attention-badge";
@@ -688,6 +689,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     safeStorageCipher(safeStorage),
   );
   addTailSecrets(wiring.environment.redactions());
+  const bitmaps = new ThemeBitmaps(path.join(wiring.configRoot, "themes"), normalizeThemeBitmap);
   wiring.config = new ConfigService({
     root: wiring.configRoot,
     defaults: configPart(DEFAULT_SETTINGS),
@@ -739,6 +741,8 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
       });
     },
     onStatus: wiring.configStatusChanged,
+    onThemeBitmapsChanged: wiring.themesChanged,
+    loadThemeBitmaps: (parsed) => bitmaps.load(parsed),
     onThemeDecision: () => {
       void wiring.themes.reload();
     },
@@ -751,6 +755,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   );
   wiring.disposeThemes = () => {
     wiring.themes.dispose();
+    bitmaps.dispose();
   };
   try {
     // Include the old window scale only in no-clobber initial creation. Never
@@ -770,7 +775,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   }
   await wiring.themes.initialize();
   wiring.applyThemeSettings();
-  attachAssetSecurity();
+  attachAssetSecurity((id) => wiring.config.activeThemeImage(id));
   if (placements.length)
     for (const placement of placements) await wiring.createWindow(undefined, placement);
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
@@ -810,12 +815,13 @@ const assets = new Map([
 
 function registerSchemes() {
   protocol.registerSchemesAsPrivileged([
+    { scheme: "foom-theme", privileges: { standard: true, secure: true } },
     { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } },
     { scheme: "foom-preview", privileges: { standard: true, secure: true, supportFetchAPI: true } },
   ]);
 }
 
-function attachAssetSecurity() {
+function attachAssetSecurity(themeImage: (id: string) => Uint8Array | undefined) {
   // Serve only known local assets; arbitrary filesystem access is never exposed.
   const assetHandler = (request: Request) => {
     const url = new URL(request.url);
@@ -838,6 +844,7 @@ function attachAssetSecurity() {
     return net.fetch(pathToFileURL(path.join(rendererDirectory, asset)).href);
   };
   protocol.handle("app", assetHandler);
+  protocol.handle("foom-theme", (request) => themeBitmapResponse(request, themeImage));
   const confirmationSession = session.fromPartition("confirmation");
   confirmationSession.protocol.handle("app", assetHandler);
   confirmationSession.setPermissionRequestHandler((_contents, _permission, callback) => {

@@ -1,0 +1,141 @@
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { lstat, readdir } from "node:fs/promises";
+import { IMAGE_BYTES } from "../../shared/image-paste";
+import { colorDistance } from "../../shared/theme-colors";
+import {
+  themeBitmapSlots,
+  themeFolderLimit,
+  validThemeBitmapFile,
+} from "../../shared/theme-bitmaps";
+import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
+import type { DecodedThemeBitmap, ThemeBitmapSnapshot } from "../../shared/theme-bitmap";
+import type { ParsedThemeFile, ThemeDiagnostic } from "../../shared/theme-file";
+import { readThemeFile } from "./files";
+
+export class ThemeBitmaps {
+  private readonly key = randomBytes(32);
+  private readonly cancel = new AbortController();
+  private readonly decoded = new Map<string, Promise<DecodedThemeBitmap>>();
+
+  constructor(
+    private readonly directory: string,
+    private readonly normalize: (
+      bytes: Uint8Array,
+      signal: AbortSignal,
+    ) => Promise<DecodedThemeBitmap>,
+  ) {}
+
+  async load(parsed: Extract<ParsedThemeFile, { kind: "theme" }>): Promise<ThemeBitmapSnapshot> {
+    const diagnostics: ThemeDiagnostic[] = [];
+    const slots: ThemeBitmapSnapshot["slots"] = {};
+    const sources: ThemeBitmapSnapshot["sources"] = {};
+    const files = await lstat(this.directory)
+      .then((info) =>
+        info.isDirectory() ? readdir(this.directory, { withFileTypes: true }) : undefined,
+      )
+      .catch(() => undefined);
+    const eligible = files?.filter(
+      (entry) =>
+        (entry.isFile() || entry.isSymbolicLink()) &&
+        (validThemeFile(entry.name) || validThemeBitmapFile(entry.name)),
+    );
+    for (const slot of themeBitmapSlots) {
+      const image = parsed.images?.[slot];
+      if (!image) continue;
+      const path = `$.images.${slot}`;
+      const report = (reason: ThemeDiagnostic["reason"], severity: "warning" | "error") => {
+        diagnostics.push({ file: "", path, reason, severity });
+      };
+      if (!eligible) {
+        report("image-unavailable", "error");
+        continue;
+      }
+      if (eligible.length > themeFolderLimit) {
+        report("too-many-files", "error");
+        continue;
+      }
+      const { file, ...style } = image;
+      let bytes: Buffer;
+      try {
+        bytes = await readThemeFile(this.directory, file, IMAGE_BYTES, false);
+      } catch (error) {
+        report(error instanceof ThemeValidationError ? error.reason : "image-unavailable", "error");
+        continue;
+      }
+      const source = createHash("sha256").update(bytes).digest("hex");
+      sources[slot] = source;
+      let bitmap: DecodedThemeBitmap;
+      try {
+        bitmap = await this.decode(source, bytes);
+      } catch {
+        report("image-format", "error");
+        continue;
+      }
+      const { colors, png } = bitmap;
+      const areas =
+        slot === "sidebar"
+          ? (["sidebar"] as const)
+          : slot === "gutter"
+            ? (["board", "tiles", "tile-headers"] as const)
+            : (["board"] as const);
+      const palettes = [
+        parsed.theme.colors,
+        ...areas.map((area) => ({
+          ...parsed.theme.colors,
+          ...parsed.theme.areas?.[area],
+        })),
+      ];
+      if (
+        colors.some((color) =>
+          palettes.some((palette) =>
+            [
+              palette.attention,
+              palette["attention-ink"],
+              palette.failed,
+              palette["failed-ink"],
+            ].some((status) => colorDistance(color, status) < 40),
+          ),
+        )
+      )
+        report("image-status-color", "warning");
+      const id = createHmac("sha256", this.key).update(source).digest("hex");
+      slots[slot] = { paint: { id, ...style }, png, source };
+    }
+    return { slots, sources, diagnostics };
+  }
+
+  private decode(source: string, bytes: Uint8Array): Promise<DecodedThemeBitmap> {
+    const cached = this.decoded.get(source);
+    if (cached) return cached;
+    if (this.decoded.size === themeFolderLimit) {
+      const oldest = this.decoded.keys().next().value;
+      if (oldest) this.decoded.delete(oldest);
+    }
+    const result = this.normalize(bytes, this.cancel.signal);
+    this.decoded.set(source, result);
+    return result;
+  }
+
+  dispose(): void {
+    this.cancel.abort();
+    this.decoded.clear();
+  }
+}
+
+/** The board session can read only an exact ID from the active approved snapshot. */
+export function themeBitmapResponse(
+  request: Request,
+  image: (id: string) => Uint8Array | undefined,
+): Response {
+  const match = /^foom-theme:\/\/bitmap\/([a-f0-9]{64})$/u.exec(request.url);
+  const id = match?.[1];
+  const png = request.method === "GET" && id ? image(id) : undefined;
+  if (!png) return new Response(null, { status: 404 });
+  return new Response(Uint8Array.from(png), {
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}

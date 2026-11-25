@@ -24,6 +24,8 @@ import type {
   ThemeSnapshot,
   UserThemeId,
 } from "../../shared/theme-file";
+import type { ActiveThemeBitmaps, ThemeBitmapSnapshot } from "../../shared/theme-bitmap";
+import { themeBitmapSlots } from "../../shared/theme-bitmaps";
 import { parseThemeFile } from "../../shared/theme-files";
 import { attentionConflicts } from "../../shared/user-interface-theme";
 import { isUserThemeId, ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
@@ -60,6 +62,10 @@ export interface ConfigServiceDependencies {
   acknowledgeBypass?(agents: readonly string[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
   onThemeDecision?(): void;
+  onThemeBitmapsChanged?(): void;
+  loadThemeBitmaps?(
+    parsed: Extract<ParsedThemeFile, { kind: "theme" }>,
+  ): Promise<ThemeBitmapSnapshot>;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
   delay?: number;
   platform?: NodeJS.Platform;
@@ -80,6 +86,8 @@ const DEFAULTS: Applied = {
 interface Palette {
   text: string;
   parsed: ParsedThemeFile;
+  digest: string;
+  bitmaps?: ThemeBitmapSnapshot;
 }
 
 interface Selection {
@@ -129,10 +137,18 @@ export class ConfigService {
   private applied: Applied = DEFAULTS;
   private liveValues: ConfigSettings | undefined;
   private pending: Pending | null = null;
+  private publishedBitmaps: string | undefined;
   private appliedThemes = new Map<string, Palette>();
   private heldThemes = new Map<
     string,
-    { text: string; previous: string | null; settings: string | null; id: string }
+    {
+      proposal: Palette;
+      previous: Palette | undefined;
+      settings: string | null;
+      id: string;
+      hidden: readonly (typeof themeBitmapSlots)[number][];
+      bitmapChange: boolean;
+    }
   >();
   /** Each rejected file: the digest of the bytes rejected and a fixed reason. */
   private rejected = new Map<string, { object: string; reason: string }>();
@@ -405,7 +421,7 @@ export class ConfigService {
             selection.file,
             selection.source,
             selection.unavailable,
-            selection.palette?.text,
+            selection.palette?.digest,
           ])
         : current.text,
     );
@@ -430,13 +446,34 @@ export class ConfigService {
         id: UserThemeId;
         theme: Extract<ParsedThemeFile, { kind: "theme" }>["theme"] | undefined;
         digest?: string;
+        bitmaps?: ActiveThemeBitmaps["slots"];
       }
     | undefined {
     const id = effective(this.deps.defaults, this.applied.values).interfaceTheme;
     if (!isUserThemeId(id)) return undefined;
-    const palette = this.appliedThemes.get(`themes/${id.slice(5)}`);
+    const file = `themes/${id.slice(5)}`;
+    const palette = this.appliedThemes.get(file);
     if (palette?.parsed.kind !== "theme") return { id, theme: undefined };
-    return { id, theme: palette.parsed.theme, digest: digest(palette.text) };
+    const bitmaps: ActiveThemeBitmaps["slots"] = {};
+    const hidden = this.heldThemes.get(file)?.hidden;
+    for (const slot of themeBitmapSlots) {
+      const asset = palette.bitmaps?.slots[slot];
+      if (asset && !hidden?.includes(slot)) bitmaps[slot] = asset.paint;
+    }
+    return {
+      id,
+      theme: palette.parsed.theme,
+      digest: palette.digest,
+      ...(Object.keys(bitmaps).length > 0 && { bitmaps }),
+    };
+  }
+
+  activeThemeImage(id: string): Uint8Array | undefined {
+    const active = this.activePalette();
+    if (!active) return undefined;
+    const assets = this.appliedThemes.get(`themes/${active.id.slice(5)}`)?.bitmaps?.slots;
+    for (const slot of themeBitmapSlots)
+      if (active.bitmaps?.[slot]?.id === id) return assets?.[slot]?.png;
   }
 
   private async applyValues(applied: Applied, selection?: Selection): Promise<void> {
@@ -457,7 +494,7 @@ export class ConfigService {
       .set(
         digest(applied.text),
         applied.text,
-        selection && palette ? { file: selection.file, digest: digest(palette.text) } : undefined,
+        selection && palette ? { file: selection.file, digest: palette.digest } : undefined,
       )
       .catch(ignore);
   }
@@ -474,63 +511,90 @@ export class ConfigService {
       // or replace the profile's approval baseline.
       const bytes = await settle(this.files.read(file), null);
       if (bytes && decode(bytes) === text) {
-        await this.reviewThemeValue(file, text, parsed);
+        const candidate = await this.readPalette(text, parsed);
+        await this.reviewThemeValue(file, candidate);
         this.publish();
+        const snapshot = this.appliedThemes.get(file);
+        return (
+          snapshot && {
+            parsed: snapshot.parsed,
+            digest: snapshot.digest,
+            ...(candidate.bitmaps && { imageDiagnostics: candidate.bitmaps.diagnostics }),
+          }
+        );
       }
       const snapshot = this.appliedThemes.get(file);
-      if (snapshot) return { parsed: snapshot.parsed, digest: digest(snapshot.text) };
+      if (snapshot) return { parsed: snapshot.parsed, digest: snapshot.digest };
     });
   }
 
-  private async reviewThemeValue(
-    file: string,
-    text: string,
-    parsed: ParsedThemeFile,
-  ): Promise<void> {
-    const kind = themeKind(file);
-    if (kind !== "theme" || parsed.kind !== "theme") {
-      this.appliedThemes.set(file, { text, parsed });
+  private async readPalette(text: string, parsed: ParsedThemeFile): Promise<Palette> {
+    const bitmaps =
+      parsed.kind === "theme" && parsed.images
+        ? await this.deps.loadThemeBitmaps?.(parsed)
+        : undefined;
+    const imageSources = themeBitmapSlots.map((slot) => bitmaps?.sources[slot]);
+    return {
+      text,
+      parsed,
+      digest: bitmaps ? digest(JSON.stringify([text, imageSources])) : digest(text),
+      ...(bitmaps && { bitmaps }),
+    };
+  }
+
+  private async reviewThemeValue(file: string, candidate: Palette): Promise<void> {
+    const { parsed } = candidate;
+    if (parsed.kind !== "theme") {
+      this.appliedThemes.set(file, candidate);
       return;
     }
-    // The approval baseline is only the version this profile last applied: in memory,
-    // or after a restart the unchanged file matching the digest the profile keeps.
+    // Only the profile's approved content survives restart.
     const previous =
       this.appliedThemes.get(file) ??
-      (digest(text) === this.deps.themeBaseline.get(file) ? { text, parsed } : undefined);
-    const conflicts = (value: ParsedThemeFile | undefined) =>
-      value?.kind === "theme" ? attentionConflicts(value.theme) : [];
-    const approved = new Set(conflicts(previous?.parsed));
-    const active = effective(this.deps.defaults, this.applied.values).interfaceTheme;
+      (candidate.digest === this.deps.themeBaseline.get(file) ? candidate : undefined);
+    const approved = new Set(
+      previous?.parsed.kind === "theme" ? attentionConflicts(previous.parsed.theme) : [],
+    );
+    const previousImages = previous?.parsed.kind === "theme" ? previous.parsed.images : undefined;
+    const bitmapChange = themeBitmapSlots.some((slot) => {
+      const next = candidate.bitmaps?.slots[slot];
+      const before = previous?.bitmaps?.slots[slot];
+      return next
+        ? next.source !== before?.source ||
+            !isDeepStrictEqual(parsed.images?.[slot], previousImages?.[slot])
+        : before !== undefined && parsed.images?.[slot] === undefined;
+    });
+    const active =
+      effective(this.deps.defaults, this.applied.values).interfaceTheme ===
+      `user:${file.slice("themes/".length)}`;
     if (
-      active === `user:${file.slice("themes/".length)}` &&
-      conflicts(parsed).some((conflict) => !approved.has(conflict))
+      active &&
+      (bitmapChange || attentionConflicts(parsed.theme).some((conflict) => !approved.has(conflict)))
     ) {
-      // Keep it on restores the approved version; without one it leaves the theme instead.
       const settings = await settle(this.files.read(SETTINGS_FILE), null);
       const settingsDigest = settings && digest(settings);
       this.heldThemes.set(file, {
-        text,
-        previous: previous?.text ?? null,
+        proposal: candidate,
+        previous,
         settings: settingsDigest,
-        id: digest(JSON.stringify([settingsDigest, file, text])),
+        id: digest(JSON.stringify([settingsDigest, file, candidate.digest])),
+        hidden: themeBitmapSlots.filter(
+          (slot) => parsed.images?.[slot] && !candidate.bitmaps?.slots[slot],
+        ),
+        bitmapChange,
       });
       if (previous) this.appliedThemes.set(file, previous);
       return;
     }
-    await this.acceptTheme(file, text, parsed, active === `user:${file.slice("themes/".length)}`);
+    await this.acceptTheme(file, candidate, active);
   }
 
-  private async acceptTheme(
-    file: string,
-    text: string,
-    parsed: ParsedThemeFile,
-    active: boolean,
-  ): Promise<void> {
+  private async acceptTheme(file: string, candidate: Palette, active: boolean): Promise<void> {
     this.heldThemes.delete(file);
-    this.appliedThemes.set(file, { text, parsed });
+    this.appliedThemes.set(file, candidate);
     if (!active) return;
     try {
-      await this.deps.themeBaseline.set(file, digest(text));
+      await this.deps.themeBaseline.set(file, candidate.digest);
     } catch {
       /* An unrecorded baseline only means a later restart holds this palette again. */
     }
@@ -548,12 +612,8 @@ export class ConfigService {
       if (bytes) {
         source = digest(bytes);
         const text = decode(bytes);
-        return {
-          file,
-          source,
-          palette: { text, parsed: parseThemeFile(text, "theme") },
-          unavailable: false,
-        };
+        const palette = await this.readPalette(text, parseThemeFile(text, "theme"));
+        return { file, source: palette.digest, palette, unavailable: false };
       }
     } catch {
       return { file, source, palette: this.appliedThemes.get(file), unavailable: true };
@@ -572,6 +632,18 @@ export class ConfigService {
           field: ["interfaceTheme"],
           action: "use a theme where needs-you is hard to tell apart",
           detail: "interfaceTheme: attention-distinctness",
+        },
+      ];
+    if (
+      selection?.palette?.bitmaps &&
+      Object.keys(selection.palette.bitmaps.slots).length > 0 &&
+      selection.palette.digest !== this.deps.themeBaseline.get(selection.file)
+    )
+      return [
+        {
+          field: ["interfaceTheme"],
+          action: "use a theme with new images",
+          detail: "interfaceTheme: theme-images",
         },
       ];
     if (selection?.unavailable)
@@ -605,7 +677,10 @@ export class ConfigService {
     }
     try {
       const text = decode(bytes);
-      await this.reviewThemeValue(relative, text, parseThemeFile(text, kind));
+      await this.reviewThemeValue(
+        relative,
+        await this.readPalette(text, parseThemeFile(text, kind)),
+      );
     } catch (error) {
       this.heldThemes.delete(relative);
       this.reject(relative, digest(bytes), invalid(error));
@@ -676,8 +751,10 @@ export class ConfigService {
           ? {
               id: held[1].id,
               file: held[0],
-              action: "use a theme where needs-you is hard to tell apart",
-              detail: "attention-distinctness",
+              action: held[1].bitmapChange
+                ? "apply changed theme images"
+                : "use a theme where needs-you is hard to tell apart",
+              detail: held[1].bitmapChange ? "theme-images" : "attention-distinctness",
             }
           : null,
       rejected,
@@ -687,7 +764,14 @@ export class ConfigService {
   }
 
   private publish(): void {
-    if (!this.closed) this.deps.onStatus?.(this.status());
+    if (this.closed) return;
+    this.deps.onStatus?.(this.status());
+    const active = this.activePalette();
+    const projected = active?.bitmaps ? JSON.stringify([active.id, active.bitmaps]) : undefined;
+    if (projected !== this.publishedBitmaps) {
+      this.publishedBitmaps = projected;
+      this.deps.onThemeBitmapsChanged?.();
+    }
   }
 
   /** Settings UI writes go through the same file. */
@@ -880,21 +964,29 @@ export class ConfigService {
     const committed = await this.files.withSettingsLock(async () => {
       const current = await this.readSettings();
       const bytes = await settle(this.files.read(file), null);
+      const text = proposal.proposal.text;
       if (
         !current ||
         digest(current.text) !== proposal.settings ||
         effective(this.deps.defaults, current.values).interfaceTheme !== `user:${file.slice(7)}` ||
-        !bytes?.equals(Buffer.from(proposal.text))
+        !bytes?.equals(Buffer.from(text))
       )
         return false;
-      if (decision === "allow")
-        await this.acceptTheme(file, proposal.text, parseThemeFile(proposal.text, "theme"), true);
-      else if (proposal.previous === null)
+      const fresh = await this.readPalette(text, proposal.proposal.parsed);
+      if (fresh.digest !== proposal.proposal.digest) return false;
+      const previous = proposal.previous;
+      if (decision === "allow") await this.acceptTheme(file, fresh, true);
+      else if (
+        previous &&
+        (!previous.bitmaps ||
+          (await this.readPalette(previous.text, previous.parsed)).digest === previous.digest)
+      )
+        await this.files.writeFile(file, previous.text);
+      else
         await this.writeSettingsLocked(
           { interfaceTheme: this.deps.defaults.interfaceTheme },
           current,
         );
-      else await this.files.writeFile(file, proposal.previous);
       this.heldThemes.delete(file);
       return true;
     });

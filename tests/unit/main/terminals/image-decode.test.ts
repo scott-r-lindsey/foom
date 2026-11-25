@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import sharp from "sharp";
-import { decodeImage } from "../../../../src/main/terminals/image-decode";
+import { decodeImage } from "../../../../src/main/image-decode";
 import { IMAGE_BYTES, imagePng } from "../../../../src/shared/image-paste";
 
 test("decodes PNG JPEG WebP GIF to stripped PNG and retains alpha", async () => {
@@ -81,4 +81,22 @@ test("applies orientation and refuses a normalized PNG above the output byte cap
     .toBuffer();
   expect(input.length).toBeLessThan(IMAGE_BYTES);
   await expect(decodeImage(input)).rejects.toThrow("output");
+});
+
+test("theme decode samples dominant visible colors without accepting GIF", async () => {
+  const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
+  const source = sharp({
+    create: { width: 4, height: 8, channels: 4, background: { r: 255, g: 178, b: 62, alpha: 1 } },
+  });
+  const png = await source.clone().withMetadata().png().toBuffer();
+  const result = await decodeThemeBitmap(png);
+  expect(result.colors).toEqual(["#ffb23e"]);
+  expect(imagePng(result.png)).toBe(true);
+  const blank = await sharp({
+    create: { width: 4, height: 8, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0 } },
+  })
+    .png()
+    .toBuffer();
+  expect((await decodeThemeBitmap(blank)).colors).toEqual([]);
+  await expect(decodeThemeBitmap(await source.gif().toBuffer())).rejects.toThrow("format");
 });

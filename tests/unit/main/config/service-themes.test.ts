@@ -7,7 +7,7 @@ import { configPart } from "../../../../src/main/config/approval";
 import { SettingsStore } from "../../../../src/main/setup/settings";
 import { ConfigService } from "../../../../src/main/config/service";
 import { digest } from "../../../../src/main/config/layout";
-import { ThemeLibrary } from "../../../../src/main/themes/library";
+import { ThemeBitmaps, ThemeLibrary } from "../../../../src/main/themes/library";
 import { parseThemeFile } from "../../../../src/shared/theme-files";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { fixture, palette, theme, restart, services } from "./service-fixture";
@@ -736,4 +736,102 @@ test("theme Keep succeeds when the reconciliation scan finds Settings busy", asy
   } finally {
     lock.mockRestore();
   }
+});
+
+test("bitmap approval binds original bytes, revokes deleted slots and rejects stale decisions", async () => {
+  const changed = vi.fn();
+  const f = await fixture({
+    loadThemeBitmaps: (parsed) => bitmaps.load(parsed),
+    onThemeBitmapsChanged: changed,
+  });
+  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), () =>
+    // All versions have the same normalized image, even when their source bytes differ.
+    Promise.resolve({ png: Uint8Array.of(1, 2, 3), colors: [palette.colors.attention] }),
+  );
+  const file = "themes/art.json";
+  const image = "themes/private.png";
+  const text = JSON.stringify({
+    ...palette,
+    name: "Illustrated",
+    version: 2,
+    images: { board: { file: "private.png" } },
+  });
+  await f.service.initialize();
+  await f.write(file, text);
+  await f.write(image, "original source");
+  await f.service.refresh();
+  const offered = await f.service.reviewTheme(file, text, parseThemeFile(text, "theme"));
+  expect(offered?.imageDiagnostics).toMatchObject([{ reason: "image-status-color" }]);
+  expect(offered?.digest).not.toBe(digest(text));
+  await f.write(image, "different metadata");
+  await expect(
+    f.service.write({ interfaceTheme: "user:art.json" }, offered?.digest),
+  ).rejects.toThrow();
+  expect(f.service.activePalette()).toBeUndefined();
+
+  await f.settings({ interfaceTheme: "user:art.json" });
+  await f.service.refresh();
+  expect(f.service.status().pending?.detail).toBe("interfaceTheme: theme-images");
+  await f.decide("allow");
+  const active = f.service.activePalette();
+  const id = active?.bitmaps?.board?.id ?? "";
+  expect(id).toMatch(/^[a-f0-9]{64}$/u);
+  expect(f.service.activeThemeImage(id)).toEqual(Uint8Array.of(1, 2, 3));
+  expect(f.service.activeThemeImage("anything")).toBeUndefined();
+  expect(f.themeBaselines.get(file)).toBe(active?.digest);
+
+  await f.write(image, "proposed metadata");
+  await f.service.refresh();
+  const pending = f.service.status().pending;
+  expect(pending?.detail).toBe("theme-images");
+  expect(f.service.activePalette()).toEqual(active);
+  await f.write(image, "new revision before approval");
+  await expect(f.service.decide("allow", pending?.id)).rejects.toThrow("changed");
+  expect(f.service.status().pending?.id).not.toBe(pending?.id);
+  await f.decide("allow");
+  const replacement = f.service.activePalette()?.bitmaps?.board?.id ?? "";
+  expect(replacement).not.toBe(id);
+  expect(f.service.activeThemeImage(id)).toBeUndefined();
+  expect(f.service.activeThemeImage(replacement)).toBeDefined();
+  expect(f.service.status().pending).toBeNull();
+
+  await rm(path.join(f.folder, image));
+  await f.service.refresh();
+  expect(f.service.activePalette()).toMatchObject({ id: "user:art.json" });
+  expect(f.service.activePalette()?.bitmaps).toBeUndefined();
+  expect(f.service.activeThemeImage(replacement)).toBeUndefined();
+  expect(f.service.status().pending).toBeNull();
+  expect(changed).toHaveBeenCalledTimes(3);
+  bitmaps.dispose();
+});
+
+test("Keep restores bitmap placement edits and switches to Default if original bytes changed", async () => {
+  const f = await fixture({ loadThemeBitmaps: (parsed) => bitmaps.load(parsed) });
+  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), () =>
+    Promise.resolve({ png: Uint8Array.of(1), colors: [] }),
+  );
+  const file = "themes/art.json";
+  const image = "themes/some.png";
+  const text = (opacity: number) =>
+    JSON.stringify({
+      ...palette,
+      version: 2,
+      images: { board: { file: "some.png", opacity } },
+    });
+  await f.service.initialize();
+  await f.write(file, text(0.25));
+  await f.write(image, "original");
+  const offer = await f.service.reviewTheme(file, text(0.25), parseThemeFile(text(0.25), "theme"));
+  await f.service.write({ interfaceTheme: "user:art.json" }, offer?.digest);
+  await f.write(file, text(0.6));
+  await f.service.refresh();
+  expect(f.service.status().pending?.detail).toBe("theme-images");
+  await f.decide("keep");
+  expect(await f.read(file)).toBe(text(0.25));
+  await f.write(image, "replacement");
+  await f.service.refresh();
+  await f.decide("keep");
+  expect(f.service.activePalette()).toBeUndefined();
+  expect(await f.read(image)).toBe("replacement");
+  bitmaps.dispose();
 });

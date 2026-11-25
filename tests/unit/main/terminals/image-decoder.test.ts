@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, expect, test, vi } from "vitest";
 const fork = vi.hoisted(() => vi.fn());
 vi.mock("electron", () => ({ utilityProcess: { fork } }));
-import { normalizeImage } from "../../../../src/main/terminals/image-decoder";
+import { normalizeImage } from "../../../../src/main/image-decoder";
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
   "base64",
@@ -45,4 +45,31 @@ test("abort, early process exit and five-second deadline terminate decoding", as
   const aborted = new AbortController();
   aborted.abort();
   await expect(normalizeImage(png, aborted.signal)).rejects.toThrow();
+});
+
+test("bitmap decoder only accepts bounded PNG and three validated color samples", async () => {
+  const { normalizeThemeBitmap } = await import("../../../../src/main/image-decoder");
+  const valid = { png, colors: ["#ff22aa"] };
+  for (const reply of [
+    valid,
+    null,
+    { colors: [] },
+    { png },
+    { png, colors: "bad" },
+    { png, colors: [15] },
+    { png, colors: ["data:"] },
+    { png, colors: Array(4).fill("#aaaaaa") },
+  ]) {
+    const child = new Decoder();
+    fork.mockReturnValue(child);
+    const result = normalizeThemeBitmap(png, new AbortController().signal);
+    const assertion =
+      reply === valid
+        ? expect(result).resolves.toEqual(valid)
+        : expect(result).rejects.toThrow("refused");
+    child.emit("spawn");
+    expect(child.postMessage).toHaveBeenCalledWith({ bitmap: png });
+    child.emit("message", reply);
+    await assertion;
+  }
 });

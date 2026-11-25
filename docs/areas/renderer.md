@@ -43,7 +43,7 @@ A constant rate intentionally produces a horizontal line above the baseline.
 - **Keyboard first.** Every board action works without a mouse. The Electron suite runs axe; serious or critical violations fail.
 - **Linting:** `eslint-plugin-react-hooks` and `@eslint-react/eslint-plugin` run through Oxlint’s JavaScript plugin API alongside its native type-aware rules. Their original rules and warning severities are preserved; `--deny-warnings` fails warnings in both local and CI gates. The ESLint engine is not installed.
 - **Coverage and lint globs include `.tsx`.** A component outside them would silently skip the per-file thresholds or the renderer import restrictions.
-- The CSP doesn't change. React needs no `eval`.
+- React needs no `eval`. Board image sources follow the [theme bitmap rules](themes.md#decorative-bitmaps-1189).
 
 ## Flight art and About (#670, #725)
 

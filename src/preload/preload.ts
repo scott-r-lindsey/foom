@@ -1,3 +1,4 @@
+import type { ThemeBitmapPaint } from "../shared/theme-bitmap";
 import type { RepositoryRequirements } from "../shared/repository-requirements";
 import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
@@ -366,11 +367,42 @@ const validThemeReason: Validator<ThemeReason> = literal(
   "too-many-files",
   "invalid-value",
   "unreadable",
+  "image-unavailable",
+  "image-format",
+  "image-status-color",
 );
 
 const validThemeKind: Validator<ThemeKind> = literal("theme", "terminal-theme");
 
+const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
+  id: (value): value is string => text(value) && /^[a-f0-9]{64}$/u.test(value),
+  opacity: range(0.05, 0.6),
+  fit: literal("cover", "contain", "tile"),
+  anchor: literal(
+    "center",
+    "top",
+    "bottom",
+    "left",
+    "right",
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+  ),
+} satisfies Contract<ThemeBitmapPaint>);
+
 const validThemeCatalog: Validator<ThemeCatalog> = shape({
+  activeBitmaps: either(
+    absent,
+    shape({
+      theme: userThemeId,
+      slots: partial({
+        board: validBitmapPaint,
+        gutter: validBitmapPaint,
+        sidebar: validBitmapPaint,
+      }),
+    }),
+  ),
   interface: array(
     shape({
       id: userThemeId,

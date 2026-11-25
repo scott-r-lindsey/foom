@@ -34,7 +34,7 @@ const mock = vi.hoisted(() => ({
   recheckWake: vi.fn(),
 }));
 vi.mock("../../../../src/main/terminals/image-clipboard", () => ({ readPaste: mock.readPaste }));
-vi.mock("../../../../src/main/terminals/image-decoder", () => ({ normalizeImage: mock.normalize }));
+vi.mock("../../../../src/main/image-decoder", () => ({ normalizeImage: mock.normalize }));
 vi.mock("../../../../src/main/terminals/image-files", () => ({
   ImageFiles: class {
     start() {
