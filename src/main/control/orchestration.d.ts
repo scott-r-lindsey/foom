@@ -59,6 +59,7 @@ export interface OrchestrationHost {
       loop?: AgentLaunch["loop"];
       snapshot?: ReviewSnapshot;
       authorId?: string;
+      reviewer?: true;
       validateSnapshot?: () => Promise<void>;
       validate(): void;
     },

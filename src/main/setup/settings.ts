@@ -1,4 +1,7 @@
 import { parseAgentDefaults as parseStoredAgentDefaults } from "../../shared/providers/arguments";
+import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
+import { hostAlias } from "../../shared/registered-hosts";
+import type { AgentPermissionSettings } from "../../shared/agent-permissions";
 import { settingsChanged } from "../data/settings-changes";
 import { registeredHosts } from "../../shared/registered-hosts";
 import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
@@ -31,6 +34,10 @@ const SUPERSEDED_PROFILE_WRITE = new Error("Superseded profile write");
 type RegisteredHostsPatch = {
   registeredHosts: NonNullable<Settings["registeredHosts"]>;
 } & { [Key in Exclude<keyof SettingsPatch, "registeredHosts">]?: never };
+
+type AgentPermissionsPatch = {
+  agentPermissions: NonNullable<Settings["agentPermissions"]>;
+} & { [Key in Exclude<keyof SettingsPatch, "agentPermissions">]?: never };
 
 function freezeSettings<T>(value: T): T {
   if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
@@ -77,6 +84,33 @@ export const DEFAULT_SETTINGS: Settings = freezeSettings({
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function agentPermissions(value: unknown): value is AgentPermissionSettings {
+  return (
+    record(value) &&
+    Object.keys(value).length <= 34 &&
+    Object.entries(value).every(
+      ([scope, choices]) =>
+        (scope === "global" ||
+          scope === "local" ||
+          (scope.startsWith("host:") && hostAlias(scope.slice(5)))) &&
+        record(choices) &&
+        Object.keys(choices).length <= 100 &&
+        Object.entries(choices).every(
+          ([agent, choice]) =>
+            validAgentId(agent) &&
+            (choice === null ||
+              (record(choice) &&
+                Object.keys(choice).every((key) => key === "level" || key === "identity") &&
+                agentPermissionLevel(choice["level"]) &&
+                (choice["identity"] === undefined ||
+                  (choice["level"] === "full" &&
+                    typeof choice["identity"] === "string" &&
+                    /^[a-f0-9]{64}$/u.test(choice["identity"]))))),
+        ),
+    )
+  );
 }
 
 /**
@@ -157,6 +191,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       patch.registeredHosts = entry.map((host) => ({ ...host }));
     else if (key === "forges") patch.forges = parseForgeEnablement(entry);
     else if (key === "forgeHosts") patch.forgeHosts = parseForgeHosts(entry);
+    else if (key === "agentPermissions" && agentPermissions(entry))
+      patch.agentPermissions = structuredClone(entry);
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
     else if (isConfigSetting(key)) Object.assign(patch, parseConfigSettings({ [key]: entry }));
     else if (
@@ -450,9 +486,10 @@ export class SettingsStore {
     });
   }
 
-  /** Only registered-host updates may be cancelled when their observation is superseded. */
+  /** Host observations and machine permission choices may be superseded before commit. */
   update(patch: SettingsPatch, themeDigest?: string): Promise<Settings>;
   update(patch: RegisteredHostsPatch, canCommit: (() => boolean) | undefined): Promise<Settings>;
+  update(patch: AgentPermissionsPatch, canCommit: () => boolean): Promise<Settings>;
   async update(
     patch: SettingsPatch,
     themeDigestOrGuard?: string | (() => boolean),
@@ -462,12 +499,19 @@ export class SettingsStore {
     let snapshot = patch;
     if (canCommit) {
       const keys = Reflect.ownKeys(patch);
-      const descriptor = Object.getOwnPropertyDescriptor(patch, "registeredHosts");
+      const key = keys[0];
+      const descriptor =
+        key === undefined ? undefined : Object.getOwnPropertyDescriptor(patch, key);
       const value: unknown =
         descriptor && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
-      if (keys.length !== 1 || keys[0] !== "registeredHosts" || !Array.isArray(value))
-        throw new Error("A commit guard requires a registeredHosts-only patch");
-      snapshot = { registeredHosts: value };
+      if (keys.length === 1 && key === "registeredHosts" && Array.isArray(value))
+        snapshot = { registeredHosts: value };
+      else if (keys.length === 1 && key === "agentPermissions" && agentPermissions(value))
+        snapshot = { agentPermissions: value };
+      else
+        throw new Error(
+          "A commit guard requires a registeredHosts-only or agentPermissions-only patch",
+        );
     }
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
@@ -481,7 +525,31 @@ export class SettingsStore {
       const agentArguments = argumentsPatch
         ? parseStoredAgentDefaults({ ...this.settings.agentArguments, ...argumentsPatch })
         : this.settings.agentArguments;
-      this.settings = { ...this.settings, ...profile, agentArguments };
+      const next = { ...this.settings, ...profile, agentArguments };
+      if (profile.agentPermissions || (profile.registeredHosts && this.settings.agentPermissions)) {
+        const permissions = { ...this.settings.agentPermissions };
+        for (const [scope, choices] of Object.entries(profile.agentPermissions ?? {})) {
+          if (
+            scope.startsWith("host:") &&
+            !next.registeredHosts?.some(({ host }) => scope === `host:${host}`)
+          )
+            throw new Error("Machine is no longer registered.");
+          permissions[scope] = Object.fromEntries(
+            Object.entries({ ...permissions[scope], ...choices }).filter(
+              ([, choice]) => choice !== null,
+            ),
+          );
+        }
+        next.agentPermissions = Object.fromEntries(
+          Object.entries(permissions).filter(
+            ([scope, choices]) =>
+              Object.keys(choices).length > 0 &&
+              (!scope.startsWith("host:") ||
+                next.registeredHosts?.some(({ host }) => scope === `host:${host}`)),
+          ),
+        );
+      }
+      this.settings = next;
       if (argumentsPatch)
         this.argumentsToMove = Object.values(agentArguments).some((args) => args.length)
           ? agentArguments

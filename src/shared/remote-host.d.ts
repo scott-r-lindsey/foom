@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "./agent-permissions";
 import type { HostPressure } from "./host-pressure.d";
 import type { ImagePut, ImagePutResult } from "./image-paste.d";
 import type { HostManagement, HostResult, HostRecipeLaunch } from "./registered-hosts.d";
@@ -43,6 +44,7 @@ export interface RemoteInventoryResult {
   foreign: ForeignRemoteSession[];
 }
 export interface MachineLaunch {
+  permissionLevel?: AgentPermissionLevel;
   codeFolder: string;
   agent?: string;
   defaults?: string[];

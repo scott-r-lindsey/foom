@@ -1,3 +1,4 @@
+import { agentPermissionLevel } from "./agent-permission-arguments";
 import { hostPressure } from "./host-pressure";
 import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
@@ -195,7 +196,16 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
           value["recipe"] === undefined &&
           value["trustOrigin"] === undefined &&
           record(value["machine"]) &&
-          keys(value["machine"], ["codeFolder", "agent", "defaults", "repository"]) &&
+          keys(value["machine"], [
+            "codeFolder",
+            "agent",
+            "defaults",
+            "repository",
+            "permissionLevel",
+          ]) &&
+          (value["machine"]["permissionLevel"] === undefined ||
+            (typeof value["machine"]["agent"] === "string" &&
+              agentPermissionLevel(value["machine"]["permissionLevel"]))) &&
           (value["machine"]["repository"] === undefined ||
             (value["checkout"] === undefined &&
               record(value["machine"]["repository"]) &&

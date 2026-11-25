@@ -284,7 +284,7 @@ Remote inventories and host resource observations are described in [Hosts](hosts
 Machine-row agents are human-owned terminals outside Git repository control.
 Main resolves the installed local CLI or requires the registered host's ready
 agent observation, then uses the user's saved defaults. The remote host resolves
-its own executable and login environment. These launches add no bypass flags, child prompt or control grant. Local
+its own executable and login environment. These launches add no permission arguments unless Settings selects a level. They carry no child prompt or control grant. Local
 launches reuse ordinary per-launch hooks and bypass consent; the remote plain CLI
 launch attaches no MCP or hook assets. Evaluation remains local. Repository placement uses the selected machine's checked main checkout;
 existing remote worktree launches retain profile provenance and identity checks.
@@ -317,3 +317,57 @@ desktop, rather than accepting a different protocol-compatible build. A mismatch
 refuses with `remote_artifact_mismatch` before recipe dispatch. This binds the
 daemon's bundled plugin assets (staged by its own executable) to the reviewed
 desktop build; the fixed recipe-step digest alone does not bind asset contents.
+
+## Per-launch permission levels (#1078)
+
+Settings → Agents → Global can set **Ask**, **Workspace** or **Full access**
+for an agent whose manifest declares the levels. Machines can override the
+Global value for one registered host or This computer. Agent default sends no
+permission arguments. Machine overrides are profile-only and removed with the
+host registration. Foom never reads or writes the agent's own configuration.
+
+Main resolves the choice for the destination at each new spawn, including
+conversation resume, and checks the captured choice again at dispatch. A remote
+reattach keeps the original launch's label and makes no permission decision
+for the existing process. Profile and provider identity changes never replay
+approval. A Full access choice requires the trusted bypass acknowledgement for
+that scope and the current provider/disclosure identity. Changing the provider
+requires returning to Settings and selecting Full access again. Existing bypass
+default consent grants no child permission.
+
+The manifest owns literal arguments and conflicting option matchers. A selected
+level refuses conflicting default arguments instead of deleting them or relying
+on argument order. Remove the permission options from Global default arguments
+before using the selector. This includes existing Codex bypass defaults and
+aliases recognized by its bypass matchers. A managed launch also refuses other
+known bypass arguments or bypass environment settings. The remote host expands
+the same bundled declaration against its own installed CLI discovery facts.
+An unsupported installed version refuses the selected level before spawn.
+
+Codex CLI **0.167.0** spelling and precedence were reviewed on **2026-11-25**
+against [the interactive and resume CLI](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/cli/src/main.rs)
+and [core permission selection and requirements](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/core/src/config/mod.rs).
+The CLI passes explicit sandbox and approval switches as runtime overrides,
+including on resume. The explicit sandbox selects legacy sandbox settings over
+ordinary named-profile selection. Session flags override ordinary config
+values, as also measured for network and writable roots in
+[the Linux spike](https://github.com/scott-r-lindsey/foom/pull/1321).
+Managed requirements can constrain or reject these settings. Interactive
+approval behavior and non-Linux sandbox behavior were outside the spike.
+The tile and `session-state` report the level Foom requested through argv.
+A missing level means Foom sent no managed level. Foom has no observation of
+the host's effective provider policy.
+
+- **Ask** requests workspace writes, no sandboxed network, and user approval
+  on request.
+- **Workspace** requests checkout writes and network access with approval off.
+  Its additional writable roots are empty. Git fetch and commit are blocked
+  because they must write protected Git metadata, including the per-worktree
+  `FETCH_HEAD` or index on linked checkouts. Foom grants neither Git directory
+  and provides no workaround. The spike found that granting a Git root could
+  make hooks and config writable for later unsandboxed Git to use. It also
+  found validation and pre-commit fixture failures in Workspace. Workspace is
+  opt-in.
+- **Full access** requests danger-full-access and approval off, subject to
+  managed requirements. Child launches may receive it only through this
+  Settings choice. Reviewers still refuse it.

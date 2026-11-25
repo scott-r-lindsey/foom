@@ -1002,6 +1002,7 @@ export async function startConfig(
       : { conversationId: replacement.conversationId }),
     ...(result.conversationId ? { conversationId: result.conversationId } : {}),
     bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
+    ...(result.permissionLevel ? { permissionLevel: result.permissionLevel } : {}),
     state: null,
   });
   this.executionOwner.launched(result.id);

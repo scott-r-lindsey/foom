@@ -353,6 +353,7 @@ export function validateV2(manifest: AgentManifestV2): void {
   }
   for (const stage of ["arguments", "display", "resume", "mcp"] as const)
     condition(manifest.launch[stage]?.when, `$.launch.${stage}.when`, "launch", available);
+  condition(manifest.permissionLevels?.when, "$.permissionLevels.when", "launch", available);
   const extension = manifest.launch.extension;
   if (extension) {
     condition(extension.when, "$.launch.extension.when", "launch", available);
@@ -395,7 +396,11 @@ export function validateV2(manifest: AgentManifestV2): void {
   }
   if (manifest.launch.toolPermissions)
     unique(manifest.launch.toolPermissions.names, "$.launch.toolPermissions.names");
-  for (const list of [manifest.reservedArguments, manifest.bypassArguments])
+  for (const list of [
+    manifest.reservedArguments,
+    manifest.bypassArguments,
+    manifest.permissionLevels?.conflicts ?? [],
+  ])
     for (const matcher of list) {
       if (matcher.flag) {
         unique(matcher.forms, "$.reservedArguments");

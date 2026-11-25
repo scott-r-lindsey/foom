@@ -1,3 +1,5 @@
+import type { AgentPermissionLevel } from "../../../../src/shared/agent-permissions";
+import { ApplicationError } from "../../../../src/shared/application-errors";
 import type { DataViews, DataViewApi } from "../../../../src/shared/data-views";
 // @vitest-environment jsdom
 import { useState } from "react";
@@ -82,6 +84,9 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
   const scan = vi.fn(() => Promise.resolve());
   const save = vi.fn((_patch: SettingsPatch) => {});
   const args = vi.fn(() => Promise.resolve());
+  const savePermission = vi.fn((_scope: string, _id: string, _level: AgentPermissionLevel | null) =>
+    Promise.resolve(),
+  );
   const openFolder = vi.fn(() => Promise.resolve());
   let configChanged:
     | ((next: Awaited<ReturnType<NonNullable<SetupSource["config"]>["status"]>>) => void)
@@ -161,6 +166,19 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
           setState({ ...state, settings: { ...state.settings, ...patch } });
         }}
         saveArguments={args}
+        savePermission={async (scope, id, level) => {
+          await savePermission(scope, id, level);
+          setState((previous) => ({
+            ...previous,
+            settings: {
+              ...previous.settings,
+              agentPermissions: {
+                ...previous.settings.agentPermissions,
+                [scope]: { [id]: level === null ? null : { level } },
+              },
+            },
+          }));
+        }}
         changePlugin={() => Promise.resolve()}
         headingRef={{ current: null }}
       />
@@ -177,6 +195,7 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
     save,
     args,
     openFolder,
+    savePermission,
     config,
     changed: () =>
       configChanged?.({
@@ -196,7 +215,7 @@ test("Global owns enablement and defaults; navigation and cached machine reads n
   expect(f.scan).not.toHaveBeenCalled();
   expect(screen.getByText(/Rejected · launch blocked · invalid/)).toBeTruthy();
   expect(screen.getAllByRole("tab")).toHaveLength(2);
-  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Machine" })).toBeNull();
   expect(screen.queryByText("Ready")).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "Attach hooks" }));
   expect(f.save).toHaveBeenCalledWith({ hooks: false });
@@ -373,7 +392,9 @@ test("machine picker scales to twelve registered hosts and keeps navigation read
   render(<f.View />);
   await screen.findByRole("option", { name: "machine-11" });
   expect(screen.getAllByRole("tab")).toHaveLength(2);
-  expect(screen.getAllByRole("option")).toHaveLength(13);
+  expect(
+    within(screen.getByRole("combobox", { name: "Machine" })).getAllByRole("option"),
+  ).toHaveLength(13);
   fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
     target: { value: "host:machine-11" },
   });
@@ -381,9 +402,12 @@ test("machine picker scales to twelve registered hosts and keeps navigation read
   expect(f.api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
   expect(f.scan).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("tab", { name: "Global" }));
-  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Machine" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
-  expect(screen.getByRole("combobox")).toHaveProperty("value", "host:machine-11");
+  expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty(
+    "value",
+    "host:machine-11",
+  );
 });
 
 function stream(f: ReturnType<typeof fixture>) {
@@ -554,3 +578,27 @@ test.each([false, true])(
     await screen.findByRole("button", { name: "Finish install install-one" });
   },
 );
+
+test("permission edits use the visible scope and preserve the saved choice on refusal", async () => {
+  const f = fixture();
+  render(<f.View />);
+  const select = () => screen.getByRole("combobox", { name: "Codex permission level" });
+  expect(select()).toHaveProperty("value", "");
+  fireEvent.change(select(), { target: { value: "workspace" } });
+  await waitFor(() => {
+    expect(select()).toHaveProperty("value", "workspace");
+  });
+  expect(select().getAttribute("aria-description")).toContain("Git fetch and commit");
+  expect(f.savePermission).toHaveBeenLastCalledWith("global", "codex", "workspace");
+  fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
+  expect(select()).toHaveProperty("value", "");
+  expect(within(select()).getByText("Use Global · Workspace")).toBeTruthy();
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:worker" },
+  });
+  f.savePermission.mockRejectedValueOnce(new ApplicationError("agent-permission-conflict"));
+  fireEvent.change(select(), { target: { value: "full" } });
+  await screen.findByText(/Remove permission options from Settings/);
+  expect(f.savePermission).toHaveBeenLastCalledWith("host:worker", "codex", "full");
+  expect(select()).toHaveProperty("value", "");
+});

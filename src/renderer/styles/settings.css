@@ -1164,6 +1164,22 @@
   overflow-wrap: anywhere;
   margin-top: 3px;
 }
+.agent-global-preferences {
+  display: grid;
+  gap: 8px;
+}
+.agent-permission {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
+}
+.agent-permission > select {
+  min-width: 0;
+  max-width: 100%;
+}
 .agent-global-row textarea {
   box-sizing: border-box;
   width: 100%;

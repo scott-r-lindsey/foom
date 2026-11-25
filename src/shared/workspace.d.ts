@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "./agent-permissions";
 import type { CopyableErrorId } from "./application-error";
 
 import type { MessageBoardApi } from "./message-board";
@@ -73,6 +74,8 @@ export interface WorkspaceTerminal {
   launchVersion?: number;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
+  /** Arguments Foom applied to this invocation. */
+  permissionLevel?: AgentPermissionLevel;
   home?: boolean;
   machine?: boolean;
   /** Runs in the Foom config folder; `repository` and `worktree` are that folder. */

@@ -1,3 +1,4 @@
+import { agentPermissionLabels } from "../../shared/agent-permission-arguments";
 import { HostChip } from "./sidebar-machine-row";
 import { reviewLabel } from "../../shared/review-state";
 import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-presentation";
@@ -443,6 +444,11 @@ export function Tile({
                   label={row.review && row.review.authorId !== row.id ? "Reviewer" : "Worker"}
                   title={`Child of ${parent ? sessionName(parent, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`}
                 />
+              )}
+              {row.permissionLevel && (
+                <span className="session-bypass" title="Permission level requested by Foom">
+                  {agentPermissionLabels[row.permissionLevel]}
+                </span>
               )}
               <span
                 className={row.probe ? "tile-location probe-driver" : "tile-location"}

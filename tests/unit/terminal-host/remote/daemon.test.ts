@@ -3271,3 +3271,50 @@ test.skipIf(process.platform === "win32")(
     expect(mock.create).not.toHaveBeenCalled();
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "the remote machine launcher expands the installed agent's managed permission arguments",
+  async () => {
+    await start();
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: "/fixture/codex",
+      env: { PATH: "/fixture" },
+      version: "codex-cli 0.167.0",
+      help: "--sandbox --ask-for-approval -c",
+    });
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "workspace-machine",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      machine: { codeFolder: "/code", agent: "codex", permissionLevel: "workspace" },
+    });
+    await c.wait(2);
+    expect(c.messages[1]).toMatchObject({ type: "open-result", state: "live" });
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: terminalArgs("/fixture/codex", [
+          "--sandbox",
+          "workspace-write",
+          "--ask-for-approval",
+          "never",
+          "-c",
+          'approvals_reviewer="user"',
+          "-c",
+          "sandbox_workspace_write.network_access=true",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+        ]),
+      }),
+      "workspace-machine",
+      false,
+    );
+  },
+);

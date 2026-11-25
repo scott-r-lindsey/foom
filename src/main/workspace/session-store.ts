@@ -1,3 +1,4 @@
+import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
 import { viewChanges } from "../data/view-changes";
 import { record, keys, remotePath } from "../../shared/remote-agent-protocol";
 import { hostBranch } from "../../shared/registered-hosts";
@@ -75,6 +76,7 @@ export function readSessions(value: unknown): StoredSession[] {
       orchestrator,
       parentId,
       providerOrigin,
+      permissionLevel,
       remote,
       placement,
       remoteCheckout,
@@ -84,6 +86,8 @@ export function readSessions(value: unknown): StoredSession[] {
       sharedReview,
     } = data;
     if (
+      (permissionLevel !== undefined &&
+        (agent === "shell" || !agentPermissionLevel(permissionLevel))) ||
       (closeState !== undefined && closeState !== "closing" && closeState !== "failed") ||
       (remoteCheckout !== undefined && (remote !== true || !savedRemote(remoteCheckout))) ||
       (placement !== undefined &&
@@ -172,6 +176,7 @@ export function readSessions(value: unknown): StoredSession[] {
         : {}),
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
+      ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
       ...(remote === true ? { remote: true } : {}),
       ...(savedRemote(remoteCheckout) ? { remoteCheckout: { ...remoteCheckout } } : {}),
       ...(objectPlacement(placement) ? { placement } : {}),
@@ -219,6 +224,7 @@ export class SessionStore {
           branch,
           conversationId,
           providerOrigin,
+          permissionLevel,
           remote,
           placement,
           remoteCheckout,
@@ -252,6 +258,7 @@ export class SessionStore {
           branch,
           conversationId,
           ...(providerOrigin ? { providerOrigin } : {}),
+          ...(permissionLevel ? { permissionLevel } : {}),
           ...(remote ? { remote: true } : {}),
           ...(placement ? { placement } : {}),
           ...(remoteCheckout ? { remoteCheckout } : {}),

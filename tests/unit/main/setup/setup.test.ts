@@ -822,3 +822,38 @@ test("custom theme saves require a digest for the offered palette", async () => 
   await setup.save({ interfaceTheme }, digest);
   expect(deps.store.update).toHaveBeenCalledWith({ interfaceTheme }, digest);
 });
+
+test("only the Settings confirmation can authorize Full access for a scope", async () => {
+  const confirmBypass = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  const setup = new Setup({ ...deps, confirmBypass });
+  const choice = { agentPermissions: { global: { codex: { level: "full" } } } };
+  await expect(
+    setup.save({
+      agentPermissions: { global: { codex: { level: "full", identity: "a".repeat(64) } } },
+    }),
+  ).rejects.toThrow("Choose one");
+  await expect(setup.save({ ...choice, hooks: false })).rejects.toThrow("Choose one");
+  await expect(
+    setup.save({ agentPermissions: { "host:unknown": { codex: { level: "ask" } } } }),
+  ).rejects.toThrow("no longer registered");
+  await expect(
+    setup.save({ agentPermissions: { global: { claude: { level: "ask" } } } }),
+  ).rejects.toThrow("does not declare");
+  await expect(setup.save(choice)).rejects.toThrow("Full access was not saved");
+  expect(settings.agentPermissions).toBeUndefined();
+  await expect(setup.save(choice)).resolves.toMatchObject({
+    settings: {
+      agentPermissions: {
+        global: { codex: { level: "full", identity: bypassConsentIdentity("codex", true) } },
+      },
+    },
+  });
+  expect(confirmBypass).toHaveBeenLastCalledWith(
+    "codex",
+    ["--sandbox", "danger-full-access", "--ask-for-approval", "never"],
+    "global",
+  );
+  await expect(
+    setup.save({ agentPermissions: { global: { codex: null } } }),
+  ).resolves.toBeDefined();
+});

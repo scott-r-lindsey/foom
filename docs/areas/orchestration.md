@@ -372,3 +372,14 @@ synchronous host tick. Main-observed revocation during that check-then-write can
 still allow that one write; nothing later is written after withdrawal. This has
 no wall-clock bound under OS scheduling and is distinct from the provider menu
 race. See the linked best-effort policy for both accepted residuals.
+
+### Managed permission levels (#1078)
+
+A regular child may use Full access only when main resolves an explicit
+Settings → Agents choice with matching scope and provider acknowledgement for
+its destination. Workspace is opt-in. The launch request, prompt, repository
+configuration and bypass default arguments carry no permission authority.
+Reviewers still refuse bypass, including a Full access preference. A fresh
+child or resumed conversation uses the current preference for its destination.
+A disconnected remote PTY keeps the original invocation when reattached.
+See [per-launch levels](agent-launch.md#per-launch-permission-levels-1078).

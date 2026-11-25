@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "./agent-permissions";
 import type { HostPressure } from "./host-pressure.d";
 import type { RemoteReviewSnapshot } from "./remote-agent";
 import type { ReviewOptions, ReviewState } from "./review";
@@ -24,6 +25,7 @@ export interface AgentInstallation {
   readonly restoreControl?: boolean;
   readonly source?: string;
   readonly bypassArguments?: readonly string[];
+  readonly permissionLevels?: true;
   readonly setup?: AgentSetupStatus;
   readonly agyPlugin?: AgyPluginStatus;
   readonly inline?: boolean;
@@ -83,6 +85,8 @@ export interface AgentLaunch {
   readonly prepareSpawn?: () => Promise<void>;
   /** Main-only metadata written before the first session save, never process authority. */
   readonly loop?: ReviewOptions | ReviewState;
+  /** Main-only child role. Bypass remains unavailable to reviewers. */
+  readonly reviewer?: true;
   readonly terminalId?: string;
   readonly conversationId?: string;
   /** Main-only strict identity for pasted or explicitly assigned conversations. */
@@ -123,6 +127,7 @@ export interface AgentLaunched {
   readonly launchFlags?: readonly string[];
   readonly conversationId?: string;
   readonly bypass?: boolean;
+  readonly permissionLevel?: AgentPermissionLevel;
   readonly providerOrigin?: "config" | "bundled";
   readonly id: string;
   readonly attention: "hooks" | "evaluator";

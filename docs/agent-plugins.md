@@ -528,3 +528,13 @@ Antigravity uses Escape, supported by the measured file-access cancel footer in
 picker without changing the selection. These observations do not establish
 universal behavior for user extensions or all menu types. Composer variants that
 do not match remain queued; no real agent CLI runs in validation.
+
+### Per-launch permission levels (#1078)
+
+An optional `permissionLevels` object declares literal argv arrays for `ask`,
+`workspace` and `full`, bounded `conflicts` using the argument matcher syntax,
+and optional `minimum`, `helpTokens` and `when` discovery gates. The full list must match a
+declared bypass matcher. Ask and Workspace must not. These arguments are
+applied at the defaults stage only for a profile-owned choice. They are never
+read from a repository launch request. Conflicting defaults fail before spawn.
+See [permission selection](areas/agent-launch.md#per-launch-permission-levels-1078).

@@ -747,6 +747,7 @@ const validHostsState: Validator<HostsState> = shape({
   result: either(absent, validHostResult),
 } satisfies Contract<HostsState>);
 
+const validAgentPermissionLevel = literal("ask", "workspace", "full");
 const validSettings: Validator<Settings> = shape({
   registeredHosts: either(absent, array(validRegisteredHost)),
   setupComplete: boolean,
@@ -773,6 +774,14 @@ const validSettings: Validator<Settings> = shape({
   forgeHosts: dictionary(text),
   agents: dictionary(boolean),
   agentArguments: dictionary(array(text)),
+  agentPermissions: either(
+    absent,
+    dictionary(
+      dictionary(
+        either(nil, shape({ level: validAgentPermissionLevel, identity: either(absent, text) })),
+      ),
+    ),
+  ),
   agentBypassAcknowledged: dictionary(boolean),
   agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
@@ -1031,6 +1040,7 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   dormant: either(absent, boolean),
   launchVersion: either(absent, count),
   bypass: either(absent, boolean),
+  permissionLevel: either(absent, validAgentPermissionLevel),
   home: either(absent, boolean),
   machine: either(absent, boolean),
   config: either(absent, boolean),
@@ -1242,6 +1252,7 @@ const validAgentInstallation: Validator<AgentInstallation> = shape({
   restoreControl: either(absent, boolean),
   source: either(absent, text),
   bypassArguments: either(absent, array(text)),
+  permissionLevels: either(absent, literal(true)),
   setup: either(absent, validAgentSetupStatus),
   agyPlugin: either(absent, validAgyPluginStatus),
   inline: either(absent, boolean),
@@ -1366,6 +1377,7 @@ const validAgentLaunched: Validator<AgentLaunched> = shape({
   launchFlags: either(absent, array(text)),
   conversationId: either(absent, text),
   bypass: either(absent, boolean),
+  permissionLevel: either(absent, validAgentPermissionLevel),
   providerOrigin: either(absent, literal("config", "bundled")),
   id: nonempty,
   attention: literal("hooks", "evaluator"),

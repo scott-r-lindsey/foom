@@ -1,3 +1,7 @@
+import {
+  applyPermissionArguments,
+  checkPermissionConflicts,
+} from "../../shared/agent-permission-arguments";
 import { remoteReviewSnapshot } from "./review-snapshot";
 import { readWorktreeProvenance } from "./worktree-provenance";
 import { eventModule } from "../../shared/agent-event-module";
@@ -103,6 +107,11 @@ export async function prepareRemoteAgent(
     .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
     .find((model) => model.id === request.agent);
   if (!model) throw new LaunchFailure("remote_agent_unsupported");
+  if (request.permissionLevel) {
+    checkPermissionConflicts(model, request.defaults);
+    if (request.reviewSnapshot && request.permissionLevel === "full")
+      throw new Error("Remote reviewer bypass is unavailable");
+  }
   const checkout = () =>
     remoteCheckout(request.repository, request.worktree, hostEnvironment(), cancellation).catch(
       () => {
@@ -327,10 +336,13 @@ export async function prepareRemoteAgent(
       await writeFile(target, content, { mode: 0o600, flag: "wx" });
     }
     const args: string[] = [];
+    let permissionIndex = 0;
     const expand = (templates: readonly string[]) => templates.map((arg) => expandV2(arg, values));
     for (const stage of model.launch.order) {
-      if (stage === "defaults") args.push(...defaults);
-      else if (stage === "resume" && request.conversationId) {
+      if (stage === "defaults") {
+        permissionIndex = args.length;
+        args.push(...defaults);
+      } else if (stage === "resume" && request.conversationId) {
         if (!model.launch.resume || !selected(model.launch.resume.when, facts))
           throw new Error("Remote resume unavailable");
         args.push(...expand(model.launch.resume.arguments));
@@ -386,7 +398,9 @@ export async function prepareRemoteAgent(
     cancellation?.throwIfAborted();
     const spec: Omit<TerminalSpec, "cols" | "rows"> = {
       command: found.command,
-      args: boundedArguments(args),
+      args: boundedArguments(
+        applyPermissionArguments(model, request.permissionLevel, args, permissionIndex, facts),
+      ),
       cwd: request.worktree,
       env,
       replaceEnvironment: true,
@@ -403,6 +417,7 @@ export async function prepareRemoteAgent(
         channels: [...endpoint.channels.keys()],
         hooks: endpoint.channels.size > 0,
         mcp,
+        ...(request.permissionLevel ? { permissionLevel: request.permissionLevel } : {}),
         ...(conversation ? { conversationId: conversation } : {}),
       },
     };

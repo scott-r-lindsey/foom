@@ -466,3 +466,11 @@ test("persists and validates shared-review baselines without restoring process a
   ])
     expect(() => readSessions([{ ...record, sharedReview: bad }])).toThrow();
 });
+
+test("stores Foom's applied permission as metadata for reattach", async () => {
+  const { store } = await setup();
+  const rows = readSessions([{ ...record, agent: "codex", permissionLevel: "full" }]);
+  await store.save(rows);
+  expect(await store.load()).toMatchObject([{ permissionLevel: "full", bypass: true }]);
+  expect(() => readSessions([{ ...record, permissionLevel: "unknown" }])).toThrow("Invalid");
+});

@@ -197,6 +197,11 @@ Successful `launch` results include `placement: {kind: "local"}` or
 current developer mapping flags never relabel an existing session. Legacy remote
 rows without a recorded alias cannot claim successful remote cleanup.
 
+When Foom added managed permission arguments at launch, session metadata includes
+`permissionLevel` as `ask`, `workspace` or `full`. This records the invocation,
+including across remote reattach. Provider policy may constrain the requested
+level. A missing field means Foom has no managed level to report.
+
 An orchestrator closing its own child on a cached unavailable host receives
 `host_unavailable` before the exited/running check or any cleanup request. Unknown,
 foreign and taken-over IDs retain their existing authorization errors. The human

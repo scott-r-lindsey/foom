@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "./agent-permissions";
 import type { HostPressure } from "./host-pressure.d";
 /** Bounded host evidence; contains no file content or process authority. */
 export interface RemoteReviewSnapshot {
@@ -17,6 +18,7 @@ export interface RemoteAgentSpec {
   prompt?: string;
   conversationId?: string;
   hooks: boolean;
+  permissionLevel?: AgentPermissionLevel;
   checkoutIdentity?: string;
   reviewSnapshot?: RemoteReviewSnapshot;
 }
@@ -41,6 +43,7 @@ export type RemoteControlResult =
 export interface RemoteAgentReady {
   channels?: string[];
   hooks: boolean;
+  permissionLevel?: AgentPermissionLevel;
   mcp: boolean;
   conversationId?: string;
 }

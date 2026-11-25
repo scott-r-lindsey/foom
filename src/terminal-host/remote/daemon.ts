@@ -1,3 +1,8 @@
+import {
+  applyPermissionArguments,
+  checkPermissionConflicts,
+} from "../../shared/agent-permission-arguments";
+import { bypassEnvironment, discoveryFacts } from "../../shared/agent-launch-values";
 import { HostAdmission } from "../../shared/host-pressure";
 import type { HostPressure } from "../../shared/host-pressure.d";
 import { launchResources } from "./resources";
@@ -933,6 +938,17 @@ export function serveHost(
                   )
                     throw new LaunchFailure("remote_worktree_unavailable");
                 }
+                const defaults = machine.defaults ?? [];
+                let args = [...defaults];
+                if (model && found && machine.permissionLevel) {
+                  checkPermissionConflicts(model, defaults);
+                  if (bypassEnvironment(model, found.env, false).length)
+                    throw new Error(
+                      "A bypass environment conflicts with the selected permission level.",
+                    );
+                  const facts = discoveryFacts(model, found.version, found.help, {});
+                  args = applyPermissionArguments(model, machine.permissionLevel, args, 0, facts);
+                }
                 cancellation.signal.throwIfAborted();
                 if (!machine.repository && !checkout) {
                   if (model && found) owned.imagePaste = imagePasteRecipient(model.id);
@@ -941,7 +957,7 @@ export function serveHost(
                 }
                 return {
                   command: found?.command ?? remoteShell(),
-                  args: model && found ? [...(machine.defaults ?? [])] : ["-i", "-l"],
+                  args: model && found ? args : ["-i", "-l"],
                   cwd,
                   ...(found
                     ? {

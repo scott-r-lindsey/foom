@@ -27,6 +27,7 @@ it("bounds and scopes metadata without leaking reasons, paths, credentials or ou
   }));
   const first = rows[0];
   if (!first) throw new Error("Missing fixture");
+  first.permissionLevel = "full";
   rows.push({ ...first, id: "foreign", repository: join(tmpdir(), "foreign") });
   const service = new ControlService(
     new Operations(
@@ -43,6 +44,7 @@ it("bounds and scopes metadata without leaking reasons, paths, credentials or ou
   const result = call("sessions");
   expect(result).toMatchObject({ nextCursor: "id99" });
   expect(call("session_state", { id: "id0" })).toMatchObject({
+    permissionLevel: "full",
     name: "[REDACTED CREDENTIAL]",
     reason: "needs_input",
     attentionKind: "unknown",

@@ -373,6 +373,7 @@ export class WorkspaceContext {
           const row = {
             ...entry,
             ...result,
+            ...(entry.permissionLevel === "full" ? { bypass: true } : {}),
             ...this.replacementVersion(entry.id),
             dormant: false,
             exited: false,
@@ -453,6 +454,7 @@ export class WorkspaceContext {
           | "worktreeLocation"
           | "agentArguments"
           | "agentBypassIdentities"
+          | "agentPermissions"
           | "agentHooks"
           | "showNewChildren"
           | "closeFinishedAgents"
@@ -484,6 +486,7 @@ export class WorkspaceContext {
     this.cleanup.configure(settings.autoRemoveMergedWorktrees ?? false);
     this.agents.setEnabled(settings.agents);
     this.agents.setBypassIdentities(settings.agentBypassIdentities);
+    this.agents.setPermissionLevels(settings.agentPermissions);
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);
     this.agentHooks = settings.agentHooks ?? {};

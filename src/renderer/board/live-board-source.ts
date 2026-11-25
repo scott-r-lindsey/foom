@@ -384,6 +384,7 @@ export function createAppSource(): BoardSource {
           ),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
+        ...(entry.permissionLevel ? { permissionLevel: entry.permissionLevel } : {}),
         conversationId: entry.conversationId,
         unavailable:
           entry.placement?.kind === "remote" &&

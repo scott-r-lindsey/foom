@@ -94,6 +94,7 @@ export async function launchAgent(
     | "beforeSpawn"
     | "prepareSpawn"
     | "loop"
+    | "reviewer"
     | "pressure"
     | "selection"
     | "remoteCheckout"
@@ -129,8 +130,7 @@ export async function launchAgent(
           throw new Error("This worktree is busy");
       };
       checkClosing();
-      // Children use the user's defaults as written, but never bypass: an orchestrator
-      // cannot pass on the user's acknowledgement for manual launches.
+      // Default arguments can never authorize a child's bypass.
       const child = extra.control !== undefined && "parentId" in extra.control;
       const defaultArguments = this.defaultArguments[request.agent] ?? [];
       if (child && hasBypassArgument(request.agent, defaultArguments))
@@ -189,6 +189,7 @@ export async function launchAgent(
           : { conversationId: replacement?.conversationId ?? extra.conversationId }),
         ...(result.conversationId ? { conversationId: result.conversationId } : {}),
         bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
+        ...(result.permissionLevel ? { permissionLevel: result.permissionLevel } : {}),
         state: null,
       });
       if (extra.remoteCheckout)
@@ -448,6 +449,10 @@ export async function startMachine(
           ? ["-NoLogo"]
           : ["-l"]
         : [...(this.defaultArguments[run] ?? [])];
+    const permission =
+      host !== null && run !== "shell"
+        ? this.agents.permissionForLaunch(run, host, args)
+        : undefined;
     if (host !== null) {
       if (conversation && run !== "shell") args.push(...resumeArguments(run, conversation));
       const registered = hosts?.registered(host);
@@ -493,6 +498,7 @@ export async function startMachine(
           ...repositoryTarget?.machine,
           codeFolder: registered.codeFolder,
           ...(run === "shell" ? {} : { agent: run, defaults: args }),
+          ...(permission?.level ? { permissionLevel: permission.level } : {}),
         },
       };
       if (repositoryTarget?.machine?.repository && location) {
@@ -616,7 +622,11 @@ export async function startMachine(
           ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
         });
       }
-      if (remote) remote.beforeOpen = ensureOpen;
+      if (remote)
+        remote.beforeOpen = () => {
+          ensureOpen();
+          permission?.validate();
+        };
       const id =
         agentResult?.id ??
         (await this.deps.terminals.create({
@@ -633,6 +643,7 @@ export async function startMachine(
           ...(run === "shell" ? { shellIntegration: true } : {}),
         }));
       const conversationId = agentResult?.conversationId ?? conversation;
+      const permissionLevel = agentResult?.permissionLevel ?? permission?.level;
       this.launched.set(id, {
         ...this.replacementVersion(restoreId),
         id,
@@ -652,7 +663,10 @@ export async function startMachine(
         ...((agentResult?.environment ?? environment.names).length
           ? { environment: agentResult?.environment ?? environment.names }
           : {}),
-        bypass: agentResult?.bypass ?? (run !== "shell" && hasBypassArgument(run, args)),
+        bypass:
+          agentResult?.bypass ??
+          (permissionLevel === "full" || (run !== "shell" && hasBypassArgument(run, args))),
+        ...(permissionLevel ? { permissionLevel } : {}),
         startedAt: this.now(),
       });
       this.executionOwner.launched(id);

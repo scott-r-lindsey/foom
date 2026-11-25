@@ -37,3 +37,11 @@ execution/health integration. The v2 fixture is `tests/fixtures/agent-plugin.jso
 | Claude MCP merges variadic/comma-separated allowedTools/allowed-tools including equals forms, preserving separators inside parentheses; every tool on Foom’s own per-launch server pre-approved | `toolPermissions` merge grammar and names | Deduplicate without widening roles; deny/managed policy still wins; no grants without MCP |
 | Restore orchestrator currently verified only for Claude/Codex; agy false | `conversation.restoreControl` | Human-origin persisted role + repo identity checks; ordinary resume separate; manifest fact never grants a role |
 | Rules, provider stalls, readiness/completion distinction | `attention.rules`, `execution` | Exit/hook/blocker precedence, local classification, classification never writes input; a granted owning orchestrator may answer provider prompts (#629) |
+
+## Per-launch permission preference (#1078)
+
+| Behavior | Declaration | Enforcement |
+| --- | --- | --- |
+| Ask, Workspace and Full access | Optional `permissionLevels` with three literal argv lists, conflict matchers and discovery condition | Main resolves Settings scope. Local and remote engines insert arguments in their defaults stage and refuse conflicts or an unavailable declaration. |
+| Known bypass | Existing `bypassArguments` and `bypassEnvironment` | Only the selected Full access list may supply bypass for a child. Acknowledgement is bound to the provider and scope. Reviewers retain their refusal. |
+| Launch evidence | Optional `permissionLevel` | Tile and `session-state` report the Foom-applied arguments as a level, subject to agent policy. |

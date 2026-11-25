@@ -11,6 +11,8 @@ import type { ReadinessReport } from "../../shared/readiness";
 import { ApplicationError } from "../../shared/application-errors";
 import { isUserThemeId } from "../../shared/theme-validation";
 import type { ThemeCatalog } from "../../shared/theme-file";
+import { checkPermissionConflicts } from "../../shared/agent-permission-arguments";
+import { agentProviders } from "../agents/providers/registry";
 import { bypassConsentIdentity, hasBypassArgument } from "../agents/default-arguments";
 import type { AgentId } from "../../shared/agents";
 import { isRecent, scanCodeFolder, suggestCodeFolders } from "./code-scan";
@@ -55,7 +57,11 @@ export interface SetupDependencies {
   worktreeRoot: string;
   /** Pushes hook and agent settings into the running services. */
   apply(settings: Settings): void;
-  confirmBypass?: (agent: AgentId, args: readonly string[]) => Promise<boolean>;
+  confirmBypass?: (
+    agent: AgentId,
+    args: readonly string[],
+    permissionScope?: string,
+  ) => Promise<boolean>;
   code: {
     worktrees: Pick<WorktreeService, "listRepositories" | "addRepository" | "removeRepository">;
     /** The native folder picker; null when cancelled. */
@@ -254,6 +260,16 @@ export class Setup {
       patch.agentBypassIdentities !== undefined
     )
       throw new Error("Bypass acknowledgement belongs to Foom's confirmation dialog.");
+    if (patch.agentPermissions) {
+      const edits = Object.values(patch.agentPermissions);
+      if (
+        Object.keys(patch).length !== 1 ||
+        edits.length !== 1 ||
+        Object.values(edits[0] ?? {}).length !== 1 ||
+        Object.values(edits[0] ?? {}).some((choice) => choice?.identity !== undefined)
+      )
+        throw new Error("Choose one agent permission level in Settings.");
+    }
     const saving = this.saving
       .catch(() => undefined)
       .then(() => this.savePatch(patch, themeDigest));
@@ -283,6 +299,32 @@ export class Setup {
           throw new Error("Choose an enabled forge for each host.");
       }
     }
+    let machineCurrent: (() => boolean) | undefined;
+    for (const [scope, choices] of Object.entries(patch.agentPermissions ?? {})) {
+      const registration = before.registeredHosts?.find(({ host }) => scope === `host:${host}`);
+      if (scope.startsWith("host:") && !registration)
+        throw new Error("Machine is no longer registered.");
+      if (registration)
+        machineCurrent = () =>
+          this.deps.store.get().registeredHosts?.includes(registration) === true;
+      for (const [agent, choice] of Object.entries(choices)) {
+        if (!choice) continue;
+        const provider = agentProviders().find(({ id }) => id === agent);
+        if (!provider?.model.permissionLevels || (registration && provider.origin !== "bundled"))
+          throw new Error("This agent does not declare permission levels for this machine.");
+        checkPermissionConflicts(provider.model, before.agentArguments[agent] ?? []);
+        if (choice.level !== "full") continue;
+        const identity = bypassConsentIdentity(provider, true);
+        if (
+          !identity ||
+          !(await this.deps.confirmBypass?.(agent, provider.model.permissionLevels.full, scope))
+        )
+          throw new Error("Full access was not saved.");
+        if (bypassConsentIdentity(agent, true) !== identity)
+          throw new Error("Agent plugin changed. Review it again.");
+        choice.identity = identity;
+      }
+    }
     if (patch.agentArguments) {
       const acknowledged = { ...before.agentBypassAcknowledged };
       const identities = { ...before.agentBypassIdentities };
@@ -298,10 +340,13 @@ export class Setup {
       patch.agentBypassAcknowledged = acknowledged;
       patch.agentBypassIdentities = identities;
     }
-    const settings = await this.deps.store.update(
-      patch,
-      ...(typeof themeDigest === "string" ? [themeDigest] : []),
-    );
+    const settings =
+      machineCurrent && patch.agentPermissions
+        ? await this.deps.store.update({ agentPermissions: patch.agentPermissions }, machineCurrent)
+        : await this.deps.store.update(
+            patch,
+            ...(typeof themeDigest === "string" ? [themeDigest] : []),
+          );
     this.deps.apply(settings);
     return this.state();
   }

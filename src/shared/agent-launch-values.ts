@@ -32,28 +32,34 @@ export function discoveryFacts(
     }
     return true;
   };
+  const advertised = (tokens: readonly string[]) =>
+    tokens.every((token) => {
+      let offset = help.indexOf(token);
+      while (offset >= 0) {
+        const before = offset === 0 ? " " : help[offset - 1];
+        const after = help[offset + token.length];
+        if (
+          before !== undefined &&
+          /\s/u.test(before) &&
+          (after === undefined || /[\s=,]/u.test(after))
+        )
+          return true;
+        offset = help.indexOf(token, offset + 1);
+      }
+      return false;
+    });
   const facts: Record<string, unknown> = { ...engine };
   for (const fact of model.discovery.facts) {
     facts[fact.id] =
       fact.enabled &&
       minimum(fact.minimum ?? grammar?.minimum) &&
-      fact.helpTokens.every((token) => {
-        let offset = help.indexOf(token);
-        while (offset >= 0) {
-          const before = offset === 0 ? " " : help[offset - 1];
-          const after = help[offset + token.length];
-          if (
-            before !== undefined &&
-            /\s/u.test(before) &&
-            (after === undefined || /[\s=,]/u.test(after))
-          )
-            return true;
-          offset = help.indexOf(token, offset + 1);
-        }
-        return false;
-      }) &&
+      advertised(fact.helpTokens) &&
       selected(fact.when, facts);
   }
+  const policy = model.permissionLevels;
+  if (policy)
+    facts["permissionLevelSupported"] =
+      minimum(policy.minimum ?? grammar?.minimum) && advertised(policy.helpTokens);
   return facts;
 }
 
