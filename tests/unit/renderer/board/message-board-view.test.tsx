@@ -7,6 +7,7 @@ import type {
   BoardRead,
   BoardThreads,
   MessageBoardApi,
+  MessagePost,
 } from "../../../../src/shared/message-board";
 const thread = {
   id: "thread",
@@ -322,4 +323,68 @@ it("renders stored child events as prose and leaves human notes literal", async 
   await view.findByText("Launched: Fixture task");
   expect(view.container.textContent).not.toContain("private");
   expect(view.getByText('launch · {"prompt":"A human note"}')).toBeTruthy();
+});
+
+it("reads structured decisions, answers, and terminal states from their original thread", async () => {
+  const questions: NonNullable<MessagePost["questions"]> = [
+    { title: "Approve the preview?", options: [{ id: "go", label: "Approve" }] },
+    { title: "Await checks?", options: [] },
+    { title: "Review a later head?", options: [] },
+    { title: "Withdraw this?", options: [] },
+    { title: "Proceed?", options: [] },
+  ];
+  const [initial, answered] = detail.posts;
+  if (!initial || !answered) throw new Error("Missing fixtures");
+  const states = ["answered", "checking", "stale", "withdrawn", "open"] as const;
+  const view = render(
+    <MessageBoardPanel
+      api={{
+        threads: () => Promise.resolve(list),
+        read: () =>
+          Promise.resolve({
+            ...detail,
+            posts: [
+              {
+                ...initial,
+                kind: "question",
+                questions,
+                decisions: questions.map((question, index) => ({
+                  repository: "b",
+                  post: "post",
+                  index,
+                  question,
+                  status: states[index] ?? "open",
+                })),
+              },
+              {
+                ...answered,
+                answers: [
+                  {
+                    post: "post",
+                    index: 0,
+                    option: "go",
+                    subject: { pullRequest: 9, headSha: "a".repeat(40) },
+                  },
+                  { post: "post", index: 1, other: "<script>Later</script>" },
+                ],
+              },
+            ],
+          }),
+        post: vi.fn(),
+        resolve: vi.fn(),
+      }}
+      decisions={{ b: 1 }}
+      openDecisions={vi.fn()}
+      subscribe={() => () => {}}
+      close={vi.fn()}
+    />,
+  );
+  fireEvent.click(await view.findByRole("button", { name: /Nightly release/ }));
+  expect(await view.findByText("Approve the preview? · Approve")).toBeTruthy();
+  expect(view.getByText("PR #9 · aaaaaaaa")).toBeTruthy();
+  expect(view.getByText(/<script>Later/)).toBeTruthy();
+  expect(view.container.querySelector("script")).toBeNull();
+  expect(view.getByText("Withdraw this?").tagName).toBe("S");
+  expect(view.getByText(/Checking subject/)).toBeTruthy();
+  expect(view.getByText(/· Stale/)).toBeTruthy();
 });

@@ -54,12 +54,20 @@ export async function boardCommand(
     const after = take("--after");
     if (after !== undefined) params["after"] = identifier(after);
   } else if (name === "resolve")
-    Object.assign(params, boardResolve({ ...params, idempotencyKey: key }));
+    Object.assign(params, boardResolve({ ...params, post: take("--post"), idempotencyKey: key }));
   else if (name === "post") {
     if (!path || path.includes("\0")) throw new ControlError("invalid_request");
     const thread = take("--thread");
     const title = take("--title");
     const kind = take("--kind");
+    const questionsPath = take("--questions-file");
+    if (
+      flags.size ||
+      (kind === "question") !== (questionsPath !== undefined) ||
+      questionsPath?.includes("\0") ||
+      (questionsPath === "-" && path === "-")
+    )
+      throw new ControlError("invalid_request");
     if (fresh === (thread !== undefined)) throw new ControlError("invalid_request");
     const shape = {
       ...(thread === undefined ? {} : { thread }),
@@ -70,11 +78,25 @@ export async function boardCommand(
       links,
       idempotencyKey: key,
     };
-    boardPost(shape);
-    if (flags.size) throw new ControlError("invalid_request");
+    boardPost({ ...shape, kind: kind === "question" ? "fyi" : kind });
+    let questions: unknown;
+    if (questionsPath !== undefined) {
+      try {
+        questions = JSON.parse(await boundedText(questionsPath, input));
+      } catch {
+        throw new ControlError("invalid_request");
+      }
+      boardPost({ ...shape, questions });
+    }
     return {
       method: "board_post",
-      params: { ...boardPost({ ...shape, text: await boundedText(path, input) }) },
+      params: {
+        ...boardPost({
+          ...shape,
+          ...(questions === undefined ? {} : { questions }),
+          text: await boundedText(path, input),
+        }),
+      },
     };
   } else throw new ControlError("invalid_request");
   if (

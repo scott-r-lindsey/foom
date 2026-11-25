@@ -25,8 +25,12 @@ export interface WakeInput {
   line: string;
 }
 
+const BOARD_WAKE = "Foom: board decisions answered. Call wait_for and board_read.";
+const COMBINED_WAKE = "Foom: child and board events. Call wait_for, read_handoff and board_read.";
+
 /** Only a fixed metadata template can cross the host boundary. */
-export function wakeLine(names: readonly string[]): string {
+export function wakeLine(names: readonly string[], board = false): string {
+  if (board) return names.length ? COMBINED_WAKE : BOARD_WAKE;
   const clean = names
     .slice(0, 4)
     .map((name) => name.replace(/[^A-Za-z0-9._-]/gu, "").slice(0, 48) || "child");
@@ -40,9 +44,11 @@ export function isWakeInput(value: unknown): value is WakeInput {
     return false;
   if (
     typeof fields["line"] !== "string" ||
-    !/^Foom: child events for [A-Za-z0-9._-]{1,48}(?:, [A-Za-z0-9._-]{1,48}){0,3}(?: and other children)?\. Call wait_for and read_handoff\.$/u.test(
-      fields["line"],
-    )
+    (fields["line"] !== BOARD_WAKE &&
+      fields["line"] !== COMBINED_WAKE &&
+      !/^Foom: child events for [A-Za-z0-9._-]{1,48}(?:, [A-Za-z0-9._-]{1,48}){0,3}(?: and other children)?\. Call wait_for and read_handoff\.$/u.test(
+        fields["line"],
+      ))
   )
     return false;
   try {

@@ -35,7 +35,7 @@ or a fork head is refused, including on bound lookups and the final recheck. A c
 use of the same branch cannot claim a newly created worktree. The same open lookup
 is reusable by #337. Once
 bound, its number is used to follow OPEN, CLOSED and MERGED states. Output is
-untrusted: main exposes only a positive PR number, a 40-character head SHA, the
+untrusted: main exposes only a positive PR number, a 40- or 64-digit hexadecimal head SHA, the
 fixed state, optional validated `checksMeaning` and `requiredChecks` (`pending`, `success`, `failure`, `none`, `unknown`). Cancelled
 checks count as failure; skipped checks count as success; an empty required-check
 set is `none`. gh's exit-1, empty-stdout diagnostic for no required checks (or
@@ -168,3 +168,18 @@ and actual branch; lookup/batch matching uses the resolved PR branch and number.
 Binding requires an open same-repository resolve plus validated lookup before
 launch. Provider/remote invalidation retires this binding like other observations.
 The private forge envelope retains the resolved branch for restart validation.
+
+## Decision subjects (#1297)
+
+A decision subject names an exact PR in the posting repository. The serial poller
+can reuse a settled checkout sample from a request begun after the question
+started saving. A new question requests a read past that point, even when
+the poller already watches the PR. Publishing a newer observation for that PR
+retires older decision evidence across both checkout and numeric sources.
+If the newest checkout disappears before another source confirms the head,
+the board waits for a fresh observation.
+
+When no fresh checkout sample covers the subject, the manifest uses the existing numbered
+refresh and checks workflow. It validates the requested number, same-repository
+ownership, branch, head and state, including the final refresh. This read-only
+subject lookup permits a PR sourced from the default branch.

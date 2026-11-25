@@ -108,3 +108,13 @@ attention defaults to sensitive. Key values, terminal output/tails/screens and r
 hooks are never board sources. Normal prompt text and handoff/review data are
 recorded with bounds and visible truncation markers. See the full
 [recording and retention rules](../areas/message-board.md#child-conversation-threads-974).
+
+### Structured decisions (#1297)
+
+Questions and answers are shared with the same repositories as their thread.
+The owning orchestrator may read the human's choice or free-text answer and its
+bound PR head. A stale question can include the observed replacement head. Use the Board for decisions that can be shared with those
+repositories and their model providers. Question and answer contents stay out
+of operation logs. Preview paths are untrusted board data. Preview file bytes
+stay in main's isolated preview partition and only a raster capture goes to the
+human board. No preview pixel or file-byte field is sent through agent transport.

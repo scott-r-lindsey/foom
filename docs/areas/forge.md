@@ -61,6 +61,13 @@ without transferring authority over old children. Successful reads use the share
 Polling is serial by repository, pauses during sleep and screen lock, and stops on shutdown.
 See [the data, persistence and polling contract](../contracts/forge-tracking.md#child-pr-and-required-checks-340).
 
+Structured board subjects (#1297) reuse settled checkout observations. A subject
+without a matching checkout can request a bounded numeric read in the same
+serial poller. That read uses the registered repository's configured forge
+remote and the existing provider's resolved branch and head validation. These
+temporary watches retire when their last open question closes and are rebuilt
+from the private board on restart.
+
 ### GitLab (#522)
 
 The build-locked GitLab manifest uses the same interpreter and lifecycle as GitHub.

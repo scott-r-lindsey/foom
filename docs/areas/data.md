@@ -383,8 +383,12 @@ recipients, idempotency receipts and explicit current-repository bindings. Recei
 post/thread identity is a composite RESTRICT FK. Historical repository, actor and
 session IDs remain immutable snapshots rather than fabricated live parents;
 current bindings reference only known saved registrations. The shared existing
-Board parser validates imports and domain writes. Trusted author selection and
-live role checks remain in the existing service. Child-history expiry deletes
+Board parser validates imports and domain writes, including structured questions
+and human answers. Answer options and bound heads are checked against previously
+imported question posts in the same thread, and each question index can only
+be answered once. The forward migration preserves existing posts, receipts and their
+RESTRICT relationships. Trusted author selection and live role checks remain in
+the existing service. Child-history expiry deletes
 intended receipts/posts/bindings before threads; it never deletes Git worktrees.
 
 Forge observations retain validated checkout/provider claims with host, repository

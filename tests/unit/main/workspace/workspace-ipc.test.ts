@@ -956,6 +956,15 @@ test("only a close's trusted remote launch failure selects its fixed diagnostic"
 test("board IPC is sender checked and accepts only method plus payload", () => {
   invoke("workspace:message-board", ["threads", {}]);
   expect(workspace.messageBoard).toHaveBeenCalledWith("threads", {});
+  const request = { answers: [{ post: "p", index: 0, option: "yes" }], idempotencyKey: "h" };
+  for (const event of [
+    { sender: contents, senderFrame: { url: frame.url } },
+    { sender: { mainFrame: frame }, senderFrame: frame },
+  ])
+    expect(() => invoke("workspace:message-board", ["answer", request], event)).toThrow();
+  expect(workspace.messageBoard).not.toHaveBeenCalledWith("answer", request);
+  invoke("workspace:message-board", ["answer", request]);
+  expect(workspace.messageBoard).toHaveBeenLastCalledWith("answer", request);
   for (const args of [[], ["threads"], [3, {}], ["read", {}, "extra"]])
     expect(() => invoke("workspace:message-board", args)).toThrow();
 });

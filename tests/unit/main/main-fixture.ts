@@ -98,6 +98,7 @@ const forgeMock = vi.hoisted(() => ({
       ) => Promise<string | ForgeInspection | undefined>,
       changed: () => void,
       provider?: ForgeProviderFactory,
+      decisionRemote?: (repository: string) => Promise<string | undefined>,
     ) => Promise<unknown>
   >(),
 }));
@@ -866,6 +867,8 @@ beforeEach(() => {
   forgeUi.supported = true;
   forgeMock.open.mockResolvedValue({
     track: vi.fn(),
+    watchDecisions: vi.fn(),
+    readDecision: vi.fn(),
     read: vi.fn(),
     close: vi.fn(),
     pause: vi.fn(),

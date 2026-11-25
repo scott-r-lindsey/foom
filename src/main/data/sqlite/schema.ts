@@ -237,7 +237,10 @@ export const boardPosts = sqliteTable(
   (t) => [
     index("board_posts_thread").on(t.thread),
     uniqueIndex("board_post_identity").on(t.id, t.thread),
-    check("board_post_kind", sql`${t.kind} IN ('request','answer','decision-needed','fyi','link')`),
+    check(
+      "board_post_kind",
+      sql`${t.kind} IN ('request','answer','decision-needed','fyi','link','question')`,
+    ),
     check("board_post_json", sql`json_valid(${t.data})`),
   ],
 );

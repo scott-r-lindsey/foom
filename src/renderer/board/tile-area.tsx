@@ -128,6 +128,9 @@ export function TileArea({
   setLayout,
   resizeLayout,
   rows,
+  decisionCount,
+  decisionsHidden,
+  openDecisions,
   startupReady,
   previews,
   arrivals,
@@ -148,6 +151,9 @@ export function TileArea({
   setLayout: (next: TileLayout) => void;
   resizeLayout: (next: TileLayout, commit: boolean) => void;
   rows: readonly BoardRow[];
+  decisionCount?: (session: string) => number;
+  decisionsHidden?: boolean;
+  openDecisions?: (row: BoardRow) => void;
   startupReady?: (id: string) => void;
   previews: readonly PreviewSummary[];
   arrivals: ReadonlySet<string>;
@@ -308,6 +314,9 @@ export function TileArea({
             if (tile.content?.kind === "preview" && arrivals.has(tile.content.preview))
               acknowledgePreview(tile.content.preview);
           }}
+          decisionCount={decisionCount?.(sessionId(tile) ?? "") ?? 0}
+          decisionsHidden={decisionsHidden ?? false}
+          onDecisions={openDecisions}
           row={rows.find((row) => row.id === sessionId(tile))}
           preview={previews.find(
             (preview) => tile.content?.kind === "preview" && preview.id === tile.content.preview,
