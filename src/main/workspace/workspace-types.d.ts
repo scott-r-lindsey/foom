@@ -143,7 +143,7 @@ export interface WorkspaceMethods {
   bindConfig(id: string, token: string): void;
   ensureProbeOpen(): void;
   configCredential(): Promise<{ token: string; env: Record<string, string> }>;
-  startConfig(run: AgentId, replacement?: { id: string; conversationId?: string }): Promise<void>;
+  startConfig(run: AgentId, replacement?: { id: string; conversationId?: string }): Promise<string>;
   probeState(id: string, state: TerminalState | null): TerminalState | null;
   sidebarInventory(): Promise<SidebarInventory>;
   sidebarCommand(

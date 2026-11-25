@@ -568,8 +568,6 @@ export async function startMachine(
         await this.deps.terminals.kill(restoreId, previous.placement.host);
       else if (previous && !previous.dormant) await this.deps.terminals.kill(restoreId);
       if (previous) previous.dormant = true;
-      this.executionOwner.reset(restoreId);
-      this.deps.verdicts.forget(restoreId);
     }
     ensureOpen();
     if (host !== null) hosts?.registered(host, remote?.machine?.codeFolder);
@@ -589,6 +587,10 @@ export async function startMachine(
     )
       throw new Error("This worktree is busy");
     try {
+      if (restoreId) {
+        this.executionOwner.reset(restoreId);
+        this.deps.verdicts.forget(restoreId);
+      }
       let agentResult: AgentLaunched | undefined;
       if (host === null && run !== "shell" && !location) {
         agentResult = await this.agents.launch({

@@ -963,6 +963,133 @@ test("Forget removes an unavailable host session locally and recovers its live d
   assert.equal(fixture.daemon.exitCode, null);
 });
 
+test("startup honors manual Resume, Restart and Close while remote discovery is pending", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { bin, remoteHome, cleanup, manifest, socket, closeDaemon } = fixture;
+  const { app, page, profilePath, profileTag, hubHome } = await remoteApp(context, fixture);
+  const launches = path.join(bin, "agent-launches");
+  await writeFile(
+    path.join(bin, "claude"),
+    `#!${process.execPath}
+if (process.argv[2] === "--version") { console.log("2.1.296 (Claude Code)"); process.exit(0); }
+if (process.argv[2] === "--help") { process.exit(0); }
+require("node:fs").appendFileSync(${JSON.stringify(launches)}, "launch\\n");
+process.stdin.resume();
+`,
+    { mode: 0o700 },
+  );
+  const codeFolder = path.join(remoteHome, "code");
+  await mkdir(codeFolder, { mode: 0o700 });
+  await page.evaluate(
+    (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
+    codeFolder,
+  );
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+
+  const ids = ["saved-exited", "saved-running"];
+  for (const id of ids) {
+    const channel = await hostChannel(
+      socket,
+      manifest.sha256,
+      id,
+      cleanup,
+      80,
+      24,
+      false,
+      profileTag,
+    );
+    channel.close();
+  }
+  const shell = {
+    agent: "shell",
+    home: true,
+    repository: hubHome,
+    worktree: hubHome,
+    branch: null,
+  };
+  await writeFile(
+    path.join(profilePath, "sessions.json"),
+    JSON.stringify([
+      { ...shell, id: "saved-local", running: true },
+      {
+        ...shell,
+        agent: "claude",
+        machine: true,
+        id: "saved-agent",
+        conversationId: "prior",
+        running: true,
+      },
+      ...ids.map((id) => ({
+        ...shell,
+        id,
+        running: id === "saved-running",
+        remote: true,
+        placement: { kind: "remote", host: "fixture-cloud" },
+      })),
+    ]),
+  );
+  const restored = await launchApp(context, {
+    fixture: "restored",
+    home: hubHome,
+    env: { PATH: bin, SSH_AUTH_SOCK: "" },
+    args: [`--user-data-dir=${profilePath}`],
+    restoreFixture: { holdDiscovery: true },
+  }).finally(() => {
+    cleanup.apps.splice(cleanup.apps.indexOf(closeDaemon), 1);
+    cleanup.apps.push(closeDaemon);
+  });
+  const rows = async (board) => (await board.evaluate(() => window.desktop.workspace())).terminals;
+  const faults = [];
+  try {
+    const board = await boardPage(restored);
+    await expect
+      .poll(() => restored.evaluate(() => globalThis.restoreFixture.captured))
+      .toEqual(ids);
+    const command = (kind, id) =>
+      board.evaluate(({ kind, id }) => window.desktop.sidebarCommand({ kind, id }), { kind, id });
+    // Starting rows hide these actions in the menu. Send the same command through
+    // the real sidebar bridge to exercise the main process ownership check.
+    await command("resume", "saved-agent");
+    await expect.poll(() => readFile(launches, "utf8").catch(() => "")).toBe("launch\n");
+    await command("restart", "saved-local");
+    await command("close", "saved-running");
+    const exitedRow = board.locator('[data-drag-session="saved-exited"]');
+    await expect(exitedRow).toHaveAttribute("data-exited", "true");
+    await expect(exitedRow).not.toHaveAttribute("aria-label", /Unavailable$/);
+    await exitedRow.getByRole("button", { name: /^Actions for/ }).press("Enter");
+    await board.getByRole("menuitem", { name: "Close", exact: true }).press("Enter");
+    await expect
+      .poll(async () => (await rows(board)).some(({ id }) => id === "saved-exited"))
+      .toBe(false);
+    const before = await rows(board);
+    assert.equal(before.length, 2);
+    assert.ok(before.every((row) => !row.exited));
+
+    await restored.evaluate(() => globalThis.restoreFixture.release());
+    await expect
+      .poll(() => restored.evaluate(() => globalThis.restoreFixture.completed))
+      .toBe(true);
+    const after = await rows(board);
+    if (after.some((row) => row.id === "saved-local"))
+      faults.push("startup restored the old shell ID");
+    if (after.find((row) => row.id === "saved-agent")?.exited)
+      faults.push("startup marked the manually resumed agent exited");
+    for (const id of ids)
+      if (after.some((row) => row.id === id)) faults.push(`closed ${id} reappeared`);
+    assert.deepEqual(faults, []);
+    assert.deepEqual(
+      after.map(({ id, exited }) => ({ id, exited })),
+      before.map(({ id, exited }) => ({ id, exited })),
+    );
+    assert.equal(await readFile(launches, "utf8"), "launch\n");
+  } finally {
+    await restored.evaluate(() => globalThis.restoreFixture.release());
+  }
+});
+
 async function remoteFixture(context) {
   let phaseStarted = performance.now();
   const phase = (name) => {

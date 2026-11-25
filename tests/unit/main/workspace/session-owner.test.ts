@@ -39,11 +39,17 @@ function fixture(entries: StoredSession[] = []) {
     identity: vi.fn<SessionOwnerDependencies["orchestration"]["identity"]>(),
     handoffs: new Handoffs(),
     view: vi.fn<SessionOwnerDependencies["orchestration"]["view"]>(),
-    ownedWorktrees: vi.fn(() => []),
+    savedWorktrees: vi.fn<SessionOwnerDependencies["orchestration"]["savedWorktrees"]>(() => []),
     uncertainWorktrees: vi.fn(() => 0),
     exited: vi.fn(),
-    reserve: vi.fn<SessionOwnerDependencies["orchestration"]["reserve"]>(() => ({ bind, release })),
-    restoreChild: vi.fn((_parent: string, _entry: WorkspaceTerminal) => Promise.resolve(true)),
+    reserve: vi.fn<SessionOwnerDependencies["orchestration"]["reserve"]>(() => ({
+      bind,
+      isCurrent: () => true,
+      release,
+    })),
+    restoreChild: vi.fn<SessionOwnerDependencies["orchestration"]["restoreChild"]>(() =>
+      Promise.resolve(true),
+    ),
     restoreHistory: vi.fn(),
     restoreWorktrees: vi.fn(async () => {}),
   };
@@ -74,7 +80,10 @@ function fixture(entries: StoredSession[] = []) {
       ]),
     ),
     launch: vi.fn<SessionOwnerDependencies["launch"]>((entry) => {
-      rows.set(entry.id, { ...entry, dormant: false, exited: false });
+      const replacement = { ...entry, dormant: false, exited: false };
+      delete replacement.parentId;
+      delete replacement.orchestrator;
+      rows.set(entry.id, replacement);
       return Promise.resolve(entry.id);
     }),
     onChange: vi.fn(),
@@ -212,15 +221,23 @@ it("marks every planned session busy before launching and preserves saved child 
   await work;
   expect(f.bind).toHaveBeenCalledWith("parent");
   expect(f.release).toHaveBeenCalledOnce();
-  expect(f.orchestration.restoreChild).toHaveBeenCalledWith("parent", { ...child, exited: false });
-  expect(f.orchestration.restoreChild).toHaveBeenCalledWith("parent", { ...exited, exited: true });
+  expect(f.orchestration.restoreChild).toHaveBeenCalledWith(
+    "parent",
+    { ...child, exited: false },
+    expect.any(Function),
+  );
+  expect(f.orchestration.restoreChild).toHaveBeenCalledWith(
+    "parent",
+    { ...exited, exited: true },
+    expect.any(Function),
+  );
   expect(f.deps.launch).toHaveBeenLastCalledWith(child, { parentId: "parent" }, undefined);
   expect(f.owner.isRestoring("child")).toBe(false);
   expect(f.owner.roleNotRestored("parent")).toBe(false);
   expect(f.deps.busy).toHaveBeenCalledWith("parent", false);
 });
 
-it.each(["disabled", "closed", "removed", "quitting"] as const)(
+it.each(["disabled", "closed", "removed", "claimed"] as const)(
   "skips queued launches when %s and releases markers",
   async (mode) => {
     const f = fixture([row("one"), row("two")]);
@@ -230,17 +247,17 @@ it.each(["disabled", "closed", "removed", "quitting"] as const)(
     const gate = Promise.withResolvers<string>();
     vi.mocked(f.deps.launch).mockImplementationOnce(() => gate.promise);
     await f.owner.restore();
-    if (mode === "quitting") await f.owner.prepareQuit();
     const work = f.owner.restartSaved();
     await vi.waitFor(() => {
-      if (mode !== "quitting") expect(f.deps.launch).toHaveBeenCalledOnce();
+      expect(f.deps.launch).toHaveBeenCalledOnce();
     });
     if (mode === "disabled") f.owner.configure(false);
     if (mode === "closed") vi.mocked(f.deps.closed).mockReturnValue(true);
     if (mode === "removed") f.rows.delete("two");
+    if (mode === "claimed") f.owner.claim("two");
     gate.resolve("one");
     await work;
-    expect(f.deps.launch).toHaveBeenCalledTimes(mode === "quitting" ? 0 : 1);
+    expect(f.deps.launch).toHaveBeenCalledOnce();
     expect(f.owner.isRestoring("two")).toBe(false);
     expect(f.deps.busy).toHaveBeenCalledWith("two", false);
   },
@@ -727,4 +744,343 @@ it("restores private review leases before rows and persists them without exposin
   ]);
   await h.owner.restartSaved();
   expect(h.deps.launch).not.toHaveBeenCalled();
+});
+
+it("keeps unverified parent links private for running and dormant children until the original grant ends", async () => {
+  const child = row("child", { parentId: "parent" });
+  const dormant = row("dormant", { parentId: "parent", running: false });
+  const refused = row("refused", { parentId: "parent" });
+  const f = fixture([parent(), child, dormant, refused]);
+  let parentActive = true;
+  f.orchestration.restoreChild.mockImplementation((_parent, entry) =>
+    Promise.resolve(entry.id === "refused" ? false : { parentStillActive: () => parentActive }),
+  );
+  await f.owner.restore();
+  await f.owner.restartSaved();
+  expect(f.deps.launch).toHaveBeenCalledWith(child, undefined, undefined);
+  expect(
+    f.orchestration.restoreChild.mock.calls.filter(([, entry]) => entry.id === child.id),
+  ).toHaveLength(1);
+  const persistedParent = (id: string) =>
+    f.store.save.mock.lastCall?.[0].find((entry) => entry.id === id)?.parentId;
+  expect(persistedParent(child.id)).toBe("parent");
+  expect(persistedParent(dormant.id)).toBe("parent");
+  expect(persistedParent(refused.id)).toBeUndefined();
+  expect(f.rows.get(child.id)).not.toHaveProperty("parentId");
+  expect(f.rows.get(dormant.id)).not.toHaveProperty("parentId");
+
+  f.owner.claim(child.id);
+  await f.owner.save();
+  expect(persistedParent(child.id)).toBeUndefined();
+  expect(persistedParent(dormant.id)).toBe("parent");
+  parentActive = false;
+  await f.owner.save();
+  expect(persistedParent(dormant.id)).toBeUndefined();
+});
+
+it.each([true, false])(
+  "suppresses claimed rows before stale discovery for saved running=%s",
+  async (running) => {
+    const previous = row("remote", {
+      running,
+      remote: true,
+      placement: { kind: "remote", host: "worker" },
+    });
+    const closed = { ...previous, id: "closed" };
+    const f = fixture([previous, closed]);
+    const discovery = Promise.withResolvers<readonly StoredSession[]>();
+    f.deps.discover = () => discovery.promise;
+    await f.owner.restore();
+    const restart = f.owner.restartSaved();
+    f.owner.claim(previous.id);
+    const current = f.rows.get(previous.id);
+    expect(f.owner.isRestoring(previous.id)).toBe(false);
+    await f.owner.save();
+    expect(f.store.save.mock.lastCall?.[0].find((entry) => entry.id === previous.id)?.running).toBe(
+      false,
+    );
+    f.owner.claim(closed.id);
+    f.rows.delete(closed.id);
+    discovery.resolve(
+      [previous, closed].map((entry) => ({ ...entry, running: true, recovered: true })),
+    );
+    await restart;
+    expect(f.deps.launch).not.toHaveBeenCalled();
+    expect(f.deps.busy).not.toHaveBeenCalled();
+    expect(f.rows.get(previous.id)).toBe(current);
+    expect(f.rows.has(closed.id)).toBe(false);
+  },
+);
+
+it("requires the parent's original startup grant before checking saved children", async () => {
+  const child = row("child", { parentId: "parent" });
+  const f = fixture([parent(), child]);
+  const discovery = Promise.withResolvers<readonly StoredSession[]>();
+  f.deps.discover = () => discovery.promise;
+  await f.owner.restore();
+  const restoring = f.owner.restartSaved();
+  f.owner.claim("parent");
+  // An ordinary manual invocation can later become an orchestrator at the
+  // same terminal ID. The old child link conveys no authority to its grant.
+  f.orchestration.view.mockImplementation((id) =>
+    id === "parent" ? { role: "orchestrator", active: true, children: 0, history: [] } : undefined,
+  );
+  f.orchestration.identity.mockReturnValue({ repository: "identity", worktree: "identity" });
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0].find((entry) => entry.id === child.id)).not.toHaveProperty(
+    "parentId",
+  );
+  discovery.resolve([]);
+  await restoring;
+  expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
+  expect(f.deps.launch).toHaveBeenCalledExactlyOnceWith(child, undefined, undefined);
+  expect(f.store.save.mock.lastCall?.[0].find((entry) => entry.id === child.id)).not.toHaveProperty(
+    "parentId",
+  );
+});
+
+it.each([false, true])(
+  "releases only the parent's dependents when its manual launch settles (started=%s)",
+  async (started) => {
+    const child = row("child", { parentId: "parent" });
+    const f = fixture([parent(), child]);
+    const discovery = Promise.withResolvers<readonly StoredSession[]>();
+    f.deps.discover = () => discovery.promise;
+    await f.owner.restore();
+    const settle = f.owner.reserveManualLaunch("parent");
+    const starting = f.owner.restartSaved();
+    discovery.resolve([]);
+    await starting;
+    await f.owner.save();
+    expect(f.deps.launch).not.toHaveBeenCalled();
+    expect(f.store.save.mock.lastCall?.[0][0]?.orchestrator).toBeDefined();
+    expect(f.store.save.mock.lastCall?.[0][1]?.parentId).toBe("parent");
+
+    if (started) {
+      const manual = row("parent", { exited: false, dormant: false });
+      f.rows.set(manual.id, manual);
+      // The launch path persists the new invocation before returning its ID.
+      await f.owner.save();
+      expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("orchestrator");
+      expect(f.store.save.mock.lastCall?.[0][1]).not.toHaveProperty("parentId");
+    }
+    settle(started);
+    await vi.waitFor(() => {
+      expect(
+        vi.mocked(f.deps.launch).mock.calls.map(([entry, control]) => [entry.id, control]),
+      ).toEqual(
+        started
+          ? [["child", undefined]]
+          : [
+              ["parent", { role: "orchestrator" }],
+              ["child", { parentId: "parent" }],
+            ],
+      );
+    });
+  },
+);
+
+it("delays daemon reconciliation for an exited row until a manual claim is released", async () => {
+  const remote = row("remote", {
+    running: false,
+    remote: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+  const f = fixture([remote]);
+  f.deps.discover = () => Promise.resolve([{ ...remote, running: true, recovered: true }]);
+  await f.owner.restore();
+  const settle = f.owner.reserveManualLaunch(remote.id);
+  const starting = f.owner.restartSaved();
+  await starting;
+  expect(f.deps.launch).not.toHaveBeenCalled();
+  settle(false);
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: remote.id, recovered: true }),
+      undefined,
+      undefined,
+    );
+  });
+});
+
+it("restores unrelated rows and freezes saved provenance while a parent's manual confirmation stays open", async () => {
+  const savedParent = parent();
+  const child = row("child", { parentId: savedParent.id });
+  const dormant = row("dormant", { parentId: savedParent.id, running: false });
+  const peer = row("same-checkout", { worktree: savedParent.worktree });
+  const unrelated = row("unrelated");
+  const f = fixture([savedParent, child, dormant, peer, unrelated]);
+  const discovery = Promise.withResolvers<readonly StoredSession[]>();
+  f.deps.discover = () => discovery.promise;
+  await f.owner.restore();
+  const settle = f.owner.reserveManualLaunch(savedParent.id);
+  const starting = f.owner.restartSaved();
+  discovery.resolve([]);
+
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledExactlyOnceWith(unrelated, undefined, undefined);
+  });
+  await f.owner.prepareQuit();
+  expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
+  expect(f.store.flush).toHaveBeenCalledOnce();
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
+    { id: savedParent.id, running: true, orchestrator: savedParent.orchestrator },
+    { id: child.id, running: true, parentId: savedParent.id },
+    { id: dormant.id, running: false, parentId: savedParent.id },
+    { id: peer.id, running: true },
+    { id: unrelated.id, running: true },
+  ]);
+  settle(false);
+  await starting;
+  expect(f.deps.launch).toHaveBeenCalledOnce();
+
+  f.owner.cancelQuit();
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledWith(
+      savedParent,
+      { role: "orchestrator" },
+      expect.anything(),
+    );
+    expect(f.deps.launch).toHaveBeenCalledWith(child, { parentId: savedParent.id }, undefined);
+    expect(f.deps.launch).toHaveBeenCalledWith(peer, undefined, undefined);
+    expect(
+      f.orchestration.restoreChild.mock.calls.some(([, entry]) => entry.id === dormant.id),
+    ).toBe(true);
+  });
+});
+
+it("defers an exited child's link without holding up startup or quit", async () => {
+  const savedParent = parent();
+  const dormant = row("dormant", { parentId: savedParent.id, running: false });
+  const unrelated = row("unrelated");
+  const f = fixture([savedParent, dormant, unrelated]);
+  f.orchestration.identity.mockReturnValue({ repository: "identity", worktree: "identity" });
+  f.orchestration.view.mockImplementation((id) =>
+    id === savedParent.id && f.bind.mock.calls.length
+      ? { role: "orchestrator", active: true, children: 0, history: [] }
+      : undefined,
+  );
+  await f.owner.restore();
+  const settle = f.owner.reserveManualLaunch(dormant.id);
+  const starting = f.owner.restartSaved();
+
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledWith(unrelated, undefined, undefined);
+  });
+  await f.owner.prepareQuit();
+  expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
+    { id: savedParent.id, running: true, orchestrator: savedParent.orchestrator },
+    { id: dormant.id, running: false, parentId: savedParent.id },
+    { id: unrelated.id, running: true },
+  ]);
+  settle(false);
+  await starting;
+  expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
+
+  f.owner.cancelQuit();
+  await vi.waitFor(() => {
+    expect(f.orchestration.restoreChild).toHaveBeenCalledExactlyOnceWith(
+      savedParent.id,
+      { ...dormant, exited: true },
+      expect.any(Function),
+    );
+  });
+  expect(f.deps.launch).toHaveBeenCalledTimes(2);
+});
+
+it("drops deferred child provenance when its original checkout identity is superseded", async () => {
+  const dormant = row("dormant", { parentId: "parent", running: false });
+  const tree = { path: dormant.worktree, identity: "original", state: "used" as const };
+  const savedParent = parent({
+    orchestrator: {
+      identity: "identity",
+      worktreeIdentity: "identity",
+      history: [],
+      worktrees: [tree],
+    },
+  });
+  const f = fixture([savedParent, dormant]);
+  f.orchestration.savedWorktrees.mockReturnValue([tree]);
+  await f.owner.restore();
+  const settle = f.owner.reserveManualLaunch(dormant.id);
+  await f.owner.restartSaved();
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0][1]?.parentId).toBe(savedParent.id);
+
+  f.orchestration.savedWorktrees.mockReturnValue([{ ...tree, identity: "replacement" }]);
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0][1]).not.toHaveProperty("parentId");
+  vi.mocked(f.deps.busy).mockClear();
+  settle(false);
+  await f.owner.prepareQuit();
+  expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
+  expect(f.deps.busy).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  "lets unrelated launches and quit proceed during a child check (cancel quit=%s)",
+  async (cancelQuit) => {
+    const savedParent = parent();
+    const dormant = row("dormant", { parentId: savedParent.id, running: false });
+    const unrelated = row("unrelated");
+    const f = fixture([savedParent, dormant, unrelated]);
+    const probe = Promise.withResolvers<undefined>();
+    const accepted = vi.fn();
+    f.orchestration.restoreChild.mockImplementation(async (_id, _entry, eligible) => {
+      await probe.promise;
+      const allowed = eligible?.() === true;
+      accepted(allowed);
+      return allowed;
+    });
+    await f.owner.restore();
+    const settleChild = f.owner.reserveManualLaunch(dormant.id);
+    const settleUnrelated = f.owner.reserveManualLaunch(unrelated.id);
+    await f.owner.restartSaved();
+
+    settleChild(false);
+    expect(f.orchestration.restoreChild).toHaveBeenCalledOnce();
+    try {
+      settleUnrelated(false);
+      await vi.waitFor(() => {
+        expect(f.deps.launch).toHaveBeenCalledWith(unrelated, undefined, undefined);
+      });
+      await f.owner.prepareQuit();
+      expect(f.store.save.mock.lastCall?.[0][1]?.parentId).toBe(savedParent.id);
+      expect(accepted).not.toHaveBeenCalled();
+      if (cancelQuit) f.owner.cancelQuit();
+    } finally {
+      probe.resolve(undefined);
+    }
+    await vi.waitFor(() => {
+      expect(accepted.mock.calls).toEqual(cancelQuit ? [[false], [true]] : [[false]]);
+      expect(f.deps.busy).toHaveBeenCalledWith(dormant.id, false);
+    });
+  },
+);
+
+it("drops the old deferred child link before reattaching a discovered daemon invocation", async () => {
+  const savedParent = parent();
+  const remoteChild = row("remote-child", {
+    parentId: savedParent.id,
+    running: false,
+    remote: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+  const discovered = { ...remoteChild, running: true, recovered: true as const };
+  delete discovered.parentId;
+  const f = fixture([savedParent, remoteChild]);
+  f.deps.discover = () => Promise.resolve([discovered]);
+  await f.owner.restore();
+  const settle = f.owner.reserveManualLaunch(remoteChild.id);
+  await f.owner.restartSaved();
+  expect(f.deps.launch).toHaveBeenCalledOnce();
+
+  settle(false);
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenLastCalledWith(discovered, undefined, undefined);
+  });
+  await f.owner.prepareQuit();
+  expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
+  expect(f.store.save.mock.lastCall?.[0][1]).not.toHaveProperty("parentId");
 });
