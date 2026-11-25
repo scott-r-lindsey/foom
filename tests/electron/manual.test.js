@@ -287,7 +287,7 @@ test("bundled manual search supports keyboard navigation and section jumps", asy
     .poll(() => run("typeof document.querySelector('#manual-query')?.oninput"))
     .toBe("object");
   const index = JSON.parse(await readFile("build/manual/sections.json", "utf8"));
-  assert.equal(index.length, 14);
+  assert.equal(index.length, 15);
   assert.match(
     index.find((section) => section.id === "orchestrator-playbook").text,
     /foreground blocking shell call/,
@@ -323,11 +323,11 @@ test("bundled manual search supports keyboard navigation and section jumps", asy
   );
   await key("f", [process.platform === "darwin" ? "meta" : "control"]);
   await expect.poll(() => run("document.activeElement.id")).toBe("manual-query");
-  await type("resumable");
+  await type("glibc");
   await expect.poll(() => run("document.querySelectorAll('[role=option]').length")).toBe(1);
-  assert.match(await run("document.querySelector('[role=option] span').textContent"), /resumable/);
+  assert.match(await run("document.querySelector('[role=option] span').textContent"), /glibc/);
   await key("Return");
-  await expect.poll(() => run("document.activeElement.id")).toBe("repositories");
+  await expect.poll(() => run("document.activeElement.id")).toBe("registered-hosts");
   await key("/");
   await type("no-section-matches-this");
   await expect.poll(() => run("document.querySelectorAll('[role=option]').length")).toBe(0);
