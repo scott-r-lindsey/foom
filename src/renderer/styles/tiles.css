@@ -491,9 +491,11 @@
 .direction-pad button[aria-disabled="true"] polygon {
   stroke-dasharray: 2 2;
 }
-.direction-pad button:hover:not([aria-disabled="true"]) polygon,
-.direction-pad button:focus-visible polygon {
+.direction-pad button:not([aria-disabled="true"]):is(:hover, :focus-visible) polygon {
   fill: var(--raised-hover);
+  stroke: var(--highlight);
+}
+.direction-pad button:focus-visible polygon {
   stroke: var(--highlight);
 }
 .pad-reason {
