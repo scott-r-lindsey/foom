@@ -93,6 +93,7 @@ export class OrchestrationAuthority {
   private readonly resumeConsent = new Set<string>();
   private readonly parentResumes = new Map<string, { exited: boolean }>();
   private readonly slots = new Map<string, Parent>();
+  private readonly pendingWorktreeProofs = new WeakMap<Parent, Map<string, OwnedWorktree>>();
   private readonly parents = new Map<string, Parent>();
   protected readonly early = new Set<string>();
   protected readonly metadata: SessionMetadata;
@@ -462,9 +463,10 @@ export class OrchestrationAuthority {
 
   /** Keep the original identities for the next startup, outside live ownership. */
   savedWorktrees(id: string): OwnedWorktree[] {
-    const saved = new Map<string, OwnedWorktree>();
-    for (const tree of this.parents.get(id)?.unverifiedWorktrees.values() ?? [])
-      saved.set(tree.path, tree);
+    const parent = this.parents.get(id);
+    if (!parent) return [];
+    const saved = new Map(this.pendingWorktreeProofs.get(parent));
+    for (const tree of parent.unverifiedWorktrees.values()) saved.set(tree.path, tree);
     for (const tree of this.ownedWorktrees(id)) saved.set(tree.path, tree);
     return [...saved.values()];
   }
@@ -478,11 +480,16 @@ export class OrchestrationAuthority {
     const parent = this.parents.get(id);
     if (!parent?.active) return;
     parent.uncertain = uncertain;
+    // A quit snapshot can precede the remaining identity checks. Keep their
+    // original proof in persistence while live authority still requires validation.
+    const pending = new Map(trees.map((tree) => [tree.path, tree]));
+    this.pendingWorktreeProofs.set(parent, pending);
     for (const saved of trees) {
       const tree = await this.host
         .restoreWorktree(parent.repository, saved.path)
         .catch(restoreWorktreeFailure);
       if (this.slots.get(parent.repository) !== parent) return;
+      pending.delete(saved.path);
       const key = locationId(saved.path);
       const owned = parent.worktrees.get(key);
       if (owned && owned.identity !== saved.identity) {

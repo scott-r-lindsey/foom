@@ -36,11 +36,14 @@ and config path in `sidebar-commands.ts`; launch/removal locks, terminal queues
 and cancellation remain in `workspace-context.ts`. Execution and
 verdict state belong to `ExecutionOwner`. No owner receives the facade or coordinator object
 or owns PTYs or terminal views.
-Quit preparation waits for active startup work, then freezes and flushes the
-running records before PTYs stop. Pending launch confirmations stay outside this
-wait. Their queued rows keep their saved running state and private provenance.
-Failed preparation or cancelled quit re-enables persistence and resumes ready
-startup work.
+Quit preparation pauses startup dispatch and gives already-dispatched launches up
+to one second to settle. Remote discovery and pending launch confirmations stay
+outside that wait. Main then freezes and flushes the running records before PTYs
+stop. Queued and unfinished rows keep their saved running intent. Once frozen,
+startup cannot begin a PTY creation or publish late discovery. Outstanding
+checkout identity proofs stay private and are checked again on the next start.
+Failed preparation or terminal shutdown releases the pause and resumes the same
+startup work. Declining the quit confirmation leaves startup running.
 The coordinator still releases agents and control/hook services after terminals stop,
 then asks the owner to drain session writes.
 

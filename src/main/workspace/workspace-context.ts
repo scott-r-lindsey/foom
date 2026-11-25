@@ -17,6 +17,7 @@ import * as orchestrationCommands from "./orchestration-commands";
 
 import type { ActionLogPage } from "../../shared/action-log";
 import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
+import type { TerminalSpec } from "../../shared/desktop";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { ExecutionTransition } from "../../shared/execution";
 import type { Settings } from "../../shared/setup";
@@ -375,7 +376,7 @@ export class WorkspaceContext {
           const result = await reattachRemoteSession(
             entry,
             registeredHosts,
-            deps.terminals,
+            { create: this.createTerminal.bind(this) },
             (request) => this.agents.launch(request),
             control,
             control && "parentId" in control
@@ -432,7 +433,7 @@ export class WorkspaceContext {
       ? deps.agents(prepare, prepareControl)
       : new AgentService(
           deps.worktrees,
-          deps.terminals,
+          { create: this.createTerminal.bind(this) },
           prepare,
           prepareControl,
           this.agyPlugin,
@@ -517,6 +518,16 @@ export class WorkspaceContext {
 
   persist(): void {
     this.sessions.persist();
+  }
+
+  async createTerminal(spec: TerminalSpec): Promise<string> {
+    let pause = this.sessions.restoreSpawnPause(spec.id);
+    while (pause) {
+      await pause;
+      pause = this.sessions.restoreSpawnPause(spec.id);
+    }
+    if (this.closed) throw new Error("Workspace is closed");
+    return this.deps.terminals.create(spec);
   }
 
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
@@ -1041,6 +1052,7 @@ export class WorkspaceContext {
     if (this.closed) return;
     this.unsubscribeHostRemoval?.();
     this.closed = true;
+    this.sessions.finishQuit();
     this.launchAbort.abort();
     await (await this.probeHttp?.catch(() => undefined))?.close();
     await this.cleanup.dispose();

@@ -34,6 +34,29 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Quit during session restoration (#1303)
+
+On the pre-fix build under Xvfb, holding profile-scoped discovery after its
+inventory read prevented native quit acknowledgement within the existing
+eight-second harness deadline. Holding shell environment preparation for the
+second saved shell produced the same result after the trusted quit confirmation,
+with a third shell queued on the same path. Native quit acknowledgement arrived
+after the gates were released. The fixtures use the ordinary launch and quit paths.
+
+Existing deadlines cover individual steps. SSH connect uses 10 seconds, and
+inventory transport allows 120 seconds for initial bootstrap and up to seven
+minutes for management after negotiation, per host. Host discovery visits
+registered hosts serially. Local Git calls default to 30 seconds, agent probes
+use five seconds, and local terminal creation has a 10-second host-request
+deadline. Remote creation allows 125 seconds, plus 120 seconds for agent or
+machine preparation. Quit now has its own grace period for already-dispatched
+restores.
+
+The regressions observe normal exit with the gates still held, verify the
+saved running rows by relaunching the profile, and exercise both declining the
+real confirmation and a terminal-shutdown failure. A shell that reaches PTY
+creation during the failed quit waits until the app releases the pause.
+
 ## Settings saves before comparison (#1253)
 
 The zoom test waits for the Foom keyboard shortcut to update both saved and

@@ -1,7 +1,7 @@
 const { createRequire } = require("node:module");
 const path = require("node:path");
 
-function install(entry, { holdDiscovery, failChildChecks }) {
+function install(entry, { holdDiscovery, failChildChecks, holdShell, failShutdown }) {
   const load = createRequire(path.join(entry, "package.json"));
   const { Workspace } = load("./build/main/workspace/workspace.js");
   const restart = Workspace.prototype.restartSaved;
@@ -28,8 +28,48 @@ function install(entry, { holdDiscovery, failChildChecks }) {
     Hosts.prototype.sessions = async function () {
       const rows = await sessions.call(this);
       state.captured = rows.map(({ session }) => session.id).sort();
+      state.discoveryWaiting = true;
       await gate;
       return rows;
+    };
+  }
+  if (holdShell) {
+    const launches = load("./build/main/workspace/worktree-launch.js");
+    const shellEnvironment = launches.shellEnvironment;
+    let shells = 0;
+    const gate = new Promise((resolve) => {
+      state.releaseShell = resolve;
+    });
+    launches.shellEnvironment = async function (...args) {
+      const held = ++shells === holdShell;
+      if (held) {
+        state.shellWaiting = true;
+        await gate;
+      }
+      const environment = await shellEnvironment.apply(this, args);
+      if (held) state.shellPrepared = true;
+      return environment;
+    };
+  }
+  if (failShutdown) {
+    const { dialog } = require("electron");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    const create = TerminalHostClient.prototype.create;
+    state.spawns = [];
+    TerminalHostClient.prototype.create = function (spec) {
+      state.spawns.push(spec.id);
+      return create.call(this, spec);
+    };
+    const shutdown = TerminalHostClient.prototype.shutdown;
+    TerminalHostClient.prototype.shutdown = function () {
+      if (state.shutdownWaiting) return shutdown.call(this);
+      state.shutdownWaiting = true;
+      return new Promise((_, reject) => {
+        state.failShutdown = () => reject(new Error("Fixture shutdown failure"));
+      });
+    };
+    dialog.showErrorBox = () => {
+      state.quitFailed = true;
     };
   }
   if (failChildChecks) {

@@ -12,6 +12,7 @@ const {
   boardPage,
   approvalPage,
   clickApproval,
+  confirmationPage,
   launchApp,
   quitAndWait,
   removeAfterApps,
@@ -529,3 +530,121 @@ req.end(JSON.stringify(payload));
       .poll(() => rows(off))
       .toMatchObject(beforeDisabled.map(({ id }) => ({ id, exited: true, dormant: true })));
   });
+
+async function savedShells(context, ids) {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-quit-restore-")));
+  removeAfterApps(context, root);
+  const sessions = path.join(root, "sessions.json");
+  const shell = { agent: "shell", home: true, repository: root, worktree: root, branch: null };
+  await writeFile(sessions, JSON.stringify(ids.map((id) => ({ ...shell, id, running: true }))));
+  return {
+    sessions,
+    options: { fixture: "restored", home: root, args: [`--user-data-dir=${root}`] },
+  };
+}
+
+async function quitDialog(app) {
+  await app.evaluate(({ app }) => app.quit());
+  return confirmationPage(app, /^Quit with .* terminals? running\?$/);
+}
+
+test("quit preserves a saved shell while startup discovery is stalled", {
+  timeout: deadline(90000),
+}, async (context) => {
+  const { options, sessions } = await savedShells(context, ["saved-shell"]);
+  const app = await launchApp(context, { ...options, restoreFixture: { holdDiscovery: true } });
+  const child = app.process();
+  try {
+    await expect
+      .poll(() => app.evaluate(() => globalThis.restoreFixture.discoveryWaiting))
+      .toBe(true);
+    await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  } finally {
+    if (child.exitCode === null && child.signalCode === null)
+      await app.evaluate(() => globalThis.restoreFixture.release());
+  }
+  assert.equal(JSON.parse(await readFile(sessions, "utf8"))[0].running, true);
+});
+
+for (const outcome of ["confirm", "cancel", "failed shutdown"]) {
+  test(`quit during a stalled startup launch preserves saved shells (${outcome})`, {
+    timeout: deadline(90000),
+  }, async (context) => {
+    const ids = ["live-shell", "stalled-shell", "queued-shell"];
+    const { options, sessions } = await savedShells(context, ids);
+    const app = await launchApp(context, {
+      ...options,
+      restoreFixture: { holdShell: 2, failShutdown: outcome === "failed shutdown" },
+    });
+    const child = app.process();
+    const board = await boardPage(app);
+    try {
+      await expect
+        .poll(() => app.evaluate(() => globalThis.restoreFixture.shellWaiting))
+        .toBe(true);
+      const accept = async () => {
+        const dialog = await quitDialog(app);
+        await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+      };
+      if (outcome === "confirm") {
+        await quitAndWait(app, accept);
+        const saved = JSON.parse(await readFile(sessions, "utf8"));
+        assert.deepEqual(
+          saved.map(({ id, running }) => [id, running]),
+          ids.map((id) => [id, true]),
+        );
+        const restored = await launchApp(context, options);
+        await expect
+          .poll(async () => {
+            const page = await boardPage(restored);
+            const { terminals } = await page.evaluate(() => window.desktop.workspace());
+            return terminals.filter((row) => !row.exited && !row.dormant).map((row) => row.id);
+          })
+          .toEqual(ids);
+      } else {
+        if (outcome === "cancel") {
+          const dialog = await quitDialog(app);
+          await dialog.getByRole("button", { name: "Cancel" }).click();
+        } else {
+          await accept();
+          await expect
+            .poll(() => app.evaluate(() => globalThis.restoreFixture.shutdownWaiting))
+            .toBe(true);
+        }
+        await app.evaluate(() => globalThis.restoreFixture.releaseShell());
+        if (outcome === "failed shutdown") {
+          await expect
+            .poll(() => app.evaluate(() => globalThis.restoreFixture.shellPrepared))
+            .toBe(true);
+          assert.deepEqual(await app.evaluate(() => globalThis.restoreFixture.spawns), [
+            "live-shell",
+          ]);
+          await app.evaluate(() => globalThis.restoreFixture.failShutdown());
+          await expect
+            .poll(() => app.evaluate(() => globalThis.restoreFixture.quitFailed))
+            .toBe(true);
+        }
+        await expect
+          .poll(async () => {
+            const { terminals } = await board.evaluate(() => window.desktop.workspace());
+            return terminals.filter((row) => !row.exited && !row.dormant).map((row) => row.id);
+          })
+          .toEqual(ids);
+        await board.evaluate(() => window.desktop.kill("queued-shell"));
+        await expect
+          .poll(async () => {
+            const { terminals } = await board.evaluate(() => window.desktop.workspace());
+            return terminals.some((row) => row.id === "queued-shell");
+          })
+          .toBe(false);
+      }
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        await app.evaluate(() => {
+          globalThis.restoreFixture.releaseShell();
+          globalThis.restoreFixture.failShutdown?.();
+        });
+      }
+    }
+  });
+}
