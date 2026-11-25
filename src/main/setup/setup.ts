@@ -310,7 +310,10 @@ export class Setup {
       for (const [agent, choice] of Object.entries(choices)) {
         if (!choice) continue;
         const provider = agentProviders().find(({ id }) => id === agent);
-        if (!provider?.model.permissionLevels || (registration && provider.origin !== "bundled"))
+        if (
+          !provider?.model.permissionLevels?.[choice.level] ||
+          (registration && provider.origin !== "bundled")
+        )
           throw new Error("This agent does not declare permission levels for this machine.");
         checkPermissionConflicts(provider.model, before.agentArguments[agent] ?? []);
         if (choice.level !== "full") continue;

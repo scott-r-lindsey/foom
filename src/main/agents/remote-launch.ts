@@ -91,12 +91,14 @@ export async function launchRemoteChild(
           worktree: request.worktree,
           branch: request.remoteCheckout?.branch ?? null,
           agent: request.agent,
+          ...(request.reviewer ? { reviewer: true } : {}),
         },
         agent: {
           ...(request.pressure ? { pressure: request.pressure } : {}),
           spec: {
             ...(request.pressure ? { childPressure: true } : {}),
             agent: request.agent,
+            ...(request.reviewer ? { reviewer: true } : {}),
             repository: mapping.repository,
             worktree: mapping.worktree,
             defaults: [...defaults],

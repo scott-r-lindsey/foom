@@ -10,6 +10,7 @@ export interface RemoteReviewSnapshot {
 import type { HookSignal } from "./hooks";
 /** Main-only mapping; paths authorize nothing without the selected local checkout. */
 export interface RemoteAgentSpec {
+  reviewer?: true;
   childPressure?: true;
   agent: string;
   repository: string;

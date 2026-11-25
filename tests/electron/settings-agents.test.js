@@ -1766,6 +1766,22 @@ else {
     await selector.selectOption("workspace");
     await expect(selector).toHaveValue("workspace");
     await capture(page.locator(".agents-scoped"), `settings-${theme}.png`);
+    await page.getByRole("tab", { name: "Machines", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Machine", exact: true })).toHaveValue("local");
+    await expect(selector).toHaveValue("");
+    await selector.selectOption("ask");
+    await expect(selector).toHaveValue("ask");
+    assert.equal(
+      (await page.evaluate(() => window.desktop.setupState())).settings.agentPermissions.global
+        .codex.level,
+      "workspace",
+    );
+    await selector.scrollIntoViewIfNeeded();
+    await capture(page.locator(".agents-scoped"), `machine-override-${theme}.png`);
+    await selector.selectOption("");
+    await expect(selector).toHaveValue("");
+    await page.getByRole("tab", { name: "Global", exact: true }).click();
+    await expect(selector).toHaveValue("workspace");
     await selector.selectOption("full");
     const disclosure = await confirmationPage(app, "Allow Full access for Codex?");
     await expect(disclosure.getByRole("alertdialog")).toContainText("including children");

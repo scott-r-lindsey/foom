@@ -43,5 +43,5 @@ execution/health integration. The v2 fixture is `tests/fixtures/agent-plugin.jso
 | Behavior | Declaration | Enforcement |
 | --- | --- | --- |
 | Ask, Workspace and Full access | Optional `permissionLevels` with three literal argv lists, conflict matchers and discovery condition | Main resolves Settings scope. Local and remote engines insert arguments in their defaults stage and refuse conflicts or an unavailable declaration. |
-| Known bypass | Existing `bypassArguments` and `bypassEnvironment` | Only the selected Full access list may supply bypass for a child. Acknowledgement is bound to the provider and scope. Reviewers retain their refusal. |
+| Known bypass | Existing `bypassArguments` and `bypassEnvironment` | Only the selected Full access list may supply bypass for a child. Acknowledgement is bound to the provider and scope. A reviewer's resolved Full access uses the manifest's Workspace level or refuses if absent. Other bypass sources still refuse. |
 | Launch evidence | Optional `permissionLevel` | Tile and `session-state` report the Foom-applied arguments as a level, subject to agent policy. |

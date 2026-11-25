@@ -62,7 +62,16 @@ it("refuses permission arguments placed after a terminator or declared without t
     "agent-permission-conflict",
   );
   const policy = model.permissionLevels;
-  if (!policy) throw new Error("Missing Codex permission declaration");
+  if (!policy?.workspace) throw new Error("Missing Codex Workspace declaration");
+  expect(() =>
+    applyPermissionArguments(
+      { ...model, permissionLevels: { ...policy, workspace: undefined } },
+      "workspace",
+      [],
+      0,
+      facts,
+    ),
+  ).toThrow("agent-permission-unavailable");
   const invalid = { ...model, permissionLevels: { ...policy, full: policy.workspace } };
   expect(() => applyPermissionArguments(invalid, "full", [], 0, facts)).toThrow(
     "Invalid agent permission declaration",

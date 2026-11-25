@@ -1,4 +1,7 @@
-import { applyPermissionArguments } from "../../../shared/agent-permission-arguments";
+import {
+  applyPermissionArguments,
+  availablePermissionLevels,
+} from "../../../shared/agent-permission-arguments";
 import { mcpTools } from "../../../shared/control-tools";
 import { extensionAsset } from "./extension-assets";
 import { writeOwnedFile } from "./v2-files";
@@ -85,7 +88,9 @@ export function v2Provider(
       );
       return {
         id: model.id,
-        ...(model.permissionLevels ? { permissionLevels: true } : {}),
+        ...(model.permissionLevels
+          ? { permissionLevels: availablePermissionLevels(model.permissionLevels) }
+          : {}),
         path,
         version: version || null,
         hooks: hookCapability(model, version, help),

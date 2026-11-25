@@ -28,6 +28,7 @@ export async function discoverRemoteSessions(
       branch: placed ? `${placed.branch} · ${host}` : null,
       ...(placed ? {} : { home: true }),
       ...(context?.machine ? { machine: true } : {}),
+      ...(context?.reviewer && agent !== "shell" ? { reviewer: true } : {}),
       ...(placed
         ? {
             remoteCheckout: {

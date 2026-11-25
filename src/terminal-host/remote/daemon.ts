@@ -1,3 +1,4 @@
+import { matchesArguments } from "../../shared/agent-argument-matchers";
 import {
   applyPermissionArguments,
   checkPermissionConflicts,
@@ -940,6 +941,15 @@ export function serveHost(
                 }
                 const defaults = machine.defaults ?? [];
                 let args = [...defaults];
+                if (
+                  model &&
+                  found &&
+                  machine.reviewer &&
+                  (machine.permissionLevel === "full" ||
+                    matchesArguments(model.bypassArguments, defaults) ||
+                    bypassEnvironment(model, found.env, false).length)
+                )
+                  throw new Error("Remote reviewer bypass is unavailable");
                 if (model && found && machine.permissionLevel) {
                   checkPermissionConflicts(model, defaults);
                   if (bypassEnvironment(model, found.env, false).length)

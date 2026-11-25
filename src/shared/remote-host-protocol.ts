@@ -73,7 +73,8 @@ export function profileTag(value: unknown): value is string {
 export function sessionContext(value: unknown): boolean {
   return (
     record(value) &&
-    keys(value, ["repository", "worktree", "branch", "agent", "machine"]) &&
+    keys(value, ["repository", "worktree", "branch", "agent", "machine", "reviewer"]) &&
+    (value["reviewer"] === undefined || value["reviewer"] === true) &&
     (value["machine"] === undefined || value["machine"] === true) &&
     remotePath(value["repository"]) &&
     remotePath(value["worktree"]) &&
@@ -202,7 +203,11 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
             "defaults",
             "repository",
             "permissionLevel",
+            "reviewer",
           ]) &&
+          (value["machine"]["reviewer"] === undefined ||
+            (value["machine"]["reviewer"] === true &&
+              typeof value["machine"]["agent"] === "string")) &&
           (value["machine"]["permissionLevel"] === undefined ||
             (typeof value["machine"]["agent"] === "string" &&
               agentPermissionLevel(value["machine"]["permissionLevel"]))) &&

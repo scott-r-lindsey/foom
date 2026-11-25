@@ -56,9 +56,12 @@ environment lists and argument-bypass acknowledgements keep the `claude` key.
 Bundled argument bypass retains the existing Settings/config-change acknowledgement
 flow. Environment bypass still requires human launch confirmation. Unattended
 children refuse bypass except for an explicitly acknowledged Full access choice
-in Settings (#1078). Reviewers still refuse bypass. Conversions may reuse an acknowledgement only for an
+in Settings (#1078). Reviewers use Workspace for a resolved Full access
+preference. Providers without Workspace refuse that launch. Conversions may
+reuse an acknowledgement only for an
 identical provider/disclosure identity. Main stores a SHA-256 of the provider
-origin and complete parsed manifest in profile-only `agentBypassIdentities` after
+origin and legacy launch declaration, excluding the independent managed
+permission declaration, in profile-only `agentBypassIdentities` after
 trusted Settings/config argument consent. ID-only acknowledgements for the three
 historically reserved IDs (`claude`, `codex`, `agy`) migrate only to their pinned
 historical build identities; changing the provider does not update that attestation.

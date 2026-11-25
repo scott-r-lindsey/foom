@@ -146,7 +146,7 @@ export function AgentsScopes(
         !builtinAgent(plugin.id) && !agentChoices(report).some((agent) => agent.id === plugin.id),
     ),
   ].sort((left, right) => left.name.localeCompare(right.name));
-  const permission = (id: string, name: string, supported?: boolean) => {
+  const permission = (id: string, name: string, supported?: readonly AgentPermissionLevel[]) => {
     if (!supported) return null;
     const value = state.settings.agentPermissions?.[scope]?.[id]?.level ?? "";
     const global = state.settings.agentPermissions?.["global"]?.[id]?.level;
@@ -188,9 +188,11 @@ export function AgentsScopes(
               : `Use Global · ${global ? agentPermissionLabels[global] : "Agent default"}`}
           </option>
           <option value="ask">Ask</option>
-          <option value="workspace" title="Git fetch and commit are blocked">
-            Workspace
-          </option>
+          {supported.includes("workspace") && (
+            <option value="workspace" title="Git fetch and commit are blocked">
+              Workspace
+            </option>
+          )}
           <option value="full">Full access</option>
         </select>
       </label>

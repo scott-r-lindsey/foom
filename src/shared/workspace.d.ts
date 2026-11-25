@@ -76,6 +76,8 @@ export interface WorkspaceTerminal {
   bypass?: boolean;
   /** Arguments Foom applied to this invocation. */
   permissionLevel?: AgentPermissionLevel;
+  /** Main-owned reviewer launch provenance retained on resume. */
+  reviewer?: true;
   home?: boolean;
   machine?: boolean;
   /** Runs in the Foom config folder; `repository` and `worktree` are that folder. */

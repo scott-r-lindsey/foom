@@ -784,12 +784,12 @@ function permissionLevels(v: unknown, p: string) {
   const d = object(
     v,
     p,
-    ["ask", "workspace", "full", "conflicts"],
-    ["minimum", "helpTokens", "when"],
+    ["ask", "full", "conflicts"],
+    ["workspace", "minimum", "helpTokens", "when"],
   );
   return {
     ask: permissionArgv(d["ask"], `${p}.ask`),
-    workspace: permissionArgv(d["workspace"], `${p}.workspace`),
+    workspace: optional(permissionArgv)(d["workspace"], `${p}.workspace`),
     full: permissionArgv(d["full"], `${p}.full`),
     conflicts: array(argumentMatcher, 32)(d["conflicts"], `${p}.conflicts`),
     minimum: optional(minimum)(d["minimum"], `${p}.minimum`),

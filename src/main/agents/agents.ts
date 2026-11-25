@@ -19,7 +19,10 @@ import { AgyPlugin } from "./agy-plugin";
 import { ManualMcp } from "../control/manual-mcp";
 import type { ControlLaunch } from "../control/types";
 import { hasBypassArgument, parseAgentArguments } from "./default-arguments";
-import { checkPermissionConflicts } from "../../shared/agent-permission-arguments";
+import {
+  availablePermissionLevels,
+  checkPermissionConflicts,
+} from "../../shared/agent-permission-arguments";
 import type { AgentPermissionSettings } from "../../shared/agent-permissions";
 import { bypassConsentIdentity } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
@@ -97,7 +100,9 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
   if (!executable || !probeEnabled)
     return {
       id,
-      ...(provider.model.permissionLevels ? { permissionLevels: true } : {}),
+      ...(provider.model.permissionLevels
+        ? { permissionLevels: availablePermissionLevels(provider.model.permissionLevels) }
+        : {}),
       path: executable,
       version: null,
       hooks: false,
@@ -190,22 +195,26 @@ export class AgentService {
       return { scope, choice: this.permissions[scope]?.[agent] ?? undefined };
     };
     const { scope, choice } = resolve();
+    const level = reviewer && choice?.level === "full" ? "workspace" : choice?.level;
+    if (reviewer && matchesArguments(provider.model.bypassArguments, defaults))
+      throw new ControlError("forbidden");
     if (choice) {
       checkPermissionConflicts(provider.model, defaults);
-      if (choice.level === "full") {
-        if (reviewer) throw new ControlError("forbidden");
+      if (level === "workspace" && !provider.model.permissionLevels?.workspace)
+        throw new ControlError("forbidden");
+      if (level === "full") {
         if (!choice.identity || choice.identity !== bypassConsentIdentity(provider, true))
           throw new ApplicationError("agent-permission-acknowledgement");
       }
     }
     return {
-      level: choice?.level,
+      level,
       validate: () => {
         const current = resolve();
         if (
           agentProvider(agent) !== provider ||
           current.choice?.level !== choice?.level ||
-          current.choice?.identity !== choice?.identity ||
+          (level === "full" && current.choice?.identity !== choice?.identity) ||
           (choice !== undefined && current.scope !== scope)
         )
           throw new Error("Agent permission settings changed. Try again.");
@@ -515,7 +524,7 @@ export class AgentService {
       if (permission?.level && environmentMatches.length)
         throw new Error("A bypass environment conflicts with the selected permission level.");
       if (bypass && permission?.level !== "full") {
-        if (request.control && "parentId" in request.control)
+        if (request.reviewer || (request.control && "parentId" in request.control))
           throw new Error("Unattended child bypass is unavailable");
         if (
           (provider.origin !== "bundled" ||

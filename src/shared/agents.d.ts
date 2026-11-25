@@ -25,7 +25,7 @@ export interface AgentInstallation {
   readonly restoreControl?: boolean;
   readonly source?: string;
   readonly bypassArguments?: readonly string[];
-  readonly permissionLevels?: true;
+  readonly permissionLevels?: readonly AgentPermissionLevel[];
   readonly setup?: AgentSetupStatus;
   readonly agyPlugin?: AgyPluginStatus;
   readonly inline?: boolean;

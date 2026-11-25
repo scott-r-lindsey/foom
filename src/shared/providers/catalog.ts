@@ -1,5 +1,6 @@
 import type { BuiltinAgentId } from "../agents";
 
+import { availablePermissionLevels } from "../agent-permission-arguments";
 import { bundledAgentData } from "../bundled-agent-data";
 
 /** Display and compatibility metadata only; the model owns bundled launch policy. */
@@ -14,7 +15,8 @@ const bundledPolicies = bundledAgentData.map((data) => ({
   pluginSetup: "setup" in data,
   completionHook: data.execution.completion === "attached",
   restoreControl: data.conversation.restoreControl,
-  permissionLevels: "permissionLevels" in data,
+  permissionLevels:
+    "permissionLevels" in data ? availablePermissionLevels(data.permissionLevels) : undefined,
 }));
 /** Built-in policy metadata shared with the UI; no process capabilities cross IPC. */
 export const BUILTIN_AGENTS = bundledPolicies;

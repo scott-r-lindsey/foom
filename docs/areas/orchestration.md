@@ -379,7 +379,12 @@ A regular child may use Full access only when main resolves an explicit
 Settings → Agents choice with matching scope and provider acknowledgement for
 its destination. Workspace is opt-in. The launch request, prompt, repository
 configuration and bypass default arguments carry no permission authority.
-Reviewers still refuse bypass, including a Full access preference. A fresh
-child or resumed conversation uses the current preference for its destination.
-A disconnected remote PTY keeps the original invocation when reattached.
+For loop and one-off reviewers, main substitutes the manifest's Workspace
+level for a resolved Full access preference. The reviewer role persists when
+a reviewer conversation is resumed. The substitution needs no Full access
+acknowledgement and refuses if Workspace is unavailable. Reviewers still
+refuse bypass from any other source. Reviewer reproductions remain limited by
+Workspace, including its read-only Git metadata. A fresh child or resumed
+conversation uses the current preference for its destination. A disconnected
+remote PTY keeps the original invocation when reattached.
 See [per-launch levels](agent-launch.md#per-launch-permission-levels-1078).

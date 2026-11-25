@@ -472,5 +472,16 @@ test("stores Foom's applied permission as metadata for reattach", async () => {
   const rows = readSessions([{ ...record, agent: "codex", permissionLevel: "full" }]);
   await store.save(rows);
   expect(await store.load()).toMatchObject([{ permissionLevel: "full", bypass: true }]);
+  const reviewers = readSessions([
+    { ...record, agent: "codex", permissionLevel: "workspace", reviewer: true },
+  ]);
+  await store.save(reviewers);
+  expect(await store.load()).toMatchObject([
+    { permissionLevel: "workspace", bypass: false, reviewer: true },
+  ]);
+  expect(() => readSessions([{ ...record, permissionLevel: "full", reviewer: true }])).toThrow(
+    "Invalid",
+  );
+
   expect(() => readSessions([{ ...record, permissionLevel: "unknown" }])).toThrow("Invalid");
 });

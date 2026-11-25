@@ -1,3 +1,8 @@
+import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { bypassConsentIdentity } from "../../../../src/main/agents/default-arguments";
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import {
@@ -449,7 +454,7 @@ describe("main-owned permission levels", () => {
     }
   });
 
-  it("refuses conflict, unacknowledged or stale Full access, reviewers, and unsupported CLI versions", async () => {
+  it("refuses conflict, unacknowledged or stale Full access, and unsupported CLI versions", async () => {
     const identity = bypassConsentIdentity("codex", true);
     if (!identity) throw new Error("Missing fixture provider");
     const child = { ...request, agent: "codex", control: { parentId: "parent" } };
@@ -464,9 +469,6 @@ describe("main-owned permission levels", () => {
       /agent-permission-acknowledgement/,
     );
     agentFixture.service.setPermissionLevels({ global: { codex: { level: "full", identity } } });
-    await expect(agentFixture.service.launch({ ...child, reviewer: true })).rejects.toThrow(
-      /forbidden/i,
-    );
     for (const args of [
       ["-sworkspace-write"],
       ["--ask-for-approval=on-request"],
@@ -480,6 +482,77 @@ describe("main-owned permission levels", () => {
     await expect(agentFixture.service.launch(child)).rejects.toThrow(
       /agent-permission-unavailable/,
     );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("uses Workspace for a reviewer with unacknowledged Full access on launch and resume", async () => {
+    const service = agentFixture.service;
+    service.setPermissionLevels({ global: { codex: { level: "full" } } });
+    service.setHooksEnabled(false);
+    const previous = versions.codex;
+    versions.codex = "codex-cli 0.167.0";
+    agentFixture.help = "--sandbox --ask-for-approval -c";
+    try {
+      const reviewer = { ...request, agent: "codex", reviewer: true as const };
+      for (const conversationId of [undefined, "01944544-60f0-7fab-b4fc-959a5f56da5a"]) {
+        const launched = await service.launch({
+          ...reviewer,
+          ...(conversationId ? { conversationId } : {}),
+        });
+        expect(launched).toMatchObject({ permissionLevel: "workspace", bypass: false });
+        expect(create.mock.lastCall?.[0].args).toContain("workspace-write");
+        expect(create.mock.lastCall?.[0].args).not.toContain("danger-full-access");
+        service.release(launched.id);
+      }
+      await expect(
+        service.launch({
+          ...reviewer,
+          defaultArguments: ["--dangerously-bypass-approvals-and-sandbox"],
+        }),
+      ).rejects.toThrow(/forbidden/i);
+      expect(create).toHaveBeenCalledTimes(2);
+    } finally {
+      versions.codex = previous;
+    }
+  });
+
+  it("refuses a Full-only provider for reviewers and still refuses bypass environment", async () => {
+    const { model } = agentProvider("codex");
+    if (!model.permissionLevels) throw new Error("Missing fixture provider");
+    const id = "codex-full-only";
+    replaceConfigProviders([
+      v2Provider(
+        {
+          ...model,
+          id,
+          permissionLevels: { ...model.permissionLevels, workspace: undefined },
+          bypassEnvironment: [
+            {
+              name: "FIXTURE_BYPASS",
+              match: "present-nonempty",
+              values: undefined,
+              trim: false,
+              caseInsensitive: false,
+            },
+          ],
+        },
+        () => Promise.resolve(),
+      ),
+    ]);
+    const service = agentFixture.service;
+    service.setEnabled({ [id]: true });
+    service.setPermissionLevels({ global: { [id]: { level: "full" } } });
+    expect(() => service.permissionForLaunch(id, undefined, [], true)).toThrow(/forbidden/i);
+    service.setPermissionLevels({});
+    service.setHooksEnabled(false);
+    await expect(
+      service.launch({
+        ...request,
+        agent: id,
+        reviewer: true,
+        environment: [[{ name: "FIXTURE_BYPASS", value: "1" }]],
+      }),
+    ).rejects.toThrow(/bypass is unavailable/);
     expect(create).not.toHaveBeenCalled();
   });
 

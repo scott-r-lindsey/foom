@@ -3294,7 +3294,12 @@ test.skipIf(process.platform === "win32")(
       reattach: false,
       human: true,
       profile: "a".repeat(32),
-      machine: { codeFolder: "/code", agent: "codex", permissionLevel: "workspace" },
+      machine: {
+        codeFolder: "/code",
+        agent: "codex",
+        permissionLevel: "workspace",
+        reviewer: true,
+      },
     });
     await c.wait(2);
     expect(c.messages[1]).toMatchObject({ type: "open-result", state: "live" });

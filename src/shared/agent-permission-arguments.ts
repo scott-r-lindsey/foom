@@ -14,6 +14,12 @@ export const agentPermissionLabels = {
   full: "Full access",
 } satisfies Record<AgentPermissionLevel, string>;
 
+export function availablePermissionLevels(policy: {
+  workspace?: readonly string[] | undefined;
+}): AgentPermissionLevel[] {
+  return policy.workspace ? ["ask", "workspace", "full"] : ["ask", "full"];
+}
+
 export function checkPermissionConflicts(model: AgentManifestV2, args: readonly string[]): void {
   if (
     !model.permissionLevels ||
@@ -42,6 +48,7 @@ export function applyPermissionArguments(
   )
     throw new ApplicationError("agent-permission-conflict");
   const permissionArgs = policy[level];
+  if (!permissionArgs) throw new ApplicationError("agent-permission-unavailable");
   if (matchesArguments(model.bypassArguments, permissionArgs) !== (level === "full"))
     throw new Error("Invalid agent permission declaration.");
   return [...args.slice(0, index), ...permissionArgs, ...args.slice(index)];

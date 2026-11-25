@@ -109,7 +109,7 @@ export async function prepareRemoteAgent(
   if (!model) throw new LaunchFailure("remote_agent_unsupported");
   if (request.permissionLevel) {
     checkPermissionConflicts(model, request.defaults);
-    if (request.reviewSnapshot && request.permissionLevel === "full")
+    if (request.reviewer && request.permissionLevel === "full")
       throw new Error("Remote reviewer bypass is unavailable");
   }
   const checkout = () =>
@@ -393,6 +393,8 @@ export async function prepareRemoteAgent(
       throw new Error("Remote child bypass is unavailable");
     for (const entry of model.launch.environment ?? [])
       if (selected(entry.when, facts)) env[entry.name] = expandV2(entry.value, values);
+    if (request.reviewer && bypassEnvironment(model, env, false).length)
+      throw new Error("Remote reviewer environment bypass is unavailable");
     if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");
     await validateReview(found.env);
     cancellation?.throwIfAborted();

@@ -1163,7 +1163,7 @@
     "permissionLevels": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ask", "workspace", "full", "conflicts"],
+      "required": ["ask", "full", "conflicts"],
       "properties": {
         "ask": {
           "$ref": "#/$defs/permissionArgv"

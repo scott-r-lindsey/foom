@@ -531,10 +531,11 @@ do not match remain queued; no real agent CLI runs in validation.
 
 ### Per-launch permission levels (#1078)
 
-An optional `permissionLevels` object declares literal argv arrays for `ask`,
-`workspace` and `full`, bounded `conflicts` using the argument matcher syntax,
+An optional `permissionLevels` object declares literal argv arrays for `ask`
+and `full`, an optional `workspace` array, bounded `conflicts` using the argument matcher syntax,
 and optional `minimum`, `helpTokens` and `when` discovery gates. The full list must match a
 declared bypass matcher. Ask and Workspace must not. These arguments are
-applied at the defaults stage only for a profile-owned choice. They are never
+applied at the defaults stage only for a profile-owned choice. A reviewer with a Full access preference requires a
+Workspace declaration. The arguments are never
 read from a repository launch request. Conflicting defaults fail before spawn.
 See [permission selection](areas/agent-launch.md#per-launch-permission-levels-1078).

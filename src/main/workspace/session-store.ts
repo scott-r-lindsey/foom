@@ -77,6 +77,7 @@ export function readSessions(value: unknown): StoredSession[] {
       parentId,
       providerOrigin,
       permissionLevel,
+      reviewer,
       remote,
       placement,
       remoteCheckout,
@@ -86,6 +87,8 @@ export function readSessions(value: unknown): StoredSession[] {
       sharedReview,
     } = data;
     if (
+      (reviewer !== undefined &&
+        (reviewer !== true || agent === "shell" || permissionLevel === "full")) ||
       (permissionLevel !== undefined &&
         (agent === "shell" || !agentPermissionLevel(permissionLevel))) ||
       (closeState !== undefined && closeState !== "closing" && closeState !== "failed") ||
@@ -177,6 +180,7 @@ export function readSessions(value: unknown): StoredSession[] {
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
       ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
+      ...(reviewer === true ? { reviewer: true as const } : {}),
       ...(remote === true ? { remote: true } : {}),
       ...(savedRemote(remoteCheckout) ? { remoteCheckout: { ...remoteCheckout } } : {}),
       ...(objectPlacement(placement) ? { placement } : {}),
@@ -225,6 +229,7 @@ export class SessionStore {
           conversationId,
           providerOrigin,
           permissionLevel,
+          reviewer,
           remote,
           placement,
           remoteCheckout,
@@ -259,6 +264,7 @@ export class SessionStore {
           conversationId,
           ...(providerOrigin ? { providerOrigin } : {}),
           ...(permissionLevel ? { permissionLevel } : {}),
+          ...(reviewer ? { reviewer } : {}),
           ...(remote ? { remote: true } : {}),
           ...(placement ? { placement } : {}),
           ...(remoteCheckout ? { remoteCheckout } : {}),

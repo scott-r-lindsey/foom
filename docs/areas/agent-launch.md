@@ -370,4 +370,39 @@ the host's effective provider policy.
   opt-in.
 - **Full access** requests danger-full-access and approval off, subject to
   managed requirements. Child launches may receive it only through this
-  Settings choice. Reviewers still refuse it.
+  Settings choice. Main substitutes Workspace for a configured Full access
+  level on a reviewer launch or resume, including on a registered host. This
+  uses the manifest's Workspace arguments and needs no Full access
+  acknowledgement. If Workspace is absent or unavailable, launch fails.
+  Other bypass arguments and environment values still refuse before spawn.
+
+
+### Reviewer handoff in Workspace
+
+Codex CLI 0.167.0 source, checked 2026-11-25, places local HTTP MCP requests
+in the Codex MCP runtime and launches local stdio MCP servers as child processes
+of that runtime. Foom uses HTTP MCP on the hub at `127.0.0.1`. On a registered
+host it uses a stdio helper that connects to Foom's private per-launch Unix
+socket on that same host. MCP therefore remains available on both paths, subject
+to provider and managed policy and the existing live reviewer grant.
+[Codex MCP transport](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/codex-mcp/src/rmcp_client.rs)
+· [Codex stdio launcher](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/rmcp-client/src/stdio_server_launcher.rs)
+
+The CLI fallback runs as a sandboxed shell command. On Linux, Workspace's
+enabled network policy keeps the host network namespace, so the local CLI
+can reach the hub's loopback HTTP endpoint. The registered Linux host's
+helper reaches its private filesystem Unix socket. On macOS, the ordinary
+network-enabled Seatbelt profile permits the local loopback HTTP path.
+Direct CLI access to the registered macOS Unix socket depends on the
+effective socket policy. Windows CLI loopback and helper execution were
+unverified. Use MCP when the CLI endpoint is unavailable. Managed
+network, filesystem or MCP policy can constrain these paths. Fixture tests
+exercise the Foom transports and arguments without running Codex.
+[Linux namespace policy](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/linux-sandbox/src/bwrap.rs)
+· [Linux socket policy](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/linux-sandbox/src/seccomp.rs)
+· [macOS Seatbelt policy](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/sandboxing/src/seatbelt.rs)
+
+Review reproductions inherit the Workspace sandbox. Reviewers can use the
+permitted checkout and network operations and report tests that could not be
+reproduced for lack of permissions. Git metadata stays read-only. The handoff
+uses the existing child capability and lifetime.

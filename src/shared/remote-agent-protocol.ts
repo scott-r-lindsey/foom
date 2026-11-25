@@ -57,8 +57,10 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
       "reviewSnapshot",
       "childPressure",
       "permissionLevel",
+      "reviewer",
     ]) &&
     (value["permissionLevel"] === undefined || agentPermissionLevel(value["permissionLevel"])) &&
+    (value["reviewer"] === undefined || value["reviewer"] === true) &&
     (value["childPressure"] === undefined || value["childPressure"] === true) &&
     (value["checkoutIdentity"] === undefined ||
       (typeof value["checkoutIdentity"] === "string" &&

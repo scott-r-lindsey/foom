@@ -14,6 +14,7 @@ import type { TerminalTheme } from "./terminal-theme";
 import type { HostRequest, HostResponse } from "./terminal-host";
 /** Main/daemon metadata only; never supplied to the PTY or remote launch files. */
 export interface RemoteSessionContext {
+  reviewer?: true;
   machine?: true;
   repository: string;
   worktree: string;
@@ -44,6 +45,7 @@ export interface RemoteInventoryResult {
   foreign: ForeignRemoteSession[];
 }
 export interface MachineLaunch {
+  reviewer?: true;
   permissionLevel?: AgentPermissionLevel;
   codeFolder: string;
   agent?: string;
