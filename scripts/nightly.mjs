@@ -4,6 +4,12 @@ import { globSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
+const platforms = ["darwin-arm64", "linux-x64", "win32-x64"];
+const installerPatterns = [/\.dmg$/, /\.deb$/, /\.rpm$/, /\.exe$/, /-full\.nupkg$/, /^RELEASES$/];
+const packagePrefix = (info) => `Foom-nightly-${info.day}-${info.short}-`;
+const digest = (data) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
+const checksumLine = (name, digest) => `${digest.slice(7)}  ${name}\n`;
+
 export function nightlyRequested(event, ref, input) {
   return (
     ref === "refs/heads/main" &&
@@ -56,24 +62,23 @@ export function buildIdentity() {
 
 export function assets(directory, info) {
   const files = globSync(`${directory}/**/*.zip`);
-  const platforms = ["darwin-arm64", "linux-x64", "win32-x64"];
+  const prefix = packagePrefix(info);
   if (files.length !== 3) throw new Error("Expected exactly three nightly ZIPs");
   const zips = platforms.map((platform) => {
     const matches = files.filter((file) => file.endsWith(`-${platform}-${info.version}.zip`));
     if (matches.length !== 1) throw new Error(`Missing or duplicate ${platform} nightly ZIP`);
     const data = readFileSync(matches[0]);
     if (data.length < 4 || data.readUInt32LE(0) !== 0x04034b50) throw new Error("Invalid ZIP");
-    return { name: `Foom-nightly-${info.day}-${info.short}-${platform}.zip`, data };
+    return { name: `${prefix}${platform}.zip`, data };
   });
   const installers = globSync(`${directory}/**/*`).filter(
     (file) => /\.(dmg|deb|rpm|exe|nupkg)$/.test(file) || basename(file) === "RELEASES",
   );
-  for (const pattern of [/\.dmg$/, /\.deb$/, /\.rpm$/, /\.exe$/, /-full\.nupkg$/, /[/\\]RELEASES$/])
-    if (installers.filter((file) => pattern.test(file)).length !== 1)
+  for (const pattern of installerPatterns)
+    if (installers.filter((file) => pattern.test(basename(file))).length !== 1)
       throw new Error("Missing or duplicate nightly installer");
   if (installers.length !== 6) throw new Error("Unexpected nightly installers");
-  const nameFor = (file) =>
-    `Foom-nightly-${info.day}-${info.short}-${basename(file).replaceAll(" ", "-")}`;
+  const nameFor = (file) => `${prefix}${basename(file).replaceAll(" ", "-")}`;
   const nupkg = installers.find((file) => file.endsWith("-full.nupkg"));
   return [
     ...zips,
@@ -88,9 +93,7 @@ export function assets(directory, info) {
 }
 
 export function checksums(packages) {
-  return packages
-    .map(({ name, data }) => `${createHash("sha256").update(data).digest("hex")}  ${name}\n`)
-    .join("");
+  return packages.map(({ name, data }) => checksumLine(name, digest(data))).join("");
 }
 
 const siteComplete = "\n<!-- nightly site publication complete -->";
@@ -108,13 +111,66 @@ async function publishedRelease(github, repo) {
   }
 }
 
-export async function nightlyPublished({ github, context, siteEnabled }) {
-  const release = await publishedRelease(github, context.repo);
-  return Boolean(
-    release &&
-      releaseMatches(release, context.sha) &&
-      (!siteEnabled || release.body.endsWith(siteComplete)),
+function listReleaseAssets(github, repo, releaseId) {
+  return github.paginate(github.rest.repos.listReleaseAssets, {
+    ...repo,
+    release_id: releaseId,
+    per_page: 100,
+  });
+}
+
+async function verifiedReleaseAssets(github, repo, releaseId, info) {
+  const listed = await listReleaseAssets(github, repo, releaseId);
+  const prefix = packagePrefix(info);
+  const packages = listed.filter(({ name }) => name !== "SHA256SUMS");
+  const names = packages.map(({ name }) => name.slice(prefix.length));
+  if (
+    listed.length !== platforms.length + installerPatterns.length + 1 ||
+    packages.some(({ name }) => !name.startsWith(prefix) || !/^[A-Za-z0-9._+-]+$/.test(name)) ||
+    platforms.some((platform) => names.filter((name) => name === `${platform}.zip`).length !== 1) ||
+    installerPatterns.some((pattern) => names.filter((name) => pattern.test(name)).length !== 1) ||
+    listed.some(
+      (asset) => asset.state !== "uploaded" || !/^sha256:[a-f0-9]{64}$/.test(asset.digest),
+    )
+  )
+    return false;
+  const manifest = listed.find(({ name }) => name === "SHA256SUMS");
+  if (
+    !manifest ||
+    !Number.isSafeInteger(manifest.size) ||
+    manifest.size < 1 ||
+    manifest.size > 4096
+  )
+    return false;
+  const { data } = await github.rest.repos.getReleaseAsset({
+    ...repo,
+    asset_id: manifest.id,
+    headers: { accept: "application/octet-stream" },
+  });
+  if (typeof data !== "string" && !Buffer.isBuffer(data) && !(data instanceof ArrayBuffer))
+    return false;
+  const bytes = Buffer.from(data);
+  if (bytes.length !== manifest.size || digest(bytes) !== manifest.digest) return false;
+  const expected = packages
+    .map(({ name, digest }) => checksumLine(name, digest))
+    .sort()
+    .join("");
+  return (
+    bytes
+      .toString("utf8")
+      .split(/(?<=\n)/)
+      .sort()
+      .join("") === expected
   );
+}
+
+export async function nightlyPublished({ github, context, siteEnabled, info }) {
+  const release = await publishedRelease(github, context.repo);
+  if (!release || !releaseMatches(release, context.sha)) return false;
+  if (siteEnabled) return release.body.endsWith(siteComplete);
+  const current = info ?? buildIdentity();
+  if (current.sha !== context.sha) throw new Error("Checkout does not match scheduled commit");
+  return verifiedReleaseAssets(github, context.repo, release.id, current);
 }
 
 export async function markSitePublished({ github, context }) {
@@ -197,18 +253,12 @@ export async function publish({ github, context, directory = "nightly-packages" 
 
 export async function replaceAssets({ github, repo, previous, previousSha, info, packages, body }) {
   const desired = [...packages, { name: "SHA256SUMS", data: Buffer.from(checksums(packages)) }];
-  const digest = (data) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
-  const list = (id) =>
-    github.paginate(github.rest.repos.listReleaseAssets, {
-      ...repo,
-      release_id: id,
-      per_page: 100,
-    });
+  const list = (id) => listReleaseAssets(github, repo, id);
   const oldAssets = previous ? await list(previous.id) : [];
   const oldZips = packages.map((asset) => oldAssets.find((old) => old.name === asset.name));
   const completeZips = oldZips.every((asset) => /^sha256:[a-f0-9]{64}$/.test(asset?.digest));
   const oldSums = completeZips
-    ? Buffer.from(oldZips.map((asset) => `${asset.digest.slice(7)}  ${asset.name}\n`).join(""))
+    ? Buffer.from(oldZips.map((asset) => checksumLine(asset.name, asset.digest)).join(""))
     : null;
   if (
     previousSha === info.sha &&

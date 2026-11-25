@@ -132,7 +132,6 @@ test("the schedule retries a matching prerelease until the site upload is record
   const mock = api(release);
   const status = { ...mock, context, siteEnabled: true };
   assert.equal(await nightlyPublished(status), false);
-  assert.equal(await nightlyPublished({ ...status, siteEnabled: false }), true);
   assert.equal(await nightlyPublished({ ...status, ...api() }), false);
   await assert.rejects(
     nightlyPublished({ ...status, ...api(release, "getReleaseByTag") }),
@@ -232,9 +231,19 @@ test("failed upload never moves the existing tag or updates release notes", asyn
 
 function publication(failAt) {
   const info = identity(sha, "2026-10-08T00:00:00Z", "0.1.0");
-  const packages = ["darwin-arm64", "linux-x64", "win32-x64"].map((platform) => ({
-    name: `${platform}.zip`,
-    data: Buffer.from(platform),
+  const packages = [
+    "darwin-arm64.zip",
+    "linux-x64.zip",
+    "win32-x64.zip",
+    "Foom.dmg",
+    "foom.deb",
+    "foom.rpm",
+    "Foom-Setup.exe",
+    "foom-full.nupkg",
+    "RELEASES",
+  ].map((name) => ({
+    name: `Foom-nightly-${info.day}-${info.short}-${name}`,
+    data: Buffer.from(name),
   }));
   const previousSha = "b".repeat(40);
   let tag = previousSha;
@@ -258,16 +267,27 @@ function publication(failAt) {
     }
   };
   const github = {
-    paginate: async () => stored.map((asset) => ({ ...asset })),
+    paginate: async () => stored.map((asset) => ({ ...asset })).reverse(),
     rest: {
       repos: {
+        async getReleaseByTag() {
+          return { data: release };
+        },
         listReleaseAssets() {},
+        async getReleaseAsset({ asset_id, headers }) {
+          assert.equal(headers.accept, "application/octet-stream");
+          const storedAsset = stored.find((asset) => asset.id === asset_id);
+          assert.equal(storedAsset.name, "SHA256SUMS");
+          return { data: Uint8Array.from(storedAsset.data).buffer };
+        },
         async uploadReleaseAsset(asset) {
           fail(asset.name.startsWith("SHA256SUMS-") ? "checksum upload" : "ZIP upload");
           const result = {
             id: nextId++,
             name: asset.name,
             data: asset.data,
+            state: "uploaded",
+            size: asset.data.length,
             digest: `sha256:${createHash("sha256").update(asset.data).digest("hex")}`,
           };
           stored.push(result);
@@ -307,7 +327,14 @@ function publication(failAt) {
       packages,
       body: `Commit: ${sha}\nnew notes`,
     });
-  return { run, state: () => ({ tag, release, stored }) };
+  const published = () =>
+    nightlyPublished({
+      github,
+      context: { sha, repo: { owner: "test", repo: "foom" } },
+      siteEnabled: false,
+      info,
+    });
+  return { run, published, state: () => ({ tag, release, stored }) };
 }
 
 test("publication restores old checksums, tag and notes across commit failures", async () => {
@@ -325,19 +352,40 @@ test("publication restores old checksums, tag and notes across commit failures",
     assert.equal(state.stored.length, 2, failure);
     await mock.run();
     assert.equal(mock.state().tag, sha);
-    assert.equal(mock.state().stored.length, 4);
+    assert.equal(mock.state().stored.length, 10);
   }
 });
 test("retry repairs interrupted cleanup even when the tag already matches", async () => {
   const mock = publication("cleanup");
   await assert.rejects(mock.run(), /cleanup/);
   assert.equal(mock.state().tag, sha);
-  assert.ok(mock.state().stored.length > 4);
+  assert.ok(mock.state().stored.some(({ name }) => name === "old.zip"));
+  assert.ok(mock.state().stored.some(({ name }) => name.startsWith("SHA256SUMS-previous-")));
+  assert.equal(await mock.published(), false);
   await mock.run();
-  assert.equal(mock.state().stored.length, 4);
+  assert.equal(mock.state().stored.length, 10);
+  assert.equal(await mock.published(), true);
   const before = mock.state();
   await mock.run();
   assert.deepEqual(mock.state(), before);
+});
+
+test("the schedule requires the complete current package set and matching GitHub SHA-256 digests", async () => {
+  const mock = publication();
+  await mock.run();
+  const { stored } = mock.state();
+  const asset = stored.find(({ name }) => name.endsWith("linux-x64.zip"));
+  const original = { ...asset };
+  for (const change of [
+    { name: "old.zip" },
+    { state: "starter" },
+    { digest: `sha256:${"b".repeat(64)}` },
+  ]) {
+    Object.assign(asset, change);
+    assert.equal(await mock.published(), false);
+    Object.assign(asset, original);
+  }
+  assert.equal(await mock.published(), true);
 });
 
 test("an interrupted first publish resumes its draft even when the tag endpoint returns 404", async (t) => {

@@ -588,8 +588,9 @@ nightlies; each published JSON pointer references complete immutable artifacts.
 A same-commit retry repairs the set, including files already written by that
 commit. Each object replacement is atomic. PUTs allow one retry for recognized
 transport errors and transient service failures. Each AWS CLI call keeps its
-60-second timeout. A shared nine-minute AWS deadline is measured from the start
-of the ten-minute publisher job. After an ambiguous immutable PUT, the publisher
+60-second timeout. The AWS CLI retains its own retry policy for inventory,
+verification and invalidation. A shared nine-minute AWS deadline is measured
+from the start of the ten-minute publisher job. After an ambiguous immutable PUT, the publisher
 lists the existing scoped prefix and checks the stored SHA-256 and length if the
 key is present. A missing key can be retried with the same conditional create.
 Access denial, precondition failures and mismatched bytes stop publication
@@ -598,7 +599,8 @@ immediately.
 The last site step records completion in the matching GitHub prerelease body
 after the upload and invalidation succeed. The next schedule retries an
 incomplete publication even if main is unchanged. When the site feed is disabled,
-the matching prerelease is sufficient for the schedule to skip publication.
+the schedule skips publication only after verifying the matching prerelease has
+the complete asset set and its checksum file matches GitHub's asset digests.
 
 One invalidation contains exactly these paths after all writes succeed:
 

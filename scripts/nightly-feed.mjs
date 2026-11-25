@@ -39,7 +39,8 @@ const permanent = new Set([
 ]);
 
 function awsFailure(error) {
-  const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
+  const stderr =
+    typeof error?.stderr === "string" ? error.stderr.trim().replace(/^aws: \[ERROR\]: /, "") : "";
   const code = /^An error occurred \(([\w.-]+)\) when calling the \w+ operation/.exec(stderr)?.[1];
   if (code) return transient.has(code) || permanent.has(code) ? code : "unclassified AWS error";
   if (error?.code === "ETIMEDOUT" || error?.code === "ECONNRESET") return error.code;
@@ -352,7 +353,8 @@ function runAws(args) {
     stdio: ["ignore", "pipe", "pipe"],
     timeout: callTimeout,
     killSignal: "SIGKILL",
-    env: { ...process.env, AWS_MAX_ATTEMPTS: "1" },
+    // PUT retries must return control to uploadFeed for immutable reconciliation.
+    env: args[1] === "put-object" ? { ...process.env, AWS_MAX_ATTEMPTS: "1" } : process.env,
   });
 }
 

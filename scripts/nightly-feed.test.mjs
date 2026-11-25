@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -21,9 +23,9 @@ const packages = [
 ];
 const config = { bucket: "example-site", distribution: "EXAMPLE123", region: "us-east-1" };
 const objects = () => generateFeed([...packages, { name: "test-RELEASES", data: zip }], info);
-const awsError = (code, operation = "PutObject") =>
+const awsError = (code, operation = "PutObject", prefix = "") =>
   Object.assign(new Error("private diagnostic"), {
-    stderr: `An error occurred (${code}) when calling the ${operation} operation: private diagnostic`,
+    stderr: `${prefix}An error occurred (${code}) when calling the ${operation} operation: private diagnostic`,
   });
 const timeout = () => Object.assign(new Error("private diagnostic"), { code: "ETIMEDOUT" });
 
@@ -479,6 +481,57 @@ test("a stalled fixed download retries in place and stops after a second timeout
   }
 });
 
+test("AWS CLI SlowDown retries with and without the AWS CLI 2.39 error prefix", () => {
+  const result = objects()
+    .filter(({ immutable }) => !immutable)
+    .slice(0, 1);
+  for (const prefix of ["aws: [ERROR]: ", ""]) {
+    const { aws, calls } = fakeAws({ expected: result });
+    let attempts = 0;
+    uploadFeed(result, config, (args) => {
+      if (args[1] === "put-object" && ++attempts === 1)
+        throw awsError("SlowDown", "PutObject", prefix);
+      return aws(args);
+    });
+    assert.equal(attempts, 2);
+    assert.equal(calls.at(-1)[1], "create-invalidation");
+  }
+});
+
+test("the production AWS boundary leaves CLI retries available except for PUT", (t) => {
+  const result = objects();
+  const { aws } = fakeAws({
+    expected: result,
+    existing: new Map([[result.at(-1).key, result.at(-1)]]),
+  });
+  const operations = new Set();
+  const originalMaxAttempts = process.env.AWS_MAX_ATTEMPTS;
+  process.env.AWS_MAX_ATTEMPTS = "4";
+  const exec = t.mock.method(childProcess, "execFileSync", (file, args, options) => {
+    assert.equal(file, "aws");
+    assert.equal(options.timeout, 60_000);
+    const operation = args[1];
+    const maxAttempts = options.env?.AWS_MAX_ATTEMPTS ?? process.env.AWS_MAX_ATTEMPTS;
+    if (operation === "list-objects-v2" && !operations.has(operation) && maxAttempts === "1")
+      throw awsError("ServiceUnavailable", "ListObjectsV2");
+    assert.equal(maxAttempts, operation === "put-object" ? "1" : "4");
+    operations.add(operation);
+    return aws(args);
+  });
+  t.after(() => {
+    exec.mock.restore();
+    syncBuiltinESMExports();
+    if (originalMaxAttempts === undefined) delete process.env.AWS_MAX_ATTEMPTS;
+    else process.env.AWS_MAX_ATTEMPTS = originalMaxAttempts;
+  });
+  syncBuiltinESMExports();
+  uploadFeed(result, config);
+  assert.deepEqual(
+    [...operations],
+    ["list-objects-v2", "head-object", "get-object", "put-object", "create-invalidation"],
+  );
+});
+
 test("conditional retries verify an ambiguous immutable upload before later writes", () => {
   const result = objects();
   const target = result[0];
@@ -528,7 +581,7 @@ test("permanent failures stop after one call and redact AWS output", () => {
         uploadFeed(objects(), config, (args) => {
           if (args[1] === "put-object") {
             attempts++;
-            throw awsError(code);
+            throw awsError(code, "PutObject", "aws: [ERROR]: ");
           }
           return aws(args);
         }),
