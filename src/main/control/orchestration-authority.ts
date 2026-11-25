@@ -1,7 +1,7 @@
 import { OrchestratorWake } from "./orchestrator-wake";
 import { basename } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { MessageBoard } from "./message-board";
+import type { BoardAnswerNotice, MessageBoard } from "./message-board";
 import { FinishedChildCloser } from "./finished-child-closer";
 import { ReviewEffects } from "./review-effects";
 import { OrchestrationAutomation } from "./orchestration-automation";
@@ -151,7 +151,7 @@ export class OrchestrationAuthority {
       },
       (actor, record) => {
         const parent = this.parents.get(actor.terminalId);
-        if (parent?.active) this.note(parent, this.entry(record, "Child events"));
+        if (parent?.active) this.note(parent, this.entry(record, "Orchestrator events"));
       },
       now,
     );
@@ -245,6 +245,19 @@ export class OrchestrationAuthority {
           : [],
       ),
     );
+  }
+
+  boardAnswered(answers: readonly BoardAnswerNotice[]): void {
+    for (const [id, parent] of this.parents) {
+      if (!parent.active) continue;
+      const repository = locationId(parent.repository);
+      for (const answer of answers)
+        if (answer.repository === repository) this.wake.boardEvent(id, answer.post);
+    }
+  }
+
+  boardAnswerRead(actor: Principal, posts: readonly string[]): void {
+    this.wake.boardRead(this.parent(actor).terminalId ?? actor.terminalId, posts);
   }
 
   childRead(actor: Principal, id: string): void {

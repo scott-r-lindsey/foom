@@ -10,7 +10,7 @@ import { setupOffers } from "../agents/setup-offers";
 import { ForgeTracking } from "../control/forge-tracking";
 import { ControlRuntime } from "../control/runtime";
 import { VerdictLog } from "../evaluator/verdict-log";
-import { previewBackend } from "../previews/control-backend";
+import { decisionPreview, previewBackend } from "../previews/control-backend";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { attachTerminal } from "../terminals/terminal-ipc";
 import { InventoryWatch } from "../workspace/inventory-watch";
@@ -99,6 +99,8 @@ export async function initializeWorkspace(
       const loggedIn = await wiring.forgeRuntime.available();
       await wiring.settings.update({ showPullRequests: loggedIn });
     }
+    let controlRuntime: ControlRuntime | undefined;
+    const renderDecisionPreview = decisionPreview();
     const forge = await ForgeTracking.open(
       app.getPath("userData"),
       async (tree, orchestrator) => {
@@ -126,9 +128,17 @@ export async function initializeWorkspace(
         return remote && owned.head ? { remote, head: owned.head } : undefined;
       },
       () => {
+        controlRuntime?.board?.observe();
+        controlRuntime?.service.boardChanged();
         wiring.workspace.refresh();
       },
       wiring.forgeRuntime.provider,
+      async (id) => {
+        const repository = wiring.worktrees
+          .listRepositories()
+          .find((row) => locationId(row.path) === id);
+        return repository && wiring.worktrees.forgeRemote(repository.path);
+      },
     ).catch(() => undefined);
     if (forge) {
       wiring.forgeRuntime.onInvalidate = () => {
@@ -257,7 +267,29 @@ export async function initializeWorkspace(
               id: locationId(repo.path),
               name: metadataName(path.basename(repo.path)),
             })),
+          {
+            subjectsChanged: (subjects) => forge?.watchDecisions(subjects),
+            forgeRevision: () => forge?.revision() ?? 0,
+            forge: (repository, number, after) => {
+              const pr = forge?.readDecision(repository, number, after);
+              return pr && { headSha: pr.headSha, checks: pr.requiredChecks };
+            },
+            preview: async (preview) => {
+              const repo = wiring.worktrees
+                .listRepositories()
+                .find((row) => locationId(row.path) === preview.repository);
+              if (!repo) return null;
+              if (preview.relativeTo === "repository")
+                return renderDecisionPreview(repo.path, preview.path);
+              const worktrees = await wiring.worktrees.listWorktrees(repo.path).catch(() => []);
+              const worktree = worktrees.find((row) => locationId(row.path) === preview.worktree);
+              return worktree ? renderDecisionPreview(worktree.path, preview.path) : null;
+            },
+          },
         ).then((runtime) => {
+          controlRuntime = runtime;
+          runtime.board?.observe();
+          forge?.watchDecisions(runtime.board?.pendingSubjects() ?? []);
           wiring.agentPreviews = runtime.service.previews;
           return runtime;
         }),

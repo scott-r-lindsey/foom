@@ -1,4 +1,5 @@
 import { agentPermissionLabels } from "../../shared/agent-permission-arguments";
+import { DecisionPill } from "./message-board-decisions";
 import { HostChip } from "./sidebar-machine-row";
 import { reviewLabel } from "../../shared/review-state";
 import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-presentation";
@@ -159,6 +160,9 @@ export function Tile({
   number,
   source,
   row,
+  decisionCount = 0,
+  decisionsHidden = false,
+  onDecisions,
   rows,
   preview,
   preferences,
@@ -189,6 +193,9 @@ export function Tile({
   number: number;
   source: BoardSource;
   row: BoardRow | undefined;
+  decisionCount?: number;
+  decisionsHidden?: boolean;
+  onDecisions?: ((row: BoardRow) => void) | undefined;
   preview: PreviewSummary | undefined;
   preferences: SidebarPreferences;
   focused: boolean;
@@ -698,6 +705,15 @@ export function Tile({
             </div>
           )}
         </>
+      )}
+      {row && decisionCount > 0 && onDecisions && (
+        <DecisionPill
+          count={decisionCount}
+          hidden={decisionsHidden}
+          onOpen={() => {
+            onDecisions(row);
+          }}
+        />
       )}
       {preview && <div className="tile-shell" ref={previewRef} />}
       {error && (

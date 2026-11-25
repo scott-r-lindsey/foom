@@ -74,7 +74,12 @@ export class WorkspaceContext {
   control:
     | Promise<
         Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
-          Partial<Pick<ControlRuntime, "audit" | "takeOver" | "board">>
+          Partial<
+            Pick<
+              ControlRuntime,
+              "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview"
+            >
+          >
       >
     | undefined;
   receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
@@ -111,11 +116,18 @@ export class WorkspaceContext {
 
   async messageBoard(method: string, input: unknown): Promise<unknown> {
     await this.initializeControl();
-    const board = (await this.control)?.board;
+    const runtime = await this.control;
+    const board = runtime?.board;
     if (!board) throw new Error("Board unavailable");
     if (method === "threads") return board.threads(input);
     if (method === "read") return board.read(input);
     if (method === "post") return board.append("human", "human", input);
+    if (method === "decisions") return runtime.humanDecisions?.(input);
+    if (method === "answer") return board.answer(input);
+    if (method === "preview") {
+      const request = board.preview(input);
+      return request ? ((await runtime.decisionPreview?.(request)) ?? null) : null;
+    }
     if (method === "resolve") return board.resolve("human", input);
     throw new Error("Invalid board method");
   }

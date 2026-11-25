@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { locationId } from "../../../../src/main/control/metadata";
+import type { OrchestrationHost } from "../../../../src/main/control/orchestration.d";
 import { harness, repo, other } from "./orchestration-helpers";
 const a = locationId(repo),
   b = locationId(other);
@@ -18,16 +19,13 @@ const input = {
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
+  vi.useRealTimers();
 });
 function setup(save = () => Promise.resolve()) {
-  let changed = () => {};
-  const board = new MessageBoard(save, repos, () => {
-    changed();
+  const board = new MessageBoard(save, repos, (answers) => {
+    h.service.boardChanged(answers);
   });
   const h = harness({}, board);
-  changed = () => {
-    h.service.boardChanged();
-  };
   cleanups.push(() => {
     h.service.close();
     h.orchestration.disposeUnreadChildren();
@@ -169,4 +167,90 @@ it("returns an indeterminate operation for an ambiguous save and refuses an unav
     bare.orchestration.disposeUnreadChildren();
   });
   await expect(bare.call("board_threads")).rejects.toThrow("unavailable");
+});
+
+it("wakes a wait on a structured human answer while agent transport cannot submit or spoof one", async () => {
+  const h = setup();
+  const result = await h.mutate("board_post", {
+    ...input,
+    kind: "question",
+    questions: [
+      {
+        title: "Proceed?",
+        options: [
+          { id: "go", label: "Go" },
+          { id: "hold", label: "Hold" },
+        ],
+      },
+    ],
+  });
+  const thread = result.resultId ?? "";
+  const post = h.board.read({ thread }).posts[0]?.id;
+  const answers = [{ post, index: 0, option: "go" }];
+  await expect(
+    h.call("board_post", { thread, text: "Go", kind: "answer", answers, idempotencyKey: "forge" }),
+  ).rejects.toThrow("invalid_request");
+  await expect(h.call("board_answer", { answers, idempotencyKey: "forge" })).rejects.toThrow();
+  const waiting = h.call("wait_for", { ids: [], boardAfter: h.board.event(a), untilEvent: true });
+  await h.board.answer({ answers, idempotencyKey: "human" });
+  expect(await waiting).toMatchObject({ timedOut: false, board: { changed: true } });
+  expect(h.board.read({ thread }).posts.at(-1)).toMatchObject({
+    author: "human",
+    kind: "answer",
+    answers,
+  });
+});
+
+it("acknowledges only queued answer posts actually included in a board read", async () => {
+  vi.useFakeTimers();
+  const h = setup();
+  let eligible = false;
+  const wake = vi.fn<NonNullable<OrchestrationHost["wake"]>>(async (_id, _line, valid, intent) => {
+    if (!eligible || !valid()) return "queued";
+    await intent();
+    return "sent";
+  });
+  Reflect.set(h.host, "wake", wake);
+  const askAndAnswer = async (key: string) => {
+    const result = await h.mutate("board_post", {
+      ...input,
+      idempotencyKey: key,
+      kind: "question",
+      questions: [
+        {
+          title: "Proceed?",
+          options: [
+            { id: "go", label: "Go" },
+            { id: "hold", label: "Hold" },
+          ],
+        },
+      ],
+    });
+    const thread = result.resultId ?? "";
+    const post = h.board.read({ thread }).posts[0]?.id;
+    await h.board.answer({ answers: [{ post, index: 0, option: "go" }], idempotencyKey: key });
+    return thread;
+  };
+  const historical = await askAndAnswer("old");
+  h.orchestration.configureWake(true, 1);
+  await askAndAnswer("new");
+  await vi.advanceTimersByTimeAsync(0);
+  await h.call("board_read", { thread: historical });
+  eligible = true;
+  h.advance(2000);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(wake.mock.calls.at(-1)?.[1]).toContain("board decisions answered");
+  expect(
+    h.persist.mock.calls.some(
+      ([record]) => record.operation.action === "wake" && record.operation.status === "succeeded",
+    ),
+  ).toBe(true);
+  eligible = false;
+  const recent = await askAndAnswer("ack");
+  await h.call("board_read", { thread: recent });
+  eligible = true;
+  const count = wake.mock.calls.length;
+  h.advance(60000);
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(wake).toHaveBeenCalledTimes(count);
 });

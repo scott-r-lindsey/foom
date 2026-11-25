@@ -4,7 +4,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
 import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
-import type { ForgeMatch, ForgeWorktree, PullRequest } from "../../../../src/main/control/forge.d";
+import type {
+  ForgeMatch,
+  ForgeProviderFactory,
+  ForgeWorktree,
+  PullRequest,
+} from "../../../../src/main/control/forge.d";
+import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
+import { MessageBoard } from "../../../../src/main/control/message-board";
+import { githubManifest } from "../../../../src/main/control/forge-manifests";
 import { SessionMetadata, locationId } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
@@ -1777,3 +1785,351 @@ it.each([
     }
   },
 );
+
+it("samples a decision PR separately from checkout tracking and retires its observations", async () => {
+  const changed = vi.fn();
+  const resolve = vi.fn(() =>
+    Promise.resolve({ branch: "draft", state: "OPEN" as const, sameRepository: true }),
+  );
+  let headSha = "a".repeat(40);
+  const lookup = vi.fn(() =>
+    Promise.resolve({
+      number: 340,
+      headSha,
+      state: "OPEN" as const,
+      requiredChecks: "success" as const,
+    }),
+  );
+  const provider = vi.fn(() => ({ resolve, lookup }));
+  let now = 0;
+  const repo = locationId("/repo");
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(undefined),
+    changed,
+    provider,
+    () => now,
+    (id) => Promise.resolve(id === repo ? "https://github.com/foom/private.git" : undefined),
+  );
+  tracker.watchDecisions([
+    { repository: repo, number: 340 },
+    { repository: repo, number: 340 },
+  ]);
+  try {
+    expect(tracker.readDecision(repo, 340)).toBeUndefined();
+    await tracker.poll();
+    expect(provider).toHaveBeenCalledOnce();
+    expect(resolve).toHaveBeenCalledWith(340);
+    expect(lookup).toHaveBeenCalledWith("draft", 340);
+    expect(tracker.readDecision(repo, 340)).toMatchObject({ headSha });
+    await tracker.poll();
+    expect(lookup).toHaveBeenCalledOnce();
+    now = 120000;
+    headSha = "b".repeat(40);
+    await tracker.poll();
+    expect(tracker.readDecision(repo, 340)).toMatchObject({ headSha });
+    expect(changed).toHaveBeenCalledTimes(2);
+    tracker.invalidate();
+    expect(tracker.readDecision(repo, 340)).toBeUndefined();
+    tracker.watchDecisions([]);
+    await tracker.poll();
+    expect(lookup).toHaveBeenCalledTimes(2);
+  } finally {
+    // Use the regular tracker temporary directory for shutdown persistence.
+    trackers.push(tracker);
+  }
+});
+
+it("reuses a settled checkout for a decision subject and retires a superseded numeric result", async () => {
+  const { tracker, lookup } = harness();
+  tracker.track(tree, 340);
+  expect(tracker.readDecision(locationId(tree.repository), 340)).toBeUndefined();
+  await tracker.poll();
+  expect(tracker.readDecision(locationId(tree.repository), 340)).toEqual(pending);
+  expect(tracker.readDecision(locationId(tree.repository), 341)).toBeUndefined();
+  expect(lookup).toHaveBeenCalledOnce();
+  tracker.invalidate();
+  expect(tracker.readDecision(locationId(tree.repository), 340)).toBeUndefined();
+});
+
+it("refreshes a decision subject past a cached checkout and an in-flight numeric read", async () => {
+  const repository = locationId(tree.repository);
+  const target = { repository, number: pending.number };
+  const remote = "https://github.com/foom/foom";
+  const started = Promise.withResolvers<undefined>();
+  const old = Promise.withResolvers<PullRequest>();
+  const fresh = { ...pending, headSha: "b".repeat(40) };
+  const lookupNumber = vi
+    .fn(() => Promise.resolve(fresh))
+    .mockImplementationOnce(() => {
+      started.resolve(undefined);
+      return old.promise;
+    });
+  const changed = vi.fn();
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(remote),
+    changed,
+    () => ({ lookup: () => Promise.resolve(pending), lookupNumber }),
+    () => 0,
+    () => Promise.resolve(remote),
+  );
+  trackers.push(tracker);
+  tracker.track(tree, pending.number);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(pending);
+  const afterCheckout = tracker.revision();
+  tracker.watchDecisions([{ ...target, after: afterCheckout }]);
+  const first = tracker.poll();
+  try {
+    await started.promise;
+    const afterInFlight = tracker.revision();
+    tracker.watchDecisions([{ ...target, after: afterInFlight }]);
+    old.resolve(pending);
+    await first;
+    expect(tracker.readDecision(repository, pending.number, afterCheckout)).toEqual(pending);
+    expect(tracker.readDecision(repository, pending.number, afterInFlight)).toBeUndefined();
+    await tracker.poll();
+    expect(lookupNumber).toHaveBeenCalledTimes(2);
+    expect(tracker.readDecision(repository, pending.number, afterInFlight)).toEqual(fresh);
+
+    const afterFresh = tracker.revision();
+    changed.mockClear();
+    tracker.watchDecisions([{ ...target, after: afterFresh }]);
+    await tracker.poll();
+    expect(lookupNumber).toHaveBeenCalledTimes(3);
+    expect(tracker.readDecision(repository, pending.number, afterFresh)).toEqual(fresh);
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    old.resolve(pending);
+    await first;
+  }
+});
+
+it("backs off on disabled routing, bad identity and failed numeric reads", async () => {
+  let now = 0;
+  const repository = locationId("/repo");
+  const targets = [
+    { repository, number: 340 },
+    { repository, number: 341 },
+  ];
+  const remote = vi.fn(() => Promise.resolve<string | undefined>("https://github.com/foom/foom"));
+  const resolve = vi.fn(() =>
+    Promise.resolve({ branch: "review", state: "OPEN" as const, sameRepository: true }),
+  );
+  const lookup = vi.fn(() => Promise.resolve(pending));
+  const provider = vi.fn<ForgeProviderFactory>(async (_url, context) => {
+    const selected = await context?.();
+    await selected?.validate();
+    return { resolve, lookup };
+  });
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(undefined),
+    vi.fn(),
+    provider,
+    () => now,
+    remote,
+  );
+  trackers.push(tracker);
+  tracker.watchDecisions(targets);
+  remote.mockRejectedValueOnce(new Error("gone"));
+  await tracker.poll();
+  expect(provider).not.toHaveBeenCalled();
+  provider.mockRejectedValueOnce(new Error("unavailable"));
+  await tracker.poll();
+  expect(lookup).not.toHaveBeenCalled();
+  now = 60000;
+  resolve.mockRejectedValueOnce(new Error("gone"));
+  await tracker.poll();
+  expect(lookup).not.toHaveBeenCalled();
+  lookup.mockRejectedValueOnce(new Error("gone"));
+  await tracker.poll();
+  expect(tracker.readDecision(repository, 341)).toBeUndefined();
+  tracker.invalidate();
+  lookup.mockImplementationOnce(() => {
+    remote.mockResolvedValueOnce(undefined);
+    return Promise.resolve(pending);
+  });
+  await tracker.poll();
+  expect(tracker.readDecision(repository, 340)).toBeUndefined();
+});
+
+it("does not fall back to a superseded head when the newest checkout is replaced mid-batch", async () => {
+  const binding = {
+    host: "alpha",
+    codeFolder: "/code",
+    repository: "/code/repository-fixture",
+    path: "/code/.foom-worktree-fixture",
+    origin: "https://github.com/o/r",
+  };
+  const remote = {
+    ...tree,
+    path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+    remoteCheckout: binding,
+  };
+  const repository = locationId(tree.repository);
+  const moved = { ...pending, headSha: "b".repeat(40) };
+  const gate = Promise.withResolvers<undefined>();
+  const firstPublication = Promise.withResolvers<undefined>();
+  let now = 0;
+  let result = pending;
+  let hold = false;
+  const tracker = new ForgeTracking(
+    directory,
+    async (row) => {
+      if (!row.remoteCheckout) return binding.origin;
+      if (hold) await gate.promise;
+      return { remote: binding.origin, head: pending.headSha };
+    },
+    () => {
+      if (result === moved) {
+        hold = true;
+        firstPublication.resolve(undefined);
+      }
+    },
+    () => ({
+      lookup: () => Promise.resolve(result),
+      batch: (matches) =>
+        Promise.resolve(
+          new Map(
+            matches.map(({ branch }) => [
+              branch,
+              {
+                ...result,
+                board: {
+                  number: result.number,
+                  state: result.state,
+                  checks: { pending: 1, passed: 0, failed: 0 },
+                },
+              },
+            ]),
+          ),
+        ),
+    }),
+    () => now,
+  );
+  trackers.push(tracker);
+  tracker.track(tree, pending.number);
+  tracker.track(remote, pending.number);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(pending);
+  now = 20000;
+  result = moved;
+  const polling = tracker.poll();
+  try {
+    await firstPublication.promise;
+    expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
+    tracker.track({ ...tree, branch: "another-branch" });
+    expect(tracker.read(tree.repository, remote.path)).toEqual(pending);
+    expect(tracker.readDecision(repository, pending.number)).toBeUndefined();
+    const board = new MessageBoard(
+      () => Promise.resolve(),
+      () => [{ id: repository, name: "Fixture" }],
+      undefined,
+      undefined,
+      (repo, number) => tracker.readDecision(repo, number),
+    );
+    const question = await board.append(`orchestrator:${repository}`, "grant", {
+      kind: "question",
+      to: [repository],
+      title: "Superseded head",
+      text: "Verify the subject",
+      idempotencyKey: "ask",
+      questions: [
+        {
+          title: "Proceed?",
+          options: [
+            { id: "go", label: "Proceed" },
+            { id: "no", label: "Hold" },
+          ],
+          subject: { pullRequest: pending.number, headSha: pending.headSha },
+        },
+      ],
+    });
+    await expect(
+      board.answer({
+        answers: [{ post: question.post, index: 0, option: "go" }],
+        idempotencyKey: "answer",
+      }),
+    ).rejects.toThrow("conflict");
+  } finally {
+    gate.resolve(undefined);
+    await polling;
+  }
+  expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
+});
+
+it.each([
+  ["main", 40],
+  ["release", 64],
+] as const)(
+  "observes numeric decision subjects from %s with %i-digit heads",
+  async (branch, length) => {
+    const repository = locationId(tree.repository);
+    const headSha = "a".repeat(length);
+    const row = {
+      number: 340,
+      headRefName: branch,
+      headRefOid: headSha,
+      state: "OPEN",
+      headRepositoryOwner: { login: "o" },
+      isCrossRepository: false,
+    };
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve(undefined),
+      vi.fn(),
+      () =>
+        manifestForgeProvider(
+          githubManifest,
+          { host: "github.com", project: "o/r" },
+          (argv) =>
+            Promise.resolve({
+              code: 0,
+              stdout: JSON.stringify(argv[1] === "checks" ? [] : row),
+              stderr: "",
+            }),
+          "main",
+        ),
+      () => 0,
+      () => Promise.resolve("https://github.com/o/r"),
+    );
+    trackers.push(tracker);
+    tracker.watchDecisions([{ repository, number: row.number }]);
+    await tracker.poll();
+    expect(tracker.readDecision(repository, row.number)).toMatchObject({ headSha });
+  },
+);
+
+it("does not revert to a numeric watch result when a newer checkout is lost", async () => {
+  const repository = locationId(tree.repository);
+  const origin = "https://github.com/o/r";
+  const moved = { ...pending, headSha: "b".repeat(40) };
+  const lookupNumber = vi.fn(() => Promise.resolve(pending));
+  let now = 0;
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(origin),
+    vi.fn(),
+    () => ({ lookupNumber, lookup: () => Promise.resolve(moved) }),
+    () => now,
+    () => Promise.resolve(origin),
+  );
+  trackers.push(tracker);
+  tracker.watchDecisions([{ repository, number: pending.number }]);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(pending);
+  tracker.setEnabled(true);
+  tracker.track(tree, pending.number, false);
+  await tracker.poll();
+  expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
+  tracker.sync(tree.repository, []);
+  expect(tracker.readDecision(repository, pending.number)).toBeUndefined();
+  expect(lookupNumber).toHaveBeenCalledOnce();
+  now = 20000;
+  lookupNumber.mockResolvedValue(moved);
+  await tracker.poll();
+  expect(lookupNumber).toHaveBeenCalledTimes(2);
+  expect(tracker.readDecision(repository, pending.number)).toEqual(moved);
+});
