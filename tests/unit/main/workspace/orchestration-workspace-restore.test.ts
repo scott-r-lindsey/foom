@@ -1041,3 +1041,53 @@ it("recovers only daemon-live forgotten sessions as human tiles after re-enrollm
   expect(records.find((row) => row.id === "live")).not.toHaveProperty("orchestrator");
   expect(records.some((row) => row.id === "exited")).toBe(false);
 });
+
+it.each(["resume", "new-conversation"] as const)(
+  "recovers the saved grant after %s fails before spawn",
+  async (kind) => {
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const entries = readSessions([
+      {
+        id: "parent",
+        agent: "claude",
+        repository: repo.path,
+        worktree: repo.path,
+        branch: "main",
+        conversationId: "parent-conversation",
+        running: true,
+        orchestrator: { identity: "identity", history: [] },
+      },
+      {
+        id: "child",
+        agent: "claude",
+        repository: repo.path,
+        worktree: child.path,
+        branch: "feature",
+        conversationId: "child-conversation",
+        running: true,
+        parentId: "parent",
+      },
+    ]);
+    const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(() =>
+      Promise.resolve(),
+    );
+    deps.sessions = { load: () => Promise.resolve(entries), save, flush: () => Promise.resolve() };
+    launch.mockImplementation((request) =>
+      Promise.resolve({ id: request.terminalId ?? "new", attention: "evaluator" }),
+    );
+    const workspace = createWorkspace(deps);
+    await workspace.restore();
+    vi.mocked(deps.worktrees.launchIdentity).mockRejectedValueOnce(
+      new Error("checkout inspection failed"),
+    );
+    await expect(workspace.sidebarCommand({ kind, id: "parent" }, confirm)).rejects.toThrow(
+      "checkout inspection failed",
+    );
+    await workspace.restartSaved();
+    expect(launch.mock.calls.map(([request]) => [request.terminalId, request.control])).toEqual([
+      ["parent", { role: "orchestrator" }],
+      ["child", { parentId: "parent" }],
+    ]);
+    expect(save.mock.lastCall?.[0].find((row) => row.id === "child")?.parentId).toBe("parent");
+  },
+);

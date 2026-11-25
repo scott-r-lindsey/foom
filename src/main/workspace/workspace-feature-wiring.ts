@@ -208,6 +208,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
     } satisfies AgentSetupContext,
     sidebarCommands: {
+      get sessions() {
+        return owner.sessions;
+      },
       get auditHuman() {
         return owner.auditHuman.bind(owner);
       },

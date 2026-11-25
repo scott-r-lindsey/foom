@@ -57,9 +57,16 @@ function storedAgent(value: unknown, origin: unknown): value is string {
 
 /** Validated main-owned metadata; executable paths and credentials are never stored. */
 export function readSessions(value: unknown): StoredSession[] {
+  return parseSessions(value);
+}
+
+class DuplicateWorktree extends Error {}
+
+function parseSessions(value: unknown, recoverDuplicateWorktrees = false): StoredSession[] {
   if (!Array.isArray(value) || value.length > 1000) throw new Error("Invalid sessions");
   const ids = new Set<string>();
-  return value.map((entry: unknown) => {
+  const refusedParents = new Set<string>();
+  const sessions = value.map((entry: unknown): StoredSession => {
     if (typeof entry !== "object" || entry === null) throw new Error("Invalid session");
     const data: Record<string, unknown> = { ...entry };
     const {
@@ -158,9 +165,18 @@ export function readSessions(value: unknown): StoredSession[] {
     }
     const selection = data["selection"] === undefined ? undefined : object(data["selection"]);
     if (selection) exact(selection, ["model", "effort"]);
-    const role = readOrchestrator(orchestrator);
-    if (role && (parentId !== undefined || agent === "shell" || home || config))
+    if (
+      orchestrator !== undefined &&
+      (parentId !== undefined || agent === "shell" || home || config)
+    )
       throw new Error("Invalid role");
+    let role: StoredSession["orchestrator"];
+    try {
+      role = readOrchestrator(orchestrator);
+    } catch (error) {
+      if (!recoverDuplicateWorktrees || !(error instanceof DuplicateWorktree)) throw error;
+      refusedParents.add(id);
+    }
     ids.add(id);
     return {
       id,
@@ -202,6 +218,9 @@ export function readSessions(value: unknown): StoredSession[] {
       ...(conversation === undefined ? {} : { conversationId: conversation }),
     };
   });
+  for (const row of sessions)
+    if (row.parentId && refusedParents.has(row.parentId)) delete row.parentId;
+  return sessions;
 }
 
 export class SessionStore {
@@ -212,7 +231,7 @@ export class SessionStore {
       const contents = await readFile(join(this.directory, "sessions.json"), "utf8");
       if (Buffer.byteLength(contents) > 32 * 1024 * 1024) return [];
       const value: unknown = JSON.parse(contents);
-      return readSessions(value);
+      return parseSessions(value, true);
     } catch {
       return [];
     }
@@ -370,13 +389,13 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
             ].includes(key),
         ) ||
         !path(checkout) ||
-        paths.has(checkout) ||
         typeof identity !== "string" ||
         !identity ||
         identity.length > 4096 ||
         (state !== "unused" && state !== "used")
       )
         throw new Error("Invalid worktree");
+      if (paths.has(checkout)) throw new DuplicateWorktree("Invalid worktree");
       paths.add(checkout);
       if (row["reviewer"] !== undefined && typeof row["reviewer"] !== "boolean")
         throw new Error("Invalid reviewer");

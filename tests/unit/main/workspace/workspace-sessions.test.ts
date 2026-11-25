@@ -517,3 +517,38 @@ test("Forget also handles an unavailable local exit without restarting Foom, whi
   expect(vi.mocked(deps.terminals, true).stop.mock.calls).toHaveLength(0);
   await workspace.dispose();
 });
+
+test("returns the saved shell to startup after a failed manual Restart", async () => {
+  const saved: StoredSession = {
+    id: "saved-shell",
+    kind: "shell",
+    agent: "shell",
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator",
+    state: null,
+    dormant: true,
+    exited: true,
+    running: true,
+  };
+  deps.sessions = {
+    load: () => Promise.resolve([saved]),
+    save: vi.fn(() => Promise.resolve()),
+    flush: vi.fn(() => Promise.resolve()),
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  const terminals = vi.mocked(deps.terminals, true);
+  terminals.create
+    .mockRejectedValueOnce(new Error("shell startup refused"))
+    .mockResolvedValueOnce(saved.id);
+  await expect(
+    workspace.sidebarCommand({ kind: "restart", id: saved.id }, () => Promise.resolve(true)),
+  ).rejects.toThrow("shell startup refused");
+  await workspace.restartSaved();
+  expect(terminals.create.mock.calls).toHaveLength(2);
+  expect(terminals.create.mock.lastCall?.[0]).toMatchObject({ id: saved.id });
+  expect(workspace.snapshot().terminals).toMatchObject([{ id: saved.id, exited: false }]);
+  await workspace.dispose();
+});

@@ -96,6 +96,7 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
+  readonly sessions: Pick<SessionOwner, "reserveManualLaunch">;
   readonly forgetSession: (id: string) => Promise<void>;
   readonly closeSession: (
     entry: WorkspaceTerminal,

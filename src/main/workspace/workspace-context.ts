@@ -872,6 +872,7 @@ export class WorkspaceContext {
     if (checkout && !hold) throw new ApplicationError("session-busy");
     try {
       this.busySessions.add(entry.id);
+      this.sessions.claim(entry.id);
       entry.closeState = "closing";
       this.deps.terminals.setClosing?.(entry.id, true);
       this.refresh();
@@ -1026,9 +1027,10 @@ export class WorkspaceContext {
     this.features.executionEvents,
   );
 
-  removed: WorkspaceMethods["removed"] = orchestrationCommands.removed.bind(
-    this.features.executionEvents,
-  );
+  removed(id: string): void {
+    this.sessions.claim(id);
+    orchestrationCommands.removed.call(this.features.executionEvents, id);
+  }
 
   input: WorkspaceMethods["input"] = orchestrationCommands.input.bind(
     this.features.executionEvents,

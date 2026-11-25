@@ -22,10 +22,22 @@ import { locationId, metadataName, SessionMetadata } from "./metadata";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 import { ControlError } from "../../shared/control-validation";
+import { LaunchFailure } from "../../shared/launch-failure";
 import type { Child, Parent, ParentIdentity, OrchestrationHost } from "./orchestration.d";
 import { WORKTREE_LIMIT } from "./orchestration-limits";
 
 const HISTORY = 20;
+
+function restoreWorktreeFailure(error: unknown): "unavailable" | undefined {
+  if (error instanceof LaunchFailure)
+    return error.reason === "remote_host_unreachable" || error.reason === "timed-out"
+      ? "unavailable"
+      : undefined;
+  // execFile marks a killed Git probe (including its deadline) on the error.
+  return error instanceof Error && "killed" in error && error.killed === true
+    ? "unavailable"
+    : undefined;
+}
 
 /**
  * Repository orchestrators and their children. Slots are reserved synchronously
@@ -359,7 +371,9 @@ export class OrchestrationAuthority {
     recovering?: string,
     allowResume = false,
     identity?: ParentIdentity,
-  ): { existing: string } | { bind(terminalId: string): void; release(): void } {
+  ):
+    | { existing: string }
+    | { bind(terminalId: string): void; isCurrent: () => boolean; release(): void } {
     if (recovering !== undefined) this.checkRecovery(recovering, identity);
     const current = this.slots.get(repository);
     if (current) {
@@ -376,6 +390,7 @@ export class OrchestrationAuthority {
       creating: 0,
       uncertain: 0,
       refusedWorktrees: new Set(),
+      unverifiedWorktrees: new Map(),
       children: new Map(),
       worktrees: new Map(),
       history: [],
@@ -415,6 +430,7 @@ export class OrchestrationAuthority {
           this.retire(parent);
         this.changed();
       },
+      isCurrent: () => this.slots.get(repository) === parent && parent.terminalId !== null,
       release: () => {
         if (this.slots.get(repository) === parent && parent.terminalId === null)
           this.slots.delete(repository);
@@ -444,6 +460,15 @@ export class OrchestrationAuthority {
     return this.parents.get(id)?.uncertain ?? 0;
   }
 
+  /** Keep the original identities for the next startup, outside live ownership. */
+  savedWorktrees(id: string): OwnedWorktree[] {
+    const saved = new Map<string, OwnedWorktree>();
+    for (const tree of this.parents.get(id)?.unverifiedWorktrees.values() ?? [])
+      saved.set(tree.path, tree);
+    for (const tree of this.ownedWorktrees(id)) saved.set(tree.path, tree);
+    return [...saved.values()];
+  }
+
   /** Saved identity must still match; invalid entries never grant capabilities. */
   async restoreWorktrees(
     id: string,
@@ -456,14 +481,29 @@ export class OrchestrationAuthority {
     for (const saved of trees) {
       const tree = await this.host
         .restoreWorktree(parent.repository, saved.path)
-        .catch(() => undefined);
-      if (this.active(parent.repository) !== id) return;
+        .catch(restoreWorktreeFailure);
+      if (this.slots.get(parent.repository) !== parent) return;
       const key = locationId(saved.path);
+      const owned = parent.worktrees.get(key);
+      if (owned && owned.identity !== saved.identity) {
+        parent.refusedWorktrees.add(key);
+        continue;
+      }
+      if (tree === "unavailable") {
+        if (
+          !owned &&
+          !parent.refusedWorktrees.has(key) &&
+          (saved.state === "used" || this.unused(parent) < WORKTREE_LIMIT)
+        )
+          parent.unverifiedWorktrees.set(key, saved);
+        continue;
+      }
+      parent.unverifiedWorktrees.delete(key);
       if (!tree || tree.identity !== saved.identity) {
         parent.refusedWorktrees.add(key);
         continue;
       }
-      if (parent.worktrees.has(key)) continue;
+      if (owned) continue;
       if (saved.state === "unused" && this.unused(parent) >= WORKTREE_LIMIT) continue;
       parent.worktrees.set(key, { ...tree, ...saved });
       this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
@@ -471,28 +511,44 @@ export class OrchestrationAuthority {
     this.changed();
   }
 
-  /** Reserve restored children before launches, so they count against the live limit. */
-  async restoreChild(parentId: string, entry: WorkspaceTerminal): Promise<boolean> {
+  /** An unavailable proof returns a grant check for persistence only. */
+  async restoreChild(
+    parentId: string,
+    entry: WorkspaceTerminal,
+    eligible: () => boolean = () => true,
+  ): Promise<boolean | { parentStillActive: () => boolean }> {
     const parent = this.parents.get(parentId);
-    const existing = parent?.children.get(entry.id);
-    if (existing) return parent?.active === true && !existing.takenOver;
+    if (!parent?.active || !eligible()) return false;
+    const existing = parent.children.get(entry.id);
+    if (existing) return !existing.takenOver;
+    const worktreeId = locationId(entry.worktree);
     if (
-      !parent?.active ||
       parent.repository !== entry.repository ||
-      parent.refusedWorktrees.has(locationId(entry.worktree)) ||
+      parent.refusedWorktrees.has(worktreeId) ||
       (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
+    const parentStillActive = () => parent.active && this.parents.get(parentId) === parent;
+    const unverified = parent.unverifiedWorktrees.get(worktreeId);
+    const identity = parent.worktrees.get(worktreeId)?.identity;
+    const worktreeUnchanged = () =>
+      !parent.refusedWorktrees.has(worktreeId) &&
+      parent.unverifiedWorktrees.get(worktreeId) === unverified &&
+      parent.worktrees.get(worktreeId)?.identity === identity;
+    const pending = { parentStillActive: () => parentStillActive() && worktreeUnchanged() };
+    if (unverified) return pending;
     const tree = await this.host
       .restoreWorktree(parent.repository, entry.worktree)
-      .catch(() => undefined);
+      .catch(restoreWorktreeFailure);
     if (
-      !tree ||
-      this.active(parent.repository) !== parentId ||
+      !parentStillActive() ||
+      !eligible() ||
+      !worktreeUnchanged() ||
       (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
-    const worktreeId = locationId(entry.worktree);
+    if (tree === "unavailable") return pending;
+    if (!tree) return false;
     const owned = parent.worktrees.get(worktreeId);
     if (owned && owned.identity !== tree.identity) return false;
     parent.worktrees.set(worktreeId, { ...owned, ...tree, path: entry.worktree, state: "used" });
@@ -879,7 +935,9 @@ export class OrchestrationAuthority {
     return (
       [...parent.worktrees.values()].filter(
         (tree) => tree.state === "unused" || tree.state === "starting",
-      ).length + parent.uncertain
+      ).length +
+      [...parent.unverifiedWorktrees.values()].filter((tree) => tree.state === "unused").length +
+      parent.uncertain
     );
   }
 
