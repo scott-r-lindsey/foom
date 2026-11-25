@@ -68,13 +68,13 @@ export function detectDesktop(
     execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", range, "--"], {
       encoding: "utf8",
     }),
-  recentCommit = () =>
-    execFileSync("git", ["log", "-1", "--since=25 hours ago", "--format=%H"], {
-      encoding: "utf8",
-    }),
+  published = process.env.NIGHTLY_ALREADY_PUBLISHED,
 ) {
-  // The nightly run validates every platform only when main changed since the last one.
-  if (eventName === "schedule") return recentCommit().trim() !== "";
+  if (eventName === "schedule") {
+    if (published !== "true" && published !== "false")
+      throw new Error("Missing scheduled nightly publication status");
+    return published === "false";
+  }
   // Manual runs and unknown events always exercise every supported platform.
   if (eventName !== "pull_request" && eventName !== "push") return true;
   const base = eventName === "pull_request" ? event.pull_request?.base?.sha : event.before;
