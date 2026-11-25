@@ -1,4 +1,4 @@
-// Linux fixture-only bootstrap/connector profile. No system ssh or real agents.
+// Linux bootstrap/connector profile. Defaults to fixture SSH and always uses a fake agent.
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
@@ -7,16 +7,19 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { loopback } from "./loopback.mjs";
 
 assert.equal(process.platform, "linux");
 assert.equal(process.versions.node.split(".")[0], "24");
 const root = resolve(".");
 const reverse = process.env.FOOM_COST_REVERSE === "1";
-const out = resolve(`test-results/1098-startup${reverse ? "-reverse" : ""}`);
+const realSsh = process.argv.includes("--loopback");
+const target = realSsh ? "127.0.0.1" : "fixture-costs";
+const out = resolve(realSsh ? "test-results/1098-loopback" : `test-results/1098-startup${reverse ? "-reverse" : ""}`);
 await mkdir(out, { recursive: true });
 const require = createRequire(import.meta.url);
 const now = () => performance.timeOrigin + performance.now();
-const results = { node: process.version, platform: process.platform, arch: process.arch, runs: [] };
+const results = { node: process.version, platform: process.platform, arch: process.arch, transport: realSsh ? "loopback" : "fixture", runs: [] };
 // Build a private copy of the production builder, adding only test instrumentation.
 // This retains the production native loader, SEA options and manifest generation.
 let builder = await readFile("scripts/build-remote-host.mjs", "utf8");
@@ -98,7 +101,7 @@ await build({
 const { selectHostArtifact, RemoteFrames, remoteFrame, remoteResponse, remoteRequest } = require(
   join(out, "client.cjs"),
 );
-for (const baseline of reverse ? [false, true] : [true, false]) {
+for (const baseline of realSsh ? [false] : reverse ? [false, true] : [true, false]) {
   const mode = baseline ? "baseline" : "fixed";
   execFileSync(process.execPath, [builderPath], {
     env: {
@@ -150,7 +153,7 @@ for (const baseline of reverse ? [false, true] : [true, false]) {
   );
   const trace = join(home, "trace.jsonl");
   await writeFile(trace, "");
-  await writeFile(
+  if (!realSsh) await writeFile(
     join(bin, "ssh"),
     `#!${process.execPath}
 const {spawn} = require('node:child_process');
@@ -168,6 +171,12 @@ child.on('close',code=>process.exit(code ?? 1));
     { mode: 0o700 },
   );
   const env = { HOME: home, PATH: bin, SHELL: shell, LANG: "C" };
+  const stopSsh = realSsh
+    ? await loopback(out, home, bin, trace).catch(async (error) => {
+        await rm(home, { recursive: true, force: true });
+        throw error;
+      })
+    : undefined;
   const daemonStarted = now();
   const daemon = spawn(join(artifactDir, "foom-host"), ["--daemon"], {
     env,
@@ -191,7 +200,7 @@ child.on('close',code=>process.exit(code ?? 1));
     // Match the issue baseline: enrollment has already warmed local verification.
     globalThis.cost1098 = () => {};
     await selectHostArtifact(
-      { host: "fixture-costs", artifact: join(artifactDir, "foom-host.gz") },
+      { host: target, artifact: join(artifactDir, "foom-host.gz") },
       manifest.version,
     );
     for (let index = 0; index < 7; index++) {
@@ -203,7 +212,7 @@ child.on('close',code=>process.exit(code ?? 1));
       globalThis.cost1098 = record;
       record("launch-start");
       const selected = await selectHostArtifact(
-        { host: "fixture-costs", artifact: join(artifactDir, "foom-host.gz") },
+        { host: target, artifact: join(artifactDir, "foom-host.gz") },
         manifest.version,
       );
       record("selection-end");
@@ -212,7 +221,7 @@ child.on('close',code=>process.exit(code ?? 1));
       const child = spawn(
         "ssh",
         bootstrapArguments(
-          "fixture-costs",
+          target,
           selected.version,
           selected.sha256,
           selected.bytes.length,
@@ -242,7 +251,7 @@ child.on('close',code=>process.exit(code ?? 1));
         child.once("error", reject);
         child.once("exit", () => {
           clearTimeout(timer);
-          reject(new Error("fixture SSH exited"));
+          reject(new Error(`SSH exited: ${stderr}`));
         });
         let open = false,
           output = false,
@@ -355,7 +364,11 @@ child.on('close',code=>process.exit(code ?? 1));
             event.at <= Math.max(...row.events.map((event) => event.at)),
         );
       });
-    await rm(home, { recursive: true, force: true });
+    try {
+      await stopSsh?.();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   }
 }
 await writeFile(join(out, "measurements.json"), JSON.stringify(results, null, 2));
