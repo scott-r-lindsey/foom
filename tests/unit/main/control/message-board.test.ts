@@ -733,6 +733,51 @@ it.each(["open", "checking"])(
   },
 );
 
+it.each(["author", "human"])(
+  "preserves another repository's stale decision until the %s resolves the thread",
+  async (resolver) => {
+    const original = "a".repeat(40);
+    const movedHead = "b".repeat(40);
+    let headSha = original;
+    const board = new MessageBoard(
+      () => Promise.resolve(),
+      repos,
+      undefined,
+      undefined,
+      () => ({ headSha }),
+    );
+    const questionPost = await board.append(
+      "orchestrator:a",
+      "grant-a",
+      decisions([{ ...question, subject: { pullRequest: 1, headSha: original } }]),
+    );
+    const thread = { thread: questionPost.thread };
+    const cursorBeforeMove = board.event("a");
+    headSha = movedHead;
+    board.observe();
+    await board.flush();
+    const staleCursor = board.event("a");
+    expect(staleCursor).not.toBe(cursorBeforeMove);
+
+    const resolve = { ...thread, idempotencyKey: "resolve" };
+    await expect(board.resolve("grant-b", resolve, "b")).rejects.toThrow("forbidden");
+    expect(board.read(thread, "a").posts[0]?.decisions).toMatchObject([
+      { status: "stale", movedHead },
+    ]);
+    expect(board.event("a")).toBe(staleCursor);
+
+    const close =
+      resolver === "author"
+        ? board.resolve("grant-a", resolve, "a")
+        : board.resolve("human", resolve);
+    await expect(close).resolves.toEqual({ ...thread, post: null });
+    expect(board.read(thread, "a")).toMatchObject({
+      thread: { state: "resolved" },
+      posts: [{ decisions: [{ status: "withdrawn" }] }],
+    });
+  },
+);
+
 it("accepts a new subject only after its post and preserves the first subsequently observed mismatch", async () => {
   const a = "a".repeat(40);
   const b = "b".repeat(40);

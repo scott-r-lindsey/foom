@@ -142,7 +142,7 @@ its post ID. The thread stays open and previously submitted answers remain in
 its history. Questions withdrawn while the stepper is open stay in that stepper
 struck through until it closes. Resolving the thread also closes its outstanding
 questions. Agent thread resolution is refused while another repository's
-question is open or checking. The human can resolve the entire thread.
+question is open, checking, or stale. The human can resolve the entire thread.
 The Board records questions, stale/withdrawn state and human answers
 in the same thread.
 

@@ -605,7 +605,9 @@ export class MessageBoard {
               post.thread === thread.id &&
               post.questions &&
               post.author !== `orchestrator:${repository}` &&
-              this.project(post, thread, answered).some(pendingDecision),
+              this.project(post, thread, answered).some(
+                (decision) => pendingDecision(decision) || decision.status === "stale",
+              ),
           )
         )
           throw new ControlError("forbidden");
