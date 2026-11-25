@@ -147,7 +147,8 @@ test("Help Manual opens a contained offline guide and focuses the existing tile"
   assert.ok(document.rows > 50);
   assert.equal(document.bridge, "undefined");
   assert.equal(document.node, "undefined");
-  assert.equal(new Set(document.sections).size, 14);
+  assert.equal(new Set(document.sections).size, 15);
+  assert.ok(document.sections.includes("registered-hosts"));
   assert.ok(document.sections.includes("orchestrator-playbook"));
   const blocked = await page.evaluate(
     (id) =>

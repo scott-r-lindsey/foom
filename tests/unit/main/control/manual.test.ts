@@ -115,7 +115,7 @@ it.each([
 it("publishes the complete bundled orchestrator playbook through paginated manual reads", async () => {
   const fs = await vi.importActual<{ readFileSync: typeof readFileSync }>("node:fs");
   const dom = new JSDOM(fs.readFileSync("src/manual/manual.html", "utf8"));
-  expect(dom.window.document.querySelectorAll("main > section")).toHaveLength(14);
+  expect(dom.window.document.querySelectorAll("main > section")).toHaveLength(15);
   expect(dom.window.document.querySelectorAll("section section")).toHaveLength(0);
   const manual = new Manual(sectionIndex(dom.window.document));
   expect(manual.read({}).sections).toContainEqual(

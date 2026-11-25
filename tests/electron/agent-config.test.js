@@ -213,7 +213,8 @@ test("config agents receive only the bundled manual and revoke the attachment on
   assert.ok(result.refused.includes("handoff"));
   assert.ok(result.refused.includes("launch"));
   const index = JSON.parse(await readFile("build/manual/sections.json", "utf8"));
-  assert.equal(result.text, index.find((section) => section.id === "shortcuts").text);
+  assert.equal(result.text, index.find((section) => section.id === "registered-hosts").text);
+  assert.match(result.text, /Only you can add a host in Settings → Hosts/u);
   await expect
     .poll(
       async () =>
