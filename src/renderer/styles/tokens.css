@@ -63,21 +63,9 @@
   --bg: #f3f0fa;
   --surface: #e9e4f5;
   --line: #ddd6ee;
-  /* Raised menus derive from the active theme's colors, so every theme keeps its own surface. */
-  --lift: light-dark(#fff, var(--ink));
-  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
-  --raised-bottom: var(--surface);
-  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
-  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
   --scrim: light-dark(rgb(20 16 31 / 28%), rgb(0 0 0 / 55%));
-  --raised-shadow: light-dark(
-    rgb(40 20 90 / calc(28% * var(--shape-shadow, 1))),
-    rgb(0 0 0 / calc(85% * var(--shape-shadow, 1)))
-  );
   --ink: #14101f;
   --muted: #625a7a;
-  --highlight: var(--accent);
-  --highlight-deep: var(--accent-deep);
   --accent: #5b2bd9;
   --accent-deep: #3b1a99;
   --attention: #d98200;
@@ -96,9 +84,42 @@
   --badge-ink: #14101f;
   --font-display: "Archivo Black", sans-serif;
   --font-voice: "Courier Prime", monospace;
+  --font-terminal: "Hack Nerd Font Mono", "Geist Mono", monospace;
+}
+
+:root,
+.eclipse-dark-art {
+  --highlight: var(--accent);
+  --highlight-deep: var(--accent-deep);
   --font-interface: "Geist", sans-serif;
   --font-mono: "Geist Mono", monospace;
-  --font-terminal: "Hack Nerd Font Mono", "Geist Mono", monospace;
+  /* Compute derived paint against the palette at this root. */
+  --lift: light-dark(#fff, var(--ink));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+  --raised-shadow: light-dark(
+    rgb(40 20 90 / calc(28% * var(--shape-shadow, 1))),
+    rgb(0 0 0 / calc(85% * var(--shape-shadow, 1)))
+  );
+}
+
+.eclipse-dark-art {
+  color-scheme: dark;
+  --type-scale: initial;
+  --type-weight: initial;
+  --type-strong-weight: initial;
+  --shape-radius: initial;
+  --shape-panel-radius: initial;
+  --shape-border: initial;
+  --shape-shadow: initial;
+  --state-hover: initial;
+  --state-selected: initial;
+  --state-focus: initial;
+  --state-scrollbar: initial;
+  font-family: var(--font-interface);
+  font-weight: var(--type-weight, 400);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -241,7 +262,7 @@
 :root[data-theme-ready] .settings-view,
 :root[data-theme-ready] .preflight,
 :root[data-theme-ready] .confirmation-window,
-:root[data-theme-ready] dialog {
+:root[data-theme-ready] dialog:not(:where(.eclipse-dark-art)) {
   --bg: var(--theme-dialogs-bg, var(--theme-bg));
   --state-scrollbar: var(--theme-dialogs-scrollbar, var(--line));
   --surface: var(--theme-dialogs-surface, var(--theme-surface));
@@ -272,7 +293,7 @@
 }
 
 :root[data-theme-ready] .theme-menu-options,
-:root[data-theme-ready] .row-menu:not(.sidebar-panel) {
+:root[data-theme-ready] .row-menu:not(.sidebar-panel, :where(.eclipse-dark-art *)) {
   --bg: var(--theme-menus-bg, var(--theme-bg));
   --state-scrollbar: var(--theme-menus-scrollbar, var(--line));
   --surface: var(--theme-menus-surface, var(--theme-surface));
@@ -425,7 +446,7 @@
   --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
 }
 
-:root[data-theme-areas~="wordmark"] .wordmark {
+:root[data-theme-areas~="wordmark"] .wordmark:not(:where(.eclipse-dark-art *)) {
   --state-scrollbar: var(--theme-wordmark-scrollbar, var(--line));
   --bg: var(--theme-wordmark-bg, var(--theme-bg));
   --surface: var(--theme-wordmark-surface, var(--theme-surface));
