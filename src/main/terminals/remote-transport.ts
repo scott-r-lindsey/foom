@@ -103,7 +103,8 @@ const imageHosts = new Set<string>();
 /** Utility-client-shaped adapter. It never exposes SSH/daemon text as diagnostics. */
 export class RemoteTransport extends EventEmitter {
   private connection: Connection | undefined;
-  private imageOwner: string | undefined;
+  // An acknowledged session without an upload grant has a null owner.
+  private imageOwner: string | null | undefined;
   private imageAbort: AbortController | undefined;
   private readonly expectedVersion: string;
   private readonly cancellation = new AbortController();
@@ -747,7 +748,7 @@ export class RemoteTransport extends EventEmitter {
               if (!this.opened && !agentPrepared && !this.target.reattach)
                 throw new Error("Remote spawn was not authorized");
               if (agentReady) throw new Error("Repeated remote agent metadata");
-              this.imageOwner = value.imageOwner;
+              this.imageOwner = value.imageOwner ?? null;
               agentReady = true;
               agent.ready(value.ready);
             } else if (value.type === "agent-hook") {
@@ -793,7 +794,7 @@ export class RemoteTransport extends EventEmitter {
                 });
                 return;
               }
-              if (!this.target.agent) this.imageOwner = value.imageOwner;
+              if (!this.target.agent) this.imageOwner = value.imageOwner ?? null;
               this.restoring = undefined;
               this.restoreState(true);
               // A hidden restored session may have neither a view nor a
@@ -824,7 +825,7 @@ export class RemoteTransport extends EventEmitter {
               value.state !== "live"
             )
               throw new Error("Unexpected open result");
-            if (!this.target.agent) this.imageOwner = value.imageOwner;
+            if (!this.target.agent) this.imageOwner = value.imageOwner ?? null;
             clearTimeout(deadline);
             this.opened = true;
             if (this.openingThemeKey !== undefined) this.confirmedThemeKey = this.openingThemeKey;
@@ -929,8 +930,9 @@ export class RemoteTransport extends EventEmitter {
     this.send(request);
   }
 
-  get hasImageOwner(): boolean {
-    return this.imageOwner !== undefined;
+  get imagePasteStatus(): "available" | "unsupported" | "unavailable" {
+    if (this.imageOwner === undefined) return "unavailable";
+    return this.imageOwner === null ? "unsupported" : "available";
   }
 
   async putImage(png: Uint8Array, signal: AbortSignal): Promise<string> {

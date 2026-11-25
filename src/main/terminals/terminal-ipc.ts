@@ -268,8 +268,10 @@ export function attachTerminal(
         const snapshot = await snapshotReady;
         if (!live()) return { kind: "cancelled" };
         if (snapshot.kind !== "image") return snapshot;
-        if (!imageSession || !pasteRecipients.has(id) || !manager.imagePasteAvailable(id))
-          return { kind: "unsupported" };
+        if (!imageSession || !pasteRecipients.has(id)) return { kind: "unsupported" };
+        const status = manager.imagePasteStatus(id);
+        if (status === "unsupported") return { kind: "unsupported" };
+        if (status === "unavailable") return { kind: "failed" };
         const png = await normalizeImage(snapshot.bytes, lease.signal);
         if (!live()) return { kind: "cancelled" };
         const size = png.length;

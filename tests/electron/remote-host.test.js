@@ -13,6 +13,7 @@ const {
   mkdtemp,
   readFile,
   realpath,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -37,7 +38,7 @@ test("Machines menu agent image paste survives SSH reconnect and cleans up on St
   timeout: deadline(45000),
 }, async (context) => {
   const fixture = await remoteFixture(context);
-  const { bin, remoteHome } = fixture;
+  const { bin, remoteHome, root, sshLog } = fixture;
   const input = path.join(remoteHome, "fixture-agent-input");
   const codeFolder = path.join(remoteHome, "code");
   await mkdir(codeFolder, { mode: 0o700 });
@@ -82,10 +83,13 @@ else {
     );
     await clipboard.write([new ClipboardItem({ "image/png": new Blob([png]) })]);
   });
-  const paste = async (count) => {
-    const end = "\x1b[201~";
+  const pressPaste = async () => {
     await terminal.locator(".xterm-helper-textarea").focus();
     await page.keyboard.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+  };
+  const paste = async (count) => {
+    const end = "\x1b[201~";
+    await pressPaste();
     await expect
       .poll(async () => {
         const [error] = await terminal.locator(".tile-paste-result").allTextContents();
@@ -116,7 +120,15 @@ else {
       unsubscribe();
     });
   }, id);
+  const offline = path.join(root, "offline");
+  await writeFile(offline, "offline");
   process.kill(owners[0], "SIGTERM");
+  await expect.poll(() => readFile(sshLog, "utf8")).toContain("fixture offline request");
+  await pressPaste();
+  await expect(terminal.locator(".tile-paste-result")).toHaveText(
+    "Unable to paste clipboard contents.",
+  );
+  await rm(offline);
   await expect.poll(() => fixture.sshOwners(id)).toHaveLength(2);
   await page.waitForFunction(() => window.machineImageReplayed);
   await expect(terminal.locator(".xterm-rows")).toContainText("MACHINE_IMAGE_READY");

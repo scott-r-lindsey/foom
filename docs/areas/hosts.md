@@ -709,7 +709,8 @@ remote home through the Machines menu. The daemon records eligibility after it
 resolves the bundled agent using its own login PATH. Protocol 3 adds one optional
 `imageOwner` nonce on the live `open-result` for these sessions. Reconnect and
 profile reattach rotate the nonce without restarting the agent or deleting its
-images. Interrupted uploads aren't replayed. Shells, unsupported agents, config
+images. Image paste during an SSH outage reports “Unable to paste clipboard
+contents.” Interrupted uploads aren't replayed. Shells, unsupported agents, config
 providers, and direct human repository or worktree launches receive no grant.
 Compatible older daemons that support the machine launch can still launch and
 reattach the PTY with text paste. Without the nonce, image paste reports

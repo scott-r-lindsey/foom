@@ -200,6 +200,33 @@ test("reconnect opens the same ID, restores view state, resets snapshot and neve
   }
   expect(transport.kill()).toBe(false);
 });
+test("image paste status separates a reconnecting session from a daemon without an upload grant", async () => {
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.greet();
+  child.message({
+    type: "open-result",
+    id: "one",
+    request: 1,
+    state: "live",
+    imageOwner: "a".repeat(64),
+  });
+  expect(transport.imagePasteStatus).toBe("available");
+  child.emit("close");
+  expect(transport.imagePasteStatus).toBe("unavailable");
+  const reconnect = new Child();
+  mock.spawn.mockReturnValue(reconnect);
+  await vi.advanceTimersByTimeAsync(1000);
+  reconnect.greet();
+  expect(transport.imagePasteStatus).toBe("unavailable");
+  reconnect.message({
+    type: "open-result",
+    id: "one",
+    request: requestOf(reconnect, "open"),
+    state: "live",
+  });
+  expect(transport.imagePasteStatus).toBe("unsupported");
+});
 test.each(["nonsense\n", "x".repeat(33), "FOOM-UPLOAD\nFOOM-UPLOAD\n"])(
   "rejects bootstrap output %s",
   async (header) => {
@@ -1433,7 +1460,7 @@ test.each([false, true].flatMap((supported) => ["a", "b"].map((build) => ({ supp
       );
       // Older, compatible daemons can open the normal PTY without approving uploads.
       child.message({ type: "open-result", id: "one", request: 1, state: "live" });
-      expect(transport.hasImageOwner).toBe(false);
+      expect(transport.imagePasteStatus).toBe("unsupported");
       transport.postMessage({ type: "write", id: "one", request: 2, data: "text still works" });
       expect(child.messages).toContainEqual({
         type: "write",
