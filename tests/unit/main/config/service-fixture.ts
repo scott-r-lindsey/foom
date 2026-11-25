@@ -1,3 +1,4 @@
+import type { ThemeApproval } from "../../../../src/shared/theme-bitmap";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -30,7 +31,7 @@ export async function fixture({
 }: Partial<Omit<ConfigServiceDependencies, "baseline">> & {
   baseline?: string;
   appliedText?: string;
-  themeDigests?: [string, string][];
+  themeDigests?: [string, ThemeApproval][];
   realWatch?: boolean;
 } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "foom-config-service-"));
@@ -38,7 +39,7 @@ export async function fixture({
   const folder = path.join(root, "config");
   let baseline: string | null = initial ?? null;
   let copy: string | null = initialText ?? null;
-  const themeBaselines = new Map<string, string>(themeDigests);
+  const themeBaselines = new Map<string, ThemeApproval>(themeDigests);
   const applied: ConfigSettings[] = [];
   const listeners: ((file: string | null) => void)[] = [];
   const statuses: unknown[] = [];
@@ -105,7 +106,10 @@ export async function fixture({
 }
 
 /** Restarts the service on the same folder and profile, as relaunching Foom does. */
-export async function restart(f: Awaited<ReturnType<typeof fixture>>) {
+export async function restart(
+  f: Awaited<ReturnType<typeof fixture>>,
+  overrides: Pick<ConfigServiceDependencies, "loadThemeBitmaps"> = {},
+) {
   await f.service.dispose();
   const again = new ConfigService({
     root: f.folder,
@@ -121,6 +125,7 @@ export async function restart(f: Awaited<ReturnType<typeof fixture>>) {
       },
     },
     watch: () => ({ close: () => {} }),
+    ...overrides,
   });
   services.push(again);
   await again.initialize();

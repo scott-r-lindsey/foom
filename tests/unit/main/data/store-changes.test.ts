@@ -1,3 +1,4 @@
+import type { ThemeApproval } from "../../../../src/shared/theme-bitmap";
 import { HostObservations } from "../../../../src/main/data/host-observations";
 import { settingsChanged } from "../../../../src/main/data/settings-changes";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
@@ -167,7 +168,7 @@ test("the approved config copy, its digest and selected palette publish as one p
   const store = await SettingsStore.open(directory);
   await store.attachConfig(async () => {}, {}, null);
   const file = "themes/example.json";
-  const publications: (string | null)[][] = [];
+  const publications: [string | null, string | null, ThemeApproval | null][] = [];
   disposers.push(
     viewChanges.subscribe(() => {
       publications.push([store.configDigest(), store.configText(), store.themeDigest(file)]);
@@ -175,11 +176,15 @@ test("the approved config copy, its digest and selected palette publish as one p
   );
   const digest = "b".repeat(64);
   const text = '{"kind":"settings","interfaceTheme":"user:example.json"}';
-  const themeDigest = "c".repeat(64);
+  const themeDigest = {
+    digest: "c".repeat(64),
+    jsonDigest: "d".repeat(64),
+    sources: { gutter: "e".repeat(64) },
+  };
   await store.setConfigBaseline(digest, text, { file, digest: themeDigest });
   expect(publications).toEqual([[digest, text, themeDigest]]);
   const restarted = await SettingsStore.open(directory);
   expect(restarted.configDigest()).toBe(digest);
   expect(restarted.configText()).toBe(text);
-  expect(restarted.themeDigest(file)).toBe(themeDigest);
+  expect(restarted.themeDigest(file)).toEqual(themeDigest);
 });

@@ -7,7 +7,11 @@ import { configPart } from "../../../../src/main/config/approval";
 import { SettingsStore } from "../../../../src/main/setup/settings";
 import { ConfigService } from "../../../../src/main/config/service";
 import { digest } from "../../../../src/main/config/layout";
-import { ThemeBitmaps, ThemeLibrary } from "../../../../src/main/themes/library";
+import {
+  ThemeBitmaps,
+  ThemeLibrary,
+  themeBitmapResponse,
+} from "../../../../src/main/themes/library";
 import { parseThemeFile } from "../../../../src/shared/theme-files";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { fixture, palette, theme, restart, services } from "./service-fixture";
@@ -778,7 +782,7 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
   expect(id).toMatch(/^[a-f0-9]{64}$/u);
   expect(f.service.activeThemeImage(id)).toEqual(Uint8Array.of(1, 2, 3));
   expect(f.service.activeThemeImage("anything")).toBeUndefined();
-  expect(f.themeBaselines.get(file)).toBe(active?.digest);
+  expect(f.themeBaselines.get(file)).toMatchObject({ digest: active?.digest });
 
   await f.write(image, "proposed metadata");
   await f.service.refresh();
@@ -834,4 +838,122 @@ test("Keep restores bitmap placement edits and switches to Default if original b
   expect(f.service.activePalette()).toBeUndefined();
   expect(await f.read(image)).toBe("replacement");
   bitmaps.dispose();
+});
+
+async function realBitmapFixture() {
+  const { default: sharp } = await import("sharp");
+  const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
+  const f = await fixture({ loadThemeBitmaps: (parsed) => bitmaps.load(parsed) });
+  const directory = path.join(f.folder, "themes");
+  const bitmaps = new ThemeBitmaps(directory, decodeThemeBitmap);
+  const file = "themes/art.json";
+  const original = JSON.stringify({
+    ...palette,
+    name: "Art",
+    version: 2,
+    images: {
+      board: { file: "board.png" },
+      sidebar: { file: "sidebar.png" },
+      gutter: { file: "gutter.png" },
+    },
+  });
+  const image = async (name: string, color: string) => {
+    const png = await sharp({ create: { width: 3, height: 2, channels: 3, background: color } })
+      .png()
+      .toBuffer();
+    await writeFile(path.join(directory, name), png);
+  };
+  await f.service.initialize();
+  await f.write(file, original);
+  await image("board.png", "#6633bb");
+  await image("sidebar.png", "#3366bb");
+  const offered = await f.service.reviewTheme(file, original, parseThemeFile(original, "theme"));
+  await f.service.write({ interfaceTheme: "user:art.json" }, offered?.digest);
+  return { ...f, file, original, directory, image, bitmaps };
+}
+
+test("a missing-file edit is held and Keep restores the original bitmap declaration", async () => {
+  const f = await realBitmapFixture();
+  const previous = f.service.activePalette();
+  const baseline = f.themeBaselines.get(f.file);
+  await f.write(f.file, f.original.replace("board.png", "missing.png"));
+  await f.service.refresh();
+  expect(f.service.status().pending?.detail).toBe("theme-images");
+  expect(f.service.activePalette()).toEqual(previous);
+  expect(f.themeBaselines.get(f.file)).toEqual(baseline);
+
+  await f.image("missing.png", "#336688");
+  await f.service.refresh();
+  await f.decide("keep");
+  expect(await f.read(f.file)).toBe(f.original);
+  expect(f.service.activePalette()).toEqual(previous);
+  f.bitmaps.dispose();
+});
+
+test("restart preserves the palette and other slot when an approved bitmap was deleted", async () => {
+  const f = await realBitmapFixture();
+  const previous = f.service.activePalette();
+  const baseline = f.themeBaselines.get(f.file);
+  await f.service.dispose();
+  await rm(path.join(f.directory, "board.png"));
+  const service = await restart(f, { loadThemeBitmaps: (parsed) => f.bitmaps.load(parsed) });
+  expect(service.status().pending).toBeNull();
+  expect(service.activePalette()).toEqual({
+    ...previous,
+    bitmaps: { sidebar: previous?.bitmaps?.sidebar },
+  });
+  expect(f.themeBaselines.get(f.file)).toEqual(baseline);
+
+  await f.image("board.png", "#6633bb");
+  await service.refresh();
+  expect(service.status().pending).toBeNull();
+  expect(service.activePalette()).toEqual(previous);
+
+  await f.image("board.png", "#224455");
+  await service.refresh();
+  expect(service.status().pending?.detail).toBe("theme-images");
+  expect(f.themeBaselines.get(f.file)).toEqual(baseline);
+  f.bitmaps.dispose();
+});
+
+test("refresh revokes the active asset URLs when the theme folder disappears", async () => {
+  const f = await realBitmapFixture();
+  const asset = f.service.activePalette()?.bitmaps?.board?.id ?? "";
+  const url = new Request(`foom-theme://bitmap/${asset}`);
+  const response = () => themeBitmapResponse(url, (id) => f.service.activeThemeImage(id));
+  const baseline = f.themeBaselines.get(f.file);
+  expect(response().status).toBe(200);
+  await rm(f.directory, { recursive: true });
+  await f.service.refresh();
+  expect(response().status).toBe(404);
+  expect(f.service.activePalette()?.theme?.name).toBe("Art");
+  expect(f.service.activePalette()?.bitmaps).toBeUndefined();
+  expect(f.themeBaselines.get(f.file)).toEqual(baseline);
+  f.bitmaps.dispose();
+});
+
+test("restart holds changed and newly added bytes while preserving approved missing hashes", async () => {
+  const f = await realBitmapFixture();
+  const initial = f.themeBaselines.get(f.file);
+  if (!initial || typeof initial === "string") throw new Error("Missing bitmap approval");
+  await f.service.dispose();
+  await rm(path.join(f.directory, "board.png"));
+  await f.image("sidebar.png", "#115588");
+  await f.image("gutter.png", "#118855");
+  const service = await restart(f, { loadThemeBitmaps: (parsed) => f.bitmaps.load(parsed) });
+
+  expect(service.status().pending?.detail).toBe("theme-images");
+  expect(service.activePalette()?.theme?.name).toBe("Art");
+  expect(service.activePalette()?.bitmaps).toBeUndefined();
+  expect(f.themeBaselines.get(f.file)).toEqual(initial);
+  await service.decide("allow", service.status().pending?.id);
+  expect(service.activePalette()?.bitmaps).toHaveProperty("gutter.id");
+  expect(service.activePalette()?.bitmaps).toHaveProperty("sidebar.id");
+  expect(f.themeBaselines.get(f.file)).toMatchObject({ sources: { board: initial.sources.board } });
+
+  await f.image("board.png", "#6633bb");
+  await service.refresh();
+  expect(service.status().pending).toBeNull();
+  expect(service.activePalette()?.bitmaps).toHaveProperty("board.id");
+  f.bitmaps.dispose();
 });

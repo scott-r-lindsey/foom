@@ -760,6 +760,14 @@ test("settings import preserves accepted config baseline and historical consent 
   const { importProfileSettings } = await import("../../../../../src/main/data-import/settings");
   const { db, file, profile } = await fixture();
   const configText = JSON.stringify({ kind: "settings", hooks: false });
+  const themeDigests = {
+    "themes/test.json": "b".repeat(64),
+    "themes/art.json": {
+      digest: "d".repeat(64),
+      jsonDigest: "e".repeat(64),
+      sources: { sidebar: "f".repeat(64) },
+    },
+  };
   await put(profile, {
     ...sources(),
     "settings.json": JSON.stringify({
@@ -767,7 +775,7 @@ test("settings import preserves accepted config baseline and historical consent 
       remoteProfile: "a".repeat(32),
       configText,
       configDigest: createHash("sha256").update(configText).digest("hex"),
-      themeDigests: { "themes/test.json": "b".repeat(64) },
+      themeDigests,
       settings: {
         terminalClipboardWrites: true,
         agentArguments: { codex: [] },
@@ -780,6 +788,9 @@ test("settings import preserves accepted config baseline and historical consent 
   expect((await importProfileSettings(db, profile)).value.alreadyImported).toBe(true);
   inspect(file, (raw) => {
     expect(raw.prepare("SELECT * FROM profile_metadata").all()).toHaveLength(5);
+    expect(
+      raw.prepare("SELECT value FROM profile_metadata WHERE key='themeDigests'").get(),
+    ).toEqual({ value: JSON.stringify(themeDigests) });
     expect(
       raw.prepare("SELECT identity FROM agent_consents WHERE agent='custom-agent'").get()?.[
         "identity"

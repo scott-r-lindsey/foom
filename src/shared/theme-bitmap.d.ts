@@ -39,3 +39,11 @@ export interface ThemeBitmapSnapshot {
   sources: Partial<Record<ThemeBitmapSlot, string>>;
   diagnostics: readonly ThemeDiagnostic[];
 }
+
+/** Private profile approval. Legacy color-only themes store just their JSON digest. */
+export interface ThemeBitmapApproval {
+  digest: string;
+  jsonDigest: string;
+  sources: ThemeBitmapSnapshot["sources"];
+}
+export type ThemeApproval = string | ThemeBitmapApproval;

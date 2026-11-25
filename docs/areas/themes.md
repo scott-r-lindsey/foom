@@ -217,13 +217,21 @@ alpha-weighted color buckets and reports a fixed warning when one is within
 ΔE 40 of attention or failure colors in the relevant palettes. Those warnings
 alone do not hold a theme.
 
-The approval digest binds the JSON and each referenced image's original bytes
-when read. Adding, replacing or changing how an image is placed in an active
-theme needs **Allow / Keep it on**. An exact offered Appearance choice is a
-direct approval. If a file becomes unavailable, that slot falls back to its normal
-paint. Keep it on restores the previous JSON when the previous bitmap snapshot
-can still be read. Otherwise it switches to Default without writing an image
-file. Allow revalidates the digest before serving the exact reviewed snapshot.
+The approval digest binds the JSON and each referenced image's original bytes.
+The private profile also records the JSON digest and the approved source digest
+for each slot. Changing an active slot's file or paint settings needs **Allow /
+Keep it on**, even when the proposed file is missing. An exact offered Appearance
+choice is a direct approval.
+
+An unavailable asset leaves its slot on the normal background and stops being
+served. This preserves the approval record and applies even if the theme folder
+becomes unavailable. After restart, a matching JSON digest and matching bytes
+for available slots restore the approved palette and those slots. A restored file
+with the same bytes can paint again. Changed or previously unapproved bytes still
+wait for the gate. Keep it on restores the previous JSON when it is available
+and the remaining original assets match. Otherwise it switches to Default without
+writing an image file. Allow revalidates the proposed digest before serving the
+reviewed snapshot.
 
 The board's only CSP change is `img-src 'self' foom-theme://bitmap`. The
 board session's scheme handler accepts GET requests for opaque IDs of active,

@@ -1,3 +1,6 @@
+import { isDeepStrictEqual } from "node:util";
+import { themeBitmapSlots } from "../../shared/theme-bitmaps";
+import type { ThemeApproval, ThemeBitmapApproval } from "../../shared/theme-bitmap";
 import { parseAgentDefaults as parseStoredAgentDefaults } from "../../shared/providers/arguments";
 import { settingsChanged } from "../data/settings-changes";
 import { registeredHosts } from "../../shared/registered-hosts";
@@ -38,6 +41,31 @@ function freezeSettings<T>(value: T): T {
     for (const child of Object.values(value)) freezeSettings(child);
   }
   return value;
+}
+
+const sha256 = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+
+export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
+  if (sha256(value)) return value;
+  if (
+    !record(value) ||
+    Object.keys(value).length !== 3 ||
+    !sha256(value["digest"]) ||
+    !sha256(value["jsonDigest"]) ||
+    !record(value["sources"])
+  )
+    return undefined;
+  if (Object.keys(value["sources"]).some((key) => !themeBitmapSlots.some((slot) => slot === key)))
+    return undefined;
+  const sources: ThemeBitmapApproval["sources"] = {};
+  for (const slot of themeBitmapSlots) {
+    const source = value["sources"][slot];
+    if (source === undefined) continue;
+    if (!sha256(source)) return undefined;
+    sources[slot] = source;
+  }
+  return { digest: value["digest"], jsonDigest: value["jsonDigest"], sources };
 }
 
 export const DEFAULT_SETTINGS: Settings = freezeSettings({
@@ -204,7 +232,7 @@ export class SettingsStore {
   /** The config settings file this profile last applied, for Keep it on after a restart. */
   private text: string | null = null;
   /** Digests of the interface theme files this profile last applied, by config path. */
-  private themeDigests: Readonly<Record<string, string>> = {};
+  private themeDigests: Readonly<Record<string, ThemeApproval>> = {};
   private writer: ConfigWriter | undefined;
 
   private constructor(private readonly file: string) {}
@@ -313,14 +341,12 @@ export class SettingsStore {
           store.text = typeof text === "string" && text.length <= 65536 ? text : null;
           const themes = state["themeDigests"];
           if (record(themes)) {
-            const kept: Record<string, string> = {};
-            for (const [file, value] of Object.entries(themes).slice(0, MAX_THEME_DIGESTS))
-              if (
-                /^themes\/[^/]{1,200}$/.test(file) &&
-                typeof value === "string" &&
-                /^[0-9a-f]{64}$/.test(value)
-              )
-                kept[file] = value;
+            const kept: Record<string, ThemeApproval> = {};
+            for (const [file, value] of Object.entries(themes).slice(0, MAX_THEME_DIGESTS)) {
+              if (!/^themes\/[^/]{1,200}$/.test(file)) continue;
+              const approval = parseThemeApproval(value);
+              if (approval) kept[file] = approval;
+            }
             store.themeDigests = kept;
           }
         } else {
@@ -411,16 +437,16 @@ export class SettingsStore {
   }
 
   /** Digest of the theme file this profile last applied: that theme's approval baseline. */
-  themeDigest(file: string): string | null {
+  themeDigest(file: string): ThemeApproval | null {
     return Object.hasOwn(this.themeDigests, file) ? (this.themeDigests[file] ?? null) : null;
   }
 
-  async setThemeDigest(file: string, digest: string | null): Promise<void> {
-    if (this.themeDigest(file) === digest) return;
-    const next: Record<string, string> = Object.fromEntries(
+  async setThemeDigest(file: string, digest: ThemeApproval | null): Promise<void> {
+    if (isDeepStrictEqual(this.themeDigest(file), digest)) return;
+    const next: Record<string, ThemeApproval> = Object.fromEntries(
       Object.entries(this.themeDigests).filter(([key]) => key !== file),
     );
-    if (digest !== null) next[file] = digest;
+    if (digest !== null) next[file] = structuredClone(digest);
     if (Object.keys(next).length > MAX_THEME_DIGESTS) return;
     await this.write(() => {
       this.themeDigests = next;
@@ -435,7 +461,7 @@ export class SettingsStore {
   async setConfigBaseline(
     digest: string,
     text: string,
-    theme?: { file: string; digest: string },
+    theme?: { file: string; digest: ThemeApproval },
   ): Promise<void> {
     if (Buffer.byteLength(text) > 65536) return;
     if (digest === this.digest && text === this.text && !theme) return;
