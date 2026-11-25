@@ -102,6 +102,95 @@ installation came from the `node` npm package. Its platform package provided
 the license, so the retry exposed that file at the runtime path expected by
 the build script. The Electron command and repository code stayed the same.
 
+## Follow-up with a private TMPDIR
+
+The follow-up set `TMPDIR` on the command with
+`env TMPDIR="<private-tmp>" <command>`. It used the same absolute directory
+for each sandboxed command and its direct control. The directory was created
+with `mktemp -d "<worktree>/t.XXXXXX"` and removed afterward.
+`stat -c '%a %u' "<private-tmp>"` exited 0 inside and outside the sandbox.
+It reported mode 700 and the invoking user's UID in both cases. The scratch
+commit runner added `"<private-tmp>"` alongside `"<scratch-clone>/.git"`
+in `sandbox_workspace_write.writable_roots` because the commit ran from the
+clone. The follow-up commits used the Scratch commit arguments with
+`-m 'Workspace sandbox spike: private TMPDIR'`.
+
+| Probe | TMPDIR | Workspace exit | Direct exit |
+| --- | --- | --- | --- |
+| Check | In worktree | 1, 135 unit failures | 1, 130 unit failures |
+| Scratch commit | In worktree | 1, Husky stopped on the same 135 unit failures | 1, Husky stopped on the same 130 unit failures |
+| Check | Shorter path under `/tmp` | 1, the original 58 ownership-related failures | 0, full check passed |
+| Scratch commit | Shorter path under `/tmp` | 1, Husky stopped on the same 58 unit failures | 0, hook passed and scratch commit created |
+
+The in-worktree path eliminated all 53 original failures in
+`management.test.ts`. That suite uses `os.tmpdir()`. The five original
+failures in `management-connection.test.ts` remained in Workspace. It
+creates its fixtures directly below `/tmp`, independent of `TMPDIR`.
+The fixture operations use the same ownership check that rejects the
+sandbox's view of `/tmp`.
+
+| Remaining case in `management-connection.test.ts` | Error |
+| --- | --- |
+| daemon + management + fixture Git survives the old 10s deadline and publishes one checkout | `ENOENT` for `started` |
+| disconnect cancels fixture Git, removes staging, and permits a reconciled retry | `ENOENT` for `started` |
+| expiry cancels fixture Git, removes staging, and permits a reconciled retry | `ENOENT` for `started` |
+| shutdown cancels fixture Git, removes staging, and permits a reconciled retry | `ENOENT` for `started` |
+| cumulative inventory may exceed 10s while each fixed fixture probe stays within 5s | `ENOENT` for `counter` |
+
+The in-worktree `TMPDIR` was 80 bytes. With the test runner's
+temporary subdirectory and the remote daemon's socket suffix, the socket
+path was 125 bytes, above Foom's 100-byte limit. Foom reported
+`Host socket path too long` or `Remote socket path too long` in its
+preflight checks. The legacy fixture reported `listen EINVAL`. SSH
+host-key tests reported timeouts and prompt assertions after hitting the
+askpass socket path limit. These 130 failures reproduced directly with
+the same directory.
+
+| Additional failing unit suite | Failed cases |
+| --- | ---: |
+| `terminal-host/remote/daemon.test.ts` | 86 |
+| `terminal-host/remote/agent-launch.test.ts` | 15 |
+| `main/setup/ssh-host-key.test.ts` | 11 |
+| `terminal-host/remote/legacy.test.ts` | 9 |
+| `terminal-host/remote/agent-endpoint.test.ts` | 5 |
+| `terminal-host/remote/shell-privacy.test.ts` | 3 |
+| `terminal-host/remote/private-path.test.ts` | 1 |
+
+The retry used `mktemp -d /tmp/t.XXXXXX` for a shorter, user-owned directory
+with mode 700. The directory was 13 bytes long in its absolute form. Each
+sandbox launch explicitly added that directory to its writable roots. Check
+used `["<shared-git-dir>","<worktree-git-dir>","<short-tmp>"]` and the scratch
+commit used `["<scratch-clone>/.git","<short-tmp>"]`. Each direct control
+used the same shorter directory. The socket failures cleared. The shorter
+directory still had `/tmp` as an ancestor, so Workspace again failed all
+53 ownership-related cases in `management.test.ts` and the same five cases in
+`management-connection.test.ts`.
+
+## Git metadata writability
+
+These probes ran only in the scratch clone. The `test -w` probes queried
+access permissions.
+
+| Command | Workspace + Network | Workspace + Network + Scratch Git | Direct |
+| --- | --- | --- | --- |
+| `test -w .git/hooks` | 1, read-only | 0, writable | 0 |
+| `test -w .git/config` | 1, read-only | 0, writable | 0 |
+
+With Scratch Git granted, this command exited 0. It created an empty file
+under the scratch clone's hooks directory, verified it existed, and removed
+it before any hooked commit.
+
+```sh
+sh -c 'set -eu; set -C; : > .git/hooks/workspace-spike-probe; test -f .git/hooks/workspace-spike-probe; rm -- .git/hooks/workspace-spike-probe'
+```
+
+Codex 0.167.0's sandbox did not retain write protection for these paths
+after the explicit Git root grant. A sandboxed agent with that grant could
+change hooks or Git configuration, and a later unsandboxed Git command
+could then execute code selected by those changes. The experiment measured
+write access and an empty file's creation and removal. Execution through
+modified hooks or config remains unmeasured.
+
 ## What remains unproven
 
 The direct runner did not exercise the interactive agent's approval flow,
@@ -116,9 +205,7 @@ such as pushing from the sandbox remain unmeasured.
 ## Recommendation
 
 **Workspace does not support the full Foom workflow on this machine.**
-Network access and both Git roots enabled fetch, dependency installation,
-and GitHub authentication. The focused Electron test also passed with
-Chromium sandboxing enabled. The same Codex sandbox still failed the
-required `pnpm run check` and the pre-commit hook. Both passed directly.
-Workspace is therefore unsuitable as the default for unattended Foom
-development on this setup.
+Keep Workspace out of the unattended default on this setup. Neither tested
+`TMPDIR` passed the required check and pre-commit hook in Workspace. A
+future approach also needs to account for the effects of granting write
+access to Git metadata used by later unsandboxed commands.
