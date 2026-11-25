@@ -273,16 +273,14 @@ req.end(JSON.stringify(payload));
           await window.manualResume;
         });
         await expect
-          .poll(() => restored.evaluate(() => globalThis.restoreFixture.completed))
+          .poll(
+            async () =>
+              (await rows(page)).find((row) => row.id === parentId)?.orchestration?.active,
+          )
           .toBe(true);
-        const restoredRows = await rows(page);
-        assert.equal(restoredRows.find((row) => row.id === parentId)?.orchestration?.active, true);
-        assert.deepEqual(
-          restoredRows
-            .filter((row) => childIds.includes(row.id))
-            .map((row) => row.orchestration?.parentId),
-          [parentId, parentId],
-        );
+        await expect
+          .poll(async () => (await rows(page)).filter((row) => childIds.includes(row.id)))
+          .toMatchObject(childIds.map(() => ({ orchestration: { parentId } })));
       } finally {
         await restored.evaluate(() => globalThis.restoreFixture.release());
       }

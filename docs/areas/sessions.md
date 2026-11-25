@@ -36,8 +36,11 @@ and config path in `sidebar-commands.ts`; launch/removal locks, terminal queues
 and cancellation remain in `workspace-context.ts`. Execution and
 verdict state belong to `ExecutionOwner`. No owner receives the facade or coordinator object
 or owns PTYs or terminal views.
-Quit preparation waits for restoration, freezes and flushes the running records
-before PTYs stop; failed preparation or cancelled quit re-enables persistence.
+Quit preparation waits for active startup work, then freezes and flushes the
+running records before PTYs stop. Pending launch confirmations stay outside this
+wait. Their queued rows keep their saved running state and private provenance.
+Failed preparation or cancelled quit re-enables persistence and resumes ready
+startup work.
 The coordinator still releases agents and control/hook services after terminals stop,
 then asks the owner to drain session writes.
 
@@ -63,8 +66,13 @@ If a profile already contains duplicate worktree paths for an orchestrator,
 startup keeps the session rows and drops that saved grant and its child links.
 
 Manual Resume, New conversation and Restart reserve the row while they confirm
-and attempt a launch. Startup waits for a relevant reservation to settle. A
-successful launch claims the row. Declining or failing before a replacement
+and attempt a launch. Startup holds that row, its dependent children and launches
+that need the same reserved checkout. Unrelated rows start independently. An
+exited child's pending reservation defers only its parent-link check, which
+revalidates the original grant and checkout after the reservation settles.
+This background check stays outside the launch and quit waits. Quit invalidates
+an in-flight background check and keeps its saved provenance for the next start.
+A successful launch claims the row. Declining or failing before a replacement
 launch lets startup use the original saved record. Close claims the row before
 cleanup. Startup skips claimed rows, including results
 from in-flight daemon discovery. Removing a row also suppresses stale discovery
