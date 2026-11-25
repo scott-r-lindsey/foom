@@ -102,7 +102,7 @@ const hookReady = () => {
     path.join(bin, "claude"),
     phase === "wake"
       ? wakeFixture
-      : ["waiting", "unread"].includes(phase)
+      : ["waiting", "unread", "decisions"].includes(phase)
         ? waitingFixture
         : ["resume", "resume-revoked"].includes(phase)
           ? FAKE_ORCHESTRATED_CLAUDE.replace(
@@ -449,6 +449,67 @@ process.stdout.write("FOOM_AGENT_READY`,
       { id: "approve", label: "Approve screenshots", hint: "Use the current draft assets" },
       { id: "revise", label: "Request changes" },
     ];
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.setContentSize(1280, 900);
+    });
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280);
+    const summary = page.locator(".board-summary");
+    const boardButton = (count) =>
+      page.getByRole("button", {
+        name: count
+          ? `Open message board, ${count} decision${count === 1 ? "" : "s"}`
+          : "Open message board",
+        exact: true,
+      });
+    const divider = page.getByRole("separator", { name: "Sidebar width" });
+    const sidebar = page.locator(".sidebar-shell");
+    const footer = page.locator(".sidebar-footer");
+    const footerLayout = () =>
+      footer.evaluate((element) => {
+        const box = (node) => {
+          const { x, y, width, height } = node.getBoundingClientRect();
+          return [x, y, width, height];
+        };
+        return [
+          box(element),
+          ...Array.from(
+            element.querySelectorAll(
+              ".message-board-toggle, .footer-zoom, .master-volume, .config-gear",
+            ),
+            box,
+          ),
+        ];
+      });
+    const footerAt = async (width) => {
+      await expect(divider).toHaveAttribute("aria-valuenow", String(width));
+      await expect.poll(async () => (await sidebar.boundingBox()).width).toBe(width);
+      return footerLayout();
+    };
+    const footerWidths = async () => {
+      const regular = await footerAt(300);
+      await divider.press("Home");
+      const narrow = await footerAt(240);
+      await divider.dblclick();
+      await footerAt(300);
+      return { regular, narrow };
+    };
+    await expect(boardButton(0)).toHaveText("Board");
+    await expect(summary).toContainText("0 need you");
+    const baseline = await footerWidths();
+    const center = ([, y, , height]) => y + height / 2;
+    for (const [, , zoom, volume, gear] of Object.values(baseline)) {
+      assert.equal(center(zoom), center(volume));
+      assert.equal(center(zoom), center(gear));
+    }
+    assert.equal(center(baseline.regular[1]), center(baseline.regular[2]));
+    const verifyFooter = async (count) => {
+      await expect(boardButton(count)).toHaveText(`Board ◇ ${count}`);
+      await expect(summary).toContainText("1 need you");
+      assert.deepEqual(await footerWidths(), baseline);
+    };
     const posted = await control("board_post", {
       to: [repositoryId],
       title: "Approvals review",
@@ -476,13 +537,10 @@ process.stdout.write("FOOM_AGENT_READY`,
       })
       .toBe("open");
     const post = (await board()).posts[0].id;
-    await app.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.getURL() === "app://bundle/index.html",
-      );
-      window.setContentSize(1280, 900);
-    });
-    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280);
+    await verifyFooter(3);
+    await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+    await expect(page.locator(".rail-needs")).toHaveText("1 need you");
+    await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
     const pill = (count) =>
       page.getByRole("button", {
         name: `${count} ${count === 1 ? "decision" : "decisions"} needed from you`,
@@ -500,11 +558,18 @@ process.stdout.write("FOOM_AGENT_READY`,
     };
     const screenshot = (name, base) =>
       page.screenshot({ path: evidencePath(`decisions-1297/${name}-${base}.png`) });
+    const checkBadgeAlignment = async () => {
+      const parts = await dialog.locator(".decision-badge").evaluate((badge) =>
+        Array.from(badge.children, (element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          return [range.getBoundingClientRect().top, getComputedStyle(element).font];
+        }),
+      );
+      assert.deepEqual(parts[0], parts[1]);
+    };
     await parentRow.locator(":scope > .board-row").click();
     await expect(parentRow).toContainText("3 decisions");
-    await expect(page.getByRole("button", { name: "Open message board" })).toContainText(
-      "3 decisions",
-    );
     for (const base of ["light", "dark"]) {
       await theme(base);
       await expect(pill(3)).toBeVisible();
@@ -537,6 +602,29 @@ process.stdout.write("FOOM_AGENT_READY`,
         dialog.getByRole("heading", { name: "Approve the approval queue screenshots?" }),
       ).toBeVisible();
       await expect(dialog.getByText("Checks passed", { exact: true })).toBeVisible();
+      await checkBadgeAlignment();
+      const radios = await dialog.locator(".decision-options").evaluate((options) =>
+        Array.from(
+          options.querySelectorAll('input[type="radio"]:not(:checked), .decision-other-radio'),
+          (element) => {
+            const { x, y, width, height } = element.getBoundingClientRect();
+            const row = element.closest(".decision-option").getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return [
+              x - row.x,
+              y + height / 2 - row.y - row.height / 2,
+              width,
+              height,
+              style.borderTopColor,
+              style.opacity,
+            ];
+          },
+        ),
+      );
+      for (const radio of radios) {
+        assert.deepEqual(radio, radios[0]);
+        assert.equal(radio.at(-1), "1");
+      }
       if (base === "dark")
         await expect(dialog.getByRole("radio", { name: /Approve screenshots/ })).toBeChecked();
       const preview = dialog.getByRole("img", { name: "Preview of shots.html" });
@@ -594,6 +682,7 @@ process.stdout.write("FOOM_AGENT_READY`,
     });
     assert.equal(spoofed.status, 400);
 
+    await verifyFooter(1);
     await pill(1).click();
     await expect(dialog.getByRole("heading", { name: "Ship the site update?" })).toBeVisible();
     assert.equal(
@@ -628,11 +717,10 @@ process.stdout.write("FOOM_AGENT_READY`,
     await expect(dialog.getByText("Head moved", { exact: true })).toBeVisible({
       timeout: deadline(20000),
     });
-    await expect(
-      dialog.getByText("Answers disabled until main re-asks at the new head"),
-    ).toBeVisible();
+    await expect(dialog.getByText("Waiting for a new question", { exact: true })).toBeVisible();
     await expect(dialog.locator(".decision-badge s")).toHaveText("aaaaaaaa");
     await expect(dialog.locator(".decision-badge code")).toContainText("→ bbbbbbbb");
+    await checkBadgeAlignment();
     for (const option of await dialog.getByRole("radio").all()) {
       await expect(option).toHaveAttribute("aria-disabled", "true");
       await expect(option).toBeDisabled();
@@ -649,6 +737,34 @@ process.stdout.write("FOOM_AGENT_READY`,
     }
     await dialog.getByRole("button", { name: "Hide" }).click();
     await expect(pill(1)).toHaveCount(0);
+    await expect(boardButton(0)).toHaveText("Board");
+    await expect(summary).toContainText("0 need you");
+    for (let batch = 0; batch < 3; batch++) {
+      assert.equal(
+        (
+          await control("board_post", {
+            thread,
+            kind: "question",
+            text: "More decisions",
+            idempotencyKey: `footer-decisions-${batch}`,
+            questions: Array.from({ length: 4 }, (_, index) => ({
+              title: `Question ${batch * 4 + index + 1}`,
+              options,
+            })),
+          })
+        ).status,
+        "succeeded",
+      );
+    }
+    await verifyFooter(12);
+    await parentRow.locator(":scope > .board-row").click();
+    await footer.screenshot({ path: evidencePath("decisions-1297/footer-12.png") });
+    const parentBoard = parentRow.locator(":scope > .board-row");
+    await expect(parentBoard).not.toHaveAttribute("data-state", "needs_input");
+    await page.evaluate((id) => window.desktop.input(id, "?"), parentId);
+    await expect(parentBoard).toHaveAttribute("data-state", "needs_input");
+    await expect(summary).toContainText("1 need you");
+    await expect(boardButton(12)).toBeVisible();
     return;
   }
 

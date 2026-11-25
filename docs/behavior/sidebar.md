@@ -6,6 +6,8 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 
 The sidebar is a repository → worktree → session tree beside the terminal tiles.
 The header shows the wordmark, needs-you and working counts, and a filter.
+The header and compact rail count an orchestrator with open decisions once,
+including when that session already needs input. Stale questions are excluded.
 A quiet **+** row after the last repository group adds a repository, in keyboard
 list order. Its accessible name is **Add repository**; with no repositories this
 is also its visible label. The row is hidden while filtering and in the compact rail.
@@ -120,7 +122,9 @@ detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** 
 the existing folder-removal action and is unavailable while a session runs there.
 
 The sidebar footer holds a compact −/value/+ zoom stepper, an always-visible
-master volume slider with a speaker mute button, and the **Foom config** gear.
+master volume slider with a speaker mute button, and the **Foom config** gear
+on the same line. The **Board** button reserves space for its decision count
+and sits above these controls at narrow widths.
 Zoom is one app-wide setting shared by every window, Settings and the app menu; clicking its
 value resets to 100%. The speaker shape shows muted (also at zero), low or high
 volume. Moving the slider unmutes; releasing it plays a short sample. The rail

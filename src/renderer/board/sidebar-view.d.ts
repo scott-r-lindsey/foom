@@ -30,6 +30,7 @@ export interface SidebarProps {
   command: (command: SidebarCommand) => Promise<void>;
   options: LaunchOptions | undefined;
   footer: ReactNode;
+  footerActions?: ReactNode;
   otherViews?: ReadonlySet<string>;
   previews?: readonly PreviewSummary[];
   openPreview?: (id: string) => void;

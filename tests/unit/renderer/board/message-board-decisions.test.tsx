@@ -193,7 +193,7 @@ it("updates watched rows in place and disables stale and withdrawn choices", asy
   expect(h.getByLabelText("Other answer").closest("fieldset")).toHaveProperty("disabled", true);
   fireEvent.click(h.getByText("Back"));
   expect(h.getByText("Head moved")).toBeTruthy();
-  expect(h.getByText("Answers disabled until main re-asks at the new head")).toBeTruthy();
+  expect(h.getByText("Waiting for a new question")).toBeTruthy();
   expect(h.getByText("abcabcab").tagName).toBe("S");
   expect(h.getByText(/→ bbbbbbbb/)).toBeTruthy();
   const option = h.getByRole("radio", { name: /Yes/ });

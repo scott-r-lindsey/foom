@@ -984,15 +984,18 @@ function BoardContents({
           newWorktreeRef={newWorktreeRef}
           command={command}
           options={options}
-          footer={
+          footerActions={
             <>
               {source.messageBoard && (
                 <button
                   type="button"
                   className="message-board-toggle"
                   title="Board"
-                  aria-label="Open message board"
-                  aria-description={decisionTotal > 0 ? decisionLabel(decisionTotal) : undefined}
+                  aria-label={
+                    decisionTotal > 0
+                      ? `Open message board, ${decisionLabel(decisionTotal)}`
+                      : "Open message board"
+                  }
                   aria-pressed={boardShown}
                   onClick={() => {
                     const show = () => {
@@ -1005,7 +1008,10 @@ function BoardContents({
                 >
                   Board
                   {decisionTotal > 0 && (
-                    <span className="decision-count"> · {decisionLabel(decisionTotal)}</span>
+                    <span className="decision-count" aria-hidden="true">
+                      {" ◇ "}
+                      {decisionTotal}
+                    </span>
                   )}
                 </button>
               )}
@@ -1021,9 +1027,9 @@ function BoardContents({
                   {approvalCount} {approvalCount === 1 ? "approval" : "approvals"} waiting
                 </button>
               )}
-              <SidebarControls source={soundSetup} />
             </>
           }
+          footer={<SidebarControls source={soundSetup} />}
         />
         {!logOpen && (
           <ConfigThemeLauncherContext

@@ -180,7 +180,7 @@ function QuestionPage({
       )}
       <h3 id={titleId}>{status === "withdrawn" ? <s>{question.title}</s> : question.title}</h3>
       {question.detail && <p>{question.detail}</p>}
-      {status === "stale" && <p>Answers disabled until main re-asks at the new head</p>}
+      {status === "stale" && <p>Waiting for a new question</p>}
       {preview && question.preview && status !== "withdrawn" && (
         <DecisionPreview row={row} preview={preview} />
       )}
@@ -208,9 +208,11 @@ function QuestionPage({
           </label>
         ))}
         <label className="decision-option decision-other">
-          <span aria-hidden="true" data-selected={!locked && choice?.other !== undefined}>
-            ◯
-          </span>
+          <span
+            className="decision-other-radio"
+            aria-hidden="true"
+            data-selected={!locked && choice?.other !== undefined}
+          />
           <input
             type="text"
             aria-label="Other answer"

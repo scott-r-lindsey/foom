@@ -127,7 +127,8 @@ watching once no open question uses that PR. Until the head is known,
 the question shows Checking subject and submission is disabled. Once a
 different head is observed, the board records that head, locks the options and
 removes the question from the count. The stepper shows the original and moved
-heads for stale questions, including changes observed while the question is saving. A force-push back to the original head does not reopen a stale
+heads and **Waiting for a new question**, including changes observed while the
+question is saving. A force-push back to the original head does not reopen a stale
 question. An accepted answer retains the original full head. Submit checks
 every selected question and its subject in the serialized board write.
 An invalid, stale, withdrawn or previously answered selection refuses the whole
@@ -143,8 +144,11 @@ questions. The Board records questions, stale/withdrawn state and human answers
 in the same thread.
 
 The current orchestrator's tile has an amber decisions pill with the count and
-the sidebar and Board button repeat it. The pill and Board queue open the
-stepper. Hide and Escape retain the draft in that window and leave questions pending. Back and
+the sidebar and Board button repeat it. The footer shows **Board ◇ 3** for three
+decisions and includes **3 decisions** in the button's accessible name. The pill
+and Board queue open the stepper. Options and **Other** share the same selection
+indicator. The PR chip aligns the number and head hashes on one baseline.
+Hide and Escape retain the draft in that window and leave questions pending. Back and
 Change return to earlier questions, Skip leaves a question open, and review
 submits the completed choices together. The renderer displays question text,
 options and answers as plain text.

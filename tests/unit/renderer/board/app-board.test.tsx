@@ -467,9 +467,10 @@ test("the tile and Board footer share decisions and Hide retains the draft", asy
   fireEvent.click(sidebar);
   await settle();
   const pill = () => screen.getByRole("button", { name: "1 decision needed from you" });
-  expect(screen.getByRole("button", { name: "Open message board" }).textContent).toContain(
-    "1 decision",
+  expect(screen.getByRole("button", { name: "Open message board, 1 decision" }).textContent).toBe(
+    "Board ◇ 1",
   );
+  expect(screen.getByText(/1 need you ·/)).toBeTruthy();
   decide.mockRejectedValueOnce(new Error("Board unavailable"));
   fireEvent.click(pill());
   await settle();
@@ -488,7 +489,7 @@ test("the tile and Board footer share decisions and Hide retains the draft", asy
     vi.advanceTimersByTime(16);
   });
   expect(document.activeElement).toBe(pill());
-  fireEvent.click(screen.getByRole("button", { name: "Open message board" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open message board, 1 decision" }));
   await settle();
   fireEvent.click(screen.getByRole("button", { name: /app · 1 decision/ }));
   await settle();

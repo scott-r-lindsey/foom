@@ -220,7 +220,8 @@ export function useSidebar(props: SidebarProps) {
   );
   const configRows = rows.filter((row) => row.config);
   const needsCount =
-    rows.filter((row) => row.state === "needs_input").length + (configStatus?.pending ? 1 : 0);
+    rows.filter((row) => row.state === "needs_input" || (props.decisionCount?.(row.id) ?? 0) > 0)
+      .length + (configStatus?.pending ? 1 : 0);
   const { tree, hiddenNeeds } = buildSidebar(
     rows.filter((row) => !row.home && !row.config),
     repositories,
