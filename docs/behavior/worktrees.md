@@ -4,11 +4,16 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 
 ### Delete merged worktrees
 
-The repository menu offers **Delete merged worktrees…** below Remove repository
-when linked worktrees exist, regardless of which tool created them. When none
-qualify, opening it shows each checkout's fixed reason with Delete disabled. Foom fetches the remote
-(`origin`, or the sole remote) and resolves its advertised default branch. A
-branch is merged when `git merge-tree --write-tree <default> <branch>` produces
+For repositories with linked worktrees, the menu offers **Delete merged
+worktrees…** below **Remove from Foom…** when at least one worktree is eligible,
+before the first scan completes, or after a scan fails. The dialog lists
+retained checkouts with their reasons. A completed scan with zero eligible
+worktrees hides the command and leaves **0 eligible to delete** in the repository facts.
+The menu updates with each scan, including while it is open. An active cleanup
+or its undismissed results remain accessible from the menu.
+
+Foom fetches the remote (`origin`, or the sole remote) and resolves its advertised
+default branch. A branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
 squash and rebase merges without GitHub access. Alternatively, a same-repository
 PR reported MERGED qualifies only when its reported head exactly matches the local

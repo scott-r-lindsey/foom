@@ -110,8 +110,13 @@ shell** command launch in the main-owned home directory. Shells group beneath
 it and restart in home when they were running at quit and Restore sessions on launch is on. Its panel shows home, executable, version
 and running count. Repository panels show path, remote, default branch, last
 fetch status, worktree/creation/eligible-merged counts and session states; they
-offer New worktree, pinning, Delete merged worktrees and **Remove from Foom…**
-(with “keeps files”). Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline
+offer New worktree, pinning and **Remove from Foom…** (with “keeps files”).
+With linked worktrees, **Delete merged worktrees…** appears when the count is
+positive, before the first scan completes, or after a scan fails. At zero, the
+count remains in the panel facts. Active cleanup and undismissed results remain
+accessible from the menu.
+
+Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline
 field with no dialog or helper copy. Paste `claude --resume <id>` (or `-r <id>`),
 `codex resume <id>` or `agy --conversation <id>`, or a bare ID and choose a detected,
 enabled agent (CC / CX / AG). Enter launches; Escape cancels. Invalid entries mark

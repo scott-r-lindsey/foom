@@ -736,7 +736,7 @@
         "merged cleanup deletes external worktrees and branches while preserving a skipped checkout": [
           8.368, 23.681, 10.648
         ],
-        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
+        "merged cleanup skips Git-ignored build folders and hides the action at zero eligible": [
           5.358, 34.946, 13.78
         ],
         "middle click reports without pasting while tracking and Shift preserves Linux primary selection": [
@@ -1657,7 +1657,7 @@
         "local orchestrators exchange board posts and the human replies and resolves in light and dark": [
           9.148, 0, 18.859
         ],
-        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
+        "merged cleanup skips Git-ignored build folders and hides the action at zero eligible": [
           5.358, 34.946, 13.78
         ],
         "multiple windows restore independent layouts, bounds and interface size": [
@@ -2402,7 +2402,7 @@
         "macOS quit from an inactive app activates trusted consent and keeps board close guarded": [
           0, 0, 5.845
         ],
-        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
+        "merged cleanup skips Git-ignored build folders and hides the action at zero eligible": [
           5.358, 34.946, 13.78
         ],
         "middle click reports without pasting while tracking and Shift preserves Linux primary selection": [

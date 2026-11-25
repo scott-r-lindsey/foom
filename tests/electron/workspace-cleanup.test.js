@@ -942,7 +942,7 @@ for (const { front, queued, sameBoard, checking, background } of [
   });
 }
 
-test("merged cleanup skips Git-ignored build folders and exposes reasons when none qualify", {
+test("merged cleanup skips Git-ignored build folders and hides the action at zero eligible", {
   timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-cleanup-990-")));
@@ -1049,13 +1049,14 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
       ),
     )
     .toBe(false);
-  await openCleanup();
-  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
-    "keep-changesuncommitted changes",
-  );
-  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
-  await confirmation.screenshot({ path: evidencePath("990-no-eligible-worktrees.png") });
-  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await expect(page.getByText("0 eligible to delete", { exact: true })).toBeVisible();
+  const cleanupAction = page.getByRole("menuitem", { name: /Delete merged worktrees…/ });
+  await expect(cleanupAction).toHaveCount(0);
+
+  git("worktree", "add", "-b", "new-merged", path.join(path.dirname(dirty.path), "new-merged"));
+  await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+  await expect(cleanupAction).toHaveText("Delete merged worktrees…1");
   assert.equal(
     await readFile(path.join(dirty.path, "tracked.txt"), "utf8"),
     "keep tracked changes\n",
