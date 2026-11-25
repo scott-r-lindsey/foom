@@ -1336,6 +1336,53 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await sizeTileBoard(app, page, 1200, 800);
+  const fixturePrompt = "fixture>";
+  await app.evaluate(({ app }, prompt) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    const create = TerminalHostClient.prototype.create;
+    const home = app.getPath("home");
+    const windows = process.platform === "win32";
+    TerminalHostClient.prototype.create = function (spec) {
+      if (
+        !spec.shellIntegration ||
+        spec.remote ||
+        spec.cwd !== home ||
+        process.env.HOME !== home ||
+        spec.command !== (windows ? "powershell.exe" : process.env.SHELL)
+      )
+        throw new Error("Expected the local test shell in the fixture home");
+      // Foom's Bash integration rcfile explicitly sources login profiles.
+      // For this screenshot fixture, run the harness shell with a literal prompt instead.
+      return create.call(this, {
+        ...spec,
+        shellIntegration: false,
+        args: windows
+          ? [
+              "-NoLogo",
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              "[Console]::WriteLine($env:PS1); [void][Console]::ReadLine()",
+            ]
+          : ["--norc", "-i"],
+        env: {
+          ...spec.env,
+          HOME: home,
+          USERPROFILE: home,
+          PATH: process.env.PATH,
+          PS1: `${prompt} `,
+          PROMPT_COMMAND: "",
+          PS0: "",
+          HISTFILE: "",
+          BASH_ENV: "",
+          ENV: "",
+        },
+      });
+    };
+  }, fixturePrompt);
   const sharp = require("sharp");
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
   const themes = path.join(home, ".foom/config/themes");
@@ -1399,6 +1446,8 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
     target.screenshot({
       path: evidencePath(`1189-theme-bitmaps/${label}.png`),
       animations: "disabled",
+      // Fixture paths can contain an account name on some platforms.
+      style: ".tile-location { display: none; }",
     });
   const source = (paint) => `foom-theme://bitmap/${paint.id}`;
   const paintsImage = (url) =>
@@ -1500,6 +1549,11 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
       .toBe(`url("${source(images.gutter)}")`);
     assert.equal(await paintsImage(source(images.gutter)), true);
     await expect(page.locator(".xterm:visible")).toHaveCount(1);
+    await expect
+      .poll(async () =>
+        (await tileArea.locator(".xterm:visible .xterm-rows").textContent())?.trim(),
+      )
+      .toBe(fixturePrompt);
     await capture(tileArea, `gutter-${base}`);
     await page.getByRole("button", { name: "Hide", exact: true }).click();
     await expect(tileArea).toHaveAttribute("data-occupied", "false");
