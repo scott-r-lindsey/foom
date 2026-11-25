@@ -42,12 +42,14 @@ test("Machines menu agent image paste survives SSH reconnect and cleans up on St
   const input = path.join(remoteHome, "fixture-agent-input");
   const codeFolder = path.join(remoteHome, "code");
   await mkdir(codeFolder, { mode: 0o700 });
+  await symlink(process.execPath, path.join(bin, "node"));
   await writeFile(
-    path.join(bin, "codex"),
-    `#!${process.execPath}
+    path.join(bin, "agy"),
+    `#!/usr/bin/env node
 const fs = require('node:fs');
-if (process.argv[2] === '--version') console.log('codex-cli 0.163.0');
-else if (process.argv[2] === '--help') console.log('--no-alt-screen');
+if (process.argv[2] === '--version') console.log('1.5.16');
+else if (process.argv[2] === '--help') console.log('--prompt-interactive');
+else if (process.argv[2] === 'plugin' && process.argv[3] === 'list') console.log('[]');
 else {
   fs.writeFileSync(${JSON.stringify(input)}, '');
   process.stdin.setRawMode(true);
@@ -65,14 +67,13 @@ else {
   );
   assert.equal(enrolled.result.ok, true);
   await page.getByRole("button", { name: "Actions for fixture-cloud", exact: true }).click();
-  await page.getByRole("menuitem", { name: "New Codex", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New Antigravity", exact: true }).click();
   const terminal = page.locator(".terminal-tile");
   await expect(terminal.locator(".xterm-rows")).toContainText("MACHINE_IMAGE_READY");
   const id = await page.evaluate(
     async () =>
-      (await window.desktop.workspace()).terminals.find(
-        (row) => row.machine && row.agent === "codex",
-      )?.id,
+      (await window.desktop.workspace()).terminals.find((row) => row.machine && row.agent === "agy")
+        ?.id,
   );
   assert.ok(id);
 
