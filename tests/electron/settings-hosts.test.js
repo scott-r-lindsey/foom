@@ -2884,6 +2884,8 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
   const agent = {
     id: "agy",
     state: "ready",
+    // Seed a distinct value so the test can observe the sign-in row being refreshed.
+    signIn: "signed-out",
     details: {
       path: "/bin/agy",
       version: "1.4.12",
@@ -2961,35 +2963,46 @@ test("Agents scopes use trusted consent and fixed recipes for host plugin instal
   await expect(terminal).toHaveCount(0);
   await page.getByRole("tab", { name: "Machines", exact: true }).click();
   await expect(terminal.locator(".xterm-screen")).toContainText("agy plugin install");
+  await expect(agy.getByText("Signed out", { exact: true })).toBeVisible();
   const checkpoint = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
-  await updateScenario({
+  const inspections = async () =>
+    (await readFile(calls, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .slice(checkpoint)
+      .map((line) => JSON.parse(line))
+      .filter(({ message }) => message.operation === "inspect");
+  const targets = async () =>
+    (await inspections()).filter(({ phase }) => !phase).map(({ message }) => message.target);
+  const toolCheck = { kind: "tool", tool: "agy" };
+  const completed = {
     recipeExit: 0,
     facts: {
       agents: [
         { id: "claude", state: "ready" },
         { id: "codex", state: "missing" },
-        { ...agent, details: { ...agent.details, plugin: "present" } },
+        { ...agent, signIn: "unknown", details: { ...agent.details, plugin: "present" } },
       ],
     },
-  });
+  };
+  await updateScenario({ ...completed, hold: "inspect" });
   await expect(terminal.getByRole("status")).toHaveText("Done");
   await expect(terminal.locator(".xterm-screen")).toHaveCount(0);
-  await expect(page.getByText("Present · use agy to manage", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Install plugin", exact: true })).toHaveCount(0);
+  // The tool reply gates the following sign-in request, even after the terminal exits.
   await expect
     .poll(async () =>
-      (await readFile(calls, "utf8"))
-        .split("\n")
-        .filter(Boolean)
-        .slice(checkpoint)
-        .map((line) => JSON.parse(line).message)
-        .filter(({ operation }) => operation === "inspect")
-        .map(({ target }) => target),
+      (await inspections())
+        .filter(({ phase }) => phase === "held")
+        .map(({ message }) => message.target),
     )
-    .toEqual([
-      { kind: "tool", tool: "agy" },
-      { kind: "sign-in", tool: "agy" },
-    ]);
+    .toEqual([toolCheck]);
+  assert.deepEqual(await targets(), [toolCheck]);
+  await updateScenario(completed);
+  await expect(agy.getByText("Present · use agy to manage", { exact: true })).toBeVisible();
+  await expect(agy.getByRole("button", { name: "Install plugin", exact: true })).toHaveCount(0);
+  // The tool row preserves sign-in. Wait for the separate sign-in reply to be applied.
+  await expect(agy.getByText("Sign-in unknown", { exact: true })).toBeVisible();
+  assert.deepEqual(await targets(), [toolCheck, { kind: "sign-in", tool: "agy" }]);
   await expect(settings).toBeVisible();
   await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(0);
 });

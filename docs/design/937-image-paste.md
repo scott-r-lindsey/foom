@@ -30,6 +30,15 @@ was no Hosts setting predated that surface; this PR corrects it. Use the Hosts
 rules and current code for this design. This note does not change the separate
 #757 persistence roadmap.
 
+[#1307](https://github.com/scott-r-lindsey/foom/issues/1307) extends remote paste to
+supported bundled agents launched in the remote account's home from a registered
+host's Machines menu. Direct human launches into a registered-host repository or
+worktree remain ineligible.
+The daemon derives eligibility from the resolved bundled launch and supplies
+the same connection owner capability on the live `open-result`. See
+[human machine sessions](../areas/hosts.md#human-machine-sessions-1024) for
+compatibility and reattachment.
+
 ## One explicit paste operation
 
 Keyboard paste (the platform's paste shortcut) and context-menu Paste target the

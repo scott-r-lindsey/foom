@@ -1,22 +1,40 @@
-// Linux fixture-only bootstrap/connector profile. No system ssh or real agents.
+// Linux bootstrap/connector profile. Defaults to fixture SSH and always uses a fake agent.
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { once } from "node:events";
+import { addAbortListener, once } from "node:events";
+import { constants } from "node:os";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { loopback } from "./loopback.mjs";
 
 assert.equal(process.platform, "linux");
 assert.equal(process.versions.node.split(".")[0], "24");
+const shutdown = new AbortController();
+for (const name of ["SIGINT", "SIGTERM"]) {
+  process.on(name, () => {
+    if (shutdown.signal.aborted) return;
+    process.exitCode = 128 + constants.signals[name];
+    shutdown.abort();
+  });
+}
+const { signal } = shutdown;
 const root = resolve(".");
 const reverse = process.env.FOOM_COST_REVERSE === "1";
-const out = resolve(`test-results/1098-startup${reverse ? "-reverse" : ""}`);
+const realSsh = process.argv.includes("--loopback");
+const target = realSsh ? "127.0.0.1" : "fixture-costs";
+const out = resolve(realSsh ? "test-results/1098-loopback" : `test-results/1098-startup${reverse ? "-reverse" : ""}`);
 await mkdir(out, { recursive: true });
+const measurementsPath = join(out, "measurements.json");
+// A failed rerun must not leave a previous run available for summarization.
+await rm(measurementsPath, { force: true });
+await rm(join(out, "summary.json"), { force: true });
 const require = createRequire(import.meta.url);
 const now = () => performance.timeOrigin + performance.now();
-const results = { node: process.version, platform: process.platform, arch: process.arch, runs: [] };
+const results = { node: process.version, platform: process.platform, arch: process.arch, transport: realSsh ? "loopback" : "fixture", runs: [] };
 // Build a private copy of the production builder, adding only test instrumentation.
 // This retains the production native loader, SEA options and manifest generation.
 let builder = await readFile("scripts/build-remote-host.mjs", "utf8");
@@ -98,7 +116,8 @@ await build({
 const { selectHostArtifact, RemoteFrames, remoteFrame, remoteResponse, remoteRequest } = require(
   join(out, "client.cjs"),
 );
-for (const baseline of reverse ? [false, true] : [true, false]) {
+for (const baseline of realSsh ? [false] : reverse ? [false, true] : [true, false]) {
+  if (signal.aborted) break;
   const mode = baseline ? "baseline" : "fixed";
   execFileSync(process.execPath, [builderPath], {
     env: {
@@ -111,48 +130,60 @@ for (const baseline of reverse ? [false, true] : [true, false]) {
   const artifactDir = join(out, mode, `${process.platform}-${process.arch}`);
   const manifest = JSON.parse(await readFile(join(artifactDir, "manifest.json"), "utf8"));
   results.source = manifest.source;
+  if (signal.aborted) break;
   const home = await mkdtemp("/tmp/f1098-");
-  const bin = join(home, "bin");
-  await mkdir(bin, { mode: 0o700 });
-  for (const tool of [
-    "sh",
-    "uname",
-    "gzip",
-    "head",
-    "mkdir",
-    "chmod",
-    "mv",
-    "mktemp",
-    "cut",
-    "wc",
-    "tr",
-    "rm",
-    "ls",
-    "date",
-  ])
-    await symlink(`/usr/bin/${tool}`, join(bin, tool));
-  await writeFile(
-    join(bin, "sha256sum"),
-    '#!/bin/sh\ndate +HASH_START_%s%N >&2\n/usr/bin/sha256sum "$@"\nr=$?\ndate +HASH_END_%s%N >&2\nexit "$r"\n',
-    { mode: 0o700 },
-  );
-  const shell = join(bin, "fixture-shell");
-  // Login discovery runs only supplied command text; never source an rc file.
-  await writeFile(
-    shell,
-    '#!/bin/sh\nif [ "$1" = "-ilc" ]; then shift; exec /bin/sh -c "$1"; fi\nif [ "$1" = "-l" ]; then shift; fi\nif [ "$1" = "-i" ]; then shift; fi\nexec /bin/sh "$@"\n',
-    { mode: 0o700 },
-  );
-  await writeFile(
-    join(bin, "claude"),
-    '#!/bin/sh\ncase "$1" in --version) echo fixture-1;; --help) echo fixture-help;; *) echo FIXTURE_READY; while read -r line; do :; done;; esac\n',
-    { mode: 0o700 },
-  );
-  const trace = join(home, "trace.jsonl");
-  await writeFile(trace, "");
-  await writeFile(
-    join(bin, "ssh"),
-    `#!${process.execPath}
+  const previousEnv = process.env;
+  const daemonEvents = [];
+  const daemonFailure = new AbortController();
+  const launchSignal = AbortSignal.any([signal, daemonFailure.signal]);
+  let stopSsh;
+  let daemon;
+  let daemonClosed;
+  let stoppingDaemon = false;
+  try {
+    signal.throwIfAborted();
+    const bin = join(home, "bin");
+    await mkdir(bin, { mode: 0o700 });
+    for (const tool of [
+      "sh",
+      "uname",
+      "gzip",
+      "head",
+      "mkdir",
+      "chmod",
+      "mv",
+      "mktemp",
+      "cut",
+      "wc",
+      "tr",
+      "rm",
+      "ls",
+      "date",
+    ])
+      await symlink(`/usr/bin/${tool}`, join(bin, tool));
+    await writeFile(
+      join(bin, "sha256sum"),
+      '#!/bin/sh\ndate +HASH_START_%s%N >&2\n/usr/bin/sha256sum "$@"\nr=$?\ndate +HASH_END_%s%N >&2\nexit "$r"\n',
+      { mode: 0o700 },
+    );
+    const shell = join(bin, "fixture-shell");
+    // Login discovery runs only supplied command text; never source an rc file.
+    await writeFile(
+      shell,
+      '#!/bin/sh\nif [ "$1" = "-ilc" ]; then shift; exec /bin/sh -c "$1"; fi\nif [ "$1" = "-l" ]; then shift; fi\nif [ "$1" = "-i" ]; then shift; fi\nexec /bin/sh "$@"\n',
+      { mode: 0o700 },
+    );
+    await writeFile(
+      join(bin, "claude"),
+      '#!/bin/sh\ncase "$1" in --version) echo fixture-1;; --help) echo fixture-help;; *) echo FIXTURE_READY; while read -r line; do :; done;; esac\n',
+      { mode: 0o700 },
+    );
+    const trace = join(home, "trace.jsonl");
+    await writeFile(trace, "");
+    if (!realSsh) {
+      await writeFile(
+        join(bin, "ssh"),
+        `#!${process.execPath}
 const {spawn} = require('node:child_process');
 const {appendFileSync} = require('node:fs');
 const args = process.argv.slice(2), split = args.indexOf('--');
@@ -165,36 +196,50 @@ child.stdin.on('error',()=>{});
 process.on('SIGTERM',()=>child.kill('SIGTERM'));
 child.on('close',code=>process.exit(code ?? 1));
 `,
-    { mode: 0o700 },
-  );
-  const env = { HOME: home, PATH: bin, SHELL: shell, LANG: "C" };
-  const daemonStarted = now();
-  const daemon = spawn(join(artifactDir, "foom-host"), ["--daemon"], {
-    env,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  const daemonClosed = once(daemon, "close");
-  const daemonEvents = [];
-  daemon.stderr.on("data", (bytes) => {
-    for (const line of bytes.toString().trim().split("\n")) daemonEvents.push(JSON.parse(line));
-  });
-  const previousEnv = process.env;
-  process.env = env;
-  try {
+        { mode: 0o700 },
+      );
+    }
+    const env = { HOME: home, PATH: bin, SHELL: shell, LANG: "C" };
+    signal.throwIfAborted();
+    if (realSsh) stopSsh = await loopback(out, home, bin, trace);
+    signal.throwIfAborted();
+    const daemonStarted = now();
+    daemon = spawn(join(artifactDir, "foom-host"), ["--daemon"], {
+      env,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    daemon.once("error", (error) => daemonFailure.abort(error));
+    daemon.once("exit", (code, exitSignal) => {
+      if (!stoppingDaemon) daemonFailure.abort(new Error(`Profile daemon exited (${exitSignal ?? code})`));
+    });
+    daemonClosed = new Promise((resolve) => daemon.once("close", resolve));
+    const daemonStderr = createInterface({ input: daemon.stderr });
+    daemonStderr.on("error", (error) => daemonFailure.abort(error));
+    daemonStderr.on("line", (line) => {
+      try {
+        daemonEvents.push(JSON.parse(line));
+      } catch (error) {
+        daemonFailure.abort(new Error("Unexpected daemon stderr", { cause: error }));
+      }
+    });
+    process.env = env;
     const socket = join(home, ".foom-host/host-v2.sock");
     const end = now() + 10000;
     while (!(await stat(socket).catch(() => undefined))?.isSocket()) {
+      launchSignal.throwIfAborted();
       assert.ok(now() < end, "daemon startup deadline");
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+    launchSignal.throwIfAborted();
     results[`${mode}DaemonStartup`] = { ms: now() - daemonStarted, events: [...daemonEvents] };
     // Match the issue baseline: enrollment has already warmed local verification.
     globalThis.cost1098 = () => {};
     await selectHostArtifact(
-      { host: "fixture-costs", artifact: join(artifactDir, "foom-host.gz") },
+      { host: target, artifact: join(artifactDir, "foom-host.gz") },
       manifest.version,
     );
     for (let index = 0; index < 7; index++) {
+      launchSignal.throwIfAborted();
       const events = [];
       const record = (stage) => {
         events.push({ stage, at: now() });
@@ -203,16 +248,17 @@ child.on('close',code=>process.exit(code ?? 1));
       globalThis.cost1098 = record;
       record("launch-start");
       const selected = await selectHostArtifact(
-        { host: "fixture-costs", artifact: join(artifactDir, "foom-host.gz") },
+        { host: target, artifact: join(artifactDir, "foom-host.gz") },
         manifest.version,
       );
+      launchSignal.throwIfAborted();
       record("selection-end");
       // Import the same bootstrap argv builder from the client bundle below.
       const { bootstrapArguments } = require(join(out, "bootstrap.cjs"));
       const child = spawn(
         "ssh",
         bootstrapArguments(
-          "fixture-costs",
+          target,
           selected.version,
           selected.sha256,
           selected.bytes.length,
@@ -242,7 +288,7 @@ child.on('close',code=>process.exit(code ?? 1));
         child.once("error", reject);
         child.once("exit", () => {
           clearTimeout(timer);
-          reject(new Error("fixture SSH exited"));
+          reject(new Error(`SSH exited: ${stderr}`));
         });
         let open = false,
           output = false,
@@ -312,12 +358,17 @@ child.on('close',code=>process.exit(code ?? 1));
           }
         });
       });
+      const interrupted = Promise.withResolvers();
+      const listener = addAbortListener(launchSignal, interrupted.resolve);
       try {
-        await finished;
+        await Promise.race([finished, interrupted.promise]);
+        launchSignal.throwIfAborted();
       } finally {
+        listener[Symbol.dispose]();
         child.kill("SIGTERM");
         await childClosed;
       }
+      launchSignal.throwIfAborted();
       for (const line of stderr.trim().split("\n")) {
         if (line.startsWith("{")) {
           const row = JSON.parse(line);
@@ -342,21 +393,36 @@ child.on('close',code=>process.exit(code ?? 1));
       });
       await writeFile(join(out, "measurements.partial.json"), JSON.stringify(results, null, 2));
     }
+  } catch (error) {
+    if (!signal.aborted) throw error;
+    if (error !== signal.reason) console.error(error);
   } finally {
     process.env = previousEnv;
-    daemon.kill("SIGTERM");
-    await daemonClosed;
-    results.runs
-      .filter((row) => row.mode === mode)
-      .forEach((row) => {
-        row.daemonEvents = daemonEvents.filter(
-          (event) =>
-            event.at >= row.events[0].at &&
-            event.at <= Math.max(...row.events.map((event) => event.at)),
-        );
-      });
-    await rm(home, { recursive: true, force: true });
+    try {
+      stoppingDaemon = true;
+      daemon?.kill("SIGTERM");
+      await daemonClosed;
+      if (!signal.aborted) daemonFailure.signal.throwIfAborted();
+      results.runs
+        .filter((row) => row.mode === mode)
+        .forEach((row) => {
+          row.daemonEvents = daemonEvents.filter(
+            (event) =>
+              event.at >= row.events[0].at &&
+              event.at <= Math.max(...row.events.map((event) => event.at)),
+          );
+        });
+    } finally {
+      try {
+        await stopSsh?.();
+      } finally {
+        await rm(home, { recursive: true, force: true });
+      }
+    }
   }
 }
-await writeFile(join(out, "measurements.json"), JSON.stringify(results, null, 2));
-console.log(`Measurements: ${join(out, "measurements.json")}`);
+if (!signal.aborted) {
+  await writeFile(measurementsPath, JSON.stringify(results, null, 2));
+  if (signal.aborted) await rm(measurementsPath, { force: true });
+  else console.log(`Measurements: ${measurementsPath}`);
+}

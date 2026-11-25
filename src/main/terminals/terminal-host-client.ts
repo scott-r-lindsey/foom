@@ -90,6 +90,12 @@ export class TerminalHostClient {
   private observeMessage: (() => number) | undefined;
   private stopObservation: (() => void) | undefined;
 
+  imagePasteStatus(id: string): RemoteTransport["imagePasteStatus"] {
+    const remote = this.remotes.get(id);
+    if (!remote) return "available";
+    return remote.child instanceof RemoteTransport ? remote.child.imagePasteStatus : "unavailable";
+  }
+
   async imagePath(id: string, png: Uint8Array, signal: AbortSignal): Promise<string | undefined> {
     const remote = this.remotes.get(id);
     if (remote) return remote.imagePath(id, png, signal);

@@ -2757,6 +2757,50 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
+test.skipIf(process.platform === "win32").for([
+  { agent: "claude", supported: true },
+  { agent: "codex", supported: true },
+  { agent: "pi", supported: true },
+  { agent: "opencode", supported: false },
+])(
+  "machine image owner follows the validated launch ($agent) and rotates on reattach",
+  async ({ agent, supported }) => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "machine-agent",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "f".repeat(32),
+      machine: { codeFolder: "/code", agent },
+      context: { repository: root, worktree: root, branch: null, agent: "shell", machine: true },
+    });
+    await c.wait(2);
+    const imageOwner = (reply: unknown) =>
+      remoteResponse(reply) && reply.type === "open-result" && reply.state === "live"
+        ? reply.imageOwner
+        : undefined;
+    const original = imageOwner(c.messages[1]);
+    const attached = await open("machine-agent", true);
+    const replacement = imageOwner(attached.messages[1]);
+    expect(mock.create).toHaveBeenCalledOnce();
+    if (supported) {
+      expect(original).toMatch(/^[a-f0-9]{64}$/u);
+      expect(replacement).toMatch(/^[a-f0-9]{64}$/u);
+      expect(replacement).not.toBe(original);
+    } else {
+      expect(original).toBeUndefined();
+      expect(replacement).toBeUndefined();
+    }
+  },
+);
+
 test.skipIf(process.platform === "win32")(
   "machine shells start in home and refuse an unapproved folder or unknown agent",
   async () => {
@@ -2774,8 +2818,15 @@ test.skipIf(process.platform === "win32")(
       human: true,
       profile: "a".repeat(32),
       machine: { codeFolder: "/code" },
+      context: { repository: root, worktree: root, branch: null, agent: "claude", machine: true },
     });
     await c.wait(2);
+    expect(c.messages[1]).toEqual({
+      type: "open-result",
+      id: "shell-machine",
+      request: 1,
+      state: "live",
+    });
     expect(mock.create).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: root, args: terminalArgs("/bin/sh", ["-i", "-l"]) }),
       "shell-machine",
@@ -2837,6 +2888,7 @@ test.skipIf(process.platform === "win32")(
       });
       if (state === "clean") {
         await c.wait(2);
+        expect(c.messages[1]).not.toHaveProperty("imageOwner");
         expect(mock.manage).toHaveBeenCalledWith(
           { type: "manage", operation: "repository", codeFolder: "/code", ...repository },
           expect.any(Number),
