@@ -304,6 +304,13 @@ it launches agents, they mean Foom, not your own agent configuration.
 This folder configures Foom. Foom watches it, validates every change and applies
 valid changes live. It is plain files: Foom keeps no history of it.
 
+## Registered SSH hosts
+
+Only the human can add hosts in Settings → Hosts. Registrations belong to the
+current Foom profile. For host questions, read the \`registered-hosts\` section
+with the \`manual\` tool when available. It covers the code folder, first-use
+cloning, remote agents, session recovery and troubleshooting.
+
 ## Files
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
@@ -587,6 +594,7 @@ const GUIDE_HISTORY = [
   "4d609f128aa111b25852800fb3def37bcca9c291dc81fddd97eda92ba90ce41c",
   "059593f9163e5235069e812137968e794883fce7f457af91c7a9a72bfb901c4e",
   "ca48dcaf187f27ed7163ac19b234047dfb9e10aa48897893a81c6ff657b393fe",
+  "a72376c3acd4feb9930e6e65f9130e68ee5f9910059df9987573674c8106b782",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {

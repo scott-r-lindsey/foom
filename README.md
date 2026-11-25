@@ -33,9 +33,9 @@ After setup, launch shells and agents from checkout panels, a shell from the hom
 row, or create a checkout with **New worktree** in a repository panel. Hidden
 terminals keep running. **Settings** is in the Foom config gear panel and app menu.
 
-Session restoration is on by default: eligible sessions that were running at quit
-launch again, with agents resuming recorded conversations. Screens and scrollback
-are not saved; dormant rows remain available for manual resume. See
+Session restoration is on by default. Eligible local sessions relaunch, with
+agents resuming recorded conversations. Dormant rows remain available for manual
+resume. Live sessions on registered hosts can reconnect and replay their screens. See
 [saved conversations](docs/architecture.md#saved-conversations) for eligibility and
 [Settings](docs/product.md#settings) for the restore switch.
 
@@ -56,6 +56,9 @@ are explained in [validation](docs/validation.md).
 Start with the [documentation map](docs/README.md). It identifies authoritative
 product, architecture, contributor and protocol documents, recommended reading
 paths, and material that is proposed design or historical research.
+
+In Foom, open **Help → Manual → Registered SSH hosts** for host setup, remote
+checkouts, agent availability and session recovery.
 
 ## License
 
