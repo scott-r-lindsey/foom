@@ -11,6 +11,9 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 The main settings store copies incoming values and exposes immutable snapshots
 of committed settings and legacy migration values.
+Each agent permission scope holds up to 100 choices. Main checks the merged
+choices inside the serialized write, so adding a choice beyond the limit leaves
+the profile intact. Clearing a choice frees a slot.
 
 ### Agent-editable settings format (#206)
 

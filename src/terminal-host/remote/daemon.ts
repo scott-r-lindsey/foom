@@ -36,7 +36,12 @@ import { createServer, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute } from "node:path";
 import type { HostResponse } from "../../shared/terminal-host";
-import type { RemoteRequest, RemoteResponse, RemoteSessionContext } from "../../shared/remote-host";
+import type {
+  RemoteRequest,
+  RemoteResponse,
+  RemoteSessionContext,
+  RemoteSessionInfo,
+} from "../../shared/remote-host";
 import {
   RemoteFrames,
   MAX_REMOTE_MESSAGE,
@@ -82,6 +87,7 @@ type Session = {
   connection?: Socket;
   profile?: string;
   context?: RemoteSessionContext;
+  machinePermissionLevel?: RemoteSessionInfo["permissionLevel"];
   human?: boolean;
   checkout?: { repository: string; path: string; identity: string };
   imageOwner?: string;
@@ -346,6 +352,7 @@ export function serveHost(
     pendingConnections.add(socket);
     const frames = new RemoteFrames();
     let negotiated = false;
+    let inventoryPermissions = false;
     let id: string | undefined;
     let prepared:
       | {
@@ -417,6 +424,7 @@ export function serveHost(
           return;
         }
         negotiated = true;
+        inventoryPermissions = message.inventoryPermissions === 1;
         await send(socket, {
           type: "hello",
           build,
@@ -506,11 +514,16 @@ export function serveHost(
             type: "inventory-result",
             own: live
               .filter(([, session]) => session.profile === message.profile)
-              .map(([id, session]) => ({
-                id,
-                ...(session.context ? { context: session.context } : {}),
-                ...(session.checkout ? { checkout: session.checkout } : {}),
-              })),
+              .map(([id, session]) => {
+                const permissionLevel =
+                  session.agent?.ready.permissionLevel ?? session.machinePermissionLevel;
+                return {
+                  id,
+                  ...(session.context ? { context: session.context } : {}),
+                  ...(session.checkout ? { checkout: session.checkout } : {}),
+                  ...(inventoryPermissions && permissionLevel ? { permissionLevel } : {}),
+                };
+              }),
             foreign: [
               ...live
                 .filter(([, session]) => session.profile !== message.profile)
@@ -958,6 +971,7 @@ export function serveHost(
                     );
                   const facts = discoveryFacts(model, found.version, found.help, {});
                   args = applyPermissionArguments(model, machine.permissionLevel, args, 0, facts);
+                  owned.machinePermissionLevel = machine.permissionLevel;
                 }
                 cancellation.signal.throwIfAborted();
                 if (!machine.repository && !checkout) {

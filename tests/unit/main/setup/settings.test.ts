@@ -1329,3 +1329,29 @@ test("permission preferences merge by scope and are purged when a host is remove
   ])
     expect(() => parseSettingsPatch({ agentPermissions: invalid })).toThrow("Invalid settings");
 });
+
+test("concurrent permission edits cannot commit a scope the profile parser rejects", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  const level = { level: "ask" as const };
+  const global = Object.fromEntries(
+    Array.from({ length: 99 }, (_, index) => [`fixture-${index.toString()}`, level]),
+  );
+  await store.update({ setupComplete: true, agentPermissions: { global } });
+
+  const first = store.update({ agentPermissions: { global: { "fixture-first": level } } });
+  const overflow = store.update({ agentPermissions: { global: { "fixture-overflow": level } } });
+  await expect(overflow).rejects.toThrow("Too many agent permission choices");
+  const saved = await first;
+  expect((await SettingsStore.open(root)).get()).toMatchObject({
+    setupComplete: true,
+    agentPermissions: saved.agentPermissions,
+  });
+  expect(Object.keys(saved.agentPermissions?.["global"] ?? {})).toHaveLength(100);
+  await store.update({ agentPermissions: { global: { "fixture-first": null } } });
+  await store.update({ agentPermissions: { global: { "fixture-overflow": level } } });
+  expect((await SettingsStore.open(root)).get().agentPermissions?.["global"]).toHaveProperty(
+    "fixture-overflow",
+    level,
+  );
+});

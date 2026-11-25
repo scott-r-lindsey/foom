@@ -3321,5 +3321,26 @@ test.skipIf(process.platform === "win32")(
       "workspace-machine",
       false,
     );
+    for (const inventoryPermissions of [true, false]) {
+      const inventory = await client();
+      inventory.send({
+        type: "hello",
+        build,
+        ...(inventoryPermissions ? { inventoryPermissions: 1 } : {}),
+      });
+      await inventory.wait(1);
+      inventory.send({ type: "inventory", profile: "a".repeat(32) });
+      await inventory.wait(2);
+      expect(inventory.messages[1]).toEqual({
+        type: "inventory-result",
+        own: [
+          {
+            id: "workspace-machine",
+            ...(inventoryPermissions ? { permissionLevel: "workspace" } : {}),
+          },
+        ],
+        foreign: [],
+      });
+    }
   },
 );

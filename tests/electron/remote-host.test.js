@@ -33,6 +33,98 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
+test("remote machine recovery preserves the daemon's permission labels and bypass warning", {
+  skip: process.platform === "win32",
+  timeout: deadline(45000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { bin, remoteHome, cleanup, closeDaemon } = fixture;
+  const codeFolder = path.join(remoteHome, "code");
+  await mkdir(codeFolder, { mode: 0o700 });
+  await writeFile(
+    path.join(bin, "codex"),
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('codex-cli 0.167.0');
+else if (args[0] === '--help') console.log('--sandbox --ask-for-approval -c');
+else {
+  console.log('PERMISSION_RECOVERY:' + args[args.indexOf('--sandbox') + 1]);
+  process.stdin.resume();
+}
+`,
+    { mode: 0o700 },
+  );
+  const { app, page, profilePath, hubHome } = await remoteApp(context, fixture);
+  await page.evaluate(() => window.desktop.saveSetup({ agents: { codex: true } }));
+  const enrolled = await page.evaluate(
+    (folder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder: folder }),
+    codeFolder,
+  );
+  assert.equal(enrolled.result.ok, true);
+  const save = (level) =>
+    page.evaluate(
+      (choice) => window.desktop.saveSetup({ agentPermissions: { global: { codex: choice } } }),
+      level ? { level } : null,
+    );
+  const launch = async (sandbox) => {
+    const { terminalId } = await page.evaluate(() =>
+      window.desktop.sidebarCommand({
+        kind: "machine-launch",
+        host: "fixture-cloud",
+        run: "codex",
+      }),
+    );
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), terminalId))
+      .toContain(`PERMISSION_RECOVERY:${sandbox}`);
+    return terminalId;
+  };
+  await save("workspace");
+  const workspace = await launch("workspace-write");
+  const pending = save("full");
+  const disclosure = await confirmationPage(app, "Allow Full access for Codex?");
+  await disclosure.getByRole("button", { name: "Allow Full access", exact: true }).click();
+  await pending;
+  const full = await launch("danger-full-access");
+  await save(null);
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
+  });
+  // Simulate loss of the hub's session file while the daemon retains both PTYs.
+  await rm(path.join(profilePath, "sessions.json"));
+  const restarted = await launchApp(context, {
+    fixture: "restored",
+    home: hubHome,
+    env: { PATH: bin, SSH_AUTH_SOCK: "" },
+    args: [`--user-data-dir=${profilePath}`, "--remote-shell-spike=fixture-cloud"],
+  }).finally(() => {
+    cleanup.apps.splice(cleanup.apps.indexOf(closeDaemon), 1);
+    cleanup.apps.push(closeDaemon);
+  });
+  const restored = await boardPage(restarted);
+  for (const [id, level, bypass] of [
+    [workspace, "workspace", false],
+    [full, "full", true],
+  ]) {
+    await expect
+      .poll(() =>
+        restored.evaluate(async (id) => {
+          const row = (await window.desktop.workspace()).terminals.find((row) => row.id === id);
+          return row && [row.permissionLevel, row.bypass, row.dormant, row.exited];
+        }, id),
+      )
+      .toEqual([level, bypass, false, false]);
+  }
+  await expect(restored.locator(".board-row .session-bypass")).toHaveText("◇ Bypass");
+  await quitAndWait(restarted, async () => {
+    await restarted.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(restarted))
+      .getByRole("button", { name: "Stop all and quit" })
+      .click();
+  });
+});
+
 test("Machines menu agent image paste survives SSH reconnect and cleans up on Stop", {
   skip: process.platform === "win32",
   timeout: deadline(45000),

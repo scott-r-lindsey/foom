@@ -540,7 +540,7 @@ export class SettingsStore {
             ),
           );
         }
-        next.agentPermissions = Object.fromEntries(
+        const merged = Object.fromEntries(
           Object.entries(permissions).filter(
             ([scope, choices]) =>
               Object.keys(choices).length > 0 &&
@@ -548,6 +548,8 @@ export class SettingsStore {
                 next.registeredHosts?.some(({ host }) => scope === `host:${host}`)),
           ),
         );
+        if (!agentPermissions(merged)) throw new Error("Too many agent permission choices.");
+        next.agentPermissions = merged;
       }
       this.settings = next;
       if (argumentsPatch)

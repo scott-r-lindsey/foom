@@ -18,6 +18,7 @@ export async function discoverRemoteSessions(
       context && (placed || context.machine) && builtinAgent(context.agent)
         ? context.agent
         : "shell";
+    const permissionLevel = agent === "shell" ? undefined : session.permissionLevel;
     return {
       id: session.id,
       agent,
@@ -29,6 +30,7 @@ export async function discoverRemoteSessions(
       ...(placed ? {} : { home: true }),
       ...(context?.machine ? { machine: true } : {}),
       ...(context?.reviewer && agent !== "shell" ? { reviewer: true } : {}),
+      ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
       ...(placed
         ? {
             remoteCheckout: {

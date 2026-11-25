@@ -267,3 +267,34 @@ test.each(["/home/remote-user", "/home/remote-user/foom"])(
     );
   },
 );
+
+test.each(["full", "workspace"] as const)(
+  "discovery retains the daemon's %s permission for an unsaved machine session",
+  async (permissionLevel) => {
+    const rows = await discoverRemoteSessions({
+      registered: hosts.registered,
+      sessions: () =>
+        Promise.resolve([
+          {
+            host: "worker",
+            session: {
+              id: "machine",
+              permissionLevel,
+              context: {
+                machine: true,
+                agent: "codex",
+                repository: "/fixture",
+                worktree: "/fixture",
+                branch: null,
+              },
+            },
+          },
+        ]),
+    });
+    expect(rows[0]).toMatchObject({
+      agent: "codex",
+      permissionLevel,
+      bypass: permissionLevel === "full",
+    });
+  },
+);

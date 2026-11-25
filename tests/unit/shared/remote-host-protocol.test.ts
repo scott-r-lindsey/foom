@@ -264,6 +264,12 @@ test("profile inventory and confirmed cleanup are closed, bounded and incarnatio
   const context = { repository: "/repo", worktree: "/tree", branch: "topic", agent: "claude" };
   const request = { type: "open", id: "one", request: 1, cols: 80, rows: 24, reattach: true };
   expect(remoteRequest({ ...request, profile, context, human: true })).toBe(true);
+  expect(remoteRequest({ type: "hello", build: "a".repeat(64), inventoryPermissions: 1 })).toBe(
+    true,
+  );
+  expect(remoteRequest({ type: "hello", build: "a".repeat(64), inventoryPermissions: 2 })).toBe(
+    false,
+  );
   expect(remoteRequest({ type: "inventory", profile })).toBe(true);
   expect(remoteRequest({ type: "end-sessions", profile, ids: [foreign] })).toBe(true);
   expect(
@@ -273,6 +279,7 @@ test("profile inventory and confirmed cleanup are closed, bounded and incarnatio
         {
           id: "one",
           context,
+          permissionLevel: "workspace",
           checkout: { repository: "/repo", path: "/tree", identity: "c".repeat(64) },
         },
       ],
@@ -311,6 +318,7 @@ test("profile inventory and confirmed cleanup are closed, bounded and incarnatio
     { own: [], foreign: [{ id: "other", generation: "bad" }] },
     { own: [{ id: "one", context: {} }], foreign: [] },
     { own: [{ id: "one", checkout: {} }], foreign: [] },
+    { own: [{ id: "one", permissionLevel: "unrestricted" }], foreign: [] },
     { own: [], foreign: Array.from({ length: 34 }, () => foreign) },
     { own: null, foreign: [] },
     { own: [], foreign: null },

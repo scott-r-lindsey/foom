@@ -481,7 +481,11 @@ export class RemoteTransport extends EventEmitter {
             this.output?.("Daemon ready · Inspecting…\n", true);
             bootstrapped = true;
             connection.disposeDiagnostic?.();
-            this.send({ type: "hello", build: artifact.sha256 });
+            this.send({
+              type: "hello",
+              build: artifact.sha256,
+              ...(this.management?.type === "inventory" ? { inventoryPermissions: 1 } : {}),
+            });
             bytes = header;
             header = Buffer.alloc(0);
             break;

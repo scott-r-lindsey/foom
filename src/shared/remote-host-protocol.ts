@@ -38,6 +38,7 @@ function hello(value: object): boolean {
   return (
     "type" in value &&
     value.type === "hello" &&
+    (!("inventoryPermissions" in value) || value.inventoryPermissions === 1) &&
     (!("startupTheme" in value) || value.startupTheme === 1) &&
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("agentSettings" in value) || value.agentSettings === 1) &&
@@ -259,8 +260,10 @@ export function remoteResponse(value: unknown): value is RemoteResponse {
       value["own"].every(
         (entry: unknown) =>
           record(entry) &&
-          keys(entry, ["id", "context", "checkout"]) &&
+          keys(entry, ["id", "context", "checkout", "permissionLevel"]) &&
           remoteId(entry["id"]) &&
+          (entry["permissionLevel"] === undefined ||
+            agentPermissionLevel(entry["permissionLevel"])) &&
           (entry["context"] === undefined || sessionContext(entry["context"])) &&
           (entry["checkout"] === undefined ||
             (record(entry["checkout"]) &&

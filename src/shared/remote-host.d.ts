@@ -25,6 +25,8 @@ export interface RemoteSessionInfo {
   id: string;
   context?: RemoteSessionContext;
   checkout?: { repository: string; path: string; identity: string };
+  /** Applied by the daemon at launch and reported only to the owning profile. */
+  permissionLevel?: AgentPermissionLevel;
 }
 export interface ForeignRemoteSession {
   /** Legacy daemon aggregate; ending it ends all its untagged sessions. */
@@ -75,7 +77,7 @@ export type RemoteRequest =
   | RemoteInventory
   | ImagePut
   | HostManagement
-  | { type: "hello"; build: string }
+  | { type: "hello"; build: string; inventoryPermissions?: 1 }
   | {
       type: "open";
       machine?: MachineLaunch;
