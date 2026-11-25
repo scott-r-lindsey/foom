@@ -27,6 +27,10 @@ const realSsh = process.argv.includes("--loopback");
 const target = realSsh ? "127.0.0.1" : "fixture-costs";
 const out = resolve(realSsh ? "test-results/1098-loopback" : `test-results/1098-startup${reverse ? "-reverse" : ""}`);
 await mkdir(out, { recursive: true });
+const measurementsPath = join(out, "measurements.json");
+// A failed rerun must not leave a previous run available for summarization.
+await rm(measurementsPath, { force: true });
+await rm(join(out, "summary.json"), { force: true });
 const require = createRequire(import.meta.url);
 const now = () => performance.timeOrigin + performance.now();
 const results = { node: process.version, platform: process.platform, arch: process.arch, transport: realSsh ? "loopback" : "fixture", runs: [] };
@@ -402,6 +406,6 @@ child.on('close',code=>process.exit(code ?? 1));
   }
 }
 if (!signal.aborted) {
-  await writeFile(join(out, "measurements.json"), JSON.stringify(results, null, 2));
-  console.log(`Measurements: ${join(out, "measurements.json")}`);
+  await writeFile(measurementsPath, JSON.stringify(results, null, 2));
+  console.log(`Measurements: ${measurementsPath}`);
 }

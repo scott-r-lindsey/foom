@@ -12,6 +12,7 @@ const delta = (events, from, to) => {
   const value = elapsed(events, from, to);
   return value === null ? null : roundMs(value);
 };
+const intervalsWithIndependentTimestamps = new Set(["authenticatedToMarkerMs", "connectorStartupMs"]);
 const realSsh = data.transport === "loopback" || data.runs[0]?.sshEvents.some(({ stage }) => stage === "bootstrap-ssh-authenticated");
 const rows = data.runs.map((run) => {
   const events = [
@@ -20,13 +21,12 @@ const rows = data.runs.map((run) => {
     ...run.daemonEvents.map((row) => ({ stage: row.cost1098, at: row.at })),
   ];
   const firstMarker = run.index === 0 ? "FOOM-UPLOAD" : "FOOM-READY";
-  let authenticatedToMarkerMs;
-  if (realSsh) {
-    const value = elapsed(events, "bootstrap-ssh-authenticated", firstMarker);
-    assert.ok(Number.isFinite(value), `Missing/invalid interval: ${run.mode}/${run.index}/authenticatedToMarkerMs`);
-    // Independent stderr and stdout readers can observe these events out of order.
-    authenticatedToMarkerMs = value < 0 ? null : roundMs(value);
-  }
+  const observedDelta = (key, from, to) => {
+    const value = elapsed(events, from, to);
+    assert.ok(Number.isFinite(value), `Missing/invalid interval: ${run.mode}/${run.index}/${key}`);
+    // Independent observers can timestamp these events out of order.
+    return value < 0 ? null : roundMs(value);
+  };
   return {
     mode: run.mode,
     index: run.index,
@@ -36,7 +36,7 @@ const rows = data.runs.map((run) => {
     ...(realSsh ? {
       preflightAuthMs: delta(events, "preflight-ssh-start", "preflight-ssh-authenticated"),
       bootstrapAuthMs: delta(events, "bootstrap-ssh-start", "bootstrap-ssh-authenticated"),
-      authenticatedToMarkerMs,
+      authenticatedToMarkerMs: observedDelta("authenticatedToMarkerMs", "bootstrap-ssh-authenticated", firstMarker),
       openToPtyMs: delta(events, "open-reply", "pty-output-ready"),
     } : {}),
     artifactReadMs: delta(events, "artifact-read-start", "artifact-read-end"),
@@ -47,7 +47,7 @@ const rows = data.runs.map((run) => {
     remoteHashMs: delta(events, "remote-hash-start", "remote-hash-end"),
     handshakeMs: delta(events, "FOOM-READY", "hello-reply"),
     moduleInitializationMs: delta(events, "bundle-entry", "entry"),
-    connectorStartupMs: delta(events, "FOOM-READY", "entry"),
+    connectorStartupMs: observedDelta("connectorStartupMs", "FOOM-READY", "entry"),
     connectorSelfHashMs: delta(events, "self-hash-start", "self-hash-end"),
     socketConnectMs: delta(events, "socket-start", "socket-connected"),
     socketToHelloMs: delta(events, "socket-connected", "hello-reply"),
@@ -61,7 +61,7 @@ for (const row of rows) {
     if (!key.endsWith("Ms")) continue;
     if (key === "uploadMs" && row.index > 0) assert.equal(value, null);
     else if (key === "connectorSelfHashMs") assert.equal(value, null);
-    else if (key === "authenticatedToMarkerMs" && value === null) continue;
+    else if (intervalsWithIndependentTimestamps.has(key) && value === null) continue;
     else
       assert.ok(
         Number.isFinite(value) && value >= 0,
@@ -104,7 +104,7 @@ for (const mode of realSsh ? ["fixed"] : ["baseline", "fixed"]) {
           n: values.length,
         }
       : null;
-    summary.cached[mode][key] = key === "authenticatedToMarkerMs"
+    summary.cached[mode][key] = intervalsWithIndependentTimestamps.has(key)
       ? { ...stats, n: values.length, unavailable: cached.length - values.length }
       : stats;
   }

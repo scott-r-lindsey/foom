@@ -21,6 +21,9 @@ node spikes/remote-launch-costs/run.mjs --loopback
 node spikes/remote-launch-costs/summarize.mjs test-results/1098-loopback/measurements.json
 ```
 
+The runner clears the previous measurements and summary at startup. Run the
+summarizer after the runner succeeds and writes a new `measurements.json`.
+
 The runner builds one instrumented SEA with the current deferred connector
 initialization and reuses the production artifact selection and bootstrap
 commands. It starts its own daemon in a private temporary HOME and warms local
@@ -98,9 +101,11 @@ for the cached statistics.
 On a cache hit, the remote cache hash completes before the first marker,
 `FOOM-READY`. On a first upload the first marker is `FOOM-UPLOAD`, and the
 hash is part of upload through `FOOM-READY`.
-Local reads and content-key hashing sit inside local verification. Connector
-startup includes the transition from the ready marker to the SEA entry
-point, so it also includes SSH delivery and timestamp instrumentation.
+Local reads and content-key hashing sit inside local verification. The connector
+startup interval starts when the runner observes `FOOM-READY` and ends at the
+host's own entry timestamp. The host can reach entry before the runner reads
+the buffered marker. The summarizer also reports these inverted intervals as
+unavailable and counts them in the cached summary.
 Module initialization, connector startup and socket/hello intervals are
 subsets of the handshake. The connector did not self hash. The daemon's
 one-time self hash took 340.3 ms within 429.3 ms of daemon startup through
