@@ -14,7 +14,10 @@ On Linux, install the repository's pinned dependencies with Node 24. The
 profile requires existing OpenSSH client and server binaries, bubblewrap with
 unprivileged mount namespaces, an account eligible for public-key
 authentication with PAM disabled, and permission to bind and connect to a
-loopback high port. Run the two commands from the repository root.
+loopback high port. Run the two commands from the root of a dedicated
+checkout. The builder writes intermediate files to `build/remote-sea`
+in that checkout. Keep other builds and profile runs out of the checkout
+until the profile finishes.
 
 ```sh
 node spikes/remote-launch-costs/run.mjs --loopback

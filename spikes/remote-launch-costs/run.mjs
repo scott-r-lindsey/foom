@@ -6,6 +6,7 @@ import { constants } from "node:os";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { loopback } from "./loopback.mjs";
@@ -133,9 +134,12 @@ for (const baseline of realSsh ? [false] : reverse ? [false, true] : [true, fals
   const home = await mkdtemp("/tmp/f1098-");
   const previousEnv = process.env;
   const daemonEvents = [];
+  const daemonFailure = new AbortController();
+  const launchSignal = AbortSignal.any([signal, daemonFailure.signal]);
   let stopSsh;
   let daemon;
   let daemonClosed;
+  let stoppingDaemon = false;
   try {
     signal.throwIfAborted();
     const bin = join(home, "bin");
@@ -204,19 +208,29 @@ child.on('close',code=>process.exit(code ?? 1));
       env,
       stdio: ["ignore", "ignore", "pipe"],
     });
-    daemonClosed = once(daemon, "close");
-    daemon.stderr.on("data", (bytes) => {
-      for (const line of bytes.toString().trim().split("\n")) daemonEvents.push(JSON.parse(line));
+    daemon.once("error", (error) => daemonFailure.abort(error));
+    daemon.once("exit", (code, exitSignal) => {
+      if (!stoppingDaemon) daemonFailure.abort(new Error(`Profile daemon exited (${exitSignal ?? code})`));
+    });
+    daemonClosed = new Promise((resolve) => daemon.once("close", resolve));
+    const daemonStderr = createInterface({ input: daemon.stderr });
+    daemonStderr.on("error", (error) => daemonFailure.abort(error));
+    daemonStderr.on("line", (line) => {
+      try {
+        daemonEvents.push(JSON.parse(line));
+      } catch (error) {
+        daemonFailure.abort(new Error("Unexpected daemon stderr", { cause: error }));
+      }
     });
     process.env = env;
     const socket = join(home, ".foom-host/host-v2.sock");
     const end = now() + 10000;
     while (!(await stat(socket).catch(() => undefined))?.isSocket()) {
-      signal.throwIfAborted();
+      launchSignal.throwIfAborted();
       assert.ok(now() < end, "daemon startup deadline");
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    signal.throwIfAborted();
+    launchSignal.throwIfAborted();
     results[`${mode}DaemonStartup`] = { ms: now() - daemonStarted, events: [...daemonEvents] };
     // Match the issue baseline: enrollment has already warmed local verification.
     globalThis.cost1098 = () => {};
@@ -225,7 +239,7 @@ child.on('close',code=>process.exit(code ?? 1));
       manifest.version,
     );
     for (let index = 0; index < 7; index++) {
-      signal.throwIfAborted();
+      launchSignal.throwIfAborted();
       const events = [];
       const record = (stage) => {
         events.push({ stage, at: now() });
@@ -237,7 +251,7 @@ child.on('close',code=>process.exit(code ?? 1));
         { host: target, artifact: join(artifactDir, "foom-host.gz") },
         manifest.version,
       );
-      signal.throwIfAborted();
+      launchSignal.throwIfAborted();
       record("selection-end");
       // Import the same bootstrap argv builder from the client bundle below.
       const { bootstrapArguments } = require(join(out, "bootstrap.cjs"));
@@ -345,16 +359,16 @@ child.on('close',code=>process.exit(code ?? 1));
         });
       });
       const interrupted = Promise.withResolvers();
-      const listener = addAbortListener(signal, interrupted.resolve);
+      const listener = addAbortListener(launchSignal, interrupted.resolve);
       try {
         await Promise.race([finished, interrupted.promise]);
-        signal.throwIfAborted();
+        launchSignal.throwIfAborted();
       } finally {
         listener[Symbol.dispose]();
         child.kill("SIGTERM");
         await childClosed;
       }
-      signal.throwIfAborted();
+      launchSignal.throwIfAborted();
       for (const line of stderr.trim().split("\n")) {
         if (line.startsWith("{")) {
           const row = JSON.parse(line);
@@ -385,8 +399,10 @@ child.on('close',code=>process.exit(code ?? 1));
   } finally {
     process.env = previousEnv;
     try {
+      stoppingDaemon = true;
       daemon?.kill("SIGTERM");
       await daemonClosed;
+      if (!signal.aborted) daemonFailure.signal.throwIfAborted();
       results.runs
         .filter((row) => row.mode === mode)
         .forEach((row) => {
@@ -407,5 +423,6 @@ child.on('close',code=>process.exit(code ?? 1));
 }
 if (!signal.aborted) {
   await writeFile(measurementsPath, JSON.stringify(results, null, 2));
-  console.log(`Measurements: ${measurementsPath}`);
+  if (signal.aborted) await rm(measurementsPath, { force: true });
+  else console.log(`Measurements: ${measurementsPath}`);
 }
