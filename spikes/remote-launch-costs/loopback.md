@@ -39,7 +39,8 @@ synthetic load, real agent startup, login, or model request in this profile.
 The one first upload starts with an empty executable cache and a listening
 daemon. Six later opens reuse the installed executable while retaining the
 normal per-launch verification. The runner stops its daemon and listener and
-deletes the temporary home and keys. After this run, the sshd PID was gone,
+deletes the temporary home and keys, including on SIGINT or SIGTERM. After the
+published run, the sshd PID was gone,
 port 41398 had no listener, and the throwaway keys were absent.
 
 ## Samples
@@ -85,9 +86,18 @@ verbose public-key authentication line. These intervals include process
 startup, connection, key exchange, and authentication. They include local
 observation overhead and sit inside the preflight and first-marker intervals.
 
-On a cache hit, the first marker is `FOOM-READY`, so the post-authentication
-interval includes the remote cache hash. On a first upload the first marker
-is `FOOM-UPLOAD`, and the hash is part of upload through `FOOM-READY`.
+The published authentication-to-marker row shows elapsed time between two
+local observations on dozer. The adapter timestamps the authentication line
+from SSH stderr, and the runner timestamps the first marker from stdout.
+The independent streams can be observed out of order, so even positive values
+cannot establish the exact time from authentication to marker emission.
+The summarizer reports an inverted interval as unavailable (`null` in the
+sample row) and counts unavailable cached samples alongside the count used
+for the cached statistics.
+
+On a cache hit, the remote cache hash completes before the first marker,
+`FOOM-READY`. On a first upload the first marker is `FOOM-UPLOAD`, and the
+hash is part of upload through `FOOM-READY`.
 Local reads and content-key hashing sit inside local verification. Connector
 startup includes the transition from the ready marker to the SEA entry
 point, so it also includes SSH delivery and timestamp instrumentation.
