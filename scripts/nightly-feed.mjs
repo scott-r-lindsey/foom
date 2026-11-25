@@ -10,16 +10,32 @@ const prefix = "updates/nightly/";
 const digest = (data) => createHash("sha256").update(data).digest("hex");
 const callTimeout = 60_000;
 const jobBudget = 9 * 60_000;
+// AWS CLI v2 Standard mode, plus process errors and named S3 server errors.
+// https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-retries.html
 const transient = new Set([
   "ETIMEDOUT",
   "ECONNRESET",
   "ETIMEDOUT (AWS)",
   "ConnectionError",
+  "HTTPClientError",
   "InternalError",
   "ServiceUnavailable",
-  "SlowDown",
   "RequestTimeout",
   "RequestTimeoutException",
+  "PriorRequestNotComplete",
+  "Throttling",
+  "ThrottlingException",
+  "ThrottledException",
+  "RequestThrottledException",
+  "TooManyRequestsException",
+  "ProvisionedThroughputExceededException",
+  "TransactionInProgressException",
+  "RequestLimitExceeded",
+  "BandwidthLimitExceeded",
+  "LimitExceededException",
+  "RequestThrottled",
+  "SlowDown",
+  "EC2ThrottledException",
   "500",
   "502",
   "503",
@@ -54,8 +70,12 @@ function awsFailure(error) {
   return "unclassified AWS error";
 }
 
+function matchesBytes(head, object) {
+  return head?.Metadata?.sha256 === object.sha256 && head.ContentLength === object.data.length;
+}
+
 function verifyImmutable(head, object) {
-  if (head?.Metadata?.sha256 !== object.sha256 || head.ContentLength !== object.data.length)
+  if (!matchesBytes(head, object))
     throw new Error(`Immutable nightly artifact differs: ${object.key}`);
 }
 
@@ -269,16 +289,21 @@ export function uploadFeed(
           call(["s3api", "get-object", "--bucket", bucket, "--key", object.key, file]);
           previous = parseAwsJson(readFileSync(file, "utf8"));
         }
-        if (
-          !/^[a-f0-9]{40}$/.test(previous.commit ?? "") ||
-          !Number.isFinite(Date.parse(previous.commitDate))
-        )
+        const previousTime = Date.parse(previous.commitDate);
+        const publishTime = Date.parse(object.commitDate);
+        if (!/^[a-f0-9]{40}$/.test(previous.commit ?? "") || !Number.isFinite(previousTime))
           throw new Error("Invalid existing nightly publication identity");
-        if (
-          previous.commit !== object.commit &&
-          Date.parse(previous.commitDate) >= Date.parse(object.commitDate)
-        )
+        if (previous.commit !== object.commit && previousTime >= publishTime)
           throw new Error("Refusing to move nightly feed backwards");
+        // Only the fixed packages are expensive to rewrite. Keep verifying all
+        // identities before any writes, then publish the checksum and JSON as usual.
+        if (
+          object.filename &&
+          previous.commit === object.commit &&
+          previousTime === publishTime &&
+          matchesBytes(head, object)
+        )
+          continue;
       }
       pending.push(object);
     }

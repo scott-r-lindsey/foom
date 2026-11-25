@@ -585,9 +585,12 @@ and per-file fixed name, SHA-256 and immutable URL (see the
 Failure before metadata publication leaves previous JSON pointers intact.
 Failure between mutable writes can leave downloads or architectures on different
 nightlies; each published JSON pointer references complete immutable artifacts.
-A same-commit retry repairs the set, including files already written by that
-commit. Each object replacement is atomic. PUTs allow one retry for recognized
-transport errors and transient service failures. Each AWS CLI call keeps its
+A same-commit retry reuses a fixed download only when its HEAD reports the
+expected commit, timestamp, SHA-256 and length. It completes pending downloads
+before writing the checksum file and JSON pointers. Each object replacement is
+atomic. PUTs allow one retry for the transient responses documented for
+[AWS CLI v2 Standard mode](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-retries.html#cli-configure-retries-modes-standard)
+and recognized process and S3 server errors. Each AWS CLI call keeps its
 60-second timeout. The AWS CLI retains its own retry policy for inventory,
 verification and invalidation. A shared nine-minute AWS deadline is measured
 from the start of the ten-minute publisher job. After an ambiguous immutable PUT, the publisher

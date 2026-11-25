@@ -378,7 +378,7 @@ test("interrupted newer downloads refuse a queued older commit before any write;
   assert.deepEqual(existing, before);
   const retry = fakeAws({ existing, expected: newer });
   uploadFeed(newer, config, retry.aws);
-  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 12);
+  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 5);
   assert.equal(retry.calls.filter((a) => a[1] === "create-invalidation").length, 1);
   for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
 });
@@ -431,8 +431,74 @@ test("same-commit retry repairs fixed files split between the baseline and an in
   const retry = fakeAws({ existing, expected: newer });
   uploadFeed(newer, config, retry.aws);
   for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
-  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 12);
+  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 9);
   assert.equal(retry.calls.filter((a) => a[1] === "create-invalidation").length, 1);
+});
+
+test("consecutive recoveries reach latest.json within budget when fixed downloads already match", () => {
+  const baseline = publication("c", "2026-10-23T00:00:00Z");
+  const newer = publication("b", "2026-10-23T02:00:00Z");
+  const existing = new Map();
+  uploadFeed(baseline, config, fakeAws({ existing, expected: baseline }).aws);
+  const downloads = newer.filter(({ filename }) => filename);
+  for (const object of [...newer.filter(({ immutable }) => immutable), ...downloads.slice(0, 6)])
+    existing.set(object.key, object);
+
+  const writes = [];
+  const failures = [];
+  for (let run = 0; run < 2; run++) {
+    let now = 4 * 60_000;
+    const { aws, calls } = fakeAws({ existing, expected: newer });
+    try {
+      uploadFeed(
+        newer,
+        config,
+        (args) => {
+          if (args[1] === "put-object" && args.includes("--content-disposition")) now += 35_000;
+          return aws(args);
+        },
+        { startedAt: 0, now: () => now },
+      );
+    } catch (error) {
+      failures.push(error.message);
+    }
+    writes.push(
+      calls
+        .filter((args) => args[1] === "put-object")
+        .map((args) => args[args.indexOf("--key") + 1]),
+    );
+  }
+  const metadata = newer
+    .filter(({ immutable, filename }) => !immutable && !filename)
+    .map(({ key }) => key);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(writes, [[downloads[6].key, ...metadata], metadata]);
+  for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
+});
+
+test("fixed downloads are rewritten when any HEAD evidence differs or the checksum is absent", () => {
+  const result = objects();
+  const download = result.find(({ filename }) => filename);
+  const metadata = { sha256: download.sha256, commit: info.sha, commitdate: info.date };
+  for (const change of [
+    { metadata: { ...metadata, commit: "b".repeat(40), commitdate: "2026-10-23T00:00:00Z" } },
+    { metadata: { ...metadata, commitdate: "2026-10-23T00:00:00Z" } },
+    { metadata: { ...metadata, sha256: "b".repeat(64) } },
+    { metadata: { ...metadata, sha256: undefined } },
+    { data: Buffer.alloc(download.data.length + 1) },
+  ]) {
+    const existing = new Map(result.map((object) => [object.key, object]));
+    existing.set(download.key, { ...download, ...change });
+    const { aws, calls } = fakeAws({ existing });
+    uploadFeed(result, config, aws);
+    const downloadWrites = calls.filter(
+      (args) => args[1] === "put-object" && args.includes("--content-disposition"),
+    );
+    assert.equal(downloadWrites.length, 1);
+    assert.ok(downloadWrites[0].includes(download.key));
+    assert.deepEqual(existing.get(download.key).data, download.data);
+    assert.deepEqual(existing.get(download.key).metadata, metadata);
+  }
 });
 
 test("same-commit recovery loads only the checksum-verified original release bytes", (t) => {
@@ -495,6 +561,45 @@ test("AWS CLI SlowDown retries with and without the AWS CLI 2.39 error prefix", 
     });
     assert.equal(attempts, 2);
     assert.equal(calls.at(-1)[1], "create-invalidation");
+  }
+});
+
+test("PUT retries the AWS CLI standard transient codes", () => {
+  const result = objects()
+    .filter(({ filename }) => filename)
+    .slice(0, 1);
+  for (const code of [
+    "Throttling",
+    "ThrottlingException",
+    "ThrottledException",
+    "RequestThrottledException",
+    "TooManyRequestsException",
+    "ProvisionedThroughputExceededException",
+    "TransactionInProgressException",
+    "RequestLimitExceeded",
+    "BandwidthLimitExceeded",
+    "LimitExceededException",
+    "RequestThrottled",
+    "SlowDown",
+    "EC2ThrottledException",
+    "RequestTimeout",
+    "RequestTimeoutException",
+    "PriorRequestNotComplete",
+    "ConnectionError",
+    "HTTPClientError",
+    "500",
+    "502",
+    "503",
+    "504",
+  ]) {
+    const { aws } = fakeAws({ expected: result });
+    let attempts = 0;
+    uploadFeed(result, config, (args) => {
+      if (args[1] === "put-object" && ++attempts === 1)
+        throw awsError(code, "PutObject", "aws: [ERROR]: ");
+      return aws(args);
+    });
+    assert.equal(attempts, 2, code);
   }
 });
 
@@ -573,6 +678,8 @@ test("permanent failures stop after one call and redact AWS output", () => {
     "PreconditionFailed",
     "ConditionalRequestConflict",
     "BadDigest",
+    "InvalidDigest",
+    "ValidationError",
   ]) {
     let attempts = 0;
     const { aws, calls } = fakeAws();
@@ -587,7 +694,8 @@ test("permanent failures stop after one call and redact AWS output", () => {
         }),
       (error) => {
         assert.equal(error.cause, undefined);
-        assert.equal(error.message, `Nightly AWS put-object failed (${code})`);
+        const diagnostic = code === "ValidationError" ? "unclassified AWS error" : code;
+        assert.equal(error.message, `Nightly AWS put-object failed (${diagnostic})`);
         return true;
       },
     );
