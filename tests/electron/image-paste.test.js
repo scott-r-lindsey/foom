@@ -62,7 +62,7 @@ for (const agent of ["codex", "agy"]) {
     const { app, page, repository, root, help } = await agentFixture(context, {
       agent,
       prefix: "foom-image's paste-",
-      source: ({ help }) => `#!${process.execPath}
+      source: ({ help }) => `#!/usr/bin/env node
 const fs = require('node:fs');
 if (process.argv[2] === '--version') console.log(${JSON.stringify(agent === "agy" ? "1.5.16" : "codex-cli 0.163.0")});
 else if (process.argv[2] === '--help') console.log(${JSON.stringify(agent === "agy" ? "--prompt-interactive" : "--no-alt-screen")});
