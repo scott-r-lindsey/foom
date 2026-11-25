@@ -13,7 +13,7 @@ needed by the regression tests.
 | --- | --- | --- | --- |
 | Claude Code | Foom adds exact tool names to `--allowedTools` | User allow lists are merged; deny/managed rules still apply | Existing manifest `toolPermissions`; random launch server only |
 | Codex | Foom adds `default_tools_approval_mode="approve"` to its launch server | Defaults remain in order; the Foom override follows them, without changing other servers or the sandbox/approval policy | Manifest MCP `-c` override, including manual-only attachments |
-| Antigravity | Unconfigured MCP tools default to Ask | Explicit rules and execution/toolPermission modes determine prompting; Foom adds no approval | No scoped tool allow flag in the documented CLI surface; permission lists live in global settings |
+| Antigravity | Unconfigured MCP tools default to Ask | Explicit rules and execution/toolPermission modes determine prompting; Foom adds no approval | No scoped startup grant documented for agy 1.5.16. See the [Antigravity recheck](#antigravity) |
 | GitHub Copilot | Foom adds exact server/tool allow arguments | Defaults remain; client deny/policy rules apply | Existing manifest `toolPermissions` using `--allow-tool` |
 | OpenCode | Foom supplies exact action/resource allow rules | User policy can still refuse tools | Existing manifest `toolPermissions.fileRules` in private launch configuration |
 | Pi | Core has no per-call permission popups | User permission extensions may intercept MCP calls | No built-in per-tool approval option in the documented registration/CLI API; Foom preserves extension handlers |
@@ -30,14 +30,6 @@ sessions. The remote launch unit test checks that the override survives conversi
 Unsupported or unattached
 launches add no approval. The separate approval argument survives remote HTTP to
 stdio conversion and applies only to the same generated server name.
-
-For Antigravity, the [CLI permissions](https://antigravity.google/docs/permissions/)
-reference places `permissions.allow/ask/deny` in global settings and documents MCP
-Ask fallback with Deny > Ask > Allow precedence. The
-[CLI flags](https://antigravity.google/docs/cli/reference/) expose a blanket
-`--dangerously-skip-permissions`, which is not a Foom-only grant. No scoped
-invocation option was found in that interface, so the manifest adds none. Foom
-never edits those global permission lists or uses a blanket bypass for attachment.
 
 Pi documents [MCP permission handlers](https://docs.pi.dev/latest/mcp#permissions)
 and [process-local project trust](https://docs.pi.dev/latest/cli): `--approve`
@@ -144,6 +136,32 @@ granted orchestrator role and child ownership, never completion or missing callb
 [Notification configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#notifications).
 
 ### Antigravity
+
+On 2026-11-24, the public documentation review for #1308 found no documented
+startup option in agy 1.5.16 that grants approval only to Foom's MCP server.
+Google lists 1.5.16 as the latest CLI release on that date. Its notes describe
+changes to Auto mode's file-write policy and list no new MCP approval flag.
+[Antigravity CLI 1.5.16 release notes](https://antigravity.google/docs/changelog#rel-cli-1.5.16).
+
+The CLI documents server-specific `mcp(server/*)` rules, tool-specific
+`mcp(server/tool)` rules, and Deny > Ask > Allow precedence. `/permissions` saves
+rules at project, shared, or global scope. An interactive MCP approval can cover
+an expanded scope for the rest of the turn. `--project` selects a project with
+its saved settings, `--mode` selects an execution mode, and
+`--dangerously-skip-permissions` applies across tool permission requests. Foom
+leaves MCP approvals to the client and user.
+[CLI permissions](https://antigravity.google/docs/permissions/#cli-fine-grained-permissions),
+[`/permissions`](https://antigravity.google/docs/cli/commands/permissions/),
+[startup flags](https://antigravity.google/docs/cli/reference/#command-line-flags).
+
+The public docs establish the documented surface. The installed Linux 1.5.16
+binary remains unverified for this recheck. With user authorization, run
+`agy --version` to confirm 1.5.16, then inspect both stdout and stderr from
+`agy --help` for a startup flag that accepts an MCP server or tool selector, or
+loads invocation-only permission rules. If help exposes a candidate, verify in
+an isolated test launch that a Foom tool skips the prompt, a tool on a second MCP
+server still prompts, and a fresh launch without the candidate prompts for the
+Foom tool again. Any launch argument needs user approval before implementation.
 
 The documented CLI MCP setup uses global or workspace configuration. Installed help
 lists `mcp add/remove/list/enable/disable`, but no invocation-scoped MCP config flag.
