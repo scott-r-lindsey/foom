@@ -1,16 +1,19 @@
 // Isolated OpenSSH transport for the manual Linux launch-cost profile.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 
 export async function loopback(out, home, bin, trace) {
-  const dir = await mkdtemp(join(out, "ssh-"));
   const port = Number(process.env.FOOM_COST_SSH_PORT ?? "41398");
+  assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535, "Invalid FOOM_COST_SSH_PORT");
+  // OpenSSH expands tokens and environment variables even inside quoted paths.
+  for (const path of [out, home, bin]) {
+    assert.ok(!/['"\\%$\p{Cc}]/u.test(path), "Unsupported character in loopback profile path");
+  }
   const { username, homedir } = userInfo();
-  assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535);
+  const dir = await mkdtemp(join(out, "ssh-"));
   const env = { HOME: home, PATH: "/usr/bin:/bin", LANG: "C" };
   const pidFile = join(dir, "sshd.pid");
   let server;
@@ -46,9 +49,9 @@ export async function loopback(out, home, bin, trace) {
     await writeFile(config, `Host 127.0.0.1
   Port ${port}
   User ${username}
-  UserKnownHostsFile ${dir}/known
+  UserKnownHostsFile "${dir}/known"
   GlobalKnownHostsFile none
-  IdentityFile ${dir}/client
+  IdentityFile "${dir}/client"
   IdentitiesOnly yes
   IdentityAgent none
   ForwardAgent no
@@ -66,9 +69,9 @@ exec /bin/sh -c "$SSH_ORIGINAL_COMMAND"
     await writeFile(join(dir, "server.conf"), `Port ${port}
 ListenAddress 127.0.0.1
 AddressFamily inet
-HostKey /tmp/profile/host
-AuthorizedKeysFile profile-authorized
-PidFile /tmp/profile/sshd.pid
+HostKey "/tmp/profile/host"
+AuthorizedKeysFile "profile-authorized"
+PidFile "/tmp/profile/sshd.pid"
 UsePAM no
 AuthenticationMethods publickey
 PasswordAuthentication no
@@ -76,7 +79,7 @@ KbdInteractiveAuthentication no
 DisableForwarding yes
 PermitUserRC no
 PermitTTY no
-ForceCommand ${wrapper}
+ForceCommand '${wrapper}'
 `);
     // Mask the OS account home before sshd resolves its login shell or key files.
     // The relay also sees the same short private HOME as the existing daemon.
@@ -85,11 +88,14 @@ ForceCommand ${wrapper}
       "--bind", dir, "/tmp/profile", "--bind", home, home, "--bind", home, homedir,
       "--die-with-parent", "--", "/usr/sbin/sshd", "-D", "-e", "-f", "/tmp/profile/server.conf",
     ], { env, stdio: ["ignore", "ignore", "pipe"] });
-    closed = once(server, "close");
+    closed = new Promise((resolve) => server.once("close", resolve));
+    let spawnError;
+    server.once("error", (error) => { spawnError = error; });
     let diagnostics = "";
     server.stderr.setEncoding("utf8").on("data", (data) => { diagnostics += data; });
     const deadline = Date.now() + 5000;
     while (!diagnostics.includes("Server listening on 127.0.0.1")) {
+      if (spawnError) throw spawnError;
       assert.ok(server.exitCode === null && Date.now() < deadline, diagnostics);
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
