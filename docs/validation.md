@@ -232,11 +232,12 @@ CI retains HTML/LCOV coverage for three days. Platform installers and ZIPs are b
 
 `main` requires a pull request, an up-to-date branch, and a passing **Quality gate**, including for administrators. No second-person approval is required. Force pushes and deletion are blocked. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
 
-The macOS packaging job looks up the tested artifact by the upload step's ID
-before ad-hoc signing. It logs each lookup and waits two seconds after an empty
-result, for at most three attempts. Other lookup failures stop immediately. The
-job downloads the ZIP from GitHub once, verifies it against the upload step's
-SHA-256 digest and extracts it into `tested-macos` before signing.
+The macOS packaging job requests the tested artifact by the upload step's ID
+through the GitHub REST API. It logs each request and waits two seconds after
+HTTP 404, for at most three attempts. Other request failures stop immediately.
+The job downloads the ZIP from the signed redirect without sending the job
+token, verifies the upload step's SHA-256 digest and extracts the archive into
+`tested-macos` before signing.
 
 Follow [AGENTS.md](../AGENTS.md#validation-and-delivery) for pre-push checks and delivery. Keep cancellation of superseded runs enabled.
 

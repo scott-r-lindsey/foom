@@ -518,7 +518,7 @@ jobs:
         with:
           script: |
             const { downloadTestedMacOS } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/download-tested-macos.mjs`);
-            await downloadTestedMacOS();
+            await downloadTestedMacOS({ github, repository: context.repo });
       - name: Exercise tested-ZIP signing path ad-hoc without Apple credentials
         if: runner.os == 'macOS'
         run: node scripts/macos-sign.mjs adhoc-zip tested-macos "$RUNNER_TEMP/adhoc-signed"
