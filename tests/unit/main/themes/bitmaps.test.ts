@@ -10,6 +10,8 @@ import {
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { parseThemeFile } from "../../../../src/shared/theme-files";
 import { IMAGE_BYTES } from "../../../../src/shared/image-paste";
+import { ImageDecodeRejection } from "../../../../src/shared/theme-bitmaps";
+import { themeDirectoryEntryLimit } from "../../../../src/main/theme-directory";
 
 const roots: string[] = [];
 const disposers: (() => void)[] = [];
@@ -98,7 +100,7 @@ test("enforces byte and file budgets and surfaces a fixed decoder rejection", as
   expect((await bitmaps.load(parsed)).diagnostics[0]?.reason).toBe("too-large");
   expect(normalize).not.toHaveBeenCalled();
   await writeFile(file, "unsupported encoded data");
-  normalize.mockRejectedValueOnce(new Error("private decoder detail"));
+  normalize.mockRejectedValueOnce(new ImageDecodeRejection("private decoder detail"));
   const result = await bitmaps.load(parsed);
   expect(result.diagnostics[0]).toEqual({
     file: "",
@@ -188,4 +190,66 @@ test("an unavailable folder omits all paint and a recovered sidebar uses its own
   expect(snapshot.diagnostics).toEqual([
     { file: "", path: "$.images.sidebar", severity: "warning", reason: "image-status-color" },
   ]);
+});
+
+test("an unchanged source recovers from a transient decode failure on a later refresh", async () => {
+  const { file, normalize, bitmaps } = await fixture();
+  await writeFile(file, "source");
+  normalize.mockRejectedValueOnce(new Error("decoder timed out"));
+  const clock = vi.spyOn(performance, "now").mockReturnValue(1_000);
+  expect((await bitmaps.load(parsed)).slots).toEqual({});
+  expect((await bitmaps.load(parsed)).slots).toEqual({});
+  expect(normalize).toHaveBeenCalledOnce();
+  clock.mockReturnValue(2_001);
+  expect((await bitmaps.load(parsed)).slots.board).toBeDefined();
+  expect(normalize).toHaveBeenCalledTimes(2);
+});
+
+test.skipIf(process.platform === "win32")(
+  "dangling links cannot occupy the bitmap or palette file budget",
+  async () => {
+    const { root, directory, file, bitmaps } = await fixture();
+    await writeFile(file, "source");
+    await writeFile(join(directory, "sample.json"), text);
+    for (let i = 0; i < 50; i++) {
+      await symlink("missing", join(directory, `dead-${String(i)}.png`));
+      await symlink("missing", join(directory, `dead-${String(i)}.json`));
+    }
+    expect((await bitmaps.load(parsed)).slots.board).toBeDefined();
+    const library = new ThemeLibrary(root);
+    disposers.push(() => {
+      library.dispose();
+    });
+    await library.initialize();
+    expect(library.snapshot().interface.map(({ id }) => id)).toEqual(["user:sample.json"]);
+  },
+);
+
+test("a deterministic refusal is reused and the directory scan is bounded independently", async () => {
+  const { root, directory, file, normalize, bitmaps } = await fixture();
+  await writeFile(file, "source");
+  await writeFile(join(directory, "sample.json"), text);
+  normalize.mockRejectedValueOnce(new ImageDecodeRejection("invalid raster"));
+  expect((await bitmaps.load(parsed)).slots).toEqual({});
+  expect((await bitmaps.load(parsed)).slots).toEqual({});
+  expect(normalize).toHaveBeenCalledOnce();
+
+  const library = new ThemeLibrary(root);
+  disposers.push(() => {
+    library.dispose();
+  });
+  await library.initialize();
+  expect(library.snapshot().interface).toHaveLength(1);
+  for (let i = 0; i < themeDirectoryEntryLimit - 1; i++)
+    await writeFile(join(directory, `unrelated-${String(i)}.tmp`), "");
+  await library.reload();
+  expect(library.snapshot().errors).toContainEqual({
+    kind: "theme",
+    file: "(folder)",
+    path: "$",
+    reason: "too-many-files",
+  });
+  expect(library.snapshot().interface).toHaveLength(1);
+  expect((await bitmaps.load(parsed)).diagnostics[0]?.reason).toBe("too-many-files");
+  expect(normalize).toHaveBeenCalledOnce();
 });

@@ -1,8 +1,9 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { lstat, readdir } from "node:fs/promises";
+import { readThemeDirectory } from "../theme-directory";
 import { IMAGE_BYTES } from "../../shared/image-paste";
 import { colorDistance } from "../../shared/theme-colors";
 import {
+  ImageDecodeRejection,
   themeBitmapSlots,
   themeFolderLimit,
   validThemeBitmapFile,
@@ -15,7 +16,7 @@ import { readThemeFile } from "./files";
 export class ThemeBitmaps {
   private readonly key = randomBytes(32);
   private readonly cancel = new AbortController();
-  private readonly decoded = new Map<string, Promise<DecodedThemeBitmap>>();
+  private readonly decoded = new Map<string, Promise<DecodedThemeBitmap> | number>();
 
   constructor(
     private readonly directory: string,
@@ -29,16 +30,17 @@ export class ThemeBitmaps {
     const diagnostics: ThemeDiagnostic[] = [];
     const slots: ThemeBitmapSnapshot["slots"] = {};
     const sources: ThemeBitmapSnapshot["sources"] = {};
-    const files = await lstat(this.directory)
-      .then((info) =>
-        info.isDirectory() ? readdir(this.directory, { withFileTypes: true }) : undefined,
-      )
-      .catch(() => undefined);
-    const eligible = files?.filter(
-      (entry) =>
-        (entry.isFile() || entry.isSymbolicLink()) &&
-        (validThemeFile(entry.name) || validThemeBitmapFile(entry.name)),
-    );
+    let count: number | undefined;
+    let folderReason: ThemeDiagnostic["reason"] = "image-unavailable";
+    try {
+      const files = await readThemeDirectory(this.directory);
+      count = files.filter(
+        (entry) =>
+          entry.isFile() && (validThemeFile(entry.name) || validThemeBitmapFile(entry.name)),
+      ).length;
+    } catch (error) {
+      if (error instanceof ThemeValidationError) folderReason = error.reason;
+    }
     for (const slot of themeBitmapSlots) {
       const image = parsed.images?.[slot];
       if (!image) continue;
@@ -46,11 +48,11 @@ export class ThemeBitmaps {
       const report = (reason: ThemeDiagnostic["reason"], severity: "warning" | "error") => {
         diagnostics.push({ file: "", path, reason, severity });
       };
-      if (!eligible) {
-        report("image-unavailable", "error");
+      if (count === undefined) {
+        report(folderReason, "error");
         continue;
       }
-      if (eligible.length > themeFolderLimit) {
+      if (count > themeFolderLimit) {
         report("too-many-files", "error");
         continue;
       }
@@ -106,12 +108,22 @@ export class ThemeBitmaps {
 
   private decode(source: string, bytes: Uint8Array): Promise<DecodedThemeBitmap> {
     const cached = this.decoded.get(source);
-    if (cached) return cached;
+    if (typeof cached === "number") {
+      if (performance.now() < cached)
+        return Promise.reject(new Error("Image decode retry deferred"));
+      this.decoded.delete(source);
+    } else if (cached) return cached;
     if (this.decoded.size === themeFolderLimit) {
       const oldest = this.decoded.keys().next().value;
       if (oldest) this.decoded.delete(oldest);
     }
-    const result = this.normalize(bytes, this.cancel.signal);
+    const result = this.normalize(bytes, this.cancel.signal).catch((error: unknown) => {
+      // Cache deterministic refusals. For exit, timeout or launch failures, keep
+      // only a cooldown and let a later refresh try again. Never schedule a retry.
+      if (!(error instanceof ImageDecodeRejection) && this.decoded.get(source) === result)
+        this.decoded.set(source, performance.now() + 1_000);
+      throw error;
+    });
     this.decoded.set(source, result);
     return result;
   }

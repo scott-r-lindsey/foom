@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { watch } from "node:fs";
 import type { FSWatcher } from "node:fs";
-import { lstat, mkdir, readdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ParsedThemeFile,
@@ -17,6 +17,7 @@ import { interfaceThemes } from "../../shared/interface-themes";
 import { terminalThemeOptions } from "../../shared/terminal-themes";
 import { themeFolderLimit, validThemeBitmapFile } from "../../shared/theme-bitmaps";
 import type { ActiveThemeBitmaps } from "../../shared/theme-bitmap";
+import { readThemeDirectory } from "../theme-directory";
 import { readThemeFile } from "./files";
 export { ThemeBitmaps, themeBitmapResponse } from "./bitmaps";
 
@@ -131,30 +132,37 @@ export class ThemeLibrary {
       const retained = new Map<string, ThemeSnapshot>();
       for (const kind of kinds) {
         let names: string[];
-        const nonFiles = new Set<string>();
+        const regular = new Set<string>();
+        const aliases = new Set<string>();
         try {
-          if (!(await lstat(this.folder(kind))).isDirectory()) throw new Error("unsafe directory");
-          const entries = await readdir(this.folder(kind), { withFileTypes: true });
-          for (const entry of entries)
-            if (!entry.isFile() && !entry.isSymbolicLink()) nonFiles.add(entry.name);
+          const entries = await readThemeDirectory(this.folder(kind));
+          for (const entry of entries) {
+            if (entry.isFile()) regular.add(entry.name);
+            else if (entry.isSymbolicLink()) aliases.add(entry.name);
+          }
           names = entries
             .map((entry) => entry.name)
             .sort(
               (a, b) =>
+                Number(regular.has(b)) - Number(regular.has(a)) ||
                 Number(this.good.has(`${kind}/${b}`)) - Number(this.good.has(`${kind}/${a}`)) ||
                 a.localeCompare(b),
             );
-        } catch {
-          next.errors.push({ kind, file: "(folder)", path: "$", reason: "unreadable" });
+        } catch (error) {
+          const reason = error instanceof ThemeValidationError ? error.reason : "unreadable";
+          next.errors.push({ kind, file: "(folder)", path: "$", reason });
           // An inaccessible directory is not evidence that its files were deleted.
           names = [...this.good.keys()]
             .filter((key) => key.startsWith(`${kind}/`))
             .map((key) => key.slice(kind.length + 1));
+          for (const file of names) regular.add(file);
         }
-        let count =
-          kind === "theme"
-            ? names.filter((file) => validThemeBitmapFile(file) && !nonFiles.has(file)).length
-            : 0;
+        let count = kind === "theme" ? [...regular].filter(validThemeBitmapFile).length : 0;
+        // A last-good palette still occupies registry space after an unsafe
+        // replacement. This reservation is separate from the regular-file budget.
+        let admitted =
+          count +
+          names.filter((file) => !regular.has(file) && this.good.has(`${kind}/${file}`)).length;
         for (const file of names) {
           const key = `${kind}/${file}`;
           // Bitmap diagnostics belong to fixed slots on their JSON theme. Do
@@ -162,11 +170,13 @@ export class ThemeLibrary {
           if (kind === "theme" && !file.endsWith(".json")) continue;
           let snapshot: ThemeSnapshot | undefined;
           let diagnostic: ThemeDiagnostic | undefined;
-          if (!validThemeFile(file) || nonFiles.has(file)) {
-            // Retained versions still occupy a slot even when their file became a directory.
-            if (this.good.has(key)) count++;
+          const isRegular = regular.has(file);
+          if (!validThemeFile(file) || (!isRegular && !aliases.has(file))) {
             diagnostic = { file, path: "$", reason: "unsafe-file" };
-          } else if (++count > themeFolderLimit)
+          } else if (
+            (isRegular && ++count > themeFolderLimit) ||
+            ((isRegular || !this.good.has(key)) && admitted >= themeFolderLimit)
+          )
             diagnostic = { file, path: "$", reason: "too-many-files" };
           else {
             try {
@@ -190,6 +200,7 @@ export class ThemeLibrary {
             snapshot = this.good.get(key);
           }
           if (!snapshot) continue;
+          if (isRegular || !this.good.has(key)) admitted++;
           retained.set(key, snapshot);
           const { parsed: theme, digest } = snapshot;
           if (theme.kind === "theme")

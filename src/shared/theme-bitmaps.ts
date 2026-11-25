@@ -51,3 +51,6 @@ export function parseThemeBitmaps(value: unknown): ThemeBitmapFiles {
   }
   return result;
 }
+
+/** The decoder answered with a refusal, so retrying identical bytes is unnecessary. */
+export class ImageDecodeRejection extends Error {}

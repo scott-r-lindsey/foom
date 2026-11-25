@@ -763,6 +763,7 @@ test("settings import preserves accepted config baseline and historical consent 
   const themeDigests = {
     "themes/test.json": "b".repeat(64),
     "themes/art.json": {
+      decoded: true,
       digest: "d".repeat(64),
       jsonDigest: "e".repeat(64),
       sources: { sidebar: "f".repeat(64) },

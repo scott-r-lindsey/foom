@@ -625,6 +625,7 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   await reopened.setThemeDigest("themes/mine.json", null);
   expect((await SettingsStore.open(dir)).themeDigest("themes/mine.json")).toBeNull();
   const bitmapApproval = {
+    decoded: true as const,
     digest: "a".repeat(64),
     jsonDigest: "b".repeat(64),
     sources: { board: "c".repeat(64) },
@@ -644,6 +645,11 @@ test("attaching Foom config moves agent-editable values out of the profile exact
         "themes/art.json": bitmapApproval,
         "themes/bad-assets.json": { ...bitmapApproval, sources: { sidebar: "not-a-hash" } },
         "themes/bad-slot.json": { ...bitmapApproval, sources: { terminal: "a".repeat(64) } },
+        "themes/old-bitmap.json": {
+          digest: bitmapApproval.digest,
+          jsonDigest: bitmapApproval.jsonDigest,
+          sources: bitmapApproval.sources,
+        },
         "agents/old.json": "c".repeat(64),
         "../x": "c".repeat(64),
         "themes/y": 1,
@@ -655,6 +661,7 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   expect(filtered.themeDigest("themes/art.json")).toEqual(bitmapApproval);
   expect(filtered.themeDigest("themes/bad-assets.json")).toBeNull();
   expect(filtered.themeDigest("themes/bad-slot.json")).toBeNull();
+  expect(filtered.themeDigest("themes/old-bitmap.json")).toBeNull();
   // Plugin approvals were removed in #539; their old digests are dropped.
   expect(filtered.themeDigest("agents/old.json")).toBeNull();
   expect(filtered.themeDigest("../x")).toBeNull();

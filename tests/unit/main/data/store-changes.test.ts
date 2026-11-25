@@ -177,6 +177,7 @@ test("the approved config copy, its digest and selected palette publish as one p
   const digest = "b".repeat(64);
   const text = '{"kind":"settings","interfaceTheme":"user:example.json"}';
   const themeDigest = {
+    decoded: true as const,
     digest: "c".repeat(64),
     jsonDigest: "d".repeat(64),
     sources: { gutter: "e".repeat(64) },

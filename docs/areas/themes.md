@@ -31,8 +31,10 @@ folder, bound allocation, and recheck file and directory identity. A file link t
 a target directly in that same folder is accepted by this library; the config
 scanner and [offline validator](console.md) reject file links, including in-folder
 links. Subfolders and
-redirected theme directories are refused. Invalid names and nonfiles do not consume
-the file budget. Previously loaded files are considered first so added files cannot
+redirected theme directories are refused. Only eligible regular files count
+toward the 50-file budget. The scan inspects up to 512 entries plus an overflow
+check and refuses an over-limit folder without admitting a partial catalog. The library bounds its published catalog separately, reserving space
+for retained palettes and admitting in-folder JSON aliases after regular files. Previously loaded files are considered first so added files cannot
 evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics.
 The read descriptor closes before parsing or waiting for the config approval queue,
 so a queued restore never waits behind a reader holding its rename target open.
@@ -204,7 +206,7 @@ events. Terminal content has no image slot. Text that can cross the background
 during tile placement uses its opaque theme surface, which the palette validator
 checks against the effective ink.
 
-Bitmaps share the 50-file folder budget with JSON. Over budget, the loader
+Regular bitmap files share the 50-file folder budget with regular JSON files. Over budget, the loader
 omits bitmap paint. File names are limited to 100 ASCII letters, digits, spaces,
 dots, underscores and hyphens, starting with a letter, digit, underscore or hyphen,
 and ending in PNG, JPEG/JPG or WebP. Subfolders, symlinks and hard links are refused.
@@ -215,11 +217,15 @@ verifies PNG, JPEG and WebP, limits dimensions to 8,192 pixels per axis and
 metadata-free PNG of at most 4 MiB. It samples the three most prevalent
 alpha-weighted color buckets and reports a fixed warning when one is within
 ΔE 40 of attention or failure colors in the relevant palettes. Those warnings
-alone do not hold a theme.
+alone do not hold a theme. An explicit decoder refusal is cached for identical
+bytes. A timeout or premature exit can retry on a later refresh after a
+one-second cooldown. The loader schedules no automatic retry.
 
-The approval digest binds the JSON and each referenced image's original bytes.
-The private profile also records the JSON digest and the approved source digest
-for each slot. Changing an active slot's file or paint settings needs **Allow /
+A proposal binds the JSON, each readable source digest, and which slots decoded
+successfully. The profile records approval only for decoded artwork and retains
+previously approved bytes for unavailable slots with the same declaration.
+An earlier draft approval without verified decode provenance requires reapproval
+before its artwork can paint. Changing an active slot's file or paint settings needs **Allow /
 Keep it on**, even when the proposed file is missing. An exact offered Appearance
 choice is a direct approval.
 
@@ -229,9 +235,10 @@ becomes unavailable. After restart, a matching JSON digest and matching bytes
 for available slots restore the approved palette and those slots. A restored file
 with the same bytes can paint again. Changed or previously unapproved bytes still
 wait for the gate. Keep it on restores the previous JSON when it is available
-and the remaining original assets match. Otherwise it switches to Default without
-writing an image file. Allow revalidates the proposed digest before serving the
-reviewed snapshot.
+and the remaining original assets match. It rechecks the held JSON before
+replacing it and holds a newer edit for review. If the prior JSON cannot be
+restored, it switches to Default. Allow revalidates the proposed digest before
+serving the reviewed snapshot.
 
 The board's only CSP change is `img-src 'self' foom-theme://bitmap`. The
 board session's scheme handler accepts GET requests for opaque IDs of active,

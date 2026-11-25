@@ -957,3 +957,155 @@ test("restart holds changed and newly added bytes while preserving approved miss
   expect(service.activePalette()?.bitmaps).toHaveProperty("board.id");
   f.bitmaps.dispose();
 });
+
+test.each(["settings", "Appearance", "active Allow"] as const)(
+  "a failed decode during %s does not approve bytes on restart",
+  async (method) => {
+    const { default: sharp } = await import("sharp");
+    const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
+    const f = await fixture({ loadThemeBitmaps: (parsed) => bitmaps.load(parsed) });
+    const directory = path.join(f.folder, "themes");
+    const bitmaps = new ThemeBitmaps(directory, () =>
+      Promise.reject(new Error("decode timed out")),
+    );
+    const file = "themes/art.json";
+    const text = JSON.stringify({
+      ...palette,
+      name: "Art",
+      version: 2,
+      images: { board: { file: "board.png" } },
+    });
+    await f.service.initialize();
+    if (method === "active Allow") {
+      await f.write(file, theme("Art"));
+      await f.selectTheme("art.json");
+    }
+    await f.write(file, text);
+    await writeFile(
+      path.join(directory, "board.png"),
+      await sharp({ create: { width: 2, height: 2, channels: 3, background: "#6633bb" } })
+        .png()
+        .toBuffer(),
+    );
+    if (method === "Appearance") {
+      const offer = await f.service.reviewTheme(file, text, parseThemeFile(text, "theme"));
+      await f.service.write({ interfaceTheme: "user:art.json" }, offer?.digest);
+    } else if (method === "active Allow") {
+      await f.service.refresh();
+      expect(f.service.status().pending?.detail).toBe("theme-images");
+      await f.decide("allow");
+    } else {
+      await f.settings({ interfaceTheme: "user:art.json" });
+      await f.service.refresh();
+    }
+    expect(f.service.activePalette()?.bitmaps).toBeUndefined();
+    const baseline = f.themeBaselines.get(file);
+    const recovered = new ThemeBitmaps(directory, decodeThemeBitmap);
+    const service = await restart(f, { loadThemeBitmaps: (parsed) => recovered.load(parsed) });
+    expect(service.activePalette()?.bitmaps).toBeUndefined();
+    expect(service.status().pending?.detail).toBe("theme-images");
+    expect(baseline).toMatchObject({ sources: {} });
+    await service.decide("allow", service.status().pending?.id);
+    expect(service.activePalette()?.bitmaps?.board).toBeDefined();
+    bitmaps.dispose();
+    recovered.dispose();
+  },
+);
+
+test("Keep re-holds a newer JSON edit written while the approved bitmap is revalidated", async () => {
+  let beforeRead: (() => Promise<void>) | undefined;
+  const f = await fixture({
+    loadThemeBitmaps: async (parsed) => {
+      if (parsed.images?.board?.opacity === 0.25) await beforeRead?.();
+      return bitmaps.load(parsed);
+    },
+  });
+  const { default: sharp } = await import("sharp");
+  const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
+  const directory = path.join(f.folder, "themes");
+  const bitmaps = new ThemeBitmaps(directory, decodeThemeBitmap);
+  const file = "themes/paint.json";
+  const theme = (opacity: number) =>
+    JSON.stringify({
+      ...palette,
+      version: 2,
+      images: { board: { file: "board.png", opacity } },
+    });
+  await f.service.initialize();
+  await f.write(file, theme(0.25));
+  await writeFile(
+    path.join(directory, "board.png"),
+    await sharp({ create: { width: 2, height: 2, channels: 3, background: "#6633bb" } })
+      .png()
+      .toBuffer(),
+  );
+  const offer = await f.service.reviewTheme(
+    file,
+    theme(0.25),
+    parseThemeFile(theme(0.25), "theme"),
+  );
+  await f.service.write({ interfaceTheme: "user:paint.json" }, offer?.digest);
+  await f.write(file, theme(0.4));
+  await f.service.refresh();
+  const pending = f.service.status().pending?.id;
+  beforeRead = async () => {
+    beforeRead = undefined;
+    await f.write(file, theme(0.6));
+  };
+  await expect(f.service.decide("keep", pending)).rejects.toThrow("file changed");
+  expect(await f.read(file)).toBe(theme(0.6));
+  expect(f.service.status().pending).toMatchObject({ detail: "theme-images" });
+  expect(f.service.status().pending?.id).not.toBe(pending);
+  bitmaps.dispose();
+});
+
+test.each(["Appearance", "Allow"] as const)(
+  "a recovered decode cannot join the older %s offer",
+  async (method) => {
+    let recover = false;
+    const f = await fixture({
+      loadThemeBitmaps: async (parsed) => {
+        const loaded = await bitmaps.load(parsed);
+        if (recover) return loaded;
+        const slots = { ...loaded.slots };
+        delete slots.board;
+        return { ...loaded, slots };
+      },
+    });
+    const { decodeThemeBitmap } = await import("../../../../src/main/image-decode");
+    const { default: sharp } = await import("sharp");
+    const directory = path.join(f.folder, "themes");
+    const bitmaps = new ThemeBitmaps(directory, decodeThemeBitmap);
+    const file = "themes/offer.json";
+    const text = JSON.stringify({
+      ...palette,
+      version: 2,
+      images: { board: { file: "paint.png" }, sidebar: { file: "paint.png" } },
+    });
+    await f.service.initialize();
+    await f.write(file, text);
+    await writeFile(
+      path.join(directory, "paint.png"),
+      await sharp({ create: { width: 2, height: 2, channels: 3, background: "#6633bb" } })
+        .png()
+        .toBuffer(),
+    );
+    const offered = await f.service.reviewTheme(file, text, parseThemeFile(text, "theme"));
+    if (method === "Appearance") {
+      recover = true;
+      await expect(
+        f.service.write({ interfaceTheme: "user:offer.json" }, offered?.digest),
+      ).rejects.toThrow("theme-selection-changed");
+    } else {
+      await f.settings({ interfaceTheme: "user:offer.json" });
+      await f.service.refresh();
+      const pending = f.service.status().pending?.id;
+      recover = true;
+      await expect(f.service.decide("allow", pending)).rejects.toThrow("changed");
+      expect(f.service.status().pending?.id).not.toBe(pending);
+    }
+    expect(f.service.activePalette()).toBeUndefined();
+    expect(f.themeBaselines.has(file)).toBe(false);
+    bitmaps.dispose();
+  },
+);

@@ -105,6 +105,7 @@ function bitmapApproval(
   sources: ThemeBitmapSnapshot["sources"],
 ): ThemeBitmapApproval {
   return {
+    decoded: true,
     digest: digest(JSON.stringify([text, themeBitmapSlots.map((slot) => sources[slot])])),
     jsonDigest: digest(text),
     sources,
@@ -112,9 +113,12 @@ function bitmapApproval(
 }
 
 /** Missing data leaves the prior approval intact. Every observed byte digest must still match. */
-function sourcesMatch(approval: ThemeBitmapApproval, observed?: ThemeBitmapSnapshot): boolean {
+function sourcesMatch(
+  approval: ThemeBitmapApproval,
+  observed?: ThemeBitmapSnapshot["sources"],
+): boolean {
   return themeBitmapSlots.every((slot) => {
-    const source = observed?.sources[slot];
+    const source = observed?.[slot];
     return source === undefined || source === approval.sources[slot];
   });
 }
@@ -127,12 +131,13 @@ function withApproval(palette: Palette, approval: ThemeBitmapApproval): Palette 
 function retainUnavailableSources(candidate: Palette, previous?: Palette): Palette {
   if (
     !candidate.bitmaps ||
+    typeof candidate.approval !== "object" ||
     typeof previous?.approval !== "object" ||
     candidate.parsed.kind !== "theme" ||
     previous.parsed.kind !== "theme"
   )
     return candidate;
-  const sources = { ...candidate.bitmaps.sources };
+  const sources = { ...candidate.approval.sources };
   for (const slot of themeBitmapSlots) {
     const prior = previous.approval.sources[slot];
     const declaration = candidate.parsed.images?.[slot];
@@ -162,7 +167,8 @@ function availablePalette(approved: Palette, observed: Palette): Palette {
 }
 
 function persistedPalette(candidate: Palette, approval: ThemeApproval | null): Palette | undefined {
-  if (typeof approval === "string") return approval === candidate.digest ? candidate : undefined;
+  if (typeof approval === "string")
+    return !candidate.bitmaps && approval === candidate.digest ? candidate : undefined;
   if (
     approval &&
     candidate.bitmaps &&
@@ -561,12 +567,14 @@ export class ConfigService {
 
   private async applyValues(applied: Applied, selection?: Selection): Promise<void> {
     let palette = selection?.palette;
+    const unverified = selection?.source === null || selection?.unavailable;
     if (selection && palette) {
       const approved = persistedPalette(palette, this.deps.themeBaseline.get(selection.file));
       palette = retainUnavailableSources(palette, approved);
     }
     if (selection) {
-      if (palette) this.appliedThemes.set(selection.file, palette);
+      if (palette && !(unverified && palette.bitmaps))
+        this.appliedThemes.set(selection.file, palette);
       else this.appliedThemes.delete(selection.file);
       this.heldThemes.delete(selection.file);
     }
@@ -581,7 +589,9 @@ export class ConfigService {
       .set(
         digest(applied.text),
         applied.text,
-        selection && palette ? { file: selection.file, digest: palette.approval } : undefined,
+        selection && palette && !(unverified && palette.bitmaps)
+          ? { file: selection.file, digest: palette.approval }
+          : undefined,
       )
       .catch(ignore);
   }
@@ -620,13 +630,24 @@ export class ConfigService {
       parsed.kind === "theme" && parsed.images
         ? await this.deps.loadThemeBitmaps?.(parsed)
         : undefined;
-    const approval = bitmaps ? bitmapApproval(text, bitmaps.sources) : digest(text);
+    const jsonDigest = digest(text);
+    if (!bitmaps) return { text, parsed, digest: jsonDigest, approval: jsonDigest };
+    const decoded: ThemeBitmapSnapshot["sources"] = {};
+    for (const slot of themeBitmapSlots) {
+      const bitmap = bitmaps.slots[slot];
+      if (bitmap) decoded[slot] = bitmap.source;
+    }
+    const approval = bitmapApproval(text, decoded);
+    const observed = bitmapApproval(text, bitmaps.sources).digest;
+    // A retry with unchanged bytes can change what the user was offered.
+    const proposal =
+      observed === approval.digest ? observed : digest(JSON.stringify([observed, approval.digest]));
     return {
       text,
       parsed,
-      digest: typeof approval === "string" ? approval : approval.digest,
+      digest: proposal,
       approval,
-      ...(bitmaps && { bitmaps }),
+      bitmaps,
     };
   }
 
@@ -656,7 +677,9 @@ export class ConfigService {
     const priorApproval = previous?.approval;
     const bitmapChange =
       !sameImages ||
-      (typeof priorApproval === "object" && !sourcesMatch(priorApproval, candidate.bitmaps));
+      (typeof priorApproval === "object" &&
+        typeof candidate.approval === "object" &&
+        !sourcesMatch(priorApproval, candidate.approval.sources));
 
     if (
       bitmapChange ||
@@ -725,11 +748,13 @@ export class ConfigService {
 
   private approvedSelection(file: string, candidate: Palette): boolean {
     const baseline = this.deps.themeBaseline.get(file);
-    return typeof baseline === "string"
-      ? baseline === candidate.digest
-      : baseline !== null &&
-          persistedPalette(candidate, baseline) !== undefined &&
-          sourcesMatch(baseline, candidate.bitmaps);
+    return (
+      typeof baseline === "object" &&
+      baseline !== null &&
+      typeof candidate.approval === "object" &&
+      persistedPalette(candidate, baseline) !== undefined &&
+      sourcesMatch(baseline, candidate.approval.sources)
+    );
   }
 
   private themeSelectionWeakening(selection?: Selection): Weakening[] {
@@ -1076,34 +1101,40 @@ export class ConfigService {
     if (id !== proposal.id) throw new Error("The change was replaced. Review it again.");
     const committed = await this.files.withSettingsLock(async () => {
       const current = await this.readSettings();
-      const bytes = await settle(this.files.read(file), null);
       const text = proposal.proposal.text;
+      const expected = Buffer.from(text);
+      const matches = async () =>
+        (await settle(this.files.read(file), null))?.equals(expected) === true;
       if (
         !current ||
         digest(current.text) !== proposal.settings ||
         effective(this.deps.defaults, current.values).interfaceTheme !== `user:${file.slice(7)}` ||
-        !bytes?.equals(Buffer.from(text))
+        !(await matches())
       )
         return false;
       const fresh = await this.readPalette(text, proposal.proposal.parsed);
       if (fresh.digest !== proposal.proposal.digest) return false;
       const previous = proposal.previous;
-      if (decision === "allow")
-        await this.acceptTheme(file, retainUnavailableSources(fresh, previous), true);
-      else if (
+      if (
+        decision === "keep" &&
         previous &&
         (typeof previous.approval === "string" ||
           sourcesMatch(
             previous.approval,
-            (await this.readPalette(previous.text, previous.parsed)).bitmaps,
+            (await this.readPalette(previous.text, previous.parsed)).bitmaps?.sources,
           ))
-      )
-        await this.files.writeFile(file, previous.text);
-      else
-        await this.writeSettingsLocked(
-          { interfaceTheme: this.deps.defaults.interfaceTheme },
-          current,
-        );
+      ) {
+        if (!(await this.files.writeFile(file, previous.text, expected))) return false;
+      } else {
+        if (!(await matches())) return false;
+        if (decision === "allow")
+          await this.acceptTheme(file, retainUnavailableSources(fresh, previous), true);
+        else
+          await this.writeSettingsLocked(
+            { interfaceTheme: this.deps.defaults.interfaceTheme },
+            current,
+          );
+      }
       this.heldThemes.delete(file);
       return true;
     });

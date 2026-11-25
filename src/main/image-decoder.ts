@@ -1,6 +1,7 @@
 import { utilityProcess } from "electron";
 import { join } from "node:path";
 import type { DecodedThemeBitmap } from "../shared/theme-bitmap";
+import { ImageDecodeRejection } from "../shared/theme-bitmaps";
 import { imagePng } from "../shared/image-paste";
 /** A five-second decode deadline can terminate native work without blocking main. */
 function normalize<T>(
@@ -20,6 +21,7 @@ function normalize<T>(
       child.removeAllListeners();
       child.kill();
       if (valid(value)) resolve(value);
+      else if (value === null) reject(new ImageDecodeRejection("Image decode refused"));
       else reject(new Error("Image decode refused"));
     };
     const cancel = () => {

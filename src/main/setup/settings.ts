@@ -50,7 +50,8 @@ export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
   if (sha256(value)) return value;
   if (
     !record(value) ||
-    Object.keys(value).length !== 3 ||
+    Object.keys(value).length !== 4 ||
+    value["decoded"] !== true ||
     !sha256(value["digest"]) ||
     !sha256(value["jsonDigest"]) ||
     !record(value["sources"])
@@ -65,7 +66,7 @@ export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
     if (!sha256(source)) return undefined;
     sources[slot] = source;
   }
-  return { digest: value["digest"], jsonDigest: value["jsonDigest"], sources };
+  return { decoded: true, digest: value["digest"], jsonDigest: value["jsonDigest"], sources };
 }
 
 export const DEFAULT_SETTINGS: Settings = freezeSettings({

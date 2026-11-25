@@ -42,6 +42,7 @@ export interface ThemeBitmapSnapshot {
 
 /** Private profile approval. Legacy color-only themes store just their JSON digest. */
 export interface ThemeBitmapApproval {
+  decoded: true;
   digest: string;
   jsonDigest: string;
   sources: ThemeBitmapSnapshot["sources"];
