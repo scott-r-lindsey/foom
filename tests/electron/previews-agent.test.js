@@ -121,18 +121,17 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
+  const empty = page.locator('.terminal-tile[data-empty="true"]');
+  const divider = page.getByRole("separator", { name: "Resize tiles" });
+  const areaWidth = await page.locator(".tile-area").evaluate((area) => area.clientWidth);
+  const emptyWidth = await empty.evaluate((element) => element.offsetWidth);
+  // Each ArrowRight moves the divider by 5% of the board on this two-tile split.
+  const steps = Math.round((emptyWidth - 260) / (areaWidth * 0.05));
+  for (let step = 0; step < steps; step++) await divider.press("ArrowRight");
   const { placement, previewId } = await requestPreview("network", filename);
   assert.equal(placement, "landing");
   const tile = page.locator(`[data-preview-id="${previewId}"]`);
   await expect(tile.locator(".preview-opener")).toHaveText("opened byCC");
-  const area = await page.locator(".tile-area").boundingBox();
-  const divider = await page.getByRole("separator", { name: "Resize tiles" }).boundingBox();
-  assert.ok(area && divider);
-  const dividerY = divider.y + divider.height / 2;
-  await page.mouse.move(divider.x + divider.width / 2, dividerY);
-  await page.mouse.down();
-  await page.mouse.move(area.x + area.width - 260, dividerY);
-  await page.mouse.up();
   await expect
     .poll(async () => Math.abs((await tile.evaluate((element) => element.offsetWidth)) - 260))
     .toBeLessThanOrEqual(20);
