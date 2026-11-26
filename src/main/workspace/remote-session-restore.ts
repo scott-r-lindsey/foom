@@ -16,12 +16,21 @@ export async function discoverRemoteSessions(
     const context = session.context;
     const placed = context && hosts.placement?.(context.worktree);
     const provider = context && builtinAgent(context.agent);
-    // The daemon confirms this launch, but its path cannot confer a local checkout or grant.
-    const mainClone =
-      provider !== undefined &&
-      context?.branch === "Main checkout" &&
-      context.worktree === `/foom-remote/${locationId(JSON.stringify([host, context.repository]))}`;
-    const agent = provider && (placed || context.machine || mainClone) ? provider.id : "shell";
+    const checkoutPath =
+      session.checkout?.path ??
+      (context?.branch === "Main checkout" ? context.repository : undefined);
+    // A matching daemon checkout identifies the live process for display and reattachment.
+    const remoteRepository =
+      !placed &&
+      context &&
+      !context.machine &&
+      provider &&
+      checkoutPath &&
+      context.worktree === `/foom-remote/${locationId(JSON.stringify([host, checkoutPath]))}`
+        ? (session.checkout?.repository ?? context.repository)
+        : undefined;
+    const located = placed || remoteRepository;
+    const agent = provider && (located || context.machine) ? provider.id : "shell";
     const permissionLevel = agent === "shell" ? undefined : session.permissionLevel;
     return {
       id: session.id,
@@ -29,11 +38,16 @@ export async function discoverRemoteSessions(
       kind: agent === "shell" ? "shell" : "agent",
       repository:
         placed?.localRepository ??
-        (context && (context.machine || mainClone) ? context.repository : homeDirectory),
-      worktree:
-        context && (placed || context.machine || mainClone) ? context.worktree : homeDirectory,
-      branch: placed ? `${placed.branch} · ${host}` : mainClone ? "Main checkout" : null,
-      ...(placed || mainClone ? {} : { home: true }),
+        remoteRepository ??
+        (context?.machine ? context.repository : homeDirectory),
+      worktree: context && (located || context.machine) ? context.worktree : homeDirectory,
+      branch: placed
+        ? `${placed.branch} · ${host}`
+        : remoteRepository
+          ? (context?.branch ?? null)
+          : null,
+      ...(located ? {} : { home: true }),
+      ...(remoteRepository ? { reattachOnly: true } : {}),
       ...(context?.machine ? { machine: true } : {}),
       ...(context?.reviewer && agent !== "shell" ? { reviewer: true } : {}),
       ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
@@ -81,7 +95,7 @@ export async function reattachRemoteSession(
   const unavailable = (code: number) => {
     exitCode = code;
   };
-  const checkout = hosts.placement?.(entry.worktree);
+  const checkout = entry.reattachOnly ? undefined : hosts.placement?.(entry.worktree);
   const validate = () => {
     hosts.registered(placement.host);
     return Promise.resolve();

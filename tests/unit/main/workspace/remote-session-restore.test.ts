@@ -300,6 +300,57 @@ test.each(["full", "workspace"] as const)(
   },
 );
 
+test("a daemon-owned linked checkout retains the agent and Full access warning without a hub mapping", async () => {
+  const worktree = `/foom-remote/${locationId(JSON.stringify(["worker", checkout.path]))}`;
+  const context = {
+    repository: checkout.localRepository,
+    worktree,
+    branch: "topic",
+    agent: "codex",
+  };
+  const session = { id: "child", context, checkout, permissionLevel: "full" as const };
+  const registry = {
+    registered: hosts.registered,
+    sessions: () =>
+      Promise.resolve([
+        { host: "worker", session },
+        { host: "other", session: { ...session, id: "wrong-host" } },
+      ]),
+  };
+  const [row, mismatched] = await discoverRemoteSessions(registry);
+  expect(mismatched).toMatchObject({ kind: "shell" });
+  expect(row).toMatchObject({
+    agent: "codex",
+    kind: "agent",
+    repository: checkout.repository,
+    worktree,
+    branch: "topic",
+    reattachOnly: true,
+    permissionLevel: "full",
+    bypass: true,
+  });
+  if (!row) throw new Error("Missing recovered child");
+  expect(row).not.toHaveProperty("remoteCheckout");
+  expect(row).not.toHaveProperty("parentId");
+  const create = vi.fn<(spec: TerminalSpec) => Promise<string>>().mockResolvedValue(row.id);
+  const launch = vi.fn<(request: AgentLaunch) => Promise<AgentLaunched>>();
+  await reattachRemoteSession(
+    row,
+    { ...registry, placement: hosts.placement },
+    { create },
+    launch,
+    {
+      parentId: "stale-parent",
+    },
+  );
+  expect(create.mock.calls[0]?.[0].remote).toMatchObject({
+    host: "worker",
+    reattach: true,
+    human: true,
+  });
+  expect(launch).not.toHaveBeenCalled();
+});
+
 test("recovers a managed main clone as an agent without inventing a local checkout or grant", async () => {
   const repository = `/code/repository-${"a".repeat(24)}`;
   const worktree = `/foom-remote/${locationId(JSON.stringify(["worker", repository]))}`;
@@ -318,12 +369,13 @@ test("recovers a managed main clone as an agent without inventing a local checko
     kind: "agent",
     permissionLevel: "full",
     bypass: true,
+    reattachOnly: true,
     placement: { kind: "remote", host: "worker" },
   });
   expect(rows[0]).not.toHaveProperty("remoteCheckout");
   expect(rows[0]).not.toHaveProperty("orchestrator");
   expect(rows[1]).toMatchObject({ kind: "shell", home: true });
-  expect(rows[2]).toMatchObject({ ...context, kind: "agent", running: true });
+  expect(rows[2]).toMatchObject({ ...context, kind: "agent", running: true, reattachOnly: true });
   expect(rows[2]).not.toHaveProperty("permissionLevel");
   expect(rows[2]).not.toHaveProperty("home");
   expect(rows[2]).not.toHaveProperty("remoteCheckout");

@@ -213,6 +213,10 @@ Disabled agents disappear from machine cards and launch menus and do not run pro
 Default arguments reach both human remote launches and remote children;
 hub Environment settings remain local.
 
+When a manifest drops a saved permission level, its scope still shows the
+selection as unavailable. Reset it to Agent default in Global or Use Global in
+Machines. Launches that resolve to the unavailable level fail before spawn.
+
 Machines uses one picker, initially This computer, followed by every registered
 host. Hosts Open selects its host in that picker. There are no per-machine tabs.
 Lists scroll vertically at desktop and narrow widths. Returning from Global

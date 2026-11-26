@@ -135,7 +135,7 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
   let registrationsChanged:
     | ((registrations: NonNullable<Settings["registeredHosts"]>) => void)
     | undefined;
-  function View() {
+  function View({ codexLevels }: { codexLevels?: readonly AgentPermissionLevel[] }) {
     const [scope, setScope] = useState(initial);
     const [state, setState] = useState(() =>
       setupState({
@@ -156,7 +156,10 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
         source={source}
         state={state}
         report={{
-          ...report(installation("claude"), installation("codex", false)),
+          ...report(installation("claude"), {
+            ...installation("codex", false),
+            ...(codexLevels ? { permissionLevels: codexLevels } : {}),
+          }),
           checkedAt: 1000,
         }}
         scanning={false}
@@ -601,4 +604,28 @@ test("permission edits use the visible scope and preserve the saved choice on re
   await screen.findByText(/Remove permission options from Settings/);
   expect(f.savePermission).toHaveBeenLastCalledWith("host:worker", "codex", "full");
   expect(select()).toHaveProperty("value", "");
+});
+
+test("an unavailable saved level remains visible alongside supported choices and reset", async () => {
+  const f = fixture();
+  const view = render(<f.View />);
+  const selector = screen.getByRole("combobox", {
+    name: "Codex permission level",
+  });
+  fireEvent.change(selector, { target: { value: "workspace" } });
+  await waitFor(() => {
+    expect(selector).toHaveProperty("value", "workspace");
+  });
+  view.rerender(<f.View codexLevels={["ask", "full"]} />);
+  expect(selector).toHaveProperty("value", "workspace");
+  expect(within(selector).getByRole("option", { name: "Workspace (unavailable)" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(within(selector).getByRole("option", { name: "Ask" })).toHaveProperty("disabled", false);
+  fireEvent.change(selector, { target: { value: "" } });
+  await waitFor(() => {
+    expect(f.savePermission).toHaveBeenLastCalledWith("global", "codex", null);
+    expect(selector).toHaveProperty("value", "");
+  });
 });

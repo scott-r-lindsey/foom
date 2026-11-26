@@ -47,6 +47,7 @@ export interface BoardRow {
   /** Changes when an exited terminal is relaunched under the same ID. */
   launchVersion?: number;
   worktreeRemoved?: boolean;
+  reattachOnly?: boolean;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
   permissionLevel?: AgentPermissionLevel;

@@ -327,6 +327,33 @@ test("persists actual placement independently of startup mappings and rejects ma
   ).toThrow();
 });
 
+test("persists reattach-only recovery without granting checkout or parent authority", async () => {
+  const { store } = await setup();
+  const entry = {
+    ...record,
+    remote: true,
+    reattachOnly: true,
+    placement: { kind: "remote", host: "fixture" },
+    permissionLevel: "full",
+  };
+  const [row] = readSessions([entry]);
+  expect(row).toMatchObject({ reattachOnly: true, permissionLevel: "full", bypass: true });
+  if (!row) throw new Error("Missing recovered session");
+  await store.save([row]);
+  expect(await store.load()).toEqual([row]);
+  for (const invalid of [
+    { placement: undefined },
+    { remote: undefined },
+    { agent: "shell" },
+    { home: true },
+    { remoteCheckout: {} },
+    { parentId: "parent" },
+    { orchestrator: {} },
+    { reattachOnly: false },
+  ])
+    expect(() => readSessions([{ ...entry, ...invalid }])).toThrow("Invalid session");
+});
+
 test("persists private remote checkout locators and rejects forged path, identity or fields", async () => {
   const { store } = await setup();
   const remoteCheckout = {

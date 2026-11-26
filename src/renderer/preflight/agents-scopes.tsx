@@ -147,12 +147,14 @@ export function AgentsScopes(
     ),
   ].sort((left, right) => left.name.localeCompare(right.name));
   const permission = (id: string, name: string, supported?: readonly AgentPermissionLevel[]) => {
-    if (!supported) return null;
     const value = state.settings.agentPermissions?.[scope]?.[id]?.level ?? "";
+    if (!supported?.length && !value) return null;
+    const unavailable = value !== "" && !supported?.includes(value);
     const global = state.settings.agentPermissions?.["global"]?.[id]?.level;
     const key = `permission:${scope}:${id}`;
-    const note =
-      (value || global) === "workspace"
+    const note = unavailable
+      ? "The agent no longer declares this level. Reset the selection to launch again."
+      : (value || global) === "workspace"
         ? "Git fetch and commit are blocked in Workspace. Managed agent policy may limit this setting."
         : "Managed agent policy may limit this setting.";
     return (
@@ -187,13 +189,20 @@ export function AgentsScopes(
               ? "Agent default"
               : `Use Global · ${global ? agentPermissionLabels[global] : "Agent default"}`}
           </option>
-          <option value="ask">Ask</option>
-          {supported.includes("workspace") && (
-            <option value="workspace" title="Git fetch and commit are blocked">
-              Workspace
+          {unavailable && (
+            <option value={value} disabled>
+              {agentPermissionLabels[value]} (unavailable)
             </option>
           )}
-          <option value="full">Full access</option>
+          {supported?.map((level) => (
+            <option
+              key={level}
+              value={level}
+              title={level === "workspace" ? "Git fetch and commit are blocked" : undefined}
+            >
+              {agentPermissionLabels[level]}
+            </option>
+          ))}
         </select>
       </label>
     );

@@ -210,8 +210,10 @@ the capability.
 
 Recovered tiles show the applied level and retain the Full access bypass warning.
 A live agent in a remote main clone keeps its agent identity, Main checkout
-label and remote clone path even when the level is unspecified. A fresh launch
-needs a separate registered repository selection. Inventory
+label and remote clone path even when the level is unspecified. A live linked
+checkout without a hub mapping keeps the agent and remote checkout identity too.
+Those rows support reattaching and closing the original session. Start a fresh
+launch from a registered repository selection. Inventory
 cannot restore a parent, grant or orchestrator role. Other-profile and
 untagged sessions remain untouched. Settings → Hosts reports their live count and
 **End…** opens a trusted confirmation. Main retains the confirmed IDs and random

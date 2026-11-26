@@ -273,7 +273,56 @@ process.stdin.resume();`,
       .toBe("fixture-hook-conversation");
   }
 
+  const permissionLevels = {
+    ask: ["--ask"],
+    full: ["--yolo"],
+    conflicts: [{ flag: "--ask", forms: ["exact"] }],
+  };
+  await writeFile(file, JSON.stringify({ ...manifest, permissionLevels }));
+  const permission = page.getByLabel("Fixture agent permission level", { exact: true });
+  await permission.selectOption("ask");
+  await expect(permission).toHaveValue("ask");
+  await page.getByRole("tab", { name: "Global", exact: true }).click();
+  await permission.selectOption("ask");
+  await expect(permission).toHaveValue("ask");
   await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
+  await expect(page.getByText("Edited fixture", { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const { agents } = await page.evaluate(() => window.desktop.scanAgents(true));
+      return agents.some(
+        ({ id, name, permissionLevels }) =>
+          id === "foom-test-agent" && name === "Edited fixture" && permissionLevels === undefined,
+      );
+    })
+    .toBe(true);
+  await assert.rejects(
+    page.evaluate(() =>
+      window.desktop.sidebarCommand({ kind: "machine-launch", host: null, run: "foom-test-agent" }),
+    ),
+    /foom-error:agent-permission-conflict/u,
+  );
+  const editedPermission = page.getByLabel("Edited fixture permission level", { exact: true });
+  await expect(editedPermission).toHaveValue("ask");
+  await expect(editedPermission.locator('option[value="ask"]')).toHaveAttribute("disabled", "");
+  await editedPermission.selectOption("");
+  await expect(editedPermission).toHaveCount(0);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentPermissions?.global?.[
+      manifest.id
+    ],
+    undefined,
+  );
+  await page.getByRole("tab", { name: "Machines", exact: true }).click();
+  await expect(editedPermission).toHaveValue("ask");
+  await editedPermission.selectOption("");
+  await expect(editedPermission).toHaveCount(0);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentPermissions?.local?.[
+      manifest.id
+    ],
+    undefined,
+  );
   await expect(
     page.locator(".agent-card").getByRole("heading", { name: "Edited fixture", exact: true }),
   ).toBeVisible();

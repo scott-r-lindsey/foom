@@ -277,6 +277,20 @@ else if (args[0] !== 'status') process.exit(1);
   await expect(restored.getByRole("menuitem", { name: "Make orchestrator…" })).toHaveCount(0);
   await restored.keyboard.press("Escape");
   await expect(restored.locator(".board-row .session-bypass")).toHaveText(["◇ Bypass", "◇ Bypass"]);
+  await stopSession(restored, "recovered-clone");
+  await recoveredClone
+    .locator(":scope > .board-row")
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await expect(restored.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
+  await expect(restored.getByRole("menuitem", { name: "New conversation here" })).toHaveCount(0);
+  await assert.rejects(
+    restored.evaluate(() =>
+      window.desktop.sidebarCommand({ kind: "new-conversation", id: "recovered-clone" }),
+    ),
+  );
+  await restored.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await expect(recoveredClone).toHaveCount(0);
   await quitAndWait(restarted, async () => {
     await restarted.evaluate(({ app }) => app.quit());
     await (await confirmationPage(restarted))

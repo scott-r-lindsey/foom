@@ -1020,6 +1020,7 @@ const validPlacement = either(
 
 const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   remote: either(absent, literal(true)),
+  reattachOnly: either(absent, literal(true)),
   remoteCleanup: either(absent, literal("unreachable")),
   closeState: either(absent, literal("closing"), literal("failed")),
   placement: validPlacement,

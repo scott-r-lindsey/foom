@@ -648,6 +648,7 @@ export class WorkspaceContext {
           .filter(
             (row) =>
               row.repository === repository &&
+              !row.reattachOnly &&
               row.placement?.kind === "remote" &&
               row.worktree.startsWith("/foom-remote/"),
           )

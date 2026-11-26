@@ -86,6 +86,7 @@ function parseSessions(value: unknown, recoverDuplicateWorktrees = false): Store
       permissionLevel,
       reviewer,
       remote,
+      reattachOnly,
       placement,
       remoteCheckout,
       closeState,
@@ -103,6 +104,15 @@ function parseSessions(value: unknown, recoverDuplicateWorktrees = false): Store
       (placement !== undefined &&
         (!objectPlacement(placement) || (placement.kind === "remote") !== (remote === true))) ||
       (remote !== undefined && (remote !== true || config)) ||
+      (reattachOnly !== undefined &&
+        (reattachOnly !== true ||
+          remote !== true ||
+          placement === undefined ||
+          agent === "shell" ||
+          home !== undefined ||
+          remoteCheckout !== undefined ||
+          parentId !== undefined ||
+          orchestrator !== undefined)) ||
       (providerOrigin !== undefined &&
         (providerOrigin === "bundled"
           ? typeof agent !== "string" || !builtinAgent(agent)
@@ -198,6 +208,7 @@ function parseSessions(value: unknown, recoverDuplicateWorktrees = false): Store
       ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
       ...(reviewer === true ? { reviewer: true as const } : {}),
       ...(remote === true ? { remote: true } : {}),
+      ...(reattachOnly === true ? { reattachOnly: true } : {}),
       ...(savedRemote(remoteCheckout) ? { remoteCheckout: { ...remoteCheckout } } : {}),
       ...(objectPlacement(placement) ? { placement } : {}),
       ...(running === undefined ? {} : { running }),
@@ -250,6 +261,7 @@ export class SessionStore {
           permissionLevel,
           reviewer,
           remote,
+          reattachOnly,
           placement,
           remoteCheckout,
           closeState,
@@ -285,6 +297,7 @@ export class SessionStore {
           ...(permissionLevel ? { permissionLevel } : {}),
           ...(reviewer ? { reviewer } : {}),
           ...(remote ? { remote: true } : {}),
+          ...(reattachOnly ? { reattachOnly: true } : {}),
           ...(placement ? { placement } : {}),
           ...(remoteCheckout ? { remoteCheckout } : {}),
         }),

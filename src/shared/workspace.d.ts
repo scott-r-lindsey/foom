@@ -44,6 +44,8 @@ export interface WorkspaceTerminal {
   recipe?: boolean;
   /** Phase-2 remote child; never silently relaunched as a local process. */
   remote?: true;
+  /** A recovered remote checkout without a registered repository launch target. */
+  reattachOnly?: true;
   remoteCleanup?: "unreachable";
   /** Main retains cleanup ownership while the board hides a closing session. */
   closeState?: "closing" | "failed";
