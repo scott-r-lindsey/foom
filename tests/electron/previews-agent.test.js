@@ -11,6 +11,7 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   assertAccessible,
   boardPage,
+  confirmationPage,
   approvalPage,
   clickApproval,
   launchApp,
@@ -97,6 +98,74 @@ async function agentPreviewFixture(context) {
   const listPreviews = (requestId) => requestAgent(requestId, ["previews", "--json"]);
   return { app, page, repo, agent, shell, credentials, requestAgent, requestPreview, listPreviews };
 }
+
+test("a narrow agent-opened preview shows its enabled network indicator", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, repo, shell, requestPreview } = await agentPreviewFixture(context);
+  const filename = "a-long-relative-filename-for-an-agent-opened-network-preview.html";
+  await writeFile(path.join(repo, filename), "<p>Preview</p>");
+  await page.evaluate((session) => {
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        tree: { kind: "tile", id: "shell", content: { kind: "terminal", session } },
+        focused: "shell",
+        maximized: null,
+      }),
+    );
+  }, shell.id);
+  await page.reload();
+  await sizeTileBoard(app, page, 900, 640);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
+  const { placement, previewId } = await requestPreview("network", filename);
+  assert.equal(placement, "landing");
+  const tile = page.locator(`[data-preview-id="${previewId}"]`);
+  await expect(tile.locator(".preview-opener")).toHaveText("opened byCC");
+  const area = await page.locator(".tile-area").boundingBox();
+  const divider = await page.getByRole("separator", { name: "Resize tiles" }).boundingBox();
+  assert.ok(area && divider);
+  const dividerY = divider.y + divider.height / 2;
+  await page.mouse.move(divider.x + divider.width / 2, dividerY);
+  await page.mouse.down();
+  await page.mouse.move(area.x + area.width - 260, dividerY);
+  await page.mouse.up();
+  await expect
+    .poll(async () => Math.abs((await tile.evaluate((element) => element.offsetWidth)) - 260))
+    .toBeLessThanOrEqual(20);
+  const network = tile.locator(".tile-title").getByText("network", { exact: true });
+  await expect(network).toHaveCount(0);
+  await tile.getByRole("button", { name: /^Tile \d+ menu$/ }).click();
+  await page.getByRole("menuitem", { name: "Allow network…", exact: true }).click();
+  const confirmation = await confirmationPage(app);
+  await confirmation.getByRole("button", { name: "Allow network", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+          (preview) => preview.id === previewId,
+        )?.network,
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      network.evaluate((element) => {
+        const { left, right, width } = element.getBoundingClientRect();
+        const header = element.closest(".tile-title").getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(element);
+        return (
+          left >= header.left &&
+          right <= header.right &&
+          width >= text.getBoundingClientRect().width
+        );
+      }),
+    )
+    .toBe(true);
+});
 
 test("agent previews split a blank window into terminal-width columns", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",

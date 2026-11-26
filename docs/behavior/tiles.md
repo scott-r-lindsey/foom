@@ -49,7 +49,7 @@ Terminal title bars show the state light, agent badge, location and session name
 an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
 the Hide and Close controls appear on hover, focus, or the focused tile, as
 applicable to the session.
-On narrow tiles, the header gives space to the tile menu and controls before
+On narrow terminal tiles, the header gives space to the tile menu and controls before
 the session identity.
 Child terminals also show the sidebar’s robot mark, named Worker, including after takeover.
 Review-loop reviewers use the lens variant named Reviewer; authors and other children keep Worker.

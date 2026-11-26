@@ -485,7 +485,7 @@ export function Tile({
             </div>
           )}
           {preview && (
-            <div className="tile-identity">
+            <>
               {arrived && (
                 <span className="visually-hidden" role="status">
                   New preview
@@ -512,7 +512,7 @@ export function Tile({
                 </span>
               )}
               {preview.network && <span className="session-program">network</span>}
-            </div>
+            </>
           )}
           <button
             ref={menuRef}

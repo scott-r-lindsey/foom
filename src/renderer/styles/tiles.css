@@ -57,12 +57,16 @@
 .tile-title {
   display: flex;
   align-items: center;
-  gap: min(6px, 2%);
+  gap: 6px;
   min-height: 30px;
-  padding: 0 min(5px, 2%);
+  padding: 0 5px;
   background: var(--surface);
   font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
+}
+.tile-title:has(.tile-identity) {
+  gap: min(6px, 2%);
+  padding-inline: min(5px, 2%);
 }
 .terminal-tile[data-focused="true"] .tile-title {
   background: color-mix(in srgb, var(--highlight) 10%, var(--surface));
@@ -93,15 +97,18 @@
   color: var(--muted);
 }
 .tile-name,
-.tile-title .session-program {
-  min-width: 0;
-  flex-shrink: 1;
+.tile-identity .session-program {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tile-name {
+  flex-shrink: 0;
   max-width: 35%;
+}
+.tile-identity :is(.tile-name, .session-program) {
+  min-width: 0;
+  flex-shrink: 1;
 }
 .tile-number {
   flex-shrink: 0;
@@ -121,8 +128,11 @@
 }
 .tile-controls {
   display: flex;
-  min-width: 0;
   opacity: 0;
+}
+.tile-identity ~ .tile-controls,
+.tile-identity ~ .tile-controls button {
+  min-width: 0;
 }
 .terminal-tile:hover .tile-controls,
 .terminal-tile:focus-within .tile-controls,
@@ -132,7 +142,6 @@
 .tile-controls button {
   padding: 0;
   width: 20px;
-  min-width: 0;
   height: 24px;
   border: 0;
   background: transparent;
