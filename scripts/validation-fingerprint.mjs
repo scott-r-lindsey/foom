@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  accessSync,
   closeSync,
   constants,
   fstatSync,
@@ -85,13 +86,16 @@ export function readBuildFile(path) {
   return readRegularFile(absolute, regularPath(absolute), false);
 }
 
-export function buildFileDigest(path, { optional = false, before = Infinity } = {}) {
+export function buildFileDigest(path, { optional = false, before = Infinity, expected } = {}) {
   const stat = regularPath(path, optional);
   if (!stat) return null;
   if (stat.ctimeMs >= before) throw new BuildInputChanged(`Changed bundle input: ${path}`);
+  const bytes = readRegularFile(path, stat, false);
+  if (expected && !bytes.equals(expected))
+    throw new BuildInputChanged(`Changed build input: ${path}`);
   return createHash("sha256")
     .update(JSON.stringify([stat.mode, stat.size]))
-    .update(readRegularFile(path, stat, false))
+    .update(bytes)
     .digest("hex");
 }
 
@@ -103,7 +107,19 @@ export function buildPathKind(path) {
   return stat.isDirectory() ? "directory" : "file";
 }
 
-export function buildDirectoryDigest(path) {
+// Search permission and file kind both affect execvp's choice on POSIX.
+export function isExecutableFile(path) {
+  try {
+    if (!statSync(path, { throwIfNoEntry: false })?.isFile()) return false;
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR", "EACCES"].includes(error.code)) return false;
+    throw error;
+  }
+}
+
+export function buildDirectoryDigest(path, { expectedNames } = {}) {
   const stat = lstatSync(path);
   if (!stat.isDirectory() || realpathSync(path) !== path)
     throw new Error(`Unsupported fingerprint directory: ${path}`);
@@ -114,8 +130,15 @@ export function buildDirectoryDigest(path) {
       : path === resolve("node_modules")
         ? new Set([".vite", ".vite-temp"])
         : new Set();
-  const names = listDirectory(path, { withFileTypes: true })
-    .filter((entry) => !generated.has(entry.name))
+  const entries = listDirectory(path, { withFileTypes: true }).filter(
+    (entry) => !generated.has(entry.name),
+  );
+  if (
+    expectedNames &&
+    JSON.stringify(entries.map(({ name }) => name).sort()) !== JSON.stringify(expectedNames)
+  )
+    throw new BuildInputChanged(`Changed build input directory: ${path}`);
+  const names = entries
     .map((entry) => [
       entry.name,
       entry.isFile(),
@@ -144,6 +167,7 @@ export function matchesBuildInputs(snapshot) {
     [snapshot.inputs, buildFileDigest],
     [snapshot.directories, buildDirectoryDigest],
     [snapshot.lookups, buildPathKind],
+    [snapshot.executables, isExecutableFile],
     [snapshot.manifests, (path) => buildFileDigest(path, { optional: true })],
   ].every(
     ([entries, digest]) =>

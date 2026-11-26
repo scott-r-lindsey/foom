@@ -43,7 +43,8 @@ CSS imports outside the source tree, and for files opened by the TypeScript
 compiler, including transitive configs. It also covers files read or copied by
 the build scripts and SEA assembly, including native inputs and the selected Node
 executable and license. Resolution checks cover directory entries, TypeScript
-path lookups and esbuild's surrounding manifests. esbuild configs with path
+path lookups, esbuild package manifests and ancestor configs, and earlier
+executable candidates on `PATH`. esbuild configs with path
 aliases or a custom base URL require a fresh build. Missing, unreadable, symlinked
 or special-file inputs, receipts or outputs prevent reuse. The fixture SEA's
 runtime-extracted native files are checked for matching bytes and required

@@ -17,7 +17,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { hostPlatforms } from "./remote-host-artifacts.mjs";
@@ -255,10 +255,15 @@ test("local runs reuse a matching build and rebuild when its receipt, inputs or 
   }
 });
 
-function installFixtureCompiler(root) {
+function installFixtureCompiler(root, { compile = true } = {}) {
   const compiler = fileURLToPath(import.meta.resolve("typescript"));
   mkdirSync(join(root, "node_modules/typescript"));
   cpSync(dirname(compiler), join(root, "node_modules/typescript/lib"), { recursive: true });
+  cpSync(
+    join(dirname(compiler), "../package.json"),
+    join(root, "node_modules/typescript/package.json"),
+  );
+  if (!compile) return;
   appendFileSync(
     join(root, "scripts/build.mjs"),
     `
@@ -332,6 +337,18 @@ test("local reuse rebuilds when an external declaration consumed by tsc changes"
   assert.doesNotMatch(rebuilt.output, /SELECTED_BODY/);
 });
 
+function useFixtureEsbuild(root) {
+  // Resolve the real esbuild from this checkout without a fixture symlink.
+  const wrapper = join(root, "scripts/bundle-build.mjs");
+  writeFileSync(
+    wrapper,
+    readFileSync(wrapper, "utf8").replace(
+      '"esbuild"',
+      JSON.stringify(import.meta.resolve("esbuild")),
+    ),
+  );
+}
+
 test("esbuild tracks an external stylesheet imported by the renderer", (context) => {
   const { root, run } = fixture(context);
   const filter = "--test-name-pattern=^selected case$";
@@ -345,15 +362,7 @@ test("esbuild tracks an external stylesheet imported by the renderer", (context)
     join(root, "src/renderer/styles/styles.css"),
     '@import "../../../theme/theme.css";',
   );
-  // Resolve the real esbuild from this checkout without a fixture symlink.
-  const wrapper = join(root, "scripts/bundle-build.mjs");
-  writeFileSync(
-    wrapper,
-    readFileSync(wrapper, "utf8").replace(
-      '"esbuild"',
-      JSON.stringify(import.meta.resolve("esbuild")),
-    ),
-  );
+  useFixtureEsbuild(root);
   appendFileSync(
     join(root, "scripts/build.mjs"),
     `
@@ -379,6 +388,127 @@ test("esbuild tracks an external stylesheet imported by the renderer", (context)
   assert.equal(rebuilt.status, 0, rebuilt.output);
   assert.doesNotMatch(rebuilt.output, /Reusing verified/);
   assert.match(readFileSync(join(root, "build/styles.css"), "utf8"), /color: blue/);
+});
+
+test("cold and damaged icon caches build successfully and can be reused", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  cpSync(new URL("./icon/", import.meta.url), join(root, "scripts/icon"), { recursive: true });
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { writeIcons, ICON_FILES } from './icon/foom-icon.mjs';
+    const rendered = await writeIcons('build/icons', {
+      generate: () => new Map(ICON_FILES.map(name => [name, Buffer.from(name)])),
+    });
+    console.log('RENDERED_ICONS', rendered);
+  `,
+  );
+  appendFileSync(join(root, ".gitignore"), ".cache/\n");
+  const cacheRoot = join(root, ".cache/foom-icons");
+  const first = run([filter]);
+  assert.equal(first.status, 0, first.output);
+  assert.match(first.output, /RENDERED_ICONS true/);
+  assert.match(run([filter]).output, /Reusing verified/);
+  const manifest = join(cacheRoot, readdirSync(cacheRoot)[0], "manifest.json");
+  rmSync(join(root, "build/icons"), { recursive: true });
+  const cached = run([filter]);
+  assert.equal(cached.status, 0, cached.output);
+  assert.match(cached.output, /RENDERED_ICONS false/);
+  assert.match(run([filter]).output, /Reusing verified/);
+  writeFileSync(manifest, "{");
+  const repaired = run([filter]);
+  assert.equal(repaired.status, 0, repaired.output);
+  assert.match(repaired.output, /RENDERED_ICONS true/);
+  assert.match(run([filter]).output, /Reusing verified/);
+});
+
+test("esbuild tracks ancestor tsconfigs for nested sources outside the checkout", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const external = realpathSync(mkdtempSync(join(tmpdir(), "foom-esbuild-config-")));
+  context.after(() => rmSync(external, { recursive: true, force: true }));
+  mkdirSync(join(external, "nested"));
+  const source = join(external, "nested", "fields.ts");
+  const config = join(external, "tsconfig.json");
+  const setFields = (enabled) =>
+    writeFileSync(
+      config,
+      JSON.stringify({ compilerOptions: { useDefineForClassFields: enabled } }),
+    );
+  writeFileSync(source, "export class Example { value = 1; }");
+  setFields(false);
+  useFixtureEsbuild(root);
+  installFixtureCompiler(root, { compile: false });
+  writeFileSync(
+    join(root, "src/input.ts"),
+    `export { Example } from ${JSON.stringify(source.split("\\").join("/"))};`,
+  );
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { bundleBuild } from './bundle-build.mjs';
+    await bundleBuild({
+      entryPoints: ['src/input.ts'],
+      bundle: true,
+      format: 'esm',
+      target: 'esnext',
+      outfile: 'build/fields.js',
+    });
+  `,
+  );
+  const built = run([filter]);
+  assert.equal(built.status, 0, built.output);
+  assert.match(readFileSync(join(root, "build/fields.js"), "utf8"), /this\.value = 1/);
+  assert.match(run([filter]).output, /Reusing verified/);
+  setFields(true);
+  const rebuilt = run([filter]);
+  assert.equal(rebuilt.status, 0, rebuilt.output);
+  assert.doesNotMatch(rebuilt.output, /Reusing verified/);
+  assert.match(readFileSync(join(root, "build/fields.js"), "utf8"), /^\s+value = 1;/m);
+});
+
+test("a newly executable earlier PATH entry invalidates the selected tool", {
+  skip: process.platform === "win32",
+}, (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const early = join(root, "test-results/early");
+  const late = join(root, "test-results/late");
+  mkdirSync(early, { recursive: true });
+  mkdirSync(late, { recursive: true });
+  const env = { PATH: [early, late, process.env.PATH].join(delimiter) };
+  const putTool = (dir, result, mode) =>
+    writeFileSync(join(dir, "foom-fixture-tool"), `#!/bin/sh\nprintf '${result}'\n`, { mode });
+  putTool(late, "later", 0o700);
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { execFileSync } from 'node:child_process';
+    writeFileSync('build/tool-result', execFileSync('foom-fixture-tool'));
+  `,
+  );
+  const output = () => readFileSync(join(root, "build/tool-result"), "utf8");
+  const check = (reused) => {
+    const result = run([filter], env);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(result.output.includes("Reusing verified"), reused, result.output);
+  };
+  check(false);
+  assert.equal(output(), "later");
+  check(true);
+  putTool(early, "new", 0o700);
+  check(false);
+  assert.equal(output(), "new");
+  rmSync(join(early, "foom-fixture-tool"));
+  check(false);
+  assert.equal(output(), "later");
+  putTool(early, "earlier", 0o600);
+  check(true);
+  chmodSync(join(early, "foom-fixture-tool"), 0o700);
+  check(false);
+  assert.equal(output(), "earlier");
+  check(true);
 });
 
 test("a FIFO receipt is rejected and automatic reuse rebuilds without opening it", {

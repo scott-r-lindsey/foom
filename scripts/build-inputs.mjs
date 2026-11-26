@@ -1,4 +1,5 @@
 // Preloaded only for a reusable Electron build, including its Node subprocesses.
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import childProcess from "node:child_process";
@@ -10,6 +11,7 @@ import {
   buildDirectoryDigest,
   buildFileDigest,
   buildPathKind,
+  isExecutableFile,
 } from "./validation-fingerprint.mjs";
 
 const staging = process.env.FOOM_BUILD_INPUTS;
@@ -19,13 +21,20 @@ const inputs = new Map();
 const directories = new Map();
 const manifests = new Map();
 const lookups = new Map();
+const executables = new Map();
+const untracked = new AsyncLocalStorage();
 const parsedConfigs = new Set();
 const require = createRequire(import.meta.url);
 const { lstatSync, readFileSync, readdirSync, writeFileSync, statSync } = fs;
 let valid = true;
 let changed = false;
 
+export function withoutBuildInputTracking(action) {
+  return staging ? untracked.run(true, action) : action();
+}
+
 function inputPath(value) {
+  if (untracked.getStore()) return;
   if (typeof value !== "string" && !(value instanceof URL && value.protocol === "file:")) return;
   const path = resolve(value instanceof URL ? fileURLToPath(value) : value);
   if (path !== generated && !path.startsWith(generated + sep)) return path;
@@ -42,16 +51,18 @@ function capture(path, digest, entries) {
   }
 }
 
-export function recordBuildInput(value) {
+export function recordBuildInput(value, expected) {
   if (!staging) return;
   const path = inputPath(value);
-  if (path && !inputs.has(path)) capture(path, buildFileDigest, inputs);
+  if (path && (expected || !inputs.has(path)))
+    capture(path, (file) => buildFileDigest(file, { expected }), inputs);
 }
 
-export function recordBuildDirectory(value) {
+export function recordBuildDirectory(value, expectedNames) {
   if (!staging) return;
   const path = inputPath(value);
-  if (path && !directories.has(path)) capture(path, buildDirectoryDigest, directories);
+  if (path && (expectedNames || !directories.has(path)))
+    capture(path, (directory) => buildDirectoryDigest(directory, { expectedNames }), directories);
 }
 
 function recordLookup(path) {
@@ -138,12 +149,7 @@ export function recordBundleInputs(metafile, started, tsconfig) {
     recordModuleContext(path, started);
     if (!tsconfig && !path.split(sep).includes("node_modules")) {
       for (let dir = dirname(path); ; dir = dirname(dir)) {
-        if (
-          recordConfig(join(dir, "tsconfig.json"), started) ||
-          dir === root ||
-          !dir.startsWith(root + sep)
-        )
-          break;
+        if (recordConfig(join(dir, "tsconfig.json"), started) || dir === dirname(dir)) break;
       }
     }
     for (const { original, external, kind } of imports) {
@@ -198,14 +204,26 @@ function trackCommand(original) {
     // The runner checks the revision returned by Git before and after the build.
     if (command === "git") return original(command, ...args);
     try {
-      const path = isAbsolute(command)
-        ? command
-        : (process.env.PATH ?? "")
-            .split(delimiter)
-            .map((dir) => resolve(dir, command))
-            .find((file) => statSync(file, { throwIfNoEntry: false })?.isFile());
-      if (path) recordBuildInput(path);
-      else valid = false;
+      const options = Array.isArray(args[0]) ? args[1] : args[0];
+      const cwd = options?.cwd instanceof URL ? fileURLToPath(options.cwd) : (options?.cwd ?? root);
+      if (!options?.shell && (isAbsolute(command) || command.includes("/"))) {
+        recordBuildInput(resolve(cwd, command));
+      } else if (!options?.shell && process.platform !== "win32") {
+        const path = (options?.env ?? process.env).PATH;
+        if (path === undefined) valid = false;
+        else {
+          const selected = path.split(delimiter).find((dir) => {
+            const candidate = resolve(cwd, dir, command);
+            capture(candidate, isExecutableFile, executables);
+            return executables.get(candidate) === true;
+          });
+          if (selected === undefined) valid = false;
+          else recordBuildInput(resolve(cwd, selected, command));
+        }
+      } else {
+        // Shell and Windows command searches have different resolution rules.
+        valid = false;
+      }
     } catch {
       valid = false;
     }
@@ -269,6 +287,7 @@ if (staging) {
           directories: [...directories],
           manifests: [...manifests],
           lookups: [...lookups],
+          executables: [...executables],
         }),
       );
     } catch {

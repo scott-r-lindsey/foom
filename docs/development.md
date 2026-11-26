@@ -44,7 +44,8 @@ generator source renders it in a few seconds; later builds copy the set from the
 Git-ignored `.cache/foom-icons/`. Each cache entry is published atomically with a
 manifest of file sizes and SHA-256 digests; an entry with a missing, extra or
 changed file, or a missing or invalid manifest, is discarded and rendered again.
-The Electron build receipt includes any cached icon files the build reads. Forge's
+The Electron build receipt includes cached icon bytes when they supply the
+build output. Forge's
 `prePackage` build runs before the packager and makers read their icon paths,
 so no generated image is committed.
 The packager embeds `foom.icns` in the macOS bundle and `foom.ico` in

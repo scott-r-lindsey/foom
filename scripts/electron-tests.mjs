@@ -76,7 +76,7 @@ function recordBuild(staging, environment, catalog, revision, processes) {
     )
       return;
     const snapshot = {};
-    for (const key of ["inputs", "directories", "manifests", "lookups"]) {
+    for (const key of ["inputs", "directories", "manifests", "lookups", "executables"]) {
       const entries = new Map();
       for (const part of snapshots) {
         for (const [path, hash] of part[key]) {
