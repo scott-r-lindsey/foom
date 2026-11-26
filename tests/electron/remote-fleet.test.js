@@ -35,6 +35,7 @@ const {
   installSoundSink,
   removeAfterApps,
 } = require("./harness.js");
+const { waitForFixtureRecord } = require("./fixture-records.js");
 const { auditProcesses } = require("./process-audit.js");
 
 async function copyRemoteBranch(app, page, expected) {
@@ -155,10 +156,12 @@ notify.end(JSON.stringify({session_id:'fleet-parent-conversation',hook_event_nam
     '#!/bin/sh\nif [ "$1" = "-ilc" ]; then printf "\\000FOOM_PATH\\000%s\\000" "$PATH"; exit 0; fi\nexec /bin/sh -i\n',
     { mode: 0o700 },
   );
+  const attentionCase = agents.length === 1 && agents[0] === "codex" && !restart && !reviewLoop;
+  const fastGitReads = reviewLoop || restart || attentionCase || agents.length === 2;
   const gitState = path.join(root, "remote-git.json");
   await writeFile(gitState, "{}");
   await writeFile(
-    path.join(remoteBin, reviewLoop ? "git-fixture.js" : "git"),
+    path.join(remoteBin, fastGitReads ? "git-fixture.js" : "git"),
     `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), cwd = process.cwd();
@@ -185,10 +188,10 @@ else process.exit(2);
 `,
     { mode: 0o700 },
   );
-  if (reviewLoop) {
+  if (fastGitReads) {
     await symlink(process.execPath, path.join(remoteBin, "node"));
-    // Snapshot reads need fixed facts, not a new Node VM for each Git argument array.
-    // Mutations still run the stateful fixture; no system Git or network runs.
+    // Serve fixed Git facts and worktree metadata with shell builtins. Mutations
+    // and the injected origin failure still use the stateful fixture.
     await writeFile(
       path.join(remoteBin, "git"),
       [
@@ -203,7 +206,7 @@ else process.exit(2);
         "  *' --symbolic-full-name '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf 'refs/heads/%s\\n' \"$branch\";;",
         "  *' symbolic-ref '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf '%s\\n' \"$branch\";;",
         '  *\' worktree list \'*) for record in "$FIXTURE_REMOTE_GIT_ROOT"/.git/worktrees/.foom-worktree-*/fixture-branch; do [ -f "$record" ] || continue; IFS= read -r branch < "$record"; metadata="${record%/fixture-branch}"; printf \'worktree %s/%s\\000HEAD %s\\000branch refs/heads/%s\\000\\000\' "${FIXTURE_REMOTE_GIT_ROOT%/*}" "${metadata##*/}" "$FIXTURE_REMOTE_HEAD" "$branch"; done;;',
-        "  *' ls-remote '*) printf 'ref: refs/heads/main\\tHEAD\\n';;",
+        ...(reviewLoop ? ["  *' ls-remote '*) printf 'ref: refs/heads/main\\tHEAD\\n';;"] : []),
         "  *' rev-parse '*) printf '%s\\n' \"$FIXTURE_REMOTE_HEAD\";;",
         "  *' status '*|*' check-ref-format '*|*' fetch '*|*' for-each-ref '*|*' ls-files '*) exit 0;;",
         '  *) exec node "${0%/*}/git-fixture.js" "$@";;',
@@ -213,7 +216,6 @@ else process.exit(2);
       { mode: 0o700 },
     );
   }
-  const attentionCase = agents.length === 1 && agents[0] === "codex" && !restart && !reviewLoop;
   const hookReview = require("../fixtures/agent-detection/codex-hooks-review.json").tail.join(
     "\r\n",
   );
@@ -567,21 +569,17 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     assert.deepEqual(launched.placement, { kind: "remote", host: "fleet-worker" });
     assert.ok((await readFile(launchCalls, "utf8")).includes("agent-open\n"));
     assert.ok((await readFile(launchCalls, "utf8")).includes("agent-start\n"));
-    await expect
-      .poll(async () => {
-        try {
-          return JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
-        } catch {
-          return null;
-        }
-      })
-      .not.toBeNull()
-      .catch(async (error) => {
-        const { state } = await call("session_state", { id: launched.resultId });
-        console.error("Remote fleet launch readiness", JSON.stringify({ agent, state }));
-        throw error;
-      });
-    const record = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
+    const launchFile = path.join(root, `${agent}-launch.json`);
+    await waitForFixtureRecord(
+      launchFile,
+      [],
+      AbortSignal.any([context.signal, AbortSignal.timeout(deadline(10_000))]),
+    ).catch(async (error) => {
+      const { state } = await call("session_state", { id: launched.resultId });
+      context.diagnostic(`Remote fleet launch readiness: ${JSON.stringify({ agent, state })}`);
+      throw error;
+    });
+    const record = JSON.parse(await readFile(launchFile, "utf8"));
     reviewTiming("author hooks completed");
     assert.ok(record.cwd.startsWith(folder + "/.foom-worktree-"));
     const serialized = JSON.stringify(record);
@@ -695,16 +693,13 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       keys: ["1"],
       idempotencyKey: `report-${agent}`,
     });
-    await expect
-      .poll(async () => {
-        try {
-          return JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
-        } catch {
-          return null;
-        }
-      })
-      .not.toBeNull();
-    const report = JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
+    const reportFile = path.join(root, `${agent}-report.json`);
+    await waitForFixtureRecord(
+      reportFile,
+      [],
+      AbortSignal.any([context.signal, AbortSignal.timeout(deadline(10_000))]),
+    );
+    const report = JSON.parse(await readFile(reportFile, "utf8"));
     reviewTiming("author reported");
     assert.equal(report.handoff.code, 0, JSON.stringify(report.handoff));
     assert.equal(JSON.parse(report.identity.output).role, "child");
@@ -956,12 +951,11 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         launched.resultId,
       );
       await expect
-        .poll(
-          async () =>
-            JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8")).pid,
-        )
+        .poll(async () => JSON.parse(await readFile(launchFile, "utf8")).pid, {
+          intervals: [50, 100, 250],
+        })
         .not.toBe(record.pid);
-      const resumed = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
+      const resumed = JSON.parse(await readFile(launchFile, "utf8"));
       assert.ok(resumed.args.includes(agent === "copilot" ? "--resume" : "--session"));
       assert.ok(resumed.cwd === record.cwd);
       await call("stop", { id: launched.resultId, idempotencyKey: `stop-resumed-${agent}` });
@@ -1056,13 +1050,6 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     savedHosts.hosts.find((host) => host.host === "fleet-worker").foreignWorktrees,
     undefined,
   );
-  const hostState = await restored.evaluate(
-    (codeFolder) => window.desktop.hosts({ action: "preflight", host: "fleet-worker", codeFolder }),
-    folder,
-  );
-  restartTiming("host inventory refreshed");
-  assert.equal(hostState.preflight.result.ok, true, JSON.stringify(hostState.preflight));
-  assert.equal(hostState.hosts.find((host) => host.host === "fleet-worker").foreignWorktrees, 2);
   assert.ok(
     !(await restored.evaluate(() => window.desktop.workspace())).terminals.some(
       (row) => row.worktree === recovered.path,
@@ -1122,25 +1109,20 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     .toContain("REMOTE_CODEX_READY");
   restartTiming("child replay attached");
   const restoredCall = (method, params) => controlCall(newParent, method, params);
-  await rm(path.join(root, "codex-report.json"));
+  const renewedReport = path.join(root, "codex-report.json");
+  await rm(renewedReport);
   await restoredCall("send_keys", {
     id: persistent.id,
     keys: ["1"],
     idempotencyKey: "after-restart-report",
   });
-  await expect
-    .poll(async () => {
-      try {
-        return (
-          JSON.parse(await readFile(path.join(root, "codex-report.json"), "utf8")).identity.code ===
-          0
-        );
-      } catch {
-        return false;
-      }
-    })
-    .toBe(true);
-  const renewed = JSON.parse(await readFile(path.join(root, "codex-report.json"), "utf8"));
+  await waitForFixtureRecord(
+    renewedReport,
+    [],
+    AbortSignal.any([context.signal, AbortSignal.timeout(deadline(10_000))]),
+  );
+  const renewed = JSON.parse(await readFile(renewedReport, "utf8"));
+  assert.equal(renewed.identity.code, 0);
   assert.equal(JSON.parse(renewed.identity.output).role, "child");
   assert.ok(JSON.parse(renewed.identity.output).alias !== persistent.alias);
   restartTiming("fresh restricted authority verified");
@@ -1224,10 +1206,20 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
   await restored.getByRole("button", { name: "Expand fleet-worker", exact: true }).click();
-  await restored.getByRole("button", { name: "Check capabilities", exact: true }).click();
-  await expect(
-    restored.getByRole("button", { name: "Check capabilities", exact: true }),
-  ).toBeEnabled();
+  // The Settings action runs the full preflight. Verify its saved result and
+  // the rendered foreign count from that one check.
+  const checkCapabilities = restored.getByRole("button", {
+    name: "Check capabilities",
+    exact: true,
+  });
+  await checkCapabilities.click();
+  await expect(checkCapabilities).toBeEnabled();
+  const checked = (
+    await restored.evaluate(() => window.desktop.hosts({ action: "list" }))
+  ).hosts.find((host) => host.host === "fleet-worker");
+  assert.equal(checked.observation?.preflight.result.ok, true, JSON.stringify(checked.observation));
+  assert.equal(checked.foreignWorktrees, 2);
+  restartTiming("host inventory refreshed");
   await restored.locator(".host-details > summary").click();
   await expect(restored.getByText("2 other worktrees", { exact: true })).toBeVisible();
   for (const theme of ["eclipse-light", "eclipse-dark"]) {
