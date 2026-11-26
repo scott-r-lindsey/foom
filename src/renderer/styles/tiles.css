@@ -157,6 +157,18 @@
   border: 0;
   background: transparent;
 }
+.terminal-tile:not([data-kind="preview"]) .tile-controls {
+  /* Reserve separate hit targets for Maximize, Hide and Close across exit. */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 60px;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-controls button {
+  width: 100%;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-controls [data-removal="close"] {
+  grid-column: 3;
+}
 .tile-shell,
 .tile-terminal {
   flex: 1;

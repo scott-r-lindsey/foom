@@ -602,6 +602,7 @@ export function Tile({
               <button
                 key={control === primaryRemoval ? "primary-removal" : "secondary-removal"}
                 type="button"
+                data-removal={control.action}
                 aria-label={control.label}
                 title={control.label}
                 onClick={() => {

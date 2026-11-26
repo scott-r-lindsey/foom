@@ -232,9 +232,10 @@ The tile header and tile menu offer **Hide** for running sessions and both
 **Hide** and **Close** for exited agents with a saved conversation ID outside the
 config environment. Hide clears the tile and keeps the sidebar row and Resume
 conversation. Exited config agents, exited shells, exited agents without a saved
-conversation and previews offer **Close** only. When a focused Hide button becomes
-Close on exit, it keeps keyboard focus. Tile Close uses the same command as Close
-in the session sidebar menu.
+conversation and previews offer **Close** only. Terminal headers reserve a
+separate Close position so a pointer over Hide stays clear of Close on exit.
+When a focused Hide button becomes Close on exit, it keeps keyboard focus.
+Tile Close uses the same command as Close in the session sidebar menu.
 A retained dormant tile on an unavailable host offers **Forget…** in its menu,
 with the same local-only confirmation as the [sidebar](sidebar.md).
 A refused Close keeps the tile and shows a fixed reason. Parents with child rows
