@@ -57,16 +57,13 @@
 .tile-title {
   display: flex;
   align-items: center;
-  gap: min(6px, 2%);
+  flex-wrap: wrap;
+  gap: 0 min(6px, 2%);
   min-height: 30px;
   padding: 0 min(5px, 2%);
   background: var(--surface);
   font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
-}
-.terminal-tile[data-kind="preview"] .tile-title {
-  flex-wrap: wrap;
-  row-gap: 0;
 }
 .terminal-tile[data-focused="true"] .tile-title {
   background: color-mix(in srgb, var(--highlight) 10%, var(--surface));
@@ -76,18 +73,94 @@
   background: transparent;
   border: 0;
 }
-.tile-identity,
-.preview-heading {
+.tile-title-main {
+  /* Keep the menu next to the heading while the controls wrap as a group. */
   display: flex;
+  flex: 1 1 max-content;
   align-items: center;
-  align-self: stretch;
-  flex: 1 1 0px;
+  gap: 4px;
   min-width: 0;
 }
+.tile-heading-content,
 .tile-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   gap: 6px;
+}
+.tile-heading {
+  /* Budget for the light and a six-character exit word even while running,
+     so the controls remain on the same row across exit. */
+  flex: 1 1 auto;
+  width: calc(24px + 6ch * 12 / 11);
+  min-width: 16px;
+  container: tile-heading / inline-size;
+}
+.tile-heading-content {
+  min-height: 24px;
+}
+.terminal-tile[data-kind="preview"] .tile-heading {
+  width: 16px;
+}
+.terminal-tile[data-kind="preview"] .tile-heading:has(.preview-network) {
+  /* Document glyph, globe and two gaps around the optional identity. */
+  width: 46px;
+}
+.tile-identity {
+  flex: 1 1 0;
   overflow: clip;
-  overflow-clip-margin: 2px;
+}
+.tile-heading .board-light {
+  flex-shrink: 0;
+  margin-inline-start: 2px;
+}
+.tile-heading .tile-exit-status {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 0;
+  white-space: pre;
+}
+.tile-exit-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-exit-status svg {
+  display: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@container tile-heading (inline-size < calc(24px + 6ch * 12 / 11)) {
+  .tile-exit-status span {
+    display: none;
+  }
+  .tile-exit-status svg {
+    display: block;
+  }
+}
+@container tile-heading (inline-size < 46px) {
+  .tile-heading-content {
+    /* Stack the marks if they cannot share the space beside the tile number.
+       The light and exit icon still fit within the normal 24px row height. */
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 0 2px;
+  }
+  .tile-identity {
+    flex: 0 0 0;
+    height: 0;
+  }
+  .tile-heading-content .preview-network {
+    min-width: 14px;
+  }
+  .preview-network span {
+    display: none;
+  }
 }
 .tile-location {
   min-width: 0;
@@ -99,28 +172,15 @@
   max-width: 45%;
   color: var(--muted);
 }
-.tile-name,
-.tile-identity .session-program {
+.tile-identity :is(.tile-name, .session-program, .session-waiting, .session-orchestration) {
+  min-width: 0;
+  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tile-name {
-  flex-shrink: 0;
   max-width: 35%;
-}
-.tile-identity :is(.tile-name, .session-program) {
-  min-width: 0;
-  flex-shrink: 1;
-}
-.terminal-tile[data-exited="true"] .tile-identity :is(.board-light, .session-program) {
-  /* Keep the exit state together ahead of the clipped identity text. */
-  order: -1;
-  flex-shrink: 0;
-}
-.terminal-tile[data-exited="true"] .tile-identity .session-program {
-  /* Leave room for the 10px light and 6px gap when a recipe has a long status. */
-  max-width: calc(100% - 16px);
 }
 .tile-number {
   flex-shrink: 0;
@@ -131,7 +191,15 @@
   color: var(--muted);
 }
 .tile-title .tile-number {
-  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0 1ch;
+  /* Leave 16px for a status glyph and 4px between the heading and menu. */
+  max-width: calc(100% - 20px);
+  margin-inline-start: auto;
+  white-space: nowrap;
 }
 .tile-number[data-focused="true"],
 .terminal-tile[data-focused="true"] .tile-number {
@@ -140,14 +208,10 @@
 }
 .tile-controls {
   display: flex;
-  opacity: 0;
-  min-width: 0;
-}
-.terminal-tile[data-kind="preview"] .tile-controls {
-  /* Move the controls below the menu before fitting them into a narrower row. */
-  flex-shrink: 0;
+  flex: 0 0 auto;
   max-width: 100%;
   margin-inline-start: auto;
+  opacity: 0;
 }
 .terminal-tile:hover .tile-controls,
 .terminal-tile:focus-within .tile-controls,
@@ -291,19 +355,11 @@
   display: block;
 }
 
-.preview-heading:has(.preview-network) {
-  /* Keep room for the globe when there's no space for the identity or label. */
-  min-width: 22px;
-}
-.preview-heading .tile-identity {
-  overflow-clip-margin: 0;
-}
 .preview-network {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
-  padding-inline-start: 4px;
+  min-width: 18px;
 }
 .preview-network svg {
   flex: 0 0 14px;
@@ -314,6 +370,7 @@
   stroke-width: 1.2;
 }
 .preview-network span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -689,7 +746,7 @@
 
 .tile-startup {
   position: absolute;
-  inset: 38px 0 0;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -736,6 +793,8 @@
   }
 }
 
-.tile-shell .tile-startup {
-  inset: 0;
+.terminal-tile > .tile-startup {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }

@@ -49,8 +49,9 @@ Terminal title bars show the state light, agent badge, location and session name
 an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
 the Hide and Close controls appear on hover, focus, or the focused tile, as
 applicable to the session.
-On narrow terminal tiles, the header gives space to the tile menu and controls before
-the session identity.
+As the tile narrows, the light and menu stay visible and the session identity
+truncates. When the controls need more room, they move to a second row at the
+same width for running and exited sessions.
 Child terminals also show the sidebar’s robot mark, named Worker, including after takeover.
 Review-loop reviewers use the lens variant named Reviewer; authors and other children keep Worker.
 Double-clicking the title bar toggles maximize. Right-click opens the same tile
@@ -101,9 +102,9 @@ Directional Split and Grow, gutters and Tidy arrange the layout.
 Preview title bars show a document glyph, MD, HTML or IMG badge, relative path, tile menu,
 Maximize/Restore, Reload and Close. The tile menu offers Allow network… when off, and Block network when on; its facts show Network Off or On, and the title bar marks enabled network. Allow network asks in the trusted confirmation window: "This page can send files from its preview root to the internet". Permission belongs to that preview, permits HTTPS and secure WebSockets, and resets on restart or when moved to another window. A move resets network to Off because permission was granted in the original window’s trusted dialog context. Plain HTTP stays blocked. External link requests always ask in the trusted window, showing the full URL, even when page script requested them without a click. Only HTTPS, HTTP and mailto links are eligible. Each preview has at most one pending confirmation; requests received while one is pending are dropped. Declining opens nothing.
 
-Narrow preview headers give space to the menu and action buttons before the
-preview identity and network text. The globe remains visible when the network
-text no longer fits and exposes “Network enabled” as its accessible name and tooltip.
+Narrow preview headers keep the document glyph visible and the menu and actions
+available as the preview identity truncates. When the network text no longer fits,
+the globe stays visible with “Network enabled” as its accessible name and tooltip.
 When the menu and action buttons need more room, the buttons move to a second row.
 
 Preview headers have a keyboard-reachable **Reload** icon beside Close. It is faint at
@@ -235,7 +236,8 @@ conversation. Exited config agents, exited shells, exited agents without a saved
 conversation and previews offer **Close** only. Terminal headers reserve a
 separate Close position so a pointer over Hide stays clear of Close on exit.
 When a focused Hide button becomes Close on exit, it keeps keyboard focus.
-The exit label sits beside the state light so both stay readable as the header narrows.
+The exit label sits beside the state light. At widths that cannot fit the exit
+word, an exit icon provides the full status as its accessible name and tooltip.
 Tile Close uses the same command as Close in the session sidebar menu.
 A retained dormant tile on an unavailable host offers **Forget…** in its menu,
 with the same local-only confirmation as the [sidebar](sidebar.md).

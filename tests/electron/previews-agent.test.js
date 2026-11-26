@@ -179,14 +179,19 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
   await divider.press("End");
   await expect.poll(tileWidth).toBeLessThan(120);
   await expectTileHeaderHitTargets(tile, controls);
-  const networkIcon = network.locator("svg");
-  assert.ok(
-    await networkIcon.evaluate((icon) => {
-      const { left, right, top, bottom } = icon.getBoundingClientRect();
-      return icon.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
-    }),
-    "The network globe stays visible at minimum width",
-  );
+  const expectPreviewMarks = async () => {
+    for (const mark of [tile.locator(".preview-glyph"), network.locator("svg")]) {
+      await expect
+        .poll(() =>
+          mark.evaluate((icon) => {
+            const { left, right, top, bottom } = icon.getBoundingClientRect();
+            return icon.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+          }),
+        )
+        .toBe(true);
+    }
+  };
+  await expectPreviewMarks();
 
   await pollPreviewContents(app, previewId, "document.body.textContent").toContain("Next");
   await previewContents(app, previewId, "document.querySelector('a').click()");
@@ -207,6 +212,7 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
   await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThanOrEqual(512);
   await divider.press("End");
   await expect.poll(tileWidth).toBeLessThan(80);
+  await expectPreviewMarks();
   const maximize = tile.getByRole("button", { name: "Maximize tile", exact: true });
   const glyph = await maximize.evaluate((button) => {
     const text = document.createRange();

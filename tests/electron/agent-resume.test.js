@@ -6,8 +6,59 @@ const path = require("node:path");
 const { mkdir, mkdtemp, readFile, realpath, rename, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
-const { boardPage, launchApp, quitAndWait, removeAfterApps } = require("./harness.js");
+const {
+  boardPage,
+  confirmationPage,
+  launchApp,
+  quitAndWait,
+  removeAfterApps,
+} = require("./harness.js");
+const { pickPreviewFile } = require("./preview-fixture.js");
 const { expectTileHeaderHitTargets } = require("./tile-fixture.js");
+
+async function expectHeaderIndicators(tile, selectors) {
+  const { missing, width } = await tile.locator(".tile-title").evaluate((header, selectors) => {
+    const bounds = header.getBoundingClientRect();
+    const fits = (indicator) => {
+      const range = document.createRange();
+      range.selectNodeContents(indicator);
+      const rect =
+        indicator.childElementCount === 0 && indicator.textContent
+          ? range.getBoundingClientRect()
+          : indicator.getBoundingClientRect();
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.left >= bounds.left &&
+        rect.right <= bounds.right &&
+        rect.top >= bounds.top &&
+        rect.bottom <= bounds.bottom &&
+        indicator.contains(
+          document.elementFromPoint((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2),
+        )
+      );
+    };
+    return {
+      width: bounds.width,
+      missing: selectors.filter(
+        (selector) => !Array.from(header.querySelectorAll(selector)).some(fits),
+      ),
+    };
+  }, selectors);
+  assert.deepEqual(missing, [], `Indicators clipped at a ${width}px header`);
+}
+
+async function sweepTileHeader(divider, tile, controls, indicators) {
+  await divider.press("Home");
+  await expect(divider).toBeFocused();
+  await expect(tile.locator(".tile-controls")).toHaveCSS("opacity", "1");
+  // Occupied leaves span at most 15–85%, in five-point keyboard increments.
+  for (let step = 0; step <= 14; step++) {
+    await expectTileHeaderHitTargets(tile, controls);
+    await expectHeaderIndicators(tile, indicators);
+    if (step < 14) await divider.press("ArrowRight");
+  }
+}
 
 for (const agent of ["claude", "codex", "agy"]) {
   test(`resumes exited ${agent} conversations in place after a Foom restart`, {
@@ -263,6 +314,13 @@ if (resumed) {
       await restored.locator(`[data-drag-session="${shell.terminalId}"]`).click();
       await expect(restored.locator('.terminal-tile[data-kind="shell"] .xterm')).toBeVisible();
       divider = restored.getByRole("separator", { name: "Resize tiles" });
+      await hide.focus();
+      await sweepTileHeader(
+        divider,
+        tile,
+        ["Tile 1 menu", "Maximize tile", "Hide"],
+        ['.board-light[data-exited="false"][aria-label]'],
+      );
       await divider.press("Home");
       await expect.poll(tileWidth).toBeLessThan(120);
       await expect(close).toHaveCount(0);
@@ -276,45 +334,33 @@ if (resumed) {
         { wide: "Hide", minimum: "Hide" },
       );
       const controls = ["Tile 1 menu", "Maximize tile", "Hide", "Close"];
-      await expectTileHeaderHitTargets(tile, controls);
-      for (let step = 0; step < 3; step++) {
-        const previous = await tileWidth();
-        await divider.press("ArrowRight");
-        await expect.poll(tileWidth).toBeGreaterThan(previous);
-        await expectTileHeaderHitTargets(tile, controls);
-      }
-      const targetWidth = 191;
+      const light = '.board-light[data-exited="true"][aria-label]';
+      const exitWord = ".tile-exit-status > span:first-child";
+      const exitIcon = '.tile-exit-status[title="exited"] > svg[aria-label="exited"]';
+      await sweepTileHeader(divider, tile, controls, [light, `${exitWord}, ${exitIcon}`]);
+
+      // Exercise the reported width between keyboard increments with the
+      // controls faded. The exit word still needs to fit in full.
+      const headerWidth = () =>
+        tile.locator(".tile-title").evaluate((element) => element.offsetWidth);
+      const targetWidth = 153;
       const handle = await divider.boundingBox();
       assert.ok(handle);
       const x = handle.x + handle.width / 2;
       const y = handle.y + handle.height / 2;
-      const delta = targetWidth - (await tileWidth());
+      const delta = targetWidth - (await headerWidth());
       await restored.mouse.move(x, y);
       await restored.mouse.down();
       await restored.mouse.move(x + delta, y);
       await restored.mouse.up();
       await expect
-        .poll(async () => Math.abs((await tileWidth()) - targetWidth))
+        .poll(async () => Math.abs((await headerWidth()) - targetWidth))
         .toBeLessThanOrEqual(2);
       const shellTile = restored.locator('.terminal-tile[data-kind="shell"]');
       await shellTile.locator(".xterm").click();
       await expect(shellTile).toHaveAttribute("data-focused", "true");
       await expect(tile.locator(".tile-controls")).toHaveCSS("opacity", "0");
-      const status = await tile.locator(".session-program").evaluate((label) => {
-        const identity = label.closest(".tile-identity");
-        const light = identity.querySelector('.board-light[data-exited="true"]');
-        const lightBounds = light.getBoundingClientRect();
-        const text = document.createRange();
-        text.selectNodeContents(label);
-        const textBounds = text.getBoundingClientRect();
-        return {
-          lightKeepsWidth: lightBounds.width === lightBounds.height,
-          labelFits:
-            textBounds.right <=
-            Math.min(label.getBoundingClientRect().right, identity.getBoundingClientRect().right),
-        };
-      });
-      assert.deepEqual(status, { lightKeepsWidth: true, labelFits: true });
+      await expectHeaderIndicators(tile, [light, exitWord]);
       await divider.press("Home");
       await expect.poll(tileWidth).toBeLessThan(120);
     }
@@ -323,6 +369,29 @@ if (resumed) {
     await expect(restored.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
     assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);
     if (shell) {
+      await restored.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
+      const shellTile = restored.locator('.terminal-tile[data-kind="shell"]');
+      await shellTile.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+      await restored.getByRole("menuitem", { name: "Split terminal right", exact: true }).click();
+      const filename = "header-preview.html";
+      await writeFile(path.join(repo, filename), "<p>Preview</p>");
+      await pickPreviewFile(restoredApp, restored, repo, filename);
+      await restored.getByRole("treeitem", { name: `HTML preview: ${filename}` }).click();
+      const preview = restored.locator('.terminal-tile[data-kind="preview"]');
+      await preview.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+      await restored.getByRole("menuitem", { name: "Allow network…", exact: true }).click();
+      const confirmation = await confirmationPage(restoredApp);
+      await confirmation.getByRole("button", { name: "Allow network", exact: true }).click();
+      await expect(restored.locator(".board-confirmation-scrim")).toHaveCount(0);
+      const globe = preview.getByRole("img", { name: "Network enabled", exact: true });
+      await expect(globe).toHaveAttribute("title", "Network enabled");
+      await sweepTileHeader(
+        restored.getByRole("separator", { name: "Resize tiles" }),
+        preview,
+        ["Tile 1 menu", "Maximize tile", "Reload", "Close"],
+        [".preview-glyph", ".preview-network svg"],
+      );
+      await preview.getByRole("button", { name: "Close", exact: true }).click();
       await restored.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
       await restored.evaluate((id) => window.desktop.input(id, "exit\r"), shell.terminalId);
       await expect
