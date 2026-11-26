@@ -1146,20 +1146,65 @@ test("double-clicking zero eligible opens one merged cleanup review", async (con
   assert.equal(await app.evaluate(() => globalThis.mergedReviewRequests), 1);
 });
 
-test("eligibility refresh scrolls the focused command into the repository panel", async (context) => {
-  const { app, page, unlock } = await lockedMergedWorktree(context);
-  await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 300 }));
-  await app.evaluate(({ BrowserWindow }) => {
+async function openRepositoryPanelAtScale(app, page, interfaceScale) {
+  await page.evaluate(
+    (scale) => window.desktop.saveSetup({ interfaceScale: scale }),
+    interfaceScale,
+  );
+  const content = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://bundle/index.html",
     );
     window.setMinimumSize(1, 1);
     window.setContentSize(1280, 1024);
+    return { zoom: window.webContents.getZoomFactor(), ...window.getContentBounds() };
   });
+  assert.equal(content.zoom, interfaceScale / 100);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ width, height, zoom }) =>
+          Math.max(Math.abs(innerWidth - width / zoom), Math.abs(innerHeight - height / zoom)),
+        content,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
   await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
-  const panel = page.getByRole("dialog", { name: "repo details and commands" });
+  return page.getByRole("dialog", { name: "repo details and commands" });
+}
+
+async function expectReviewWithinPanelWidth(review) {
+  await expect
+    .poll(() =>
+      review.evaluate((button) => {
+        const scrollport = button.closest(".panel-body");
+        const { left, right } = button.getBoundingClientRect();
+        const viewport = scrollport.getBoundingClientRect();
+        return Math.max(viewport.left - left, right - viewport.right);
+      }),
+    )
+    .toBeLessThanOrEqual(0);
+}
+
+test("the repository panel keeps the zero-eligibility review within its width at 200%", async (context) => {
+  const { app, page } = await lockedMergedWorktree(context);
+  const panel = await openRepositoryPanelAtScale(app, page, 200);
   const review = panel.getByRole("button", { name: "0 eligible to delete" });
+  await expectReviewWithinPanelWidth(review);
+  await review.click();
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
+    "mergedunavailable",
+  );
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+});
+
+test("eligibility refresh scrolls the focused command into the repository panel", async (context) => {
+  const { app, page, unlock } = await lockedMergedWorktree(context);
+  const panel = await openRepositoryPanelAtScale(app, page, 300);
+  const review = panel.getByRole("button", { name: "0 eligible to delete" });
+  await expectReviewWithinPanelWidth(review);
   await review.focus();
   const command = panel.getByRole("menuitem", { name: "New worktree" });
   const positionInScrollport = () =>
