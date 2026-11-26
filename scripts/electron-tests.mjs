@@ -31,14 +31,27 @@ import { suiteFiles } from "../tests/electron/test-suites.js";
 import { guardWorktreeWrites } from "../tests/helpers/worktree-writes.js";
 const checkWorktreeWrites = guardWorktreeWrites();
 const args = process.argv.slice(2);
+if (args.length === 1 && args[0] === "--help") {
+  console.info(`Usage: pnpm run test:electron [--fresh | --reuse-build] [--suite=FILE] [--test-name-pattern=REGEX]
+
+Local runs reuse a verified build by default.
+  --fresh        Always build before running tests.
+  --reuse-build  Require a verified build.
+
+Reuse checks pnpm install state, recorded file contents and node_modules
+directory entries on lookup paths. Hand edits inside node_modules can go
+undetected. Use --fresh after editing installed dependencies by hand.`);
+  process.exit(0);
+}
 const packaged = args.includes("--packaged");
 const requireReuse = args.includes("--reuse-build");
+const fresh = args.includes("--fresh");
 const forwarded = [];
 const selectedSuites = [];
 const inventory = suiteFiles();
 for (let index = 0; index < args.length; index++) {
   const arg = args[index];
-  if (arg === "--packaged" || arg === "--reuse-build") continue;
+  if (arg === "--packaged" || arg === "--reuse-build" || arg === "--fresh") continue;
   if (arg.startsWith("--suite=")) {
     const name = arg.slice("--suite=".length);
     const suite = inventory.find((file) => file.endsWith(`/${name}`) || file.endsWith(`\\${name}`));
@@ -60,6 +73,8 @@ if (packaged && selectedSuites.length > 0)
   throw new Error("--suite is only for development Electron tests");
 if (packaged && requireReuse)
   throw new Error("--reuse-build is only for development Electron tests");
+if (fresh && (packaged || requireReuse))
+  throw new Error("--fresh cannot be combined with --packaged or --reuse-build");
 mkdirSync("test-results", { recursive: true });
 const receipt = "test-results/electron-build.json";
 
@@ -76,7 +91,14 @@ function recordBuild(staging, environment, catalog, revision, processes) {
     )
       return;
     const snapshot = {};
-    for (const key of ["inputs", "directories", "manifests", "lookups", "executables"]) {
+    for (const key of [
+      "inputs",
+      "directories",
+      "dependencyDirectories",
+      "manifests",
+      "lookups",
+      "executables",
+    ]) {
       const entries = new Map();
       for (const part of snapshots) {
         for (const [path, hash] of part[key]) {
@@ -186,6 +208,7 @@ if (!packaged) {
   if (trackBuild && !requireReuse) createRequire(import.meta.url)("electron");
   const environment = trackBuild || requireReuse ? buildEnvironment() : undefined;
   const reuse =
+    !fresh &&
     environment !== undefined &&
     catalog !== undefined &&
     matchesReceipt(environment, catalog, revision);

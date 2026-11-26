@@ -107,6 +107,17 @@ export function buildPathKind(path) {
   return stat.isDirectory() ? "directory" : "file";
 }
 
+export function isCheckoutBuildPath(path) {
+  const root = process.cwd();
+  return path !== root && path.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+export function dependencyDirectoryDigest(path) {
+  const kind = buildPathKind(path);
+  if (kind === null) return null;
+  return buildDirectoryDigest(path);
+}
+
 // Search permission and file kind both affect execvp's choice on POSIX.
 export function isExecutableFile(path) {
   try {
@@ -150,8 +161,13 @@ export function buildDirectoryDigest(path, { expectedNames } = {}) {
 }
 
 export function buildEnvironmentFingerprint() {
+  const installState = ["node_modules/.modules.yaml", "node_modules/.pnpm/lock.yaml"].map((path) =>
+    buildFileDigest(resolve(path), { optional: true }),
+  );
+  if (installState.every((hash) => hash === null)) throw new Error("Missing pnpm install state");
   return createHash("sha256")
     .update(JSON.stringify([process.execPath, process.env.PATH, process.env.NODE_PATH]))
+    .update(JSON.stringify(installState))
     .update(
       fingerprint(["scripts", "package.json", "pnpm-lock.yaml", ".npmrc"], {
         followSymlinks: false,
@@ -164,16 +180,18 @@ export function buildEnvironmentFingerprint() {
 
 export function matchesBuildInputs(snapshot) {
   return [
-    [snapshot.inputs, buildFileDigest],
+    [snapshot.inputs, buildFileDigest, isCheckoutBuildPath],
+    [snapshot.dependencyDirectories, dependencyDirectoryDigest, isCheckoutBuildPath],
     [snapshot.directories, buildDirectoryDigest],
     [snapshot.lookups, buildPathKind],
     [snapshot.executables, isExecutableFile],
     [snapshot.manifests, (path) => buildFileDigest(path, { optional: true })],
   ].every(
-    ([entries, digest]) =>
+    ([entries, digest, inScope = () => true]) =>
       Array.isArray(entries) &&
       entries.every(
-        ([path, hash]) => typeof path === "string" && isAbsolute(path) && digest(path) === hash,
+        ([path, hash]) =>
+          typeof path === "string" && isAbsolute(path) && inScope(path) && digest(path) === hash,
       ),
   );
 }

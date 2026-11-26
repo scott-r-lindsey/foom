@@ -37,19 +37,28 @@ On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
 Local development Electron runs automatically reuse the app and its fixture when
 the receipt matches the checkout revision, build inputs and output. A missing
-receipt, changed source or dependency, or modified output triggers a rebuild.
+receipt, changed recorded input, or modified output triggers a rebuild.
 The receipt records a content hash for each esbuild metafile input, including
 CSS imports outside the source tree, and for files opened by the TypeScript
 compiler, including transitive configs. It also covers files read or copied by
-the build scripts and SEA assembly, including native inputs and the selected Node
-executable and license. Resolution checks cover directory entries, TypeScript
-path lookups, esbuild package manifests and ancestor configs, and earlier
+the build scripts and SEA assembly, including native inputs. The runner verifies
+the selected Node executable and license as part of the build environment.
+Recorded inputs outside the checkout, such as files loaded from a sibling
+package, require a fresh build on every run. Resolution checks cover directory
+entries, TypeScript path lookups, esbuild package manifests and ancestor configs, and earlier
 executable candidates on `PATH`. esbuild configs with path
 aliases or a custom base URL require a fresh build. Missing, unreadable, symlinked
 or special-file inputs, receipts or outputs prevent reuse. The fixture SEA's
 runtime-extracted native files are checked for matching bytes and required
 permissions, so valid copies can appear between runs without invalidating the
 receipt.
+`pnpm-lock.yaml` and the installed pnpm metadata (`node_modules/.modules.yaml` and
+`node_modules/.pnpm/lock.yaml` when present) identify the dependency tree. Reuse
+requires at least one of the installed metadata files. The runner also hashes
+recorded dependency files and checks for additions, removals and changed immediate
+entries in the `node_modules` directories along each recorded file's lookup path.
+Hand edits inside `node_modules` can go undetected. Run
+`pnpm run test:electron --fresh` after editing installed dependencies by hand.
 `--reuse-build` requires a matching receipt and fails if verification fails.
 CI rebuilds by default. Custom or strict remote-host catalog settings require a
 fresh build. A complete default remote-host catalog is fingerprinted alongside the

@@ -54,6 +54,7 @@ function fixture(context, { timeout } = {}) {
   writeFileSync(join(root, ".gitignore"), "build/\ntest-results/\nnode_modules/\n");
   writeFileSync(join(root, "src/input.ts"), "original");
   writeFileSync(join(root, "node_modules/types.d.ts"), "original declaration");
+  writeFileSync(join(root, "node_modules/.modules.yaml"), "fixture install state");
   mkdirSync(join(root, "node_modules/electron"));
   writeFileSync(
     join(root, "node_modules/electron/index.js"),
@@ -187,6 +188,8 @@ test("wrapper rejects invalid options, invalid regexes, zero matches, and propag
     ["--test-name-pattern="],
     ["--test-name-pattern=["],
     ["--packaged", "--reuse-build"],
+    ["--packaged", "--fresh"],
+    ["--reuse-build", "--fresh"],
   ]) {
     const result = run(args);
     assert.notEqual(result.status, 0, result.output);
@@ -208,6 +211,7 @@ test("explicit build reuse rejects missing receipts and changed inputs, dependen
   for (const file of [
     "src/input.ts",
     "node_modules/types.d.ts",
+    "node_modules/.modules.yaml",
     "pnpm-lock.yaml",
     "scripts/build.mjs",
     "build/app.js",
@@ -313,7 +317,7 @@ test("local reuse fingerprints transitive relative and package tsconfig bases", 
   assert.match(failed.output, /TS6053/);
 });
 
-test("local reuse rebuilds when an external declaration consumed by tsc changes", (context) => {
+test("local reuse rebuilds when a declaration outside src consumed by tsc changes", (context) => {
   const { root, run } = fixture(context);
   const filter = "--test-name-pattern=^selected case$";
   installFixtureCompiler(root);
@@ -338,15 +342,9 @@ test("local reuse rebuilds when an external declaration consumed by tsc changes"
 });
 
 function useFixtureEsbuild(root) {
-  // Resolve the real esbuild from this checkout without a fixture symlink.
-  const wrapper = join(root, "scripts/bundle-build.mjs");
-  writeFileSync(
-    wrapper,
-    readFileSync(wrapper, "utf8").replace(
-      '"esbuild"',
-      JSON.stringify(import.meta.resolve("esbuild")),
-    ),
-  );
+  const modules = join(dirname(fileURLToPath(import.meta.resolve("esbuild"))), "../..");
+  for (const name of ["esbuild", "@esbuild"])
+    cpSync(join(modules, name), join(root, "node_modules", name), { recursive: true });
 }
 
 test("esbuild tracks an external stylesheet imported by the renderer", (context) => {
@@ -423,7 +421,7 @@ test("cold and damaged icon caches build successfully and can be reused", (conte
   assert.match(run([filter]).output, /Reusing verified/);
 });
 
-test("esbuild tracks ancestor tsconfigs for nested sources outside the checkout", (context) => {
+test("esbuild builds fresh each time it uses a source outside the checkout", (context) => {
   const { root, run } = fixture(context);
   const filter = "--test-name-pattern=^selected case$";
   const external = realpathSync(mkdtempSync(join(tmpdir(), "foom-esbuild-config-")));
@@ -460,12 +458,164 @@ test("esbuild tracks ancestor tsconfigs for nested sources outside the checkout"
   const built = run([filter]);
   assert.equal(built.status, 0, built.output);
   assert.match(readFileSync(join(root, "build/fields.js"), "utf8"), /this\.value = 1/);
-  assert.match(run([filter]).output, /Reusing verified/);
+  assert.match(run(["--reuse-build", filter]).output, /No current verified build/);
+  const repeated = run([filter]);
+  assert.equal(repeated.status, 0, repeated.output);
+  assert.doesNotMatch(repeated.output, /Reusing verified/);
   setFields(true);
   const rebuilt = run([filter]);
   assert.equal(rebuilt.status, 0, rebuilt.output);
   assert.doesNotMatch(rebuilt.output, /Reusing verified/);
   assert.match(readFileSync(join(root, "build/fields.js"), "utf8"), /^\s+value = 1;/m);
+});
+
+test("a nearer installed package providing an esbuild deep subpath forces a fresh build", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  useFixtureEsbuild(root);
+  writeFileSync(
+    join(root, "src/input.ts"),
+    'import { marker } from "fixture-dep/lib/deep"; console.log(marker);',
+  );
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { bundleBuild } from './bundle-build.mjs';
+    await bundleBuild({ entryPoints: ['src/input.ts'], bundle: true, outfile: 'build/deep.js' });
+  `,
+  );
+  const addDependency = (modules, marker) => {
+    const lib = join(modules, "fixture-dep/lib");
+    mkdirSync(lib, { recursive: true });
+    writeFileSync(join(lib, "deep.js"), `export const marker = "${marker}";`);
+  };
+  const check = (marker, reuse) => {
+    const result = run([filter]);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(result.output.includes("Reusing verified"), reuse, result.output);
+    assert.ok(readFileSync(join(root, "build/deep.js"), "utf8").includes(marker));
+  };
+  const nearer = join(root, "src/node_modules");
+  addDependency(join(root, "node_modules"), "original deep subpath");
+  mkdirSync(nearer);
+  check("original deep subpath", false);
+  check("original deep subpath", true);
+  addDependency(nearer, "nearer deep subpath");
+  check("nearer deep subpath", false);
+  check("nearer deep subpath", true);
+  rmSync(nearer, { recursive: true });
+  check("original deep subpath", false);
+});
+
+test("a Node build tool using a package outside the checkout always builds fresh", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), "foom-wrapper-package-")));
+  context.after(() => rmSync(outside, { recursive: true, force: true }));
+  mkdirSync(join(outside, "lib"));
+  for (const marker of ["first", "second"])
+    writeFileSync(join(outside, "lib", `${marker}.cjs`), `module.exports = "${marker}";`);
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { createRequire } from 'node:module';
+    writeFileSync('build/tool-result', createRequire(import.meta.url)(${JSON.stringify(outside)}));
+  `,
+  );
+  const check = (marker) => {
+    const result = run([filter]);
+    assert.equal(result.status, 0, result.output);
+    assert.doesNotMatch(result.output, /Reusing verified/);
+    assert.equal(readFileSync(join(root, "build/tool-result"), "utf8"), marker);
+  };
+  writeFileSync(join(outside, "package.json"), '{"main":"lib/first.cjs"}');
+  check("first");
+  assert.match(run(["--reuse-build", filter]).output, /No current verified build/);
+  check("first");
+  writeFileSync(join(outside, "package.json"), '{"main":"lib/second.cjs"}');
+  check("second");
+});
+
+test("a nested node_modules copy that shadows a build tool dependency forces a fresh build", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const tool = join(root, "node_modules/fixture-tool");
+  mkdirSync(join(tool, "lib"), { recursive: true });
+  writeFileSync(join(tool, "lib/build.cjs"), 'module.exports = require("fixture-dep");');
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import result from 'fixture-tool/lib/build.cjs';
+    writeFileSync('build/tool-result', result);
+  `,
+  );
+  const addDependency = (modules, marker) => {
+    const dependency = join(modules, "fixture-dep");
+    mkdirSync(dependency, { recursive: true });
+    writeFileSync(join(dependency, "index.js"), `module.exports = "${marker}";`);
+  };
+  const check = (marker, reuse) => {
+    const result = run([filter]);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(result.output.includes("Reusing verified"), reuse, result.output);
+    assert.equal(readFileSync(join(root, "build/tool-result"), "utf8"), marker);
+  };
+  const nested = join(tool, "node_modules");
+  addDependency(join(root, "node_modules"), "hoisted");
+  check("hoisted", false);
+  check("hoisted", true);
+  mkdirSync(nested);
+  check("hoisted", false);
+  check("hoisted", true);
+  addDependency(nested, "shadow");
+  check("shadow", false);
+  check("shadow", true);
+  rmSync(nested, { recursive: true });
+  check("hoisted", false);
+});
+
+test("hand edits to unrecorded installed files can be missed until --fresh", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const dependency = join(root, "node_modules/types.d.ts");
+  const unrecorded = join(root, "node_modules/optional.d.ts");
+  const help = run(["--help"]);
+  assert.equal(help.status, 0, help.output);
+  assert.match(help.output, /Hand edits inside node_modules can go\s+undetected/);
+  assert.match(help.output, /Use --fresh/);
+  writeFileSync(unrecorded, "original");
+  assert.equal(run([filter]).status, 0);
+  writeFileSync(unrecorded, "edited by hand");
+  const reused = run([filter]);
+  assert.equal(reused.status, 0, reused.output);
+  assert.match(reused.output, /Reusing verified/);
+  const rebuilt = run(["--fresh", filter]);
+  assert.equal(rebuilt.status, 0, rebuilt.output);
+  assert.doesNotMatch(rebuilt.output, /Reusing verified/);
+  assert.equal(readFileSync(join(root, "test-results/app-builds"), "utf8"), "build\nbuild\n");
+  writeFileSync(dependency, "edited recorded declaration");
+  assert.match(run(["--reuse-build", filter]).output, /No current verified build/);
+});
+
+test("reuse requires pnpm install state and checks either state file when present", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  rmSync(join(root, "node_modules/.modules.yaml"));
+  for (let index = 0; index < 2; index++) {
+    const result = run([filter]);
+    assert.equal(result.status, 0, result.output);
+    assert.doesNotMatch(result.output, /Reusing verified/);
+  }
+  const lock = join(root, "node_modules/.pnpm/lock.yaml");
+  mkdirSync(dirname(lock));
+  writeFileSync(lock, "first install");
+  assert.equal(run([filter]).status, 0);
+  assert.match(run([filter]).output, /Reusing verified/);
+  writeFileSync(lock, "second install");
+  assert.match(run(["--reuse-build", filter]).output, /No current verified build/);
+  assert.equal(run([filter]).status, 0);
+  writeFileSync(join(root, "node_modules/.modules.yaml"), "added install state");
+  assert.match(run(["--reuse-build", filter]).output, /No current verified build/);
 });
 
 test("a newly executable earlier PATH entry invalidates the selected tool", {

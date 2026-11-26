@@ -11,14 +11,18 @@ import {
   buildDirectoryDigest,
   buildFileDigest,
   buildPathKind,
+  dependencyDirectoryDigest,
+  isCheckoutBuildPath,
   isExecutableFile,
 } from "./validation-fingerprint.mjs";
+import { nodeRuntimeLicense } from "./node-runtime.mjs";
 
 const staging = process.env.FOOM_BUILD_INPUTS;
 const root = process.cwd();
 const generated = join(root, "build");
 const inputs = new Map();
 const directories = new Map();
+const dependencyDirectories = new Map();
 const manifests = new Map();
 const lookups = new Map();
 const executables = new Map();
@@ -51,18 +55,45 @@ function capture(path, digest, entries) {
   }
 }
 
+function recordDependencyDirectories(file) {
+  // Capture node_modules on the lookup chain, including locations that are absent.
+  // The installed tree's identity otherwise comes from pnpm's install state.
+  for (let dir = dirname(file); ; dir = dirname(dir)) {
+    const candidate = join(dir, "node_modules");
+    if (!dependencyDirectories.has(candidate))
+      capture(candidate, dependencyDirectoryDigest, dependencyDirectories);
+    if (dir === root) break;
+  }
+}
+
+function recordFile(path, options, entries) {
+  if (!isCheckoutBuildPath(path)) {
+    try {
+      if (options.optional && !lstatSync(path, { throwIfNoEntry: false })) entries.set(path, null);
+      else valid = false;
+    } catch {
+      valid = false;
+    }
+    return;
+  }
+  capture(path, (file) => buildFileDigest(file, options), entries);
+  if (entries.get(path)) recordDependencyDirectories(path);
+}
+
 export function recordBuildInput(value, expected) {
   if (!staging) return;
   const path = inputPath(value);
-  if (path && (expected || !inputs.has(path)))
-    capture(path, (file) => buildFileDigest(file, { expected }), inputs);
+  if (path && (expected || !inputs.has(path))) recordFile(path, { expected }, inputs);
 }
 
 export function recordBuildDirectory(value, expectedNames) {
   if (!staging) return;
   const path = inputPath(value);
-  if (path && (expectedNames || !directories.has(path)))
-    capture(path, (directory) => buildDirectoryDigest(directory, { expectedNames }), directories);
+  if (path && (expectedNames || !directories.has(path))) {
+    if (path === root || isCheckoutBuildPath(path))
+      capture(path, (directory) => buildDirectoryDigest(directory, { expectedNames }), directories);
+    else valid = false;
+  }
 }
 
 function recordLookup(path) {
@@ -71,8 +102,7 @@ function recordLookup(path) {
 }
 
 function recordManifest(file, started) {
-  if (!manifests.has(file))
-    capture(file, (path) => buildFileDigest(path, { optional: true, before: started }), manifests);
+  if (!manifests.has(file)) recordFile(file, { optional: true, before: started }, manifests);
 }
 
 function recordModuleContext(path, started) {
@@ -143,7 +173,8 @@ export function recordBundleInputs(metafile, started, tsconfig) {
   if (tsconfig) recordConfig(resolve(tsconfig), started);
   for (const [name, { imports }] of Object.entries(metafile.inputs)) {
     const path = resolve(name);
-    capture(path, (file) => buildFileDigest(file, { before: started }), inputs);
+    recordFile(path, { before: started }, inputs);
+    if (!isCheckoutBuildPath(path)) continue;
     // Metafiles identify loaded files. Track nearby manifests and resolution
     // candidates as well, so a newly added entry can invalidate a previous match.
     recordModuleContext(path, started);
@@ -165,11 +196,15 @@ export function recordBundleInputs(metafile, started, tsconfig) {
   }
 }
 
-function trackRead(original, optional = false) {
+function trackRead(original, { optional = false, runtimeCopy = false } = {}) {
   return function (path, ...args) {
     const file = inputPath(path);
     try {
-      if (file && (!optional || lstatSync(file, { throwIfNoEntry: false }))) recordBuildInput(file);
+      // The selected Node executable and license are verified by the runner
+      // before and after preparation as part of the build environment.
+      const runtime = runtimeCopy && (file === process.execPath || file === nodeRuntimeLicense());
+      if (file && !runtime && (!optional || lstatSync(file, { throwIfNoEntry: false })))
+        recordBuildInput(file);
     } catch {
       valid = false;
     }
@@ -201,8 +236,8 @@ function trackCopyTree(original) {
 
 function trackCommand(original) {
   return function (command, ...args) {
-    // The runner checks the revision returned by Git before and after the build.
-    if (command === "git") return original(command, ...args);
+    // The runner checks the Git revision and selected Node executable separately.
+    if (command === "git" || command === process.execPath) return original(command, ...args);
     try {
       const options = Array.isArray(args[0]) ? args[1] : args[0];
       const cwd = options?.cwd instanceof URL ? fileURLToPath(options.cwd) : (options?.cwd ?? root);
@@ -238,7 +273,7 @@ if (staging) {
         const path = inputPath(new URL(url));
         if (path && !inputs.has(path)) {
           recordBuildInput(path);
-          recordModuleContext(path);
+          if (isCheckoutBuildPath(path)) recordModuleContext(path);
         }
       }
       return nextLoad(url, context);
@@ -246,7 +281,7 @@ if (staging) {
   });
   // tsc's CLI uses the system host's synchronous reads for its program,
   // package metadata and the full config inheritance chain.
-  fs.readFileSync = trackRead(readFileSync, true);
+  fs.readFileSync = trackRead(readFileSync, { optional: true });
   fs.readdirSync = function (value, ...args) {
     const path = inputPath(value);
     if (path && recordLookup(path) === "directory") recordBuildDirectory(path);
@@ -261,7 +296,7 @@ if (staging) {
       return statSync(value, ...args);
     };
   }
-  fs.copyFileSync = trackRead(fs.copyFileSync);
+  fs.copyFileSync = trackRead(fs.copyFileSync, { runtimeCopy: true });
   fs.cpSync = trackCopyTree(fs.cpSync);
   const readdir = fsp.readdir;
   fsp.readdir = async function (path, ...args) {
@@ -269,8 +304,8 @@ if (staging) {
     recordBuildDirectory(path);
     return result;
   };
-  fsp.readFile = trackRead(fsp.readFile, true);
-  fsp.copyFile = trackRead(fsp.copyFile);
+  fsp.readFile = trackRead(fsp.readFile, { optional: true });
+  fsp.copyFile = trackRead(fsp.copyFile, { runtimeCopy: true });
   fsp.cp = trackCopyTree(fsp.cp);
   childProcess.spawn = trackCommand(childProcess.spawn);
   childProcess.spawnSync = trackCommand(childProcess.spawnSync);
@@ -285,6 +320,7 @@ if (staging) {
           changed,
           inputs: [...inputs],
           directories: [...directories],
+          dependencyDirectories: [...dependencyDirectories],
           manifests: [...manifests],
           lookups: [...lookups],
           executables: [...executables],
