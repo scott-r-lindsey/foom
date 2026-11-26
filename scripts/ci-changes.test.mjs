@@ -300,7 +300,7 @@ test("desktop jobs use four Linux, six Windows and eight macOS shards", () => {
   ]);
 });
 
-test("Linux and Windows Electron start after change detection, and macOS waits for Linux Electron", async () => {
+test("macOS desktop jobs wait for Linux Electron while Linux and Windows packaging still run independently", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const job = (name) => workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
@@ -313,9 +313,11 @@ test("Linux and Windows Electron start after change detection, and macOS waits f
   assert.deepEqual(needs("desktop-windows"), ["changes"]);
   assert.deepEqual(needs("remote-host"), ["changes"]);
   assert.deepEqual(needs("desktop-macos"), ["changes", "desktop-linux"]);
-  assert.deepEqual(needs("remote-host-macos"), ["changes", "desktop-linux"]);
-  // Packaging on all three platforms already requires all four host artifacts.
-  assert.deepEqual(needs("platform"), ["changes", "remote-host", "remote-host-macos"]);
+  // All packages still need the complete same-run host catalog.
+  assert.deepEqual(needs("platform"), ["changes", "remote-host"]);
+  assert.deepEqual(needs("platform-macos"), ["changes", "remote-host", "desktop-linux"]);
+  assert.match(job("platform"), /os: \[ubuntu-24.04, windows-2025\]/);
+  assert.match(job("platform-macos"), /os: \[macos-15\]/);
 
   for (const os of ["linux", "windows", "macos"]) {
     const output = `desktop_matrix_${os}`;
@@ -330,15 +332,15 @@ test("Linux and Windows Electron start after change detection, and macOS waits f
   }
   assert.match(job("desktop-linux"), /^ {4}env: &electron_env$/m);
   assert.match(job("desktop-linux"), /^ {4}steps: &electron_steps$/m);
-  assert.match(job("remote-host"), /^ {4}steps: &remote_host_steps$/m);
-  assert.match(job("remote-host-macos"), /^ {4}steps: \*remote_host_steps$/m);
+  assert.match(job("platform"), /^ {4}steps: &platform_steps$/m);
+  assert.match(job("platform-macos"), /^ {4}steps: \*platform_steps$/m);
   for (const name of [
     "desktop-linux",
     "desktop-windows",
     "desktop-macos",
     "remote-host",
-    "remote-host-macos",
     "platform",
+    "platform-macos",
   ]) {
     // With no status override, GitHub skips these jobs after any unmet dependency.
     assert.match(job(name), /^ {4}if: needs\.changes\.outputs\.desktop_required == 'true'$/m);
@@ -528,7 +530,7 @@ test("Electron shards and native packaging keep separate steps and diagnostics",
     assert.ok(platform.includes(`      - name: ${name}\n`), name);
     assert.ok(!desktop.includes(`      - name: ${name}\n`), name);
   }
-  assert.match(platform, /os: \[ubuntu-24.04, windows-2025, macos-15\]/);
+  assert.match(platform, /os: \[ubuntu-24.04, windows-2025\]/);
   assert.doesNotMatch(platform, /matrix\.shard|FOOM_ELECTRON_SHARD/);
   assert.match(
     step(platform, "Test hooks and control storage with native OS tools"),
@@ -612,8 +614,8 @@ test("the shared gate rejects any required job that fails, is cancelled or is sk
     DESKTOP_WINDOWS: "desktop-windows",
     DESKTOP_MACOS: "desktop-macos",
     REMOTE_HOST: "remote-host",
-    REMOTE_HOST_MACOS: "remote-host-macos",
     PLATFORM: "platform",
+    PLATFORM_MACOS: "platform-macos",
   };
   assert.match(quality, /if: always\(\)/);
   assert.ok(quality.includes(`needs: [${Object.values(bindings).join(", ")}]`));
@@ -647,8 +649,7 @@ test("the shared gate rejects any required job that fails, is cancelled or is sk
       run("true", {
         DESKTOP_LINUX: result,
         DESKTOP_MACOS: "skipped",
-        REMOTE_HOST_MACOS: "skipped",
-        PLATFORM: "skipped",
+        PLATFORM_MACOS: "skipped",
       }),
       1,
       `Linux Electron: ${result}`,
@@ -711,7 +712,7 @@ test("native host matrix builds four same-run catalog entries without Release cr
   assert.match(hosts, /github\.event_name == 'workflow_dispatch' && inputs\.publish_nightly/);
   assert.match(hosts, /retention-days: 3/);
   assert.match(platform, /pattern: remote-host-\*/);
-  assert.match(platform, /needs: \[changes, remote-host, remote-host-macos\]/);
+  assert.match(platform, /needs: \[changes, remote-host\]/);
   assert.ok(
     platform.indexOf("Download all four same-commit host builds") <
       platform.indexOf("run: pnpm run make"),

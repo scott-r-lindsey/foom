@@ -174,7 +174,7 @@ for the assignment method and measurement history.
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`, plus scheduled and manual runs:
 
 1. Independent Linux jobs for change detection, static checks (format, documentation integrity, lint, typecheck, full dependency audit and CI policy tests), and unit coverage.
-2. When desktop validation is required, Linux and Windows Electron and the Linux host builds start after change detection. The macOS Electron matrix and combined Darwin host build start only after every Linux Electron shard succeeds. Native checks and Forge installer/ZIP packaging on all three platforms wait for the complete host catalog.
+2. When desktop validation is required, Linux and Windows Electron and all host builds start after change detection. Native checks and Forge installer/ZIP packaging on all three platforms wait for the complete host catalog. macOS Electron and macOS native checks and packaging also wait for every Linux Electron shard to succeed.
 3. A stable **Quality gate** status for ready PRs and non-PR runs that requires change detection, static checks and coverage to succeed. It also requires all Electron, host build and packaging jobs to succeed when desktop validation is required. A failed, cancelled or skipped required job fails the gate. When change detection explicitly permits a desktop skip, all desktop jobs must be skipped. Draft PRs report **Draft quality gate** with the same dependency checks.
 
 Draft PRs select Electron suites using the existing mapping in
@@ -182,7 +182,9 @@ Draft PRs select Electron suites using the existing mapping in
 path is mapped, those suites run once on each platform using shard `1/1`.
 Unmapped paths, empty diffs or missing mapped suites retain the full eighteen-shard
 matrix. Both modes use the same Linux-to-macOS dependency. A failed or cancelled
-Linux Electron shard blocks macOS validation and fails the gate. Each full desktop run requests ten macOS jobs,
+Linux Electron shard skips macOS Electron and macOS native checks and packaging
+and fails the gate. The Darwin build still supplies the catalog required by Linux
+and Windows packaging. Each full desktop run requests ten macOS jobs,
 including the eight Electron shards, native-check/packaging and combined Darwin
 host build. The `ready_for_review` event and every push while ready run the full
 matrix.
@@ -252,7 +254,7 @@ nightly publication dependencies; its isolated real-CLI policy is documented in
 
 ## Bundled remote host artifacts (#825)
 
-The `Remote host` jobs build native Node 24 SEAs on `ubuntu-24.04` (linux-x64),
+The `Remote host` matrix builds native Node 24 SEAs on `ubuntu-24.04` (linux-x64),
 `ubuntu-24.04-arm` (linux-arm64), and one `macos-15` runner for both
 Darwin architectures, from the same checkout as the desktop app. The Mac first
 builds and probes arm64, then selects the same pinned x64 Node version and builds
@@ -272,8 +274,7 @@ metadata, verifies native SEA startup with invalid arguments (no daemon or
 network), and uploads its catalog entry with three-day retention. Nightly version
 stamping uses the same condition and deterministic stamp as desktop packaging.
 
-The three native-check/packaging jobs wait for both host build jobs to succeed
-and therefore inherit the Darwin build’s Linux Electron prerequisite. They
+The three native-check/packaging jobs wait for the complete host matrix. They
 download only their own run's four artifacts into `.cache/remote-hosts` and
 package all four compressed hosts outside ASAR. Packaging verifies every target,
 revision, version, protocol, size and hash and refuses missing entries. Both host

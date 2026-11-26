@@ -8,8 +8,9 @@ stores assignments keyed by shard count and the CI count for each platform; `tes
 and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
 companion job per platform after all host builds succeed. Linux and Windows
-Electron can start as soon as change detection finishes. macOS Electron and the
-combined Darwin host build wait for all Linux Electron shards to succeed.
+Electron and all host builds can start as soon as change detection finishes.
+macOS Electron and macOS native checks and packaging wait for all Linux
+Electron shards to succeed.
 The Quality gate requires all eighteen Electron jobs, host builds and all three
 packaging jobs. Draft quality gate requires the selected Electron jobs and the
 same host build and packaging jobs.
