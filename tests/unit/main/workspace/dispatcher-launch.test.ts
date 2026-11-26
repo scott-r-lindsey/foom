@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { git } from "../../../helpers/git.js";
 import { Dispatcher } from "../../../../src/main/control/dispatcher";
@@ -314,6 +314,122 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
     await workspace.dispose();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("dispatcher restart survives a background scan clearing the report after adoption restores", async () => {
+  const directory = resolve("fixture-source");
+  const project = join(directory, "project");
+  const dispatcherId = "saved-dispatcher";
+  const orchestratorId = "saved-orchestrator";
+  const factory = deps.agents;
+  if (!factory) throw new Error("Missing fixture agent factory");
+  const scan = vi.fn(() => Promise.resolve(scans.current));
+  const setDispatcherRole = vi.fn<ControlRuntime["setRole"]>();
+  const entries = [
+    {
+      id: orchestratorId,
+      agent: "claude",
+      repository: project,
+      worktree: project,
+      branch: "main",
+      conversationId: "orchestration-conversation",
+      running: true,
+      orchestrator: { identity: "project-proof", history: [] },
+    },
+    {
+      id: dispatcherId,
+      agent: "claude",
+      repository: directory,
+      worktree: directory,
+      branch: null,
+      conversationId: "dispatcher-conversation",
+      running: true,
+      home: true as const,
+      machine: true as const,
+      sourceSession: true as const,
+    },
+  ];
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  let startControl: NonNullable<WorkspaceDependencies["control"]> = () => {
+    throw new Error("Workspace not initialized");
+  };
+  const workspace = createWorkspace({
+    ...deps,
+    agents: (hooks, control) => ({ ...factory(hooks, control), scan }),
+    control: () => startControl(),
+    worktrees: {
+      ...deps.worktrees,
+      listRepositories: () => [{ name: "project", path: project }],
+      listWorktrees: () =>
+        Promise.resolve([
+          {
+            path: project,
+            head: "head",
+            branch: "main",
+            bare: false,
+            locked: false,
+            prunable: false,
+            managed: false,
+          },
+        ]),
+      launchIdentity: () => Promise.resolve("project-proof"),
+    },
+    sessions: {
+      load: () => Promise.resolve(readSessions(entries)),
+      save: () => Promise.resolve(),
+      flush: () => Promise.resolve(),
+    },
+  });
+  const dispatcher = new Dispatcher(
+    { ...workspace.dispatcherHost, directoryIdentity: () => Promise.resolve("source-proof") },
+    () => workspace.snapshot().terminals,
+    vi.fn(),
+    vi.fn(),
+    [
+      {
+        id: dispatcherId,
+        directory,
+        identity: "source-proof",
+        approved: [{ name: "project", identity: "project-proof" }],
+        adopted: [
+          { id: orchestratorId, name: "project", identity: "project-proof", launched: true },
+        ],
+      },
+    ],
+  );
+  startControl = () =>
+    Promise.resolve({
+      prepare: vi.fn<ControlRuntime["prepare"]>(),
+      close: () => Promise.resolve(),
+      dispatcher,
+      setRole: setDispatcherRole,
+    });
+  await workspace.initializeControl();
+  launch.mockImplementation(async ({ terminalId, humanSource }) => {
+    if (!terminalId) throw new Error("Missing saved terminal ID");
+    if (humanSource) {
+      expect(workspace.orchestration.active(project)).toBe(orchestratorId);
+      scan.mockRejectedValueOnce(new Error("Agent plugins changed. Scan again."));
+      await expect(workspace.scanAgents(true)).rejects.toThrow(
+        "Agent plugins changed. Scan again.",
+      );
+    }
+    return { id: terminalId, attention: "evaluator" };
+  });
+
+  await workspace.restore();
+  await workspace.restartSaved();
+
+  expect(launch.mock.calls.map(([request]) => request.terminalId)).toEqual([
+    orchestratorId,
+    dispatcherId,
+  ]);
+  expect(scan).toHaveBeenCalledTimes(2);
+  expect(setDispatcherRole).toHaveBeenCalledExactlyOnceWith(dispatcherId, "dispatcher");
+  expect(workspace.snapshot().terminals.find(({ id }) => id === dispatcherId)?.dispatcher).toEqual({
+    orchestrators: 1,
+    repositories: 1,
+  });
 });
 
 test("dispatcher refuses unavailable placements and providers before spawning", async () => {

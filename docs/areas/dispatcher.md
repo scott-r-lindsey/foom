@@ -19,8 +19,10 @@ Main verifies the canonical source and Git checkout identities before elevation,
 on launch admission and before spawn. Repository selectors are direct directory
 names. Hidden folders, nested paths, absolute paths, links and non-repositories
 fail validation. The private control profile stores approval and adoption
-identities. A verified same-session restart restores that scope, and any pending
-launch needs a new request after restart.
+identities. A verified same-session restart restores that scope using the provider
+capabilities selected for the source launch. A concurrent refresh of the agent
+report does not affect that check. Pending launches need a new request after
+restart.
 
 The dispatcher's role allows repository inventory and control of its adopted or
 launched orchestrators. The UI keeps an ordinary terminal tile and displays the

@@ -7,7 +7,7 @@ import type { Orchestration } from "../control/orchestration";
 import type { Hosts } from "../setup/hosts";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { AgentEvidence } from "../../shared/agent-detection";
-import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
+import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../shared/agents";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { ChildInput } from "../../shared/child-input";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
@@ -106,7 +106,9 @@ export interface WorkspaceMethods {
   startMachine(
     host: string | null,
     run: AgentId,
-    restoreId?: string,
+    restore?:
+      | string
+      | { id: string; onRestore: (id: string, installation: AgentInstallation) => Promise<void> },
     location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
     conversation?: string,
     confirm?: ConfirmWorkspace,

@@ -505,26 +505,22 @@ export class WorkspaceContext {
           return entry.id;
         }
         if (entry.machine) {
-          const id = await this.startMachine(
+          return this.startMachine(
             null,
             entry.agent,
-            entry.id,
+            entry.sourceSession
+              ? {
+                  id: entry.id,
+                  onRestore: async (id, installation) => {
+                    if (!canRestoreControl(entry, installation)) return;
+                    const runtime = await this.control;
+                    await runtime?.dispatcher?.revive(id, runtime.setRole.bind(runtime));
+                  },
+                }
+              : entry.id,
             undefined,
             entry.conversationId,
           );
-          const runtime = await this.control;
-          if (
-            id &&
-            entry.sourceSession &&
-            runtime?.dispatcher &&
-            canRestoreControl(
-              entry,
-              this.agentReport?.agents.find((agent) => agent.id === entry.agent),
-            )
-          ) {
-            await runtime.dispatcher.revive(id, runtime.setRole.bind(runtime));
-          }
-          return id;
         }
         if (entry.home) {
           await this.startHomeShell(entry.id);

@@ -9,7 +9,7 @@ import { LaunchFailure } from "../../shared/launch-failure";
 import { imagePasteRecipient } from "../../shared/image-paste";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
-import type { AgentId, AgentLaunch, AgentLaunched } from "../../shared/agents";
+import type { AgentId, AgentInstallation, AgentLaunch, AgentLaunched } from "../../shared/agents";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
 import { builtinAgent } from "../../shared/providers/catalog";
@@ -29,6 +29,7 @@ import { observerHealth } from "../agents/providers/installed-observers";
 import { agentProvider, knownAgentId, providerRevision } from "../agents/providers/registry";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { AgentSetupContext, WorktreeLaunchContext } from "./workspace-capabilities";
+import type { WorkspaceMethods } from "./workspace-types";
 import { homeDirectory, shellPath } from "./home-shell";
 import { installerEnvironment } from "../../node-common/vendor-install";
 
@@ -429,7 +430,7 @@ export async function startMachine(
   this: WorktreeLaunchContext,
   host: string | null,
   run: AgentId,
-  restoreId?: string,
+  restore?: Parameters<WorkspaceMethods["startMachine"]>[2],
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
   confirm?: ConfirmWorkspace,
@@ -439,6 +440,7 @@ export async function startMachine(
   parentHold?: CheckoutHold,
   setup?: { id: string; prompt: string },
 ): Promise<string | undefined> {
+  const restoreId = typeof restore === "string" ? restore : restore?.id;
   let reservation: string | undefined;
   let hold: CheckoutHold | undefined;
   const perform = async (): Promise<string | undefined> => {
@@ -460,6 +462,7 @@ export async function startMachine(
         : undefined;
     let launchHome = source || homeDirectory;
     let command = shellPath();
+    let installation: AgentInstallation | undefined;
     const args =
       run === "shell"
         ? process.platform === "win32"
@@ -530,7 +533,7 @@ export async function startMachine(
       command = `ssh ${host}`;
     } else if (run !== "shell") {
       const scan = await this.scanAgents(false);
-      const installation = scan.agents.find((agent) => agent.id === run);
+      installation = scan.agents.find((agent) => agent.id === run);
       if (!installation?.path) throw new LaunchFailure("agent_unavailable");
       command = installation.path;
     }
@@ -604,6 +607,7 @@ export async function startMachine(
       )
     )
       throw new Error("This worktree is busy");
+    let id: string;
     try {
       if (restoreId) {
         this.executionOwner.reset(restoreId);
@@ -637,7 +641,7 @@ export async function startMachine(
         });
       }
       if (remote) remote.beforeOpen = ensureOpen;
-      const id =
+      id =
         agentResult?.id ??
         (await this.deps.terminals.create({
           ...(signal ? { signal } : {}),
@@ -679,7 +683,6 @@ export async function startMachine(
       this.executionOwner.launched(id);
       this.persist();
       this.refresh();
-      return id;
     } catch (error) {
       if (restoreId) {
         this.executionOwner.markExited(restoreId, -1);
@@ -687,6 +690,8 @@ export async function startMachine(
       }
       throw error;
     }
+    if (typeof restore === "object" && installation) await restore.onRestore(id, installation);
+    return id;
   };
   try {
     return await (location ? this.withRepository(location.repository, perform) : perform());
