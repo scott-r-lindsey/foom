@@ -395,6 +395,39 @@ it.each(["disabled", "eligible", "ineligible", "policy changed", "dirty", "cance
   },
 );
 
+it("drains an in-flight eligibility review before approved cleanup removes its checkout", async () => {
+  const f = fixture();
+  f.trees([tree("main", { path: repository }), tree()]);
+  await f.scan();
+  const read = Promise.withResolvers<string>();
+  const entered = Promise.withResolvers<undefined>();
+  f.worktrees.cleanupStatus.mockImplementationOnce(() => {
+    entered.resolve(undefined);
+    return read.promise;
+  });
+  const review = f.owner.reviewMerged(repository);
+  await entered.promise;
+  await f.run(async (feed) => {
+    try {
+      expect(feed.current().stage).toBe("run");
+      expect(await f.owner.reviewMerged(repository)).toMatchObject([
+        { branch: "main", reason: "main checkout" },
+        { branch: "feature", reason: "unavailable" },
+      ]);
+      expect(f.worktrees.mergedDefault.mock.calls).toEqual([[repository, false]]);
+      expect(f.worktrees.cleanupStatus).toHaveBeenCalledTimes(2);
+      expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
+    } finally {
+      read.resolve("");
+      await expect(review).resolves.toMatchObject([
+        { branch: "main", reason: "main checkout" },
+        { branch: "feature", reason: "eligible" },
+      ]);
+    }
+  });
+  expect(f.worktrees.removeWorktree).toHaveBeenCalledOnce();
+});
+
 it("discovers eligibility without blocking inventory, shares scans, expires results, and reports errors", async () => {
   const f = fixture();
   const fetch = Promise.withResolvers<string>();

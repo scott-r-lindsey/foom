@@ -91,7 +91,7 @@ export class CleanupOwner {
     }
   >();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
-  private readonly mergeScans = new Map<string, Set<Promise<void>>>();
+  private readonly mergeScans = new Map<string, Set<Promise<unknown>>>();
   private readonly mergeEligibility = new Map<
     string,
     {
@@ -609,14 +609,38 @@ export class CleanupOwner {
     );
   }
 
+  private trackMergeScan<T>(repository: string, scan: Promise<T>): Promise<T> {
+    const scans = this.mergeScans.get(repository) ?? new Set<Promise<unknown>>();
+    this.mergeScans.set(repository, scans);
+    const tracked = scan.finally(() => {
+      scans.delete(tracked);
+      if (scans.size === 0) this.mergeScans.delete(repository);
+    });
+    scans.add(tracked);
+    return tracked;
+  }
+
   async reviewMerged(repository: string) {
     this.deps.known(repository);
-    const inventory = await this.deps.inventory(repository, { skipOwnership: true });
-    const plan = await this.mergedPlan(
-      repository,
-      () => this.deps.worktrees.lastFetchedMergeBase(repository),
-      inventory,
-    );
+    // Once approval starts draining readers, new reviews can only read membership.
+    const inventory = this.deps.inventory(repository, { skipOwnership: true });
+    const plan = this.cleanupRuns.get(repository)?.active
+      ? (await inventory).map(
+          (tree): CleanupCandidate => ({
+            tree,
+            reason: tree.path === repository || tree.bare ? "main checkout" : "unavailable",
+          }),
+        )
+      : await this.trackMergeScan(
+          repository,
+          inventory.then((trees) =>
+            this.mergedPlan(
+              repository,
+              () => this.deps.worktrees.lastFetchedMergeBase(repository),
+              trees,
+            ),
+          ),
+        );
     return plan.map(({ tree, reason }, index) => ({
       id: String(index),
       branch:
@@ -649,8 +673,8 @@ export class CleanupOwner {
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
         fetch: async () => {
           // Windows cannot remove a checkout while a background Git process uses it as cwd.
-          // Include superseded scans too: their publication is discarded, but they still run.
-          await Promise.all([...(this.mergeScans.get(repository) ?? [])]);
+          // Include superseded scans and read-only reviews, even if their view is closed.
+          await Promise.allSettled([...(this.mergeScans.get(repository) ?? [])]);
           return this.deps.worktrees.mergedDefault(repository, true);
         },
         changed: () => {
@@ -801,33 +825,26 @@ export class CleanupOwner {
       entry.expires = this.deps.now() + 60_000;
       this.deps.onChange?.();
     };
-    const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
-    this.mergeScans.set(repository, scans);
-    const scan: Promise<void> = this.mergedPlan(
+    const scan = this.mergedPlan(
       repository,
       () => this.deps.worktrees.mergedDefault(repository, false),
       worktrees,
-    )
-      .then(
-        (plan) => {
-          entry.plan = plan;
-          publish({
-            canDeleteMerged: plan.some((item) => !item.reason),
-            mergedCount: plan.filter((item) => !item.reason).length,
-          });
-        },
-        (error: unknown) => {
-          publish({
-            canDeleteMerged: false,
-            mergedError: error instanceof Error ? error.message : String(error),
-          });
-        },
-      )
-      .finally(() => {
-        scans.delete(scan);
-        if (scans.size === 0) this.mergeScans.delete(repository);
-      });
-    scans.add(scan);
+    ).then(
+      (plan) => {
+        entry.plan = plan;
+        publish({
+          canDeleteMerged: plan.some((item) => !item.reason),
+          mergedCount: plan.filter((item) => !item.reason).length,
+        });
+      },
+      (error: unknown) => {
+        publish({
+          canDeleteMerged: false,
+          mergedError: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+    void this.trackMergeScan(repository, scan);
     return entry.result;
   }
 }

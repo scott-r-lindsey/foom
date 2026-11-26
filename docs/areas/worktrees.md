@@ -55,9 +55,9 @@ workspaces cannot publish late results. Git status reads use `--no-optional-lock
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
 it opens checking before awaiting the fresh plan. The zero-count review runs the
 eligibility checks against current checkout state and the last successfully
-fetched default commit. It reads Git membership without reconciling Foom's
-creation records and presents a static, read-only dialog after the checks
-finish. Only deletion uses a cleanup run, repository reservation and removal
+fetched default commit, which is retained after a failed refresh. It reads Git
+membership without reconciling Foom's creation records and presents a static,
+read-only dialog after the checks finish. Only deletion uses a cleanup run, repository reservation and removal
 queue. Deletion approval always fetches afresh. Fetch operations are queued per
 repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.
@@ -104,8 +104,10 @@ alongside its existing ancestry/no-unpushed-commits path, preserving clean statu
 identity, session and authority guards. A failed post-confirmation fetch prevents every removal.
 Main owns one `CleanupRun` per repository. While it is pending, inventory does not
 start background eligibility scans. Before deletion begins, cleanup drains all
-existing scans, including superseded scans whose results will be discarded, so
+existing scans, including superseded scans and read-only eligibility reviews, so
 Windows directory handles held by their Git processes cannot block removal.
+Reviews opened during approved cleanup read membership only and report linked
+checkouts as unavailable until cleanup finishes.
 Four workers run the existing removal
 path, retaining its revalidation passes. Successful removals retain their branch
 launch locks through the ref transaction so Foom cannot recreate those branches

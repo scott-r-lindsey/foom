@@ -27,7 +27,7 @@ export class WorktreeFetchState {
   /** Timestamp of the successful fetch used by merged-worktree checks. */
   mergedFetchTime(repository: string): number | undefined {
     const fetch = this.fetchFacts.get(repository);
-    return fetch && !fetch.failed ? fetch.time : undefined;
+    return fetch?.head ? fetch.time : undefined;
   }
 
   private async fetchDefault(repository: string): Promise<string> {
@@ -48,11 +48,12 @@ export class WorktreeFetchState {
       this.dependencies.invalidatePanels();
       return commit;
     } catch (error) {
+      const previous = this.facts(repository);
       this.fetchFacts.set(repository, {
-        branch: null,
-        time: this.dependencies.now(),
+        branch: previous?.branch ?? null,
+        time: previous?.head ? previous.time : this.dependencies.now(),
         failed: true,
-        head: null,
+        head: previous?.head ?? null,
       });
       this.dependencies.invalidatePanels();
       throw new Error(

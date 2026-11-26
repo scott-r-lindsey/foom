@@ -1,5 +1,5 @@
 import { createWorktreeFixture } from "./worktree-git-fixture";
-import { mkdir, readFile, realpath, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupReady } from "../../../helpers/cleanup-feed";
@@ -26,6 +26,25 @@ let service: WorktreeService;
 async function git(...args: string[]): Promise<string> {
   const { stdout } = await execute(args, { cwd: repo });
   return stdout;
+}
+function createWorkspace() {
+  return new Workspace({
+    worktrees: service,
+    terminals: {
+      create: () => Promise.reject(new Error("No launch expected")),
+      kill: () => Promise.resolve(),
+      stop: () => Promise.resolve(true),
+      tail: () => Promise.resolve([]),
+    },
+    verdicts: {
+      forget: vi.fn(),
+      classify: () => Promise.reject(new Error("No verdict expected")),
+      commit: () => Promise.resolve(),
+      recordAction: () => Promise.resolve(),
+    },
+    receiver: () => Promise.reject(new Error("No hooks expected")),
+    onState: () => {},
+  });
 }
 beforeEach(
   usingFixture(async () => {
@@ -795,13 +814,14 @@ describe("merged worktree containment", () => {
     await expect(service.mergedDefault(repo)).rejects.toThrow("remote");
     const upstream = await remote();
     const base = await service.mergedDefault(repo, true);
-    expect(service.mergedFetchTime(repo)).toEqual(expect.any(Number));
+    const fetchedAt = service.mergedFetchTime(repo);
+    expect(fetchedAt).toEqual(expect.any(Number));
     await git("remote", "set-url", "origin", join(temporary, "missing"));
     expect(service.lastFetchedMergeBase(repo)).toBe(base);
     expect(await service.mergedDefault(repo)).toBe(base);
     await expect(service.mergedDefault(repo, true)).rejects.toThrow("fetch failed");
-    expect(service.mergedFetchTime(repo)).toBeUndefined();
-    expect(() => service.lastFetchedMergeBase(repo)).toThrow("has not been checked");
+    expect(service.mergedFetchTime(repo)).toBe(fetchedAt);
+    expect(service.lastFetchedMergeBase(repo)).toBe(base);
     await git("remote", "set-url", "origin", upstream);
     await git("branch", "next");
     await git("push", "origin", "next");
@@ -814,6 +834,25 @@ describe("merged worktree containment", () => {
     await git("remote", "remove", "second");
     await execute(["symbolic-ref", "HEAD", "refs/heads/missing"], { cwd: upstream });
     await expect(service.mergedDefault(repo, true)).rejects.toThrow("default branch");
+  });
+  it("reviews zero eligible checkouts against the last successful base after a forced fetch fails", async () => {
+    await feature();
+    const upstream = await remote();
+    const workspace = createWorkspace();
+    try {
+      const base = await service.mergedDefault(repo);
+      const fetchedAt = service.mergedFetchTime(repo);
+      await rename(upstream, join(temporary, "offline.git"));
+      await expect(service.mergedDefault(repo, true)).rejects.toThrow("fetch failed");
+      expect(service.lastFetchedMergeBase(repo)).toBe(base);
+      expect(service.mergedFetchTime(repo)).toBe(fetchedAt);
+      await expect(workspace.reviewMergedWorktrees(repo)).resolves.toMatchObject([
+        { branch: "main", reason: "main checkout" },
+        { branch: "feature", reason: "not merged" },
+      ]);
+    } finally {
+      await workspace.dispose();
+    }
   });
 });
 
@@ -868,23 +907,7 @@ it.each(["untracked", "commit", "forge"])(
     const upstream = join(temporary, "remote.git");
     await git("clone", "--bare", repo, upstream);
     await git("remote", "add", "origin", upstream);
-    const workspace = new Workspace({
-      worktrees: service,
-      terminals: {
-        create: () => Promise.reject(new Error("No launch expected")),
-        kill: () => Promise.resolve(),
-        stop: () => Promise.resolve(true),
-        tail: () => Promise.resolve([]),
-      },
-      verdicts: {
-        forget: vi.fn(),
-        classify: () => Promise.reject(new Error("No verdict expected")),
-        commit: () => Promise.resolve(),
-        recordAction: () => Promise.resolve(),
-      },
-      receiver: () => Promise.reject(new Error("No hooks expected")),
-      onState: () => {},
-    });
+    const workspace = createWorkspace();
     try {
       await expect(
         workspace.sidebarCommand(
