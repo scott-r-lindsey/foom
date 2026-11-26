@@ -43,7 +43,8 @@ stop. Queued and unfinished rows keep their saved running intent. Once frozen,
 startup cannot begin a PTY creation or publish late discovery. Outstanding
 checkout identity proofs stay private and are checked again on the next start.
 Failed preparation or terminal shutdown releases the pause and resumes the same
-startup work. Declining the quit confirmation leaves startup running.
+startup work. Local agents revalidate checkout identity and launch authority after
+a PTY pause before spawning. Declining the quit confirmation leaves startup running.
 The coordinator still releases agents and control/hook services after terminals stop,
 then asks the owner to drain session writes.
 
@@ -64,8 +65,9 @@ refused worktree, identity mismatch or replaced parent cannot restore the link
 or its authority. The retained link expires when the original parent grant ends
 or a manual action claims the child. A newly created or adopted checkout at the
 same path supersedes unverified provenance and invalidates its retained child
-links. Unverified unused checkouts still count toward the saved worktree budget.
-If a profile already contains duplicate worktree paths for an orchestrator,
+links. Unused checkouts with pending or unavailable proofs count toward both
+live creation capacity and the saved worktree budget. If a profile contains
+duplicate worktree paths or an excessive unused budget for an orchestrator,
 startup keeps the session rows and drops that saved grant and its child links.
 
 Manual Resume, New conversation and Restart reserve the row while they confirm

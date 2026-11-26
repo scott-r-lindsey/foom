@@ -370,6 +370,27 @@ it("charges unverified unused records to the persisted worktree budget", async (
   expect(h.orchestration.savedWorktrees("parent")).toEqual([tree]);
 });
 
+it("reserves unused checkout capacity while startup proof is pending", async () => {
+  const h = harness();
+  const trees = ["one", "two", "three", "four"].map((branch) => ({
+    path: join(repo, "trees", branch),
+    identity: `id-${branch}`,
+    state: "unused" as const,
+  }));
+  const check = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(check.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", trees);
+  try {
+    await expect(h.mutate("create_worktree", { branch: "fifth" })).rejects.toThrow("capacity");
+    expect(h.host.createWorktree).not.toHaveBeenCalled();
+    expect(h.orchestration.savedWorktrees("parent")).toEqual(trees);
+  } finally {
+    check.resolve({ branch: "one", identity: "id-one" });
+    await restoring;
+  }
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual(trees);
+});
+
 it("keeps outstanding checkout identities in the save while requiring proof for ownership", async () => {
   const h = harness();
   const trees = ["stalled", "queued"].map((branch) => ({

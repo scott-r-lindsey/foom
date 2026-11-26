@@ -520,10 +520,15 @@ export class WorkspaceContext {
     this.sessions.persist();
   }
 
-  async createTerminal(spec: TerminalSpec): Promise<string> {
+  async createTerminal(
+    spec: TerminalSpec,
+    revalidateAfterPause?: () => Promise<void>,
+  ): Promise<string> {
     let pause = this.sessions.restoreSpawnPause(spec.id);
     while (pause) {
       await pause;
+      if (this.closed) break;
+      await revalidateAfterPause?.();
       pause = this.sessions.restoreSpawnPause(spec.id);
     }
     if (this.closed) throw new Error("Workspace is closed");

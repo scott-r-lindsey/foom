@@ -1,7 +1,7 @@
 const { createRequire } = require("node:module");
 const path = require("node:path");
 
-function install(entry, { holdDiscovery, failChildChecks, holdShell, failShutdown }) {
+function install(entry, { holdDiscovery, failChildChecks, holdShell, holdAgent, failShutdown }) {
   const load = createRequire(path.join(entry, "package.json"));
   const { Workspace } = load("./build/main/workspace/workspace.js");
   const restart = Workspace.prototype.restartSaved;
@@ -49,6 +49,31 @@ function install(entry, { holdDiscovery, failChildChecks, holdShell, failShutdow
       const environment = await shellEnvironment.apply(this, args);
       if (held) state.shellPrepared = true;
       return environment;
+    };
+  }
+  if (holdAgent) {
+    const { AgentService } = load("./build/main/agents/agents.js");
+    const { SessionOwner } = load("./build/main/workspace/session-owner.js");
+    const launch = AgentService.prototype.launch;
+    const spawnPause = SessionOwner.prototype.restoreSpawnPause;
+    const gate = new Promise((resolve) => {
+      state.releaseAgent = resolve;
+    });
+    AgentService.prototype.launch = function (request) {
+      if (request.terminalId !== holdAgent) return launch.call(this, request);
+      return launch.call(this, {
+        ...request,
+        prepareSpawn: async () => {
+          await request.prepareSpawn?.();
+          state.agentPrepared = true;
+          await gate;
+        },
+      });
+    };
+    SessionOwner.prototype.restoreSpawnPause = function (id) {
+      const pause = spawnPause.call(this, id);
+      if (id === holdAgent && pause) state.agentPaused = true;
+      return pause;
     };
   }
   if (failShutdown) {

@@ -648,3 +648,86 @@ for (const outcome of ["confirm", "cancel", "failed shutdown"]) {
     }
   });
 }
+
+test("failed quit refuses a restored agent when its checkout changes during the spawn pause", {
+  timeout: deadline(90000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { chmod, symlink } = require("node:fs/promises");
+  const { options, sessions } = await savedShells(context, ["live-shell"]);
+  const root = options.home;
+  const repo = path.join(root, "repo");
+  const checkout = path.join(root, "checkout");
+  const bin = path.join(root, "bin");
+  await mkdir(bin);
+  await symlink(process.execPath, path.join(bin, "node"));
+  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+  await chmod(path.join(bin, "claude"), 0o755);
+  isolatedGit(["init", "-q", "-b", "main", repo]);
+  const git = (...args) => isolatedGit(["-C", repo, ...args]);
+  git(
+    "-c",
+    "user.name=Foom",
+    "-c",
+    "user.email=foom@example.com",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "init",
+  );
+  git("worktree", "add", "-b", "saved-branch", checkout);
+  await writeFile(
+    path.join(root, "worktrees.json"),
+    JSON.stringify({
+      version: 1,
+      repositories: [repo],
+      managed: [],
+    }),
+  );
+  const saved = JSON.parse(await readFile(sessions, "utf8"));
+  const agent = "saved-agent";
+  saved.push({
+    id: agent,
+    agent: "claude",
+    repository: repo,
+    worktree: checkout,
+    branch: "saved-branch",
+    conversationId: "saved-conversation",
+    running: true,
+  });
+  await writeFile(sessions, JSON.stringify(saved));
+  const app = await launchApp(context, {
+    ...options,
+    env: { PATH: bin, TEST_FAKE_CREDENTIALS: path.join(root, "credentials") },
+    restoreFixture: { holdAgent: agent, failShutdown: true },
+  });
+  const board = await boardPage(app);
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.restoreFixture.agentPrepared)).toBe(true);
+    await expect
+      .poll(async () => {
+        const { terminals } = await board.evaluate(() => window.desktop.workspace());
+        return terminals.some((row) => row.id === "live-shell" && !row.dormant);
+      })
+      .toBe(true);
+    const dialog = await quitDialog(app);
+    await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.restoreFixture.shutdownWaiting))
+      .toBe(true);
+    await app.evaluate(() => globalThis.restoreFixture.releaseAgent());
+    await expect.poll(() => app.evaluate(() => globalThis.restoreFixture.agentPaused)).toBe(true);
+    git("worktree", "remove", checkout);
+    git("worktree", "add", checkout, "saved-branch");
+    await app.evaluate(() => globalThis.restoreFixture.failShutdown());
+    await expect.poll(() => app.evaluate(() => globalThis.restoreFixture.completed)).toBe(true);
+    assert.deepEqual(await app.evaluate(() => globalThis.restoreFixture.spawns), ["live-shell"]);
+    const { terminals } = await board.evaluate(() => window.desktop.workspace());
+    assert.equal(terminals.find((row) => row.id === agent)?.exited, true);
+  } finally {
+    await app.evaluate(() => {
+      globalThis.restoreFixture.releaseAgent();
+      globalThis.restoreFixture.failShutdown?.();
+    });
+  }
+});
