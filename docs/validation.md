@@ -152,8 +152,10 @@ node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
 Replace the example IDs with recent runs covering every current case on all three
 platforms. The script rejects failed cases, missing reports and unmeasured current
 cases. It takes each case's maximum duration per platform and includes hash
-assignments for previously unplanned cases in the before projection. Review balance
-and headroom under the 840s Linux, Windows and macOS step limits.
+assignments for previously unplanned cases in the before projection. For each
+platform's configured shard count, it reports headroom after measured step setup
+and warns when a shard leaves less than 25% of its step limit. Warnings are
+advisory and also appear when using `--write`.
 The examples select historical four-shard inputs with `--source-shards=4`. Omit
 that option for current runs with four Linux, six Windows and eight macOS
 shards. Each source run must have the expected report count per platform.
@@ -188,6 +190,9 @@ and Windows packaging. Each full desktop run requests ten macOS jobs,
 including the eight Electron shards, native-check/packaging and combined Darwin
 host build. The `ready_for_review` event and every push while ready run the full
 matrix.
+Electron steps allow 14 minutes on Linux and Windows and 20 minutes on macOS.
+The macOS Electron job allows 26 minutes for the step and surrounding work.
+Per-test deadlines and the worker watchdog remain unchanged.
 `converted_to_draft` also starts a new run. Main pushes, schedules, manual runs,
 nightly publication and the documentation-only desktop skip retain their policy.
 
