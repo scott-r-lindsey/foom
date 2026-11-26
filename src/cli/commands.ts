@@ -1,5 +1,5 @@
 import { hostAlias } from "../shared/registered-hosts";
-import { dispatcherLaunch } from "../shared/dispatcher-validation";
+import { dispatcherLaunch, sourceRepositoryName } from "../shared/dispatcher-validation";
 import { selectionInput } from "../node-common/launch-selection";
 import { reviewInput } from "../shared/review-validation";
 import { isChildInput } from "../shared/child-input";
@@ -12,7 +12,19 @@ export function command(args: readonly string[]): Command {
   if (args.length > 48 || args.some((arg) => Buffer.byteLength(arg) > 16384))
     throw new ControlError("invalid_request");
   const [name, ...words] = args;
-  if (name === "repos" && !words.length) return { method: "repos", params: {} };
+  if (name === "repos") {
+    const params: Record<string, unknown> = {};
+    for (let index = 0; index < words.length; index += 2) {
+      const flag = words[index];
+      const value = words[index + 1];
+      if (flag === "--after" && params["after"] === undefined)
+        params["after"] = sourceRepositoryName(value);
+      else if (flag === "--limit" && params["limit"] === undefined)
+        params["limit"] = integer(value, 16, 1);
+      else throw new ControlError("invalid_request");
+    }
+    return { method: "repos", params };
+  }
   if (name === "read-handoff") {
     if (words.length !== 1 && !(words.length === 3 && words[1] === "--seq"))
       throw new ControlError("invalid_request");

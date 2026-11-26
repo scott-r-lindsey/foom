@@ -433,33 +433,63 @@ export class Dispatcher {
     };
     const scope = authorize();
     if (method === "repos") {
-      exact(params, []);
+      exact(params, ["after", "limit"]);
+      const limit = params["limit"] ?? 16;
+      if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 16)
+        throw new ControlError("invalid_request");
+      const after =
+        params["after"] === undefined ? undefined : sourceRepositoryName(params["after"]);
       if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
         throw new ControlError("conflict");
       const repos = await this.host.repositories(scope.directory);
+      if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
+        throw new ControlError("conflict");
       authorize();
+      const start = after === undefined ? 0 : repos.findIndex(({ name }) => name === after) + 1;
+      if (after !== undefined && start === 0) throw new ControlError("not_found");
+      const page = repos.slice(start, start + limit);
       const rows = this.rows();
       return {
-        repos: repos.map((repository) => {
+        repos: page.map((repository) => {
           const id = locationId(repository.path);
           const preApproved = scope.approved.some(
             (item) => item.name === repository.name && item.identity === repository.identity,
           );
           const decisions = board?.decisions({ repository: id, watch: [] });
-          const targets = rows.filter(
+          const related = rows.filter((row) => row.repository === repository.path);
+          const targets = related.filter(
             (row) =>
-              row.repository === repository.path &&
-              row.orchestration?.role === "orchestrator" &&
-              row.orchestration.active &&
-              !row.exited,
+              row.orchestration?.role === "orchestrator" && row.orchestration.active && !row.exited,
           );
           const adopted = this.owned(scope, targets);
+          const states = metadata.states(
+            { ...actor, repository: repository.path },
+            related.map(({ id }) => id),
+          );
+          const byId = new Map(states.map((state) => [state.id, state]));
+          const pullRequests = new Map(
+            states.flatMap(({ pullRequest }) =>
+              pullRequest
+                ? [
+                    [
+                      pullRequest.number,
+                      {
+                        number: pullRequest.number,
+                        state: pullRequest.state,
+                        checks: pullRequest.requiredChecks,
+                      },
+                    ] as const,
+                  ]
+                : [],
+            ),
+          );
           return {
             name: metadataName(repository.name),
             repo: repository.name,
             preApproved,
+            pullRequests: [...pullRequests.values()].slice(0, 16),
             orchestrators: targets.map((row) => {
-              const state = metadata.states({ ...actor, repository: row.repository }, [row.id])[0];
+              const state = byId.get(row.id);
               return {
                 id: row.id,
                 adopted: adopted.includes(row),
@@ -473,6 +503,7 @@ export class Dispatcher {
             }),
           };
         }),
+        nextCursor: start + page.length < repos.length ? (page.at(-1)?.name ?? null) : null,
         untrusted: true,
       };
     }

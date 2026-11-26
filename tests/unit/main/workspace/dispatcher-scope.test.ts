@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rename, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import * as worktreeOperations from "../../../../src/main/workspace/worktree-operations";
 import { git } from "../../../helpers/git.js";
 import {
   sourceRepositories,
@@ -70,4 +71,24 @@ test("dispatcher repository admission refuses directories and Git markers redire
   await mkdir(fake);
   await symlink(join(outer, ".git"), join(fake, ".git"), "junction");
   await expect(sourceRepository(source, "false-repository")).rejects.toThrow("not_found");
+});
+
+test("repository inventory fails closed for unverified Git roots and changed checkouts", async () => {
+  const { source, external } = await fixture();
+  const invalid = join(source, "broken");
+  await mkdir(join(invalid, ".git"), { recursive: true });
+  await expect(sourceRepository(source, "broken")).rejects.toThrow("not_found");
+  await expect(sourceDirectoryIdentity(join(source, "gone"))).rejects.toThrow("not_found");
+  const path = await repository(source, "race");
+  const readIdentity = worktreeOperations.worktreeIdentity;
+  const identity = vi.spyOn(worktreeOperations, "worktreeIdentity");
+  identity.mockRejectedValueOnce(new Error("Checkout became unavailable"));
+  await expect(sourceRepositories(source)).rejects.toThrow("conflict");
+  identity.mockImplementationOnce(async (checkout) => {
+    const before = await readIdentity(checkout);
+    await rename(join(checkout, ".git"), join(external, "marker"));
+    return before;
+  });
+  await expect(sourceRepository(source, "race")).rejects.toThrow("conflict");
+  expect(identity).toHaveBeenCalledWith(path);
 });

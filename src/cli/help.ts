@@ -25,7 +25,7 @@ const commandHelp = [
   {
     prefix: "Dispatchers: ",
     commands: [
-      "repos",
+      "repos [--after REPO] [--limit N]",
       "launch-orchestrator REPO --agent PROVIDER [--host HOST] --prompt TEXT [--reason TEXT] --idempotency-key KEY",
     ],
     suffix: "",

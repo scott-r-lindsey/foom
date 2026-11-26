@@ -34,6 +34,7 @@ import {
   readDiscovery,
   verifyPrivate,
 } from "../../../../src/node-common/private-files";
+import type { DispatcherHost } from "../../../../src/main/control/dispatcher";
 import { ControlRuntime } from "../../../../src/main/control/runtime";
 import { Operations } from "../../../../src/main/control/operations";
 import { ControlStore } from "../../../../src/main/control/store";
@@ -751,5 +752,36 @@ it("wires private board persistence, change notifications and restart recovery i
     expect(board.read({ thread }).posts).toHaveLength(2);
   } finally {
     await restored.close();
+  }
+});
+
+it("publishes a dispatcher with an empty workspace even without snapshot and change callbacks", async () => {
+  const dispatcherHost: DispatcherHost = {
+    directoryIdentity: vi.fn(),
+    repository: vi.fn(),
+    repositories: vi.fn(),
+    launch: vi.fn(),
+    prompt: vi.fn(),
+    stop: vi.fn(),
+  };
+  const runtime = await ControlRuntime.start(
+    root,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    dispatcherHost,
+  );
+  try {
+    await expect(runtime.dispatcher?.elevate("missing", vi.fn(), vi.fn())).rejects.toThrow(
+      "not_found",
+    );
+    expect(runtime.humanDecisions({ watch: [] })).toMatchObject({ counts: {} });
+  } finally {
+    await runtime.close();
   }
 });

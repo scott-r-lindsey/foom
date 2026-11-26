@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, test, vi } from "vitest";
 import { Dispatcher } from "../../../../src/main/control/dispatcher";
 import { ControlService } from "../../../../src/main/control/service";
+import { MessageBoard } from "../../../../src/main/control/message-board";
 import { Operations } from "../../../../src/main/control/operations";
 import { atomicPrivate, privateDirectory } from "../../../../src/node-common/private-files";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
@@ -28,7 +29,7 @@ function row(id: string, path: string, scope: "source" | "orchestrator"): Worksp
   };
 }
 
-function harness() {
+function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]) {
   const rows = [
     row("dispatcher", directory, "source"),
     row("second", directory, "source"),
@@ -67,11 +68,14 @@ function harness() {
       },
     ),
     () => rows,
+    orchestration,
     undefined,
     undefined,
     undefined,
-    undefined,
-    undefined,
+    new MessageBoard(
+      async () => {},
+      () => [],
+    ),
     dispatcher,
   );
   const source = service.prepare(directory, directory, "agent", null, undefined, true);
@@ -81,9 +85,13 @@ function harness() {
   const ordinary = service.prepare(repository, repository, "agent");
   ordinary.bind("ordinary");
   const token = source.env["FOOM_CONTROL_TOKEN"] ?? "";
-  function call(method: string, params: unknown = {}) {
+  function call(method: string, params: unknown = {}, signal?: AbortSignal) {
     const actor = service.authenticate(token);
-    return service.call(actor, { method, params, version: 1, instanceId: service.instanceId });
+    return service.call(
+      actor,
+      { method, params, version: 1, instanceId: service.instanceId },
+      signal,
+    );
   }
   const elevate = async (selection = ["primary"]) => {
     await dispatcher.elevate(
@@ -209,6 +217,12 @@ test.each([
     };
     await expect(dispatcher.answer(answer)).resolves.toMatchObject({ post: question.post });
     await expect(dispatcher.answer(answer)).resolves.toMatchObject({ post: question.post });
+    expect(() =>
+      dispatcher.answer({
+        ...answer,
+        answers: [{ post: question.post, index: 0, option: option === "add" ? "once" : "add" }],
+      }),
+    ).toThrow("conflict");
     await expect(
       call("operation_status", { idempotencyKey: launch.idempotencyKey }),
     ).resolves.toMatchObject({ status: expected });
@@ -360,4 +374,126 @@ test("dispatcher validates launch, state, wait and input arguments before effect
   expect(dispatcher.canReport(service.authenticate(parent.env["FOOM_CONTROL_TOKEN"] ?? ""))).toBe(
     false,
   );
+});
+
+test("inventory searches one page, scopes decisions, and refuses stale directories and cursors", async () => {
+  const { call, elevate, host, source, service } = harness();
+  const token = source.env["FOOM_CONTROL_TOKEN"] ?? "";
+  expect(service.listed(service.authenticate(token))).not.toContain("repos");
+  await elevate();
+  expect(service.listed(service.authenticate(token))).toContain("repos");
+  for (const limit of [0, 0.5, 17, "2"]) {
+    await expect(call("repos", { limit })).rejects.toThrow("invalid_request");
+  }
+  await expect(call("repos", { after: "missing" })).rejects.toThrow("not_found");
+  await expect(call("repos", { limit: 1 })).resolves.toMatchObject({
+    repos: [
+      {
+        repo: "primary",
+        preApproved: true,
+        pullRequests: [],
+        orchestrators: [
+          {
+            id: "primary-orchestrator",
+            adopted: true,
+            host: null,
+            state: "quiet_ok",
+            decisionCount: 0,
+          },
+        ],
+      },
+    ],
+    nextCursor: "primary",
+  });
+  await expect(call("repos", { after: "primary", limit: 1 })).resolves.toMatchObject({
+    repos: [{ repo: "secondary", preApproved: false, orchestrators: [] }],
+    nextCursor: null,
+  });
+  host.directoryIdentity.mockResolvedValueOnce("source-proof").mockResolvedValueOnce("changed");
+  await expect(call("repos")).rejects.toThrow("conflict");
+  await expect(
+    service.call(service.authenticate(token), {
+      method: "repos",
+      params: {},
+      version: 1,
+      instanceId: "foreign",
+    }),
+  ).rejects.toThrow("invalid_request");
+});
+
+test("failed elevation and demotion never leave a half-written role grant", async () => {
+  const { dispatcher, call, save, elevate, host, service } = harness();
+  save.mockRejectedValueOnce(new Error("Disk unavailable"));
+  await expect(elevate()).rejects.toThrow("Disk unavailable");
+  await expect(call("repos")).rejects.toThrow("forbidden");
+  host.directoryIdentity.mockResolvedValueOnce("source-proof").mockResolvedValueOnce("changed");
+  await expect(elevate()).rejects.toThrow("conflict");
+  await elevate();
+  save.mockRejectedValueOnce(new Error("Disk unavailable"));
+  await expect(dispatcher.demote("dispatcher", service.setRole.bind(service))).rejects.toThrow(
+    "Disk unavailable",
+  );
+  await expect(call("repos")).resolves.toMatchObject({ untrusted: true });
+  await dispatcher.demote("dispatcher", service.setRole.bind(service));
+  await expect(call("repos")).rejects.toThrow("forbidden");
+});
+
+test("dispatcher wait deduplicates targets, handles an unchanged revision, and honors cancellation", async () => {
+  const { call, elevate } = harness();
+  await elevate();
+  const id = "primary-orchestrator";
+  const session: unknown = await call("session_state", { id });
+  if (!session || typeof session !== "object" || !("revision" in session)) {
+    throw new Error("Expected a session revision");
+  }
+  const after = { [id]: session.revision };
+  await expect(call("wait_for", { ids: [id], after, timeoutMs: 1 })).resolves.toMatchObject({
+    changed: [],
+    timedOut: true,
+  });
+  const abort = new AbortController();
+  abort.abort();
+  await expect(call("wait_for", { ids: [id], after, timeoutMs: 10 }, abort.signal)).rejects.toThrow(
+    "unavailable",
+  );
+});
+
+test("trusted grant projections keep host and reason separate and handoff requires dispatcher launch ownership", async () => {
+  const dispatcherHandoff = vi.fn((_actor, _params, authorize: () => void) => {
+    authorize();
+    return Promise.resolve({ seq: 1 });
+  });
+  const tool = harness({ call: vi.fn(), dispatcherHandoff });
+  const { call, elevate, service, dispatcher, host } = tool;
+  await elevate();
+  await call("launch_orchestrator", { ...launch, reason: undefined, host: "worker" });
+  const scope = Dispatcher.decisionScope("dispatcher");
+  const grant = service.humanDecisions({ repository: scope, watch: [] });
+  const [question] = grant.questions;
+  if (!question) throw new Error("Expected grant");
+  expect(question.question.title).toContain("on worker");
+  expect(question.question.detail).toBeUndefined();
+  expect(service.humanDecisions({ repository: "unrelated", watch: [] }).questions).toEqual([]);
+  expect(
+    service.humanDecisions({ repository: "unrelated", watch: [{ post: question.post, index: 0 }] })
+      .questions,
+  ).toContainEqual(question);
+  await dispatcher.answer({
+    answers: [{ post: question.post, index: 0, option: "once" }],
+    idempotencyKey: "allow",
+  });
+  expect(host.launch).toHaveBeenCalledOnce();
+  const parent = service.prepare(other, other, "orchestrator");
+  parent.bind("secondary-orchestrator");
+  const actor = service.authenticate(parent.env["FOOM_CONTROL_TOKEN"] ?? "");
+  const report = {
+    method: "handoff",
+    params: { status: "done", summary: "Finished", idempotencyKey: "report" },
+    version: 1,
+    instanceId: service.instanceId,
+  };
+  await expect(service.call(actor, report)).resolves.toEqual({ seq: 1 });
+  expect(dispatcherHandoff).toHaveBeenCalledOnce();
+  await dispatcher.demote("dispatcher", service.setRole.bind(service));
+  expect(dispatcher.canReport(actor)).toBe(false);
 });

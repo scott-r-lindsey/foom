@@ -78,10 +78,13 @@ test("the source directory groups both ranks and opens the matching session acti
   }
   expect(command).toHaveBeenCalledWith({ kind: "elevate-dispatcher", id: "plain" });
   expect(command).toHaveBeenCalledWith({ kind: "demote-dispatcher", id: "dispatcher" });
+  fireEvent.click(within(current).getByRole("button", { name: directory }));
   const filter = view.getByLabelText("Filter repositories and sessions");
   fireEvent.change(filter, { target: { value: "old" } });
   expect(view.queryByRole("treeitem", { name: "Source directory /work/src" })).toBeNull();
   expect(view.getByRole("treeitem", { name: "Source directory /work/old" })).toBeTruthy();
+  fireEvent.change(filter, { target: { value: "unknown directory" } });
+  expect(view.getByText("No matches")).toBeTruthy();
 });
 
 test.each(["empty", "home", "config"] as const)(
