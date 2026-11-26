@@ -3294,6 +3294,14 @@ test.skipIf(process.platform === "win32")(
       reattach: false,
       human: true,
       profile: "a".repeat(32),
+      context: {
+        repository: "/local-home",
+        worktree: "/local-home",
+        branch: null,
+        agent: "codex",
+        machine: true,
+        reviewer: true,
+      },
       machine: {
         codeFolder: "/code",
         agent: "codex",
@@ -3321,7 +3329,7 @@ test.skipIf(process.platform === "win32")(
       "workspace-machine",
       false,
     );
-    for (const inventoryPermissions of [true, false]) {
+    for (const inventoryPermissions of [false, true]) {
       const inventory = await client();
       inventory.send({
         type: "hello",
@@ -3336,6 +3344,14 @@ test.skipIf(process.platform === "win32")(
         own: [
           {
             id: "workspace-machine",
+            context: {
+              repository: root,
+              worktree: root,
+              branch: null,
+              agent: "codex",
+              machine: true,
+              ...(inventoryPermissions ? { reviewer: true } : {}),
+            },
             ...(inventoryPermissions ? { permissionLevel: "workspace" } : {}),
           },
         ],

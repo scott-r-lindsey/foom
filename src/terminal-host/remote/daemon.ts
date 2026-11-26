@@ -517,9 +517,11 @@ export function serveHost(
               .map(([id, session]) => {
                 const permissionLevel =
                   session.agent?.ready.permissionLevel ?? session.machinePermissionLevel;
+                const context = session.context && { ...session.context };
+                if (context?.reviewer && !inventoryPermissions) delete context.reviewer;
                 return {
                   id,
-                  ...(session.context ? { context: session.context } : {}),
+                  ...(context ? { context } : {}),
                   ...(session.checkout ? { checkout: session.checkout } : {}),
                   ...(inventoryPermissions && permissionLevel ? { permissionLevel } : {}),
                 };

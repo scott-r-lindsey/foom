@@ -4,6 +4,7 @@ import {
   reattachRemoteSession,
 } from "../../../../src/main/workspace/remote-session-restore";
 import { homeDirectory } from "../../../../src/main/workspace/home-shell";
+import { locationId } from "../../../../src/main/control/metadata";
 import type { Hosts } from "../../../../src/main/setup/hosts";
 import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import type { AgentLaunch, AgentLaunched } from "../../../../src/shared/agents";
@@ -298,3 +299,27 @@ test.each(["full", "workspace"] as const)(
     });
   },
 );
+
+test("recovers a managed main clone as an agent without inventing a local checkout or grant", async () => {
+  const repository = `/code/repository-${"a".repeat(24)}`;
+  const worktree = `/foom-remote/${locationId(JSON.stringify(["worker", repository]))}`;
+  const context = { repository, worktree, branch: "Main checkout", agent: "codex" };
+  const rows = await discoverRemoteSessions({
+    registered: hosts.registered,
+    sessions: () =>
+      Promise.resolve([
+        { host: "worker", session: { id: "clone", permissionLevel: "full", context } },
+        { host: "other", session: { id: "wrong-host", permissionLevel: "full", context } },
+      ]),
+  });
+  expect(rows[0]).toMatchObject({
+    ...context,
+    kind: "agent",
+    permissionLevel: "full",
+    bypass: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+  expect(rows[0]).not.toHaveProperty("remoteCheckout");
+  expect(rows[0]).not.toHaveProperty("orchestrator");
+  expect(rows[1]).toMatchObject({ kind: "shell", home: true });
+});

@@ -202,8 +202,12 @@ under #732. With session restore disabled, rows remain dormant.
 
 This profile's sessions absent from saved records become human-owned tiles. A
 daemon that recorded a managed permission level returns it to hubs that advertise
-support in the handshake. Recovered tiles show that level and retain the Full
-access bypass warning. Missing metadata leaves the level unspecified. Inventory
+support in the handshake. The same handshake gates reviewer metadata so older
+hubs can still decode the inventory. Recovered tiles, including agents in remote
+main clones, show the applied level and retain the Full access bypass warning.
+For a main clone recovered without a saved row, the displayed path is the remote
+clone. A fresh launch needs a separate registered repository selection. Missing
+metadata leaves the level unspecified. Inventory
 cannot restore a parent, grant or orchestrator role. Other-profile and
 untagged sessions remain untouched. Settings → Hosts reports their live count and
 **End…** opens a trusted confirmation. Main retains the confirmed IDs and random

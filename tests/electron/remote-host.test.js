@@ -38,9 +38,29 @@ test("remote machine recovery preserves the daemon's permission labels and bypas
   timeout: deadline(45000),
 }, async (context) => {
   const fixture = await remoteFixture(context);
-  const { bin, remoteHome, cleanup, closeDaemon } = fixture;
+  const { bin, remoteHome, cleanup, closeDaemon, socket, manifest } = fixture;
   const codeFolder = path.join(remoteHome, "code");
   await mkdir(codeFolder, { mode: 0o700 });
+  const origin = "https://example.test/fixture.git";
+  const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+  const repository = path.join(codeFolder, directory);
+  const worktree = `/foom-remote/${createHash("sha256")
+    .update(JSON.stringify(["fixture-cloud", repository]))
+    .digest("hex")}`;
+  await mkdir(repository, { mode: 0o700 });
+  await writeFile(
+    path.join(bin, "git"),
+    `#!${process.execPath}
+const args = process.argv.slice(2).filter(arg => arg !== '--no-optional-locks');
+if (args[0] === '--version') console.log('git version 2.49.0');
+else if (process.cwd() !== ${JSON.stringify(repository)}) process.exit(1);
+else if (args[0] === 'config') console.log(${JSON.stringify(origin)});
+else if (args.includes('--show-toplevel')) console.log(process.cwd());
+else if (args.includes('--verify')) console.log('a'.repeat(40));
+else if (args[0] !== 'status') process.exit(1);
+`,
+    { mode: 0o700 },
+  );
   await writeFile(
     path.join(bin, "codex"),
     `#!${process.execPath}
@@ -49,12 +69,13 @@ if (args[0] === '--version') console.log('codex-cli 0.167.0');
 else if (args[0] === '--help') console.log('--sandbox --ask-for-approval -c');
 else {
   console.log('PERMISSION_RECOVERY:' + args[args.indexOf('--sandbox') + 1]);
+  process.stdout.write('$ ');
   process.stdin.resume();
 }
 `,
     { mode: 0o700 },
   );
-  const { app, page, profilePath, hubHome } = await remoteApp(context, fixture);
+  const { app, page, profilePath, profileTag, hubHome } = await remoteApp(context, fixture);
   await page.evaluate(() => window.desktop.saveSetup({ agents: { codex: true } }));
   const enrolled = await page.evaluate(
     (folder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder: folder }),
@@ -87,6 +108,33 @@ else {
   await pending;
   const full = await launch("danger-full-access");
   await save(null);
+  const clone = await hostChannel(
+    socket,
+    manifest.sha256,
+    "recovered-clone",
+    cleanup,
+    80,
+    24,
+    false,
+    profileTag,
+    {
+      human: true,
+      context: { repository, worktree, agent: "codex", branch: "Main checkout" },
+      machine: {
+        agent: "codex",
+        codeFolder,
+        permissionLevel: "full",
+        repository: { directory, origin },
+      },
+    },
+  );
+  assert.equal(clone.opened.state, "live");
+  assert.ok(
+    (await clone.ask({ type: "tail", lines: 20 })).lines
+      .join("\n")
+      .includes("PERMISSION_RECOVERY:danger-full-access"),
+  );
+  clone.close();
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
@@ -116,7 +164,19 @@ else {
       )
       .toEqual([level, bypass, false, false]);
   }
-  await expect(restored.locator(".board-row .session-bypass")).toHaveText("◇ Bypass");
+  await expect
+    .poll(() =>
+      restored.evaluate(async () => {
+        const row = (await window.desktop.workspace()).terminals.find(
+          (row) => row.id === "recovered-clone",
+        );
+        return (
+          row && [row.kind, row.permissionLevel, row.bypass, row.branch, row.dormant, row.exited]
+        );
+      }),
+    )
+    .toEqual(["agent", "full", true, "Main checkout", false, false]);
+  await expect(restored.locator(".board-row .session-bypass")).toHaveText(["◇ Bypass", "◇ Bypass"]);
   await quitAndWait(restarted, async () => {
     await restarted.evaluate(({ app }) => app.quit());
     await (await confirmationPage(restarted))

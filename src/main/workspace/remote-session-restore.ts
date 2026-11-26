@@ -4,6 +4,7 @@ import type { StoredSession } from "./session-restore.d";
 import type { Hosts } from "../setup/hosts";
 import { builtinAgent } from "../../shared/providers/catalog";
 import { imagePasteRecipient } from "../../shared/image-paste";
+import { locationId } from "../control/metadata";
 import { homeDirectory } from "./home-shell";
 
 /** Only this profile's daemon inventory is eligible; discovery never restores grants. */
@@ -14,20 +15,26 @@ export async function discoverRemoteSessions(
   return sessions.map(({ host, session }) => {
     const context = session.context;
     const placed = context && hosts.placement?.(context.worktree);
-    const agent =
-      context && (placed || context.machine) && builtinAgent(context.agent)
-        ? context.agent
-        : "shell";
+    const provider = context && builtinAgent(context.agent);
+    // The daemon confirms this launch, but its path cannot confer a local checkout or grant.
+    const mainClone =
+      session.permissionLevel !== undefined &&
+      provider !== undefined &&
+      context?.branch === "Main checkout" &&
+      context.worktree === `/foom-remote/${locationId(JSON.stringify([host, context.repository]))}`;
+    const agent = provider && (placed || context.machine || mainClone) ? provider.id : "shell";
     const permissionLevel = agent === "shell" ? undefined : session.permissionLevel;
     return {
       id: session.id,
       agent,
       kind: agent === "shell" ? "shell" : "agent",
       repository:
-        placed?.localRepository ?? (context?.machine ? context.repository : homeDirectory),
-      worktree: context && (placed || context.machine) ? context.worktree : homeDirectory,
-      branch: placed ? `${placed.branch} · ${host}` : null,
-      ...(placed ? {} : { home: true }),
+        placed?.localRepository ??
+        (context && (context.machine || mainClone) ? context.repository : homeDirectory),
+      worktree:
+        context && (placed || context.machine || mainClone) ? context.worktree : homeDirectory,
+      branch: placed ? `${placed.branch} · ${host}` : mainClone ? "Main checkout" : null,
+      ...(placed || mainClone ? {} : { home: true }),
       ...(context?.machine ? { machine: true } : {}),
       ...(context?.reviewer && agent !== "shell" ? { reviewer: true } : {}),
       ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
