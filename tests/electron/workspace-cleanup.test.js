@@ -1054,9 +1054,25 @@ test("merged cleanup skips Git-ignored build folders and hides the action at zer
   const cleanupAction = page.getByRole("menuitem", { name: /Delete merged worktrees…/ });
   await expect(cleanupAction).toHaveCount(0);
 
-  git("worktree", "add", "-b", "new-merged", path.join(path.dirname(dirty.path), "new-merged"));
+  await page.getByRole("button", { name: "0 eligible to delete" }).click();
+  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
+    "keep-changesuncommitted changes",
+  );
+  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+
+  const newMerged = path.join(path.dirname(dirty.path), "new-merged");
+  git("worktree", "add", "-b", "new-merged", newMerged);
   await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
   await expect(cleanupAction).toHaveText("Delete merged worktrees…1");
+  await page.keyboard.press("End");
+  await expect(cleanupAction).toBeFocused();
+  git("worktree", "lock", newMerged);
+  await expect(page.getByRole("button", { name: "0 eligible to delete" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "New worktree" })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitem", { name: /Remove from Foom/ })).toBeFocused();
   assert.equal(
     await readFile(path.join(dirty.path, "tracked.txt"), "utf8"),
     "keep tracked changes\n",

@@ -1370,6 +1370,13 @@
   --chip: var(--highlight);
   --chip-ink: var(--highlight);
 }
+.row-menu button.panel-cleanup-review {
+  display: inline-flex;
+  width: auto;
+  padding: 0;
+  animation: none;
+  text-decoration: underline;
+}
 .panel-chip[data-tone="changes"] {
   --chip: var(--highlight);
   font-weight: var(--type-strong-weight, 600);

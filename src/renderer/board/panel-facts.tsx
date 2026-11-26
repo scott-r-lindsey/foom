@@ -153,10 +153,12 @@ export function PanelFacts({
   subject,
   source,
   options,
+  reviewCleanup,
 }: {
   subject: PanelSubject;
   source: BoardSource;
   options: LaunchOptions | undefined;
+  reviewCleanup?: (() => Promise<void>) | undefined;
 }) {
   const [now] = useState(Date.now);
   const [handoffError, setHandoffError] = useState("");
@@ -309,6 +311,18 @@ export function PanelFacts({
             </Chip>
             {subject.repository.mergedCount === undefined ? (
               <Sub>merged count unknown</Sub>
+            ) : subject.repository.mergedCount === 0 && reviewCleanup ? (
+              <button
+                type="button"
+                className="panel-cleanup-review"
+                aria-haspopup="dialog"
+                title="Review worktree eligibility"
+                onClick={() => {
+                  void reviewCleanup();
+                }}
+              >
+                <Chip tone="neutral">0 eligible to delete</Chip>
+              </button>
             ) : (
               <Chip tone={subject.repository.mergedCount ? "done" : "neutral"}>
                 {subject.repository.mergedCount} eligible to delete

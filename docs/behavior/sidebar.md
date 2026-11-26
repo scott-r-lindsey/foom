@@ -102,7 +102,8 @@ cannot replace a pinned panel; dragging suppresses panels.
 Panels have a title band, a 248 px command column and facts beside it, up to
 720 px wide and contained within the window. Commands retain their existing
 confirmations. Arrow keys, Home/End and Enter operate commands; copyable paths
-and conversation IDs are buttons. Clicking a session title renames it with the
+and conversation IDs are buttons. If a refresh removes the focused command,
+focus moves to the first available command. Clicking a session title renames it with the
 same Enter/blur, Escape and empty-name behavior as sidebar double-click rename.
 
 The home shell row (`>_ shell ~`) sits above repositories. Its name and **New
@@ -113,7 +114,8 @@ fetch status, worktree/creation/eligible-merged counts and session states; they
 offer New worktree, pinning and **Remove from Foom…** (with “keeps files”).
 With linked worktrees, **Delete merged worktrees…** appears when the count is
 positive, before the first scan completes, or after a scan fails. At zero, the
-count remains in the panel facts. Active cleanup and undismissed results remain
+count remains in the panel facts. Select **0 eligible to delete** to review
+why the worktrees were kept. Active cleanup and undismissed results remain
 accessible from the menu.
 
 Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline

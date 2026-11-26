@@ -166,12 +166,17 @@ test("an open repository menu hides merged cleanup at zero and restores it when 
     await Promise.resolve();
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-  expect(view.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
+  const cleanupAction = view.getByRole("menuitem", { name: "Delete merged worktrees…" });
+  fireEvent.keyDown(document.activeElement ?? view.getByRole("menu"), { key: "End" });
+  expect(document.activeElement).toBe(cleanupAction);
   view.source.getSidebar = () => [{ ...repository, canDeleteMerged: false, mergedCount: 0 }];
   act(() => {
     view.base.update("a", { state: "quiet_ok" });
   });
   expect(view.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "New worktree" }));
+  fireEvent.keyDown(view.getByRole("menuitem", { name: "New worktree" }), { key: "End" });
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: /Remove from Foom/ }));
   expect(view.getByText("0 eligible to delete")).toBeTruthy();
   expect(view.getByRole("menu").lastElementChild?.textContent).toContain("Remove from Foom…");
   expect(
@@ -184,6 +189,23 @@ test("an open repository menu hides merged cleanup at zero and restores it when 
   expect(view.getByRole("menuitem", { name: /Delete merged worktrees…/ }).textContent).toBe(
     "Delete merged worktrees…2",
   );
+});
+
+test("the zero eligibility fact opens the cleanup review without a delete menu item", async () => {
+  const view = setup();
+  view.source.getSidebar = () => [{ ...repository, mergedCount: 0 }];
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "0 eligible to delete" }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenCalledWith({
+    kind: "delete-merged-worktrees",
+    repository: "/foom",
+  });
 });
 
 test("worktree menus offer only enabled launchers and deletion with an agent running", async () => {

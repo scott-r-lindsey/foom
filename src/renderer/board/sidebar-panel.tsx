@@ -89,7 +89,21 @@ export function SidebarPanel({
         mark: mark,
         facts: (() => {
           const facts = (
-            <PanelFacts key={menu.id} subject={subject} source={source} options={options} />
+            <PanelFacts
+              key={menu.id}
+              subject={subject}
+              source={source}
+              options={options}
+              reviewCleanup={
+                subject.kind === "repository"
+                  ? () =>
+                      command({
+                        kind: "delete-merged-worktrees",
+                        repository: subject.repository.path,
+                      })
+                  : undefined
+              }
+            />
           );
           if (fieldOpen && subject.kind === "worktree")
             return (

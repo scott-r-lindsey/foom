@@ -5,7 +5,7 @@ import { CommandGlyph, PanelMark } from "./panel-glyphs";
 import type { CommandGlyphName } from "./panel-glyphs";
 import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, ReactNode } from "react";
 export interface RowAction {
@@ -103,6 +103,23 @@ export function RowMenu({
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
   const pointerPinRef = useRef(false);
+  const removedFocusedCommandRef = useRef(false);
+  const commandRef = useCallback((button: HTMLButtonElement | null) => {
+    if (!button) return;
+    return () => {
+      // React detaches the ref before removing the focused command from the DOM.
+      if (document.activeElement === button) removedFocusedCommandRef.current = true;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (!removedFocusedCommandRef.current) return;
+    removedFocusedCommandRef.current = false;
+    if (document.activeElement === document.body) {
+      restoreBoardFocus(
+        ref.current?.querySelector(".row-menu-items button:not(:disabled)") ?? anchor,
+      );
+    }
+  });
   useLayoutEffect(() => {
     const menu = ref.current;
     return () => {
@@ -408,6 +425,7 @@ export function RowMenu({
             ) : action ? (
               <button
                 key={action.label}
+                ref={isPanel ? commandRef : undefined}
                 type="button"
                 role={action.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                 aria-checked={action.checked}
