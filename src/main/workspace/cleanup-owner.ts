@@ -787,7 +787,7 @@ export class CleanupOwner {
       key,
       count: worktrees.length,
       expires: Number.POSITIVE_INFINITY,
-      result: { canDeleteMerged: false },
+      result: cached?.result ?? { canDeleteMerged: false },
     };
     this.mergeEligibility.set(repository, entry);
     const publish = (result: {

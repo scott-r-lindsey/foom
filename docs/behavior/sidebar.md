@@ -116,7 +116,7 @@ and running count. Repository panels show path, remote, default branch, last
 fetch status, worktree/creation/eligible-merged counts and session states; they
 offer New worktree, pinning and **Remove from Foom…** (with “keeps files”).
 With linked worktrees, **Delete merged worktrees…** appears when the count is
-positive. At zero, the
+positive, before the first scan completes, or after a scan fails. At zero, the
 count remains in the panel facts. Select **0 eligible to delete** to review
 current eligibility and reasons for keeping each worktree. This review is read-only.
 Open active cleanup through **Deleting merged worktrees** and completed

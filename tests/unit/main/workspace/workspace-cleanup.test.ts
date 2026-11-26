@@ -289,7 +289,7 @@ test("local inventory and launches proceed while a remote check is pending; comp
   expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(true);
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledOnce();
   now = 60_001;
-  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
+  expect((await workspace.sidebarInventory()).repositories[0]?.mergedCount).toBe(1);
   await vi.waitFor(() => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
@@ -297,6 +297,36 @@ test("local inventory and launches proceed while a remote check is pending; comp
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(2);
   await workspace.dispose();
 });
+
+test.each(["eligible", "failed"])(
+  "a replacement scan keeps the last zero count until it reports %s",
+  async (outcome) => {
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, locked: true }]);
+    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+    const workspace = new Workspace(deps);
+    const inventory = async () => (await workspace.sidebarInventory()).repositories[0];
+    await expect.poll(inventory).toMatchObject({ mergedCount: 0 });
+    const replacement = Promise.withResolvers<string>();
+    vi.mocked(deps.worktrees.mergedDefault).mockReturnValueOnce(replacement.promise);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
+    try {
+      expect(await inventory()).toMatchObject({ mergedCount: 0, canDeleteMerged: false });
+    } finally {
+      if (outcome === "eligible") replacement.resolve("new base");
+      else replacement.reject(new Error("offline"));
+    }
+    try {
+      if (outcome === "eligible") {
+        await expect.poll(inventory).toMatchObject({ mergedCount: 1, canDeleteMerged: true });
+      } else {
+        await expect.poll(inventory).toMatchObject({ mergedError: "offline" });
+        expect((await inventory())?.mergedCount).toBeUndefined();
+      }
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);
 
 test.each([new Error("offline"), "offline"])(
   "background fetch failures publish status without rejecting inventory: %s",

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { HostChip } from "./sidebar-machine-row";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { PanelSubject } from "./panel-facts";
@@ -47,7 +47,6 @@ export function SidebarPanel({
   leave,
   pin,
 }: SidebarPanelProps) {
-  const reviewPendingRef = useRef(false);
   const fieldOpen = Boolean(menu.field);
   const worktrees = source.worktrees;
   const branchSource = useMemo(() => {
@@ -99,13 +98,9 @@ export function SidebarPanel({
               reviewCleanup={
                 subject.kind === "repository"
                   ? () => {
-                      if (reviewPendingRef.current) return;
-                      reviewPendingRef.current = true;
                       void command({
                         kind: "review-merged-worktrees",
                         repository: subject.repository.path,
-                      }).finally(() => {
-                        reviewPendingRef.current = false;
                       });
                     }
                   : undefined

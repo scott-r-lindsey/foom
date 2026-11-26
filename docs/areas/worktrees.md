@@ -48,7 +48,8 @@ publish after repository removal or shutdown.
 
 Sidebar inventory never awaits remote merge checks. Main caches eligibility for
 one minute, starts a background scan for a new local worktree/session inventory
-or an expired result, and emits a workspace change when it finishes. Matching
+or an expired result, and emits a workspace change when it finishes. A replacement
+scan keeps the previous result for display and checks a new plan. Matching
 in-flight scans are shared; superseded scans, removed repositories and disposed
 workspaces cannot publish late results. Git status reads use `--no-optional-locks`
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise

@@ -1187,6 +1187,9 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
 
 test("double-clicking zero eligible opens one merged cleanup review", async (context) => {
   const { app, page } = await lockedMergedWorktree(context);
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.releaseEligibilityRead?.()).catch(() => {});
+  });
   await app.evaluate(({ app }) => {
     const load = process
       .getBuiltinModule("node:module")
@@ -1194,11 +1197,16 @@ test("double-clicking zero eligible opens one merged cleanup review", async (con
     const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
     const { WorktreeService } = load("./build/main/workspace/worktrees.js");
     const request = TrustedDialog.prototype.request;
-    const readBase = WorktreeService.prototype.lastFetchedMergeBase;
+    const list = WorktreeService.prototype.listWorktrees;
+    const hold = Promise.withResolvers();
+    globalThis.releaseEligibilityRead = () => hold.resolve();
     globalThis.mergedReview = { requests: 0, reads: 0, finished: false };
-    WorktreeService.prototype.lastFetchedMergeBase = function (...args) {
-      globalThis.mergedReview.reads++;
-      return readBase.apply(this, args);
+    WorktreeService.prototype.listWorktrees = async function (repository, options) {
+      if (options?.skipOwnership) {
+        globalThis.mergedReview.reads++;
+        await hold.promise;
+      }
+      return list.call(this, repository, options);
     };
     TrustedDialog.prototype.request = function (content, ...args) {
       const answer = request.call(this, content, ...args);
@@ -1209,8 +1217,16 @@ test("double-clicking zero eligible opens one merged cleanup review", async (con
       });
     };
   });
-  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
-  await page.getByRole("button", { name: "0 eligible to delete" }).dblclick();
+  const panel = page.getByRole("button", { name: "Actions for repo", exact: true });
+  const review = page.getByRole("button", { name: "0 eligible to delete" });
+  await panel.click();
+  await review.dblclick();
+  await expect.poll(() => app.evaluate(() => globalThis.mergedReview.reads)).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(review).toHaveCount(0);
+  await panel.click();
+  await review.click();
+  await app.evaluate(() => globalThis.releaseEligibilityRead());
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("button", { name: "Close", exact: true })).toBeFocused();
   await confirmation.keyboard.press("Escape");

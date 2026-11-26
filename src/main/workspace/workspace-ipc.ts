@@ -278,6 +278,7 @@ export function attachWorkspace(
 } {
   const contents = window.webContents;
   const launches = new Map<string, AbortController>();
+  const eligibilityReviews = new Set<string>();
   // Display associations only. Preview opens and worktree actions still validate
   // fresh membership; a failed Git read cannot prove an owned preview was removed.
   const previewRepositories = new Map<string, string>();
@@ -531,18 +532,26 @@ export function attachWorkspace(
           });
         }
         if (command.kind === "review-merged-worktrees") {
-          return workspace.reviewMergedWorktrees(command.repository).then(async (worktrees) => {
-            if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL) return;
-            contents.send("confirmation:dialog");
-            await requestDialog({
-              title: "Worktree eligibility",
-              subject: basename(command.repository),
-              accept: "Close",
-              glyph: "branch",
-              localOnly: true,
-              worktreeEligibility: worktrees,
+          const { repository } = command;
+          if (eligibilityReviews.has(repository)) return;
+          eligibilityReviews.add(repository);
+          return workspace
+            .reviewMergedWorktrees(repository)
+            .then(async (worktrees) => {
+              if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL) return;
+              contents.send("confirmation:dialog");
+              await requestDialog({
+                title: "Worktree eligibility",
+                subject: basename(repository),
+                accept: "Close",
+                glyph: "branch",
+                localOnly: true,
+                worktreeEligibility: worktrees,
+              });
+            })
+            .finally(() => {
+              eligibilityReviews.delete(repository);
             });
-          });
         }
         const controller = launch === undefined ? undefined : new AbortController();
         const confirm = confirmation(

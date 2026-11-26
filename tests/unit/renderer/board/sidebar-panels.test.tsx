@@ -117,7 +117,7 @@ test.each([
 });
 
 test.each([undefined, "Fetch failed"])(
-  "merged cleanup stays hidden before a successful scan (%s)",
+  "merged cleanup can be opened while eligibility is unknown (%s)",
   async (mergedError) => {
     const view = setup();
     await act(async () => {
@@ -128,10 +128,18 @@ test.each([undefined, "Fetch failed"])(
     ];
     view.rerender(<Board source={view.source} />);
     fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-    expect(view.queryByRole("menuitem", { name: /Delete merged worktrees/ })).toBeNull();
     if (mergedError) {
       expect(view.getByRole("menuitem", { name: mergedError }).hasAttribute("disabled")).toBe(true);
     }
+    const cleanup = view.getByRole("menuitem", { name: "Delete merged worktrees…" });
+    await act(async () => {
+      fireEvent.click(cleanup);
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenCalledExactlyOnceWith({
+      kind: "delete-merged-worktrees",
+      repository: "/foom",
+    });
   },
 );
 
@@ -188,7 +196,7 @@ test("an open repository menu hides merged cleanup at zero and restores it when 
   expect(document.activeElement).toBe(view.getByRole("menuitem", { name: /Delete merged/ }));
 });
 
-test("a read-only eligibility review deduplicates clicks without blocking cleanup", async () => {
+test("a read-only eligibility review leaves a newly available cleanup command usable", async () => {
   const view = setup();
   const review = Promise.withResolvers<undefined>();
   view.command.mockReturnValueOnce(review.promise);
@@ -199,7 +207,6 @@ test("a read-only eligibility review deduplicates clicks without blocking cleanu
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
   const reviewButton = view.getByRole("button", { name: "0 eligible to delete" });
-  fireEvent.click(reviewButton);
   fireEvent.click(reviewButton);
   expect(view.command).toHaveBeenCalledExactlyOnceWith({
     kind: "review-merged-worktrees",

@@ -5,8 +5,10 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 ### Delete merged worktrees
 
 For repositories with linked worktrees, the menu offers **Delete merged
-worktrees…** below **Remove from Foom…** when the eligibility count is positive.
-At zero, the repository facts show **0 eligible to delete**. Select that count
+worktrees…** below **Remove from Foom…** when the eligibility count is positive,
+before the first scan completes, or after a scan fails. A replacement scan keeps
+the last completed result visible until the new scan finishes. At zero, the
+repository facts show **0 eligible to delete**. Select that count
 for a read-only review of current checkouts against the last fetched default
 branch. Each checkout shows its eligibility or the reason it would be kept.
 The review has a **Close** button. The menu updates when a background scan
