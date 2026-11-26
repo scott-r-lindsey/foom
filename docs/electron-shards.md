@@ -18,8 +18,9 @@ same host build and packaging jobs.
 It cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping all desktop jobs together. Native hook probes stay serial.
-Electron steps allow fourteen minutes on Linux, Windows and macOS. Per-test
-deadlines and the worker watchdog are unchanged.
+Electron steps allow 14 minutes on Linux and Windows and 20 minutes on macOS.
+The macOS Electron job allows 26 minutes, leaving six minutes for surrounding
+work. Per-test deadlines and the worker watchdog are unchanged.
 
 ## Feature suites and local runs
 
@@ -1102,3 +1103,21 @@ Combining the maximum case sums with the largest observed residual per platform
 (65.2 / 80.1 / 161.1 seconds) gives peak step estimates of 805.4 / 707.4 /
 761.1 seconds on Linux / Windows / macOS. Actual headroom will be measured in
 the first full ready-PR run.
+
+## Platform step budgets and shard headroom (#1351)
+
+The planner reports projected case time and remaining headroom for each shard
+at its platform's configured count, before and after rebalancing. It budgets
+the measured step wall time outside the named JUnit cases using the largest
+residuals from the #1295 measurements above. The case time target is 75% of the
+step limit minus this setup allowance, leaving 25% of the full step for variation.
+
+| Platform | Step limit (s) | Setup allowance (s) | Case time target (s) |
+| --- | ---: | ---: | ---: |
+| Linux | 840 | 65.2 | 564.8 |
+| Windows | 840 | 80.1 | 549.9 |
+| macOS | 1200 | 161.1 | 738.9 |
+
+The planner warns for every shard over its target, including with `--write`.
+The warnings describe the projected margin and do not change assignments or
+the CI gates. Compare projections with observed step wall times from passing runs.

@@ -2,6 +2,7 @@ import { gitSync, gitEnvironment } from "../tests/helpers/git.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { desktopMatrix, detectDesktop, requiresDesktop, electronSelection } from "./ci-changes.mjs";
+import { shardBudgets } from "./rebalance-electron-shards.mjs";
 import { packagingConfig, retryDownload } from "../.github/scripts/prepare-electron.mjs";
 import { findReusableRun } from "../.github/scripts/ready-validation.mjs";
 
@@ -349,6 +350,31 @@ test("macOS desktop jobs wait for Linux Electron while Linux and Windows packagi
       /^ {4}if: needs\.changes\.outputs\.desktop_required == 'true' && needs\.changes\.outputs\.reused_run_id == ''$/m,
     );
     assert.doesNotMatch(job(name), /^ {4}continue-on-error:/m);
+  }
+});
+
+test("Electron step and job timeouts retain their platform-specific budgets", async () => {
+  const { readFileSync } = await import("node:fs");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const job = (name) => workflow.split(`\n  desktop-${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
+  const steps = job("linux");
+  for (const [os, platform, stepMinutes, jobMinutes] of [
+    ["Linux", "ubuntu-24.04", 14, 20],
+    ["Windows", "windows-2025", 14, 20],
+    ["macOS", "macos-15", 20, 26],
+  ]) {
+    assert.equal(shardBudgets[platform].stepMinutes, stepMinutes);
+    assert.ok(job(os.toLowerCase()).includes(`\n    timeout-minutes: ${jobMinutes}\n`));
+    const prefix = os === "Linux" ? "xvfb-run -a " : "";
+    assert.ok(
+      steps.includes(
+        `      - name: Test Electron on ${os}\n` +
+          `        timeout-minutes: ${stepMinutes}\n` +
+          `        if: runner.os == '${os}'\n` +
+          `        run: ${prefix}pnpm run test:electron:affected --ci\n`,
+      ),
+      os,
+    );
   }
 });
 
