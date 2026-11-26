@@ -607,6 +607,7 @@ test.skipIf(process.platform === "win32").each([false, true])(
 test.skipIf(process.platform === "win32")(
   "remote Codex uses the same managed permission argv on a fresh host",
   async () => {
+    const prompt = "-Check the README";
     const cases = [
       ["ask", "workspace-write", "on-request"],
       ["workspace", "workspace-write", "never"],
@@ -627,6 +628,7 @@ test.skipIf(process.platform === "win32")(
           ...(level === "workspace" ? { reviewer: true } : {}),
           hooks: false,
           conversationId: "existing",
+          prompt,
         },
         "/fixture/shell",
         home,
@@ -643,6 +645,7 @@ test.skipIf(process.platform === "win32")(
         approval,
       ]);
       expect(prepared.ready.permissionLevel).toBe(level);
+      expect(prepared.spec.args.slice(-2)).toEqual(["--", expect.stringContaining(prompt)]);
       if (level !== "full")
         expect(prepared.spec.args).toContain("sandbox_workspace_write.writable_roots=[]");
     }

@@ -42,10 +42,12 @@ export function applyPermissionArguments(
   const policy = model.permissionLevels;
   if (!policy || facts[permissionLevelSupported] !== true || !selected(policy.when, facts))
     throw new ApplicationError("agent-permission-unavailable");
+  const terminator = args.indexOf("--");
+  const optionArgs = terminator === -1 ? args : args.slice(0, terminator);
   if (
-    args.slice(0, index).includes("--") ||
-    matchesArguments(model.bypassArguments, args) ||
-    matchesArguments(policy.conflicts, args, "root")
+    (terminator !== -1 && terminator < index) ||
+    matchesArguments(model.bypassArguments, optionArgs) ||
+    matchesArguments(policy.conflicts, optionArgs, "root")
   )
     throw new ApplicationError("agent-permission-conflict");
   const permissionArgs = policy[level];

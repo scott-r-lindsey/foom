@@ -82,6 +82,27 @@ it("refuses permission arguments placed after a terminator or declared without t
   );
 });
 
+it.each(["-Check the README", "-s is broken", "-add tests", "-profile x"])(
+  "accepts the Codex prompt %s after the option terminator",
+  (prompt) => {
+    const { model } = parse(JSON.stringify(bundledCodex));
+    const facts = { [permissionLevelSupported]: true };
+    expect(applyPermissionArguments(model, "workspace", ["--", prompt], 0, facts)).toEqual([
+      ...bundledCodex.permissionLevels.workspace,
+      "--",
+      prompt,
+    ]);
+  },
+);
+
+it("still refuses a Codex permission flag before the option terminator", () => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  const facts = { [permissionLevelSupported]: true };
+  expect(() =>
+    applyPermissionArguments(model, "workspace", ["-sread-only", "--", "-s is broken"], 0, facts),
+  ).toThrow("agent-permission-conflict");
+});
+
 it.each([
   { args: ["--profile", "team"] },
   { args: ["-c", 'profile="team"'] },
