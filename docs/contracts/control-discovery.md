@@ -54,5 +54,6 @@ See [waiting evidence and gaps](../agents.md#orchestrator-waiting-1201).
 A source-directory launch starts with `whoami` and `manual`. Trusted elevation
 changes the live grant to `dispatcher`. The next discovery request lists its
 dispatcher tools. Clients that cache discovery can use the CLI fallbacks in
-`whoami` with the same launch credentials. Demotion changes the live grant back
+`whoami` with the same launch credentials. Dispatcher discovery exposes only
+its supported prompt and bounded wait arguments. Demotion changes the live grant back
 to the source-session capabilities.

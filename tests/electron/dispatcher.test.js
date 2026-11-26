@@ -195,14 +195,36 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
   );
   await assert.rejects(consoleCall(sourceGrant, "elevate-dispatcher"), { code: 2 });
   await elevate(app, page, row, (confirm) => captureThemes(page, confirm, "elevate"));
-  const listed = (await mcp("tools/list", {}, 3)).result.tools.map((tool) => tool.name);
+  const tools = (await mcp("tools/list", {}, 3)).result.tools;
+  const listed = tools.map((tool) => tool.name);
   assert.ok(listed.includes("repos"));
   assert.ok(!listed.includes("create_worktree"));
+  const promptSchema = tools.find((tool) => tool.name === "prompt").inputSchema;
+  assert.deepEqual(Object.keys(promptSchema.properties).sort(), ["id", "idempotencyKey", "text"]);
+  const waitSchema = tools.find((tool) => tool.name === "wait_for").inputSchema;
+  assert.deepEqual(Object.keys(waitSchema.properties).sort(), ["after", "ids", "timeoutMs"]);
+  assert.equal(waitSchema.properties.ids.minItems, 1);
+  assert.equal(waitSchema.properties.ids.maxItems, 16);
+  assert.deepEqual(
+    (await request("whoami")).result.tools.find((tool) => tool.name === "wait_for"),
+    {
+      name: "wait_for",
+      cli: "foom wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000]",
+    },
+  );
   assert.equal(JSON.parse((await consoleCall(sourceGrant, "repos")).stdout).result.untrusted, true);
   const launch = await request("launch_orchestrator", launchRequest("billing"));
   assert.equal(launch.result?.status, "succeeded", JSON.stringify(launch));
   const first = await request("launch_orchestrator", launchRequest("billing"));
   assert.equal(first.result?.resultId, launch.result?.resultId);
+  const waited = await consoleCall(
+    sourceGrant,
+    "wait-for",
+    launch.result.resultId,
+    "--timeout-ms",
+    "0",
+  );
+  assert.deepEqual(JSON.parse(waited.stdout).result.changed, [launch.result.resultId]);
   const billing = control(await credentials("billing"));
   assert.equal((await billing("whoami")).result?.role, "orchestrator");
   const sent = await billing("handoff", {

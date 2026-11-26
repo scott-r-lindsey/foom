@@ -72,14 +72,16 @@ test("dispatcher remote launch binds the selected host and its verified reposito
     requireAgent: vi.fn(() => Promise.resolve()),
     worktree: vi.fn(),
     fleet: vi.fn(() => Promise.resolve([])),
-    repositoryTarget: vi.fn((host: string, _repository: string, authorize?: () => void) => {
-      authorize?.();
-      return Promise.resolve({
-        host,
-        profile: "fixture",
-        machine: { codeFolder: folder, repository: { directory: clone, origin } },
-      });
-    }),
+    repositoryTarget: vi.fn(
+      async (host: string, _repository: string, authorize?: () => void | Promise<void>) => {
+        await authorize?.();
+        return {
+          host,
+          profile: "fixture",
+          machine: { codeFolder: folder, repository: { directory: clone, origin } },
+        };
+      },
+    ),
   };
   const workspace = createWorkspace({ ...deps, hosts });
   const verify = vi.fn(() => Promise.resolve());
@@ -104,6 +106,39 @@ test("dispatcher remote launch binds the selected host and its verified reposito
   expect(hosts.requireAgent).toHaveBeenCalledExactlyOnceWith("worker", "claude");
   expect(hosts.registered).toHaveBeenCalledWith("worker", folder);
   expect(workspace.orchestration.active(repo.path)).toBe("orchestrator");
+});
+
+test("dispatcher revalidates the approved checkout before remote preparation dispatch", async () => {
+  let approvedCheckout = true;
+  const prepareCheckout = vi.fn();
+  const hosts: NonNullable<WorkspaceDependencies["hosts"]> = {
+    registered: (host) => ({ host, codeFolder: "/work/code" }),
+    requireAgent: () => {
+      approvedCheckout = false;
+      return Promise.resolve();
+    },
+    worktree: vi.fn(),
+    fleet: vi.fn(),
+    repositoryTarget: async (_host, _path, authorize) => {
+      await authorize?.();
+      prepareCheckout();
+      throw new Error("fixture dispatched");
+    },
+  };
+  const workspace = createWorkspace({ ...deps, hosts });
+  const verify = () =>
+    approvedCheckout ? Promise.resolve() : Promise.reject(new Error("checkout changed"));
+  await expect(
+    workspace.dispatcherHost.launch(
+      { ...launchRequest, host: "worker" },
+      proof,
+      "dispatcher",
+      verify,
+      vi.fn(),
+    ),
+  ).rejects.toThrow("checkout changed");
+  expect(prepareCheckout).not.toHaveBeenCalled();
+  expect(launch).not.toHaveBeenCalled();
 });
 
 test("workspace wires the source session, trusted elevation, and live dispatcher board through control runtime", async () => {

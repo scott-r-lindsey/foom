@@ -21,7 +21,11 @@ import { approvedCodeFolder } from "./management";
 import { manageHost } from "./management";
 import { version } from "../../../package.json";
 import { LaunchFailure } from "../../shared/launch-failure";
-import { record } from "../../shared/remote-agent-protocol";
+import {
+  record,
+  REMOTE_CONTROL_DEADLINE_MS,
+  remoteWaitDeadline,
+} from "../../shared/remote-agent-protocol";
 import { prepareRemoteAgent } from "./agent-launch";
 import type { RemoteControlResult } from "../../shared/remote-agent";
 import type { HookSignal } from "../../shared/hooks";
@@ -783,7 +787,7 @@ export function serveHost(
                     const timer = setTimeout(() => {
                       calls.delete(call);
                       resolve({ type: "error", error: "unavailable" });
-                    }, 10000);
+                    }, remoteWaitDeadline(method, params) ?? REMOTE_CONTROL_DEADLINE_MS);
                     calls.set(call, { id: sessionId, socket: connection, resolve, timer });
                     void send(connection, {
                       type: "agent-call",

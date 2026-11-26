@@ -13,6 +13,16 @@ import { conversationId } from "./conversation";
 export const REMOTE_PHASE_2_REASON =
   "Remote phase 2 permits only handoff, manual and sanitized identity; filesystem preview and fleet/repository tools are unavailable to remote children.";
 export const REMOTE_AGENT_BYTES = 65536;
+export const REMOTE_CONTROL_DEADLINE_MS = 10000;
+
+/** Allow the advertised bounded wait plus relay overhead after request validation. */
+export function remoteWaitDeadline(method: string, params: unknown): number | undefined {
+  if (method !== "wait_for" || !record(params)) return;
+  const timeout = params["timeoutMs"];
+  if (typeof timeout === "number" && Number.isInteger(timeout) && timeout >= 0 && timeout <= 30000)
+    return Math.max(REMOTE_CONTROL_DEADLINE_MS, timeout + 5000);
+}
+
 export const REMOTE_ORCHESTRATOR_METHODS = [
   "manual",
   "whoami",

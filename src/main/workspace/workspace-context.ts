@@ -148,7 +148,11 @@ export class WorkspaceContext {
           active();
           hosts.registered(host, registration.codeFolder);
         };
-        const target = await hosts.repositoryTarget(host, repository.path, scope);
+        const validate = async () => {
+          await verify();
+          scope();
+        };
+        const target = await hosts.repositoryTarget(host, repository.path, validate);
         const placement = target.machine?.repository;
         const folder = target.machine?.codeFolder;
         if (!placement || folder !== registration.codeFolder)
@@ -157,10 +161,7 @@ export class WorkspaceContext {
           target,
           path: `${folder}/${placement.directory}`,
           origin: placement.origin,
-          validate: async () => {
-            await verify();
-            scope();
-          },
+          validate,
         };
       }
       const id = await orchestrationCommands.launchOrchestrator.call(

@@ -259,6 +259,36 @@ test("dispatcher eligibility expires on source exit and a changed repository inv
   expect(setup(tool).counts).toEqual({});
 });
 
+test("dispatcher stop replay returns the original receipt after the orchestrator exits", async () => {
+  const { call, elevate, host, rows } = harness();
+  await elevate();
+  const stop = { id: "primary-orchestrator", idempotencyKey: "stop-replay" };
+  const stopped = await call("stop", stop);
+  expect(stopped).toMatchObject({ status: "succeeded" });
+  const row = rows.find(({ id }) => id === stop.id);
+  if (!row) throw new Error("Missing fixture orchestrator");
+  row.exited = true;
+  await expect(call("stop", stop)).resolves.toEqual(stopped);
+  await expect(call("stop", { ...stop, id: "another" })).rejects.toThrow("conflict");
+  expect(host.stop).toHaveBeenCalledOnce();
+});
+
+test("dispatcher launch replay returns the original receipt after the repository is renamed", async () => {
+  const { call, elevate, host, repos } = harness();
+  await elevate();
+  const start = { ...launch, repo: "primary" };
+  const started = await call("launch_orchestrator", start);
+  expect(started).toMatchObject({ status: "succeeded" });
+  const target = repos.find(({ name }) => name === start.repo);
+  if (!target) throw new Error("Missing fixture repository");
+  target.name = "renamed";
+  await expect(call("launch_orchestrator", start)).resolves.toEqual(started);
+  await expect(
+    call("launch_orchestrator", { ...start, prompt: "Different prompt" }),
+  ).rejects.toThrow("conflict");
+  expect(host.launch).toHaveBeenCalledOnce();
+});
+
 test("dispatcher restores a verified scope and rejects a replaced source directory", async () => {
   const { dispatcher, host, elevate, service, rows } = harness();
   await elevate();

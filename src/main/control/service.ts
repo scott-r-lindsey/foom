@@ -28,6 +28,10 @@ export const MCP_CONNECTION_DEADLINE_MS = 30000;
 export const BOARD_METHODS = ["board_threads", "board_read", "board_post", "board_resolve"];
 
 const READ_ONLY = ["whoami", "sessions", "session_state"];
+const dispatcherCli = new Map([
+  ["prompt", "foom prompt ID --text TEXT --idempotency-key KEY"],
+  ["wait_for", "foom wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000]"],
+]);
 
 function digest(value: string): Buffer {
   return createHash("sha256").update(value).digest();
@@ -287,9 +291,11 @@ export class ControlService {
             ...(name === "manual"
               ? {}
               : {
-                  cli: `foom ${name.startsWith("board_") ? name.replace("board_", "board ") : name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
+                  cli:
+                    (actor.role === "dispatcher" ? dispatcherCli.get(name) : undefined) ??
+                    `foom ${name.startsWith("board_") ? name.replace("board_", "board ") : name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
                 }),
-            ...(name === "wait_for"
+            ...(name === "wait_for" && actor.role !== "dispatcher"
               ? {
                   longWait:
                     "foom wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--timeout SECONDS]",

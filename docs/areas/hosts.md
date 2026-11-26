@@ -1126,9 +1126,13 @@ the existing launch policy.
 A dispatcher can nominate a registered SSH host for a source repository's
 orchestrator. Main reuses approved origin-derived checkout preparation and
 the repository orchestrator slot, including when placement is remote. The
-remote agent prepares the main checkout, validates its configured origin
+dispatcher revalidates the source checkout proof after provider discovery and
+again at clone dispatch. The remote agent prepares the main checkout,
+validates its configured origin
 and confirms its identity before spawning. The SSH stdio relay exposes only
 the current repository orchestrator's control calls through a per-launch
-private endpoint. `foom call METHOD --params JSON` provides a fallback on
-that host. Remote children retain the phase-2 relay and existing reconnect
+private endpoint. Bounded `wait_for` calls can wait up to 30 seconds, with spare
+time for the relay and private socket to return the result.
+`foom call METHOD --params JSON` provides a fallback on that host.
+Remote children retain the phase-2 relay and existing reconnect
 rules.

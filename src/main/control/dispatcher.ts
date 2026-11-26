@@ -513,13 +513,23 @@ export class Dispatcher {
     }
     if (method === "launch_orchestrator") {
       const input = dispatcherLaunch(params);
+      const payload = JSON.stringify(input);
+      const replay = operations.replay(
+        actor,
+        "launch",
+        input.idempotencyKey,
+        payload,
+        undefined,
+        true,
+      );
+      if (replay) return replay;
       const repository = await this.currentRepository(scope, input.repo);
       authorize();
       const operation = await operations.begin(
         actor,
         "launch",
         input.idempotencyKey,
-        JSON.stringify(input),
+        payload,
         locationId(repository.path),
         true,
       );
@@ -626,8 +636,11 @@ export class Dispatcher {
     const key = identifier(params["idempotencyKey"]);
     const input = { kind: "prompt", text: params["text"] };
     if (method === "prompt" && !isChildInput(input)) throw new ControlError("invalid_request");
+    const payload = JSON.stringify(input);
+    const replay = operations.replay(actor, method, key, payload, id);
+    if (replay) return replay;
     await target(id);
-    const operation = await operations.begin(actor, method, key, JSON.stringify(input), id);
+    const operation = await operations.begin(actor, method, key, payload, id);
     if (!operation.created) return operations.lookup(actor, { operationId: operation.operationId });
     let dispatched = false;
     try {

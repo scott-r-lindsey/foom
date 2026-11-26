@@ -143,12 +143,14 @@ export class ControlMcp {
       return result({});
     }
     if (!session.ready) throw new ControlError("invalid_request");
-    const available = this.service.listed(actor).flatMap((name) =>
-      mcpTools(
-        this.service.childLimit(),
-        agentProviders().map((provider) => provider.id),
-      ).filter((tool) => tool.name === name),
+    const registry = mcpTools(
+      this.service.childLimit(),
+      agentProviders().map((provider) => provider.id),
+      actor.role === "dispatcher",
     );
+    const available = this.service
+      .listed(actor)
+      .flatMap((name) => registry.filter((tool) => tool.name === name));
     if (request["method"] === "tools/list") {
       requireField(
         params["cursor"] === undefined || typeof params["cursor"] === "string",
@@ -165,8 +167,11 @@ export class ControlMcp {
       try {
         if (params["name"] !== "handoff" && !available.some((tool) => tool.name === params["name"]))
           throw new ControlError("forbidden");
-        if (params["name"] === "wait_for")
-          exact(object(params["arguments"] ?? {}), ["ids", "after", "timeoutMs", "boardAfter"]);
+        if (params["name"] === "wait_for") {
+          const fields = ["ids", "after", "timeoutMs"];
+          if (actor.role !== "dispatcher") fields.push("boardAfter");
+          exact(object(params["arguments"] ?? {}), fields);
+        }
         const value = await this.service.call(actor, {
           version: 1,
           instanceId: this.service.instanceId,

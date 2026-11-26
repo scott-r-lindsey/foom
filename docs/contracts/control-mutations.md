@@ -438,8 +438,13 @@ to read the next page.
 optional `host` and `reason`. The result is an operation receipt. For unapproved
 repositories its initial state is `pending_confirmation`. Use
 `operation_status` under the same grant to read the human's decision and the
-launch result. A retry with the original key and payload returns that receipt.
+launch result. A retry with the original key and payload returns that receipt
+even if the source repository has moved. Prompt and stop similarly return the
+existing receipt after the target goes away.
 
 `prompt`, `stop`, `session_state`, `read_handoff` and bounded `wait_for` accept
-only the dispatcher's adopted or launched orchestrator IDs. Launch grants and
-answers remain human board actions. See [Dispatcher](../areas/dispatcher.md).
+only the dispatcher's adopted or launched orchestrator IDs. Dispatcher prompts
+accept `id`, `text` and `idempotencyKey`. Dispatcher waits require 1–16
+distinct `ids` and accept `after` revisions by ID and `timeoutMs` from zero
+to 30,000. Launch grants and answers remain human board actions.
+See [Dispatcher](../areas/dispatcher.md).

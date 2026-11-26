@@ -148,7 +148,13 @@ From the dispatcher session, run `foom repos` or
 `foom launch-orchestrator REPO --agent PROVIDER --prompt TEXT --idempotency-key KEY`.
 The launch command accepts `--host HOST` and `--reason TEXT`. A pending receipt
 appears as a launch grant in the dispatcher's decisions pill. Read it with
-`foom operation-status --idempotency-key KEY`. Use `prompt`, `stop`,
-`session-state`, `read-handoff` and bounded `wait-for` with the owned
-orchestrator IDs from `repos`. Elevation, demotion and grant answers use the
-trusted desktop UI.
+`foom operation-status --idempotency-key KEY`. Use `stop`, `session-state` and
+`read-handoff` with the owned orchestrator IDs from `repos`. Dispatcher prompt
+and wait commands take these arguments.
+
+```text
+foom prompt ID --text TEXT --idempotency-key KEY
+foom wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000]
+```
+
+Elevation, demotion and grant answers use the trusted desktop UI.
