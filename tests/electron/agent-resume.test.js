@@ -175,7 +175,7 @@ if (resumed) {
     assert.ok(firstLaunch.token);
     assert.ok(resumedLaunch.token);
     assert.notEqual(resumedLaunch.token, firstLaunch.token);
-    const tile = restored.locator(".terminal-tile");
+    const tile = restored.locator('.terminal-tile[data-kind="agent"]');
     await expect(tile.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
     await expect(tile.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
     await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
@@ -191,20 +191,6 @@ if (resumed) {
     await expect(close).toHaveText("×");
     await expect(close).toHaveAttribute("title", "Close");
     if (agent === "codex") {
-      const header = tile.locator(".tile-title");
-      const narrow = await header.evaluate((element) => {
-        element.style.maxWidth = "160px";
-        try {
-          const headerBounds = element.getBoundingClientRect();
-          return [...element.querySelectorAll("button")].map((button) => {
-            const bounds = button.getBoundingClientRect();
-            return bounds.left >= headerBounds.left && bounds.right <= headerBounds.right;
-          });
-        } finally {
-          element.style.removeProperty("max-width");
-        }
-      });
-      assert.deepEqual(narrow, [true, true, true, true]);
       for (const theme of ["eclipse-light", "eclipse-dark"]) {
         await restored.evaluate(
           (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
@@ -251,24 +237,38 @@ if (resumed) {
         restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
       )
       .toBe(true);
-    await close.click();
-    await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
-    await expect(restored.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
-    await expect
-      .poll(() =>
-        restored.evaluate(async () => (await window.desktop.workspace()).terminals.length),
-      )
-      .toBe(0);
-    await expect
-      .poll(async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")))
-      .toEqual([]);
-    assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);
+    let shell;
     if (agent === "codex") {
-      const shell = await restored.evaluate(() =>
-        window.desktop.sidebarCommand({ kind: "home-shell" }),
-      );
+      await restored.emulateMedia({ reducedMotion: "reduce" });
+      const tileMenu = tile.getByRole("button", { name: "Tile 1 menu", exact: true });
+      await tileMenu.click();
+      await restored.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
+      shell = await restored.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
       await restored.locator(`[data-drag-session="${shell.terminalId}"]`).click();
-      await expect(restored.locator(".xterm-helper-textarea")).toBeVisible();
+      await expect(restored.locator('.terminal-tile[data-kind="shell"] .xterm')).toBeVisible();
+      await restored.getByRole("separator", { name: "Resize tiles" }).press("Home");
+      await expect.poll(() => tile.evaluate((element) => element.offsetWidth)).toBeLessThan(120);
+      // Locator clicks can scroll an overflow-hidden tile. Test the buttons
+      // where the board actually lays them out before Playwright can scroll.
+      const hittable = await tile.evaluate((element) => {
+        const tileBounds = element.getBoundingClientRect();
+        return Array.from(element.querySelectorAll(".tile-title button"), (button) => {
+          const { left, right, top, bottom } = button.getBoundingClientRect();
+          return (
+            left >= tileBounds.left &&
+            right <= tileBounds.right &&
+            button.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2))
+          );
+        });
+      });
+      assert.deepEqual(hittable, [true, true, true, true]);
+    }
+    await close.click();
+    await expect(tile).toHaveCount(0);
+    await expect(restored.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
+    assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);
+    if (shell) {
+      await restored.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
       await restored.evaluate((id) => window.desktop.input(id, "exit\r"), shell.terminalId);
       await expect
         .poll(() =>
@@ -293,8 +293,16 @@ if (resumed) {
         await restored.getByRole("dialog", { name: "Tile 1 menu", exact: true }).press("Escape");
       }
       await restored.getByRole("button", { name: "Close", exact: true }).click();
-      await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
     }
+    await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals.length),
+      )
+      .toBe(0);
+    await expect
+      .poll(async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")))
+      .toEqual([]);
   });
 }
 

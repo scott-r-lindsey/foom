@@ -431,7 +431,7 @@ export function Tile({
           }}
         >
           {row && (
-            <>
+            <div className="tile-identity">
               <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
               <TileLight row={row} lightRef={lightRef} />
               {row.state === "waiting" && (
@@ -482,10 +482,10 @@ export function Tile({
                     : row.foregroundProgram}
                 </span>
               )}
-            </>
+            </div>
           )}
           {preview && (
-            <>
+            <div className="tile-identity">
               {arrived && (
                 <span className="visually-hidden" role="status">
                   New preview
@@ -512,7 +512,7 @@ export function Tile({
                 </span>
               )}
               {preview.network && <span className="session-program">network</span>}
-            </>
+            </div>
           )}
           <button
             ref={menuRef}
