@@ -1134,5 +1134,8 @@ the current repository orchestrator's control calls through a per-launch
 private endpoint. Bounded `wait_for` calls can wait up to 30 seconds, with spare
 time for the relay and private socket to return the result.
 `foom call METHOD --params JSON` provides a fallback on that host.
+After the orchestrator exits, **Resume conversation** and **New conversation
+here** start a human-owned agent in the same repository on that host. The
+relaunched agent has no orchestrator grant.
 Remote children retain the phase-2 relay and existing reconnect
 rules.

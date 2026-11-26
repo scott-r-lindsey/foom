@@ -146,6 +146,111 @@ test("dispatcher remote launch binds the selected host and its verified reposito
   expect(workspace.orchestration.active(repo.path)).toBe("orchestrator");
 });
 
+test.each([
+  { kind: "resume", persisted: false },
+  { kind: "new-conversation", persisted: false },
+  { kind: "resume", persisted: true },
+] as const)(
+  "an exited remote dispatcher launch can $kind on its host (persisted: $persisted)",
+  async ({ kind, persisted }) => {
+    scans.current = {
+      ...scans.current,
+      agents: scans.current.agents.map((agent) => ({ ...agent, initialPrompt: true })),
+    };
+    const folder = "/work/code";
+    const machine = {
+      codeFolder: folder,
+      repository: { directory: "repository-fixture", origin: "https://example.test/project.git" },
+    };
+    type Hosts = NonNullable<WorkspaceDependencies["hosts"]>;
+    const repositoryTarget = vi.fn<NonNullable<Hosts["repositoryTarget"]>>(
+      async (_host, _repo, validate) => {
+        await validate?.();
+        return { host: "worker", profile: "fixture", machine };
+      },
+    );
+    const hosts: Hosts = {
+      registered: () => ({ host: "worker", codeFolder: folder }),
+      requireAgent: () => Promise.resolve(),
+      worktree: vi.fn(),
+      fleet: () => Promise.resolve([]),
+      shellTarget: () => ({ host: "worker" }),
+      repositoryTarget,
+    };
+    const create = vi.fn<WorkspaceDependencies["terminals"]["create"]>(() =>
+      Promise.resolve("remote"),
+    );
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const workspace = createWorkspace({
+      ...deps,
+      hosts,
+      terminals: { ...deps.terminals, create },
+      ...(persisted && {
+        sessions: {
+          load: () =>
+            Promise.resolve(
+              readSessions([
+                {
+                  id: "remote",
+                  agent: "claude",
+                  repository: repo.path,
+                  worktree: "/foom-remote/fixture",
+                  branch: "Main checkout · worker",
+                  conversationId: "saved-conversation",
+                  remote: true,
+                  placement: { kind: "remote", host: "worker" },
+                  running: false,
+                },
+              ]),
+            ),
+          save: async () => {},
+          flush: async () => {},
+        },
+      }),
+    });
+    if (persisted) {
+      await workspace.restore();
+      expect(workspace.orchestration.view("remote")).toBeUndefined();
+    } else {
+      launch.mockImplementationOnce(async (request) => {
+        await request.prepareSpawn?.();
+        request.beforeSpawn?.();
+        if (request.control && "role" in request.control) request.control.beforeBind?.("remote");
+        return {
+          id: "remote",
+          attention: "evaluator",
+          remote: true,
+          placement: { kind: "remote", host: "worker" },
+          conversationId: "saved-conversation",
+        } as const;
+      });
+      await workspace.dispatcherHost.launch(
+        { ...launchRequest, host: "worker" },
+        proof,
+        "dispatcher",
+        async () => {},
+        () => {},
+        lifecycle,
+      );
+      await workspace.exited("remote", 0);
+      expect(workspace.orchestration.view("remote")).toMatchObject({
+        role: "orchestrator",
+        active: false,
+      });
+    }
+    await workspace.sidebarCommand({ kind, id: "remote" }, confirm);
+    expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      id: "remote",
+      remote: { host: "worker", machine: { ...machine, agent: "claude" } },
+      args: kind === "resume" ? ["--resume", "saved-conversation"] : [],
+    });
+    expect(repositoryTarget).toHaveBeenLastCalledWith("worker", repo.path);
+    expect(launch).toHaveBeenCalledTimes(persisted ? 0 : 1);
+    expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+  },
+);
+
 test("dispatcher revalidates the approved checkout before remote preparation dispatch", async () => {
   let approvedCheckout = true;
   const prepareCheckout = vi.fn();

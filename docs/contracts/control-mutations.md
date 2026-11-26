@@ -431,8 +431,9 @@ remain authoritative. A hidden board row is not proof of completed cleanup.
 `repos` lists direct Git repositories in the launch's source directory, their
 pre-approval status, their active orchestrators, PR summaries and open decision
 titles. Launch selectors use the returned `repo` directory name.
-The response includes up to 16 repositories. Pass `nextCursor` as `after`
-to read the next page.
+The response includes up to 16 repositories and fits the complete 256 KiB MCP
+response budget. Pass `nextCursor` as `after` to continue, including when the
+byte budget shortens a page.
 
 `launch_orchestrator` requires `repo`, `agent`, `prompt` and `idempotencyKey`, with
 optional `host` and `reason`. The result is an operation receipt. For unapproved

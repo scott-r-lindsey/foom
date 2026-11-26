@@ -4,9 +4,15 @@ import { tmpdir } from "node:os";
 import { expect, test, vi } from "vitest";
 import { Dispatcher, type DispatcherHost } from "../../../../src/main/control/dispatcher";
 import { ControlService } from "../../../../src/main/control/service";
+import { identifier, object } from "../../../../src/shared/control-validation";
 import { locationId } from "../../../../src/main/control/metadata";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { Operations } from "../../../../src/main/control/operations";
+import {
+  MCP_ID_LIMIT,
+  MCP_RESPONSE_LIMIT,
+  mcpToolResponse,
+} from "../../../../src/node-common/mcp-response";
 import { atomicPrivate, privateDirectory } from "../../../../src/node-common/private-files";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 
@@ -62,13 +68,11 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
     save,
     () => {},
   );
+  const persist = vi.fn(() => Promise.resolve());
   const service: ControlService = new ControlService(
-    new Operations(
-      () => Promise.resolve(),
-      (actor) => {
-        service.assertActive(actor);
-      },
-    ),
+    new Operations(persist, (actor) => {
+      service.assertActive(actor);
+    }),
     () => rows,
     orchestration,
     undefined,
@@ -102,7 +106,7 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
       service.setRole.bind(service),
     );
   };
-  return { host, dispatcher, service, rows, repos, save, call, elevate, source };
+  return { host, dispatcher, service, rows, repos, save, persist, call, elevate, source };
 }
 
 const launch = {
@@ -509,6 +513,86 @@ test("failed elevation and demotion never leave a half-written role grant", asyn
   await expect(call("repos")).resolves.toMatchObject({ untrusted: true });
   await dispatcher.demote("dispatcher", service.setRole.bind(service));
   await expect(call("repos")).rejects.toThrow("forbidden");
+});
+
+test("repository inventory pages fit the complete MCP response and retain every repository", async () => {
+  const tool = harness({
+    call: vi.fn(),
+    pullRequest: () => ({
+      number: 1,
+      headSha: "a".repeat(40),
+      state: "OPEN",
+      requiredChecks: "pending",
+      title: '"'.repeat(1024),
+      sourceName: "界".repeat(1024),
+      url: "https://example.test/" + "界".repeat(4000),
+    }),
+  });
+  const names = Array.from({ length: 16 }, (_, i) => `project-${i.toString().padStart(2, "0")}`);
+  const projects = names.map((name) => ({ name, path: join(directory, name), identity: name }));
+  tool.host.repositories.mockResolvedValue(projects);
+  for (const project of projects) tool.rows.push(row(project.name, project.path, "orchestrator"));
+  await tool.elevate([]);
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = object(await tool.call("repos", cursor ? { after: cursor } : {}));
+    expect(
+      Buffer.byteLength(JSON.stringify(mcpToolResponse("\u0000".repeat(MCP_ID_LIMIT), page))),
+    ).toBeLessThanOrEqual(MCP_RESPONSE_LIMIT);
+    const repos = page["repos"];
+    if (!Array.isArray(repos) || !repos.length) throw new Error("Missing repository page");
+    for (const repo of repos) seen.push(identifier(object(repo)["repo"]));
+    const next = page["nextCursor"];
+    cursor = next === null ? null : identifier(next);
+    if (cursor) expect(cursor).toBe(seen.at(-1));
+  } while (cursor && seen.length < names.length);
+  expect(cursor).toBeNull();
+  expect(seen).toEqual(names);
+});
+
+test("failed grant settlement leaves the unattempted suffix open and retryable by the same batch", async () => {
+  const tool = harness();
+  await tool.elevate([]);
+  const second = { ...launch, repo: "primary", idempotencyKey: "second-key" };
+  await tool.call("launch_orchestrator", launch);
+  await tool.call("launch_orchestrator", second);
+  const [firstQuestion, secondQuestion] = setup(tool).questions;
+  if (!firstQuestion || !secondQuestion) throw new Error("Missing grant questions");
+  const batch = {
+    idempotencyKey: "declines",
+    answers: [firstQuestion, secondQuestion].map(({ post }) => ({
+      post,
+      index: 0,
+      option: "decline",
+    })),
+  };
+  const writing = Promise.withResolvers<undefined>();
+  tool.persist.mockReturnValueOnce(writing.promise);
+  const pending = tool.dispatcher.answer(batch);
+  const failed = expect(pending).rejects.toThrow("unavailable");
+  expect(tool.dispatcher.answer(batch)).toBe(pending);
+  expect(() =>
+    tool.dispatcher.answer({
+      idempotencyKey: "overlapping-decline",
+      answers: [{ post: secondQuestion.post, index: 0, option: "decline" }],
+    }),
+  ).toThrow("conflict");
+  writing.reject(new Error("Disk unavailable"));
+  await failed;
+  expect(setup(tool).questions.map(({ post }) => post)).toEqual([secondQuestion.post]);
+  await expect(tool.call("launch_orchestrator", launch)).resolves.toMatchObject({
+    status: "indeterminate",
+  });
+  await expect(tool.call("launch_orchestrator", second)).resolves.toMatchObject({
+    status: "pending_confirmation",
+  });
+  await expect(tool.dispatcher.answer(batch)).resolves.toMatchObject({ post: firstQuestion.post });
+  await expect(tool.call("launch_orchestrator", second)).resolves.toMatchObject({
+    status: "declined",
+  });
+  expect(setup(tool).questions).toEqual([]);
+  expect(tool.host.launch).not.toHaveBeenCalled();
 });
 
 test("source exit during the directory check prevents opening the elevation dialog", async () => {

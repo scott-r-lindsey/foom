@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { fitsMcpToolResponse } from "../../node-common/mcp-response";
 import { atomicPrivate, verifyPrivate } from "../../node-common/private-files";
 import { ControlError, exact, identifier, object } from "../../shared/control-validation";
 import type {
@@ -458,9 +459,15 @@ export class Dispatcher {
     return locationId(JSON.stringify(["dispatcher", id]));
   }
   private readonly requests = new Map<string, PendingGrant>();
+  private readonly answering = new Set<string>();
   private readonly answers = new Map<
     string,
-    { fingerprint: string; result: Promise<BoardMutation> }
+    {
+      fingerprint: string;
+      receipt: BoardMutation;
+      attempted: number;
+      result?: Promise<BoardMutation>;
+    }
   >();
 
   private async currentRepository(scope: Scope, name: string) {
@@ -499,65 +506,73 @@ export class Dispatcher {
       authorize();
       const start = after === undefined ? 0 : repos.findIndex(({ name }) => name === after) + 1;
       if (after !== undefined && start === 0) throw new ControlError("not_found");
-      const page = repos.slice(start, start + limit);
       const rows = this.rows();
-      return {
-        repos: page.map((repository) => {
-          const id = locationId(repository.path);
-          const preApproved = scope.approved.some(
-            (item) => item.name === repository.name && item.identity === repository.identity,
-          );
-          const decisions = board?.decisions({ repository: id, watch: [] });
-          const related = rows.filter((row) => row.repository === repository.path);
-          const targets = related.filter(
-            (row) =>
-              row.orchestration?.role === "orchestrator" && row.orchestration.active && !row.exited,
-          );
-          const adopted = this.owned(scope, targets);
-          const states = metadata.states(
-            { ...actor, repository: repository.path },
-            related.map(({ id }) => id),
-          );
-          const byId = new Map(states.map((state) => [state.id, state]));
-          const pullRequests = new Map(
-            states.flatMap(({ pullRequest }) =>
-              pullRequest
-                ? [
-                    [
-                      pullRequest.number,
-                      {
-                        number: pullRequest.number,
-                        state: pullRequest.state,
-                        checks: pullRequest.requiredChecks,
-                      },
-                    ] as const,
-                  ]
-                : [],
-            ),
-          );
-          return {
-            name: metadataName(repository.name),
-            repo: repository.name,
-            preApproved,
-            pullRequests: [...pullRequests.values()].slice(0, 16),
-            orchestrators: targets.map((row) => {
-              const state = byId.get(row.id);
-              return {
-                id: row.id,
-                adopted: adopted.includes(row),
-                host: state?.host ?? null,
-                agent: row.agent,
-                state: state?.state,
-                pullRequest: state?.pullRequest ?? null,
-                decisionCount: decisions?.counts[id] ?? 0,
-                questions: decisions?.questions.map(({ question }) => question.title) ?? [],
-              };
-            }),
-          };
-        }),
-        nextCursor: start + page.length < repos.length ? (page.at(-1)?.name ?? null) : null,
-        untrusted: true,
+      const project = (repository: RepositoryProof) => {
+        const id = locationId(repository.path);
+        const preApproved = scope.approved.some(
+          (item) => item.name === repository.name && item.identity === repository.identity,
+        );
+        const decisions = board?.decisions({ repository: id, watch: [] });
+        const related = rows.filter((row) => row.repository === repository.path);
+        const targets = related.filter(
+          (row) =>
+            row.orchestration?.role === "orchestrator" && row.orchestration.active && !row.exited,
+        );
+        const adopted = this.owned(scope, targets);
+        const states = metadata.states(
+          { ...actor, repository: repository.path },
+          related.map(({ id }) => id),
+        );
+        const byId = new Map(states.map((state) => [state.id, state]));
+        const pullRequests = new Map(
+          states.flatMap(({ pullRequest }) =>
+            pullRequest
+              ? [
+                  [
+                    pullRequest.number,
+                    {
+                      number: pullRequest.number,
+                      state: pullRequest.state,
+                      checks: pullRequest.requiredChecks,
+                    },
+                  ] as const,
+                ]
+              : [],
+          ),
+        );
+        return {
+          name: metadataName(repository.name),
+          repo: repository.name,
+          preApproved,
+          pullRequests: [...pullRequests.values()].slice(0, 16),
+          orchestrators: targets.map((row) => {
+            const state = byId.get(row.id);
+            return {
+              id: row.id,
+              adopted: adopted.includes(row),
+              host: state?.host ?? null,
+              agent: row.agent,
+              state: state?.state,
+              pullRequest: state?.pullRequest ?? null,
+              decisionCount: decisions?.counts[id] ?? 0,
+              questions: decisions?.questions.map(({ question }) => question.title) ?? [],
+            };
+          }),
+        };
       };
+      const page: ReturnType<typeof project>[] = [];
+      let nextCursor: string | null = null;
+      for (const repository of repos.slice(start, start + limit)) {
+        const entry = project(repository);
+        const next = start + page.length + 1 < repos.length ? entry.repo : null;
+        if (!fitsMcpToolResponse({ repos: [...page, entry], nextCursor: next, untrusted: true })) {
+          if (!page.length) throw new ControlError("capacity");
+          break;
+        }
+        page.push(entry);
+        nextCursor = next;
+      }
+      return { repos: page, nextCursor, untrusted: true };
     }
     if (method === "launch_orchestrator") {
       const input = dispatcherLaunch(params);
@@ -824,39 +839,57 @@ export class Dispatcher {
     const input = boardAnswers(value);
     const fingerprint = JSON.stringify(input);
     const replay = this.answers.get(input.idempotencyKey);
-    if (replay) {
-      if (replay.fingerprint !== fingerprint) throw new ControlError("conflict");
-      return replay.result;
-    }
-    if (!input.answers.some(({ post }) => this.requests.has(post))) return;
-    const answers = input.answers.map(({ post, index, option }) => {
+    if (replay && replay.fingerprint !== fingerprint) throw new ControlError("conflict");
+    if (replay?.result) return replay.result;
+    if (!replay && !input.answers.some(({ post }) => this.requests.has(post))) return;
+    const answers = input.answers.slice(replay?.attempted ?? 0).map(({ post, index, option }) => {
       const request = this.requests.get(post);
       if (!request || index !== 0 || !GRANT_OPTIONS.some(({ id }) => id === option))
         throw new ControlError("invalid_request");
+      if (this.answering.has(post)) throw new ControlError("conflict");
       request.authorize();
-      return { request, option };
+      return { post, request, option };
     });
-    if (this.answers.size >= 4096) throw new ControlError("capacity");
-    for (const { request } of answers) this.requests.delete(request.operation.operationId);
-    const result = (async () => {
-      for (const { request, option } of answers) {
-        if (option === "decline") {
-          await request.operations.finish(
-            request.actor,
-            request.operation.operationId,
-            "declined",
-            "refused",
-          );
-        } else {
-          await this.launch(request, option === "add");
+    let batch = replay;
+    if (!batch) {
+      if (this.answers.size >= 4096) throw new ControlError("capacity");
+      const first = answers[0];
+      if (!first) throw new ControlError("invalid_request");
+      const thread = Dispatcher.decisionScope(first.request.actor.terminalId);
+      batch = { fingerprint, attempted: 0, receipt: { thread, post: first.post } };
+      this.answers.set(input.idempotencyKey, batch);
+    }
+    const completion = batch;
+    for (const { post } of answers) this.answering.add(post);
+    const result = Promise.resolve().then(async () => {
+      try {
+        for (const { post, request, option } of answers) {
+          request.authorize();
+          // A write failure records an indeterminate outcome for this grant.
+          // Consume only the attempted prefix so a retry can settle the suffix.
+          completion.attempted++;
+          this.requests.delete(post);
+          this.changed();
+          if (option === "decline") {
+            await request.operations.finish(
+              request.actor,
+              request.operation.operationId,
+              "declined",
+              "refused",
+            );
+          } else {
+            await this.launch(request, option === "add");
+          }
         }
+        return completion.receipt;
+      } catch (error) {
+        delete completion.result;
+        throw error;
+      } finally {
+        for (const { post } of answers) this.answering.delete(post);
       }
-      const post = input.answers[0]?.post;
-      if (!post) throw new ControlError("invalid_request");
-      return { thread: Dispatcher.decisionScope(answers[0]?.request.actor.terminalId ?? ""), post };
-    })();
-    this.answers.set(input.idempotencyKey, { fingerprint, result });
-    this.changed();
+    });
+    completion.result = result;
     return result;
   }
 }

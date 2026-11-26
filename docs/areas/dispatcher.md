@@ -43,7 +43,9 @@ intent before acting. A rejection before the PTY spawn boundary reports failure.
 An error after spawn dispatch can report an indeterminate outcome. Authorization
 ends on demotion or process exit, including if the demotion save fails after exit.
 If the source exits while elevation is being saved, main rolls back the scope
-and releases the directory slot.
+and releases the directory slot. A failed grant write leaves unattempted
+questions open. Retrying with the same answer key continues at the first
+unattempted grant. Use the launch operation receipts to inspect each outcome.
 
 The dispatcher grant allows `repos`, `launch_orchestrator`, `prompt`, `stop`,
 `read_handoff`, `session_state`, `wait_for` and `operation_status`. Human answers
