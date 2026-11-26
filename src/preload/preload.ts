@@ -819,6 +819,7 @@ const validSettings: Validator<Settings> = shape({
   terminalTheme: validTerminalThemeChoice,
   sound: validSoundSettings,
   codeFolder: either(nil, text),
+  sourceDirectory: either(nil, text),
 } satisfies Contract<Settings>);
 
 const validSetupState: Validator<SetupState> = shape({
@@ -1068,6 +1069,7 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   bypass: either(absent, boolean),
   home: either(absent, boolean),
   machine: either(absent, boolean),
+  sourceSession: either(absent, literal(true)),
   config: either(absent, boolean),
   probe: either(absent, boolean),
   recipe: either(absent, boolean),

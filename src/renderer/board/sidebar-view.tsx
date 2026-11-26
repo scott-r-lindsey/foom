@@ -58,6 +58,8 @@ export function Sidebar(props: SidebarProps) {
     homeRows,
     homeActions,
     visibleHomeRows,
+    sourceRows,
+    sourceActions,
     configRows,
     shellRef,
     toggleButtonRef,
@@ -86,6 +88,17 @@ export function Sidebar(props: SidebarProps) {
     panel,
     matchingPreviews,
   } = useSidebar(props);
+  const sourceDirectory = options?.sourceDirectory;
+  const sourceDirectories = new Set([
+    ...(sourceDirectory ? [sourceDirectory] : []),
+    ...sourceRows.map((row) => row.repository),
+  ]);
+  const sourceFilter = filter.trim().toLocaleLowerCase();
+  const matchingSourceRows = sourceRows.filter((row) =>
+    `${row.repository} ${sessionName(row, preferences)} ${row.reason}`
+      .toLocaleLowerCase()
+      .includes(sourceFilter),
+  );
   return (
     <aside
       ref={shellRef}
@@ -255,11 +268,72 @@ export function Sidebar(props: SidebarProps) {
               )}
             </div>
           )}
-          {compact && (homeRows.length > 0 || configRows.length > 0) && (
+          {compact && (homeRows.length > 0 || configRows.length > 0 || sourceRows.length > 0) && (
             <div className="rail-group">
-              {[...homeRows, ...configRows].map((row) => session(row))}
+              {[...homeRows, ...sourceRows, ...configRows].map((row) => session(row))}
             </div>
           )}
+          {!compact &&
+            [...sourceDirectories].map((directory) => {
+              const id =
+                directory === sourceDirectory
+                  ? "source-directory"
+                  : `source-directory:${directory}`;
+              const matching = matchingSourceRows.filter((row) => row.repository === directory);
+              if (
+                !matching.length &&
+                sourceFilter &&
+                !directory.toLocaleLowerCase().includes(sourceFilter)
+              )
+                return null;
+              const expanded = preferences.expanded[id] !== false;
+              return (
+                <div
+                  key={directory}
+                  role="treeitem"
+                  aria-label={`Source directory ${directory}`}
+                  aria-expanded={expanded}
+                >
+                  <div
+                    className="tree-row home-row"
+                    {...(directory === sourceDirectory ? rowEvents(id) : {})}
+                  >
+                    <button
+                      type="button"
+                      className="tree-chevron"
+                      aria-label="Toggle source sessions"
+                      onClick={() => {
+                        toggle(id, expanded);
+                      }}
+                    >
+                      {expanded ? "▾" : "▸"}
+                    </button>
+                    {directory === sourceDirectory ? (
+                      <>
+                        <button
+                          type="button"
+                          data-nav
+                          className="tree-name"
+                          title={directory}
+                          onClick={(event) => {
+                            togglePanel(id, event.currentTarget);
+                          }}
+                        >
+                          <PanelMark mark="repository" />
+                          {directory}
+                        </button>
+                        {actions(id, "source directory", sourceActions)}
+                      </>
+                    ) : (
+                      <span className="tree-name" title={directory}>
+                        {directory}
+                      </span>
+                    )}
+                  </div>
+                  {expanded && <div role="group">{matching.map((row) => session(row))}</div>}
+                </div>
+              );
+            })}
           {compact && matchingPreviews.map(previewRow)}
           {otherPreviews.map(previewRow)}
 
@@ -276,6 +350,7 @@ export function Sidebar(props: SidebarProps) {
                     .filter(
                       (row) =>
                         row.machine &&
+                        !row.sourceSession &&
                         (row.placement?.kind === "remote" ? row.placement.host : null) ===
                           machine.host &&
                         (compact ||
@@ -292,6 +367,7 @@ export function Sidebar(props: SidebarProps) {
             .filter(
               (row) =>
                 row.machine &&
+                !row.sourceSession &&
                 !homeRows.includes(row) &&
                 !(source.getMachines?.() ?? []).some(
                   (machine) =>
@@ -299,9 +375,14 @@ export function Sidebar(props: SidebarProps) {
                 ),
             )
             .map((row) => session(row))}
-          {!compact && filter.trim() && tree.length === 0 && visibleHomeRows.length === 0 && (
-            <p className="tree-empty">No matches</p>
-          )}
+          {!compact &&
+            filter.trim() &&
+            tree.length === 0 &&
+            visibleHomeRows.length === 0 &&
+            matchingSourceRows.length === 0 &&
+            ![...sourceDirectories].some((directory) =>
+              directory.toLocaleLowerCase().includes(sourceFilter),
+            ) && <p className="tree-empty">No matches</p>}
           {compact
             ? tree.map((repo) => (
                 <div className="rail-group" key={repo.repository.path}>

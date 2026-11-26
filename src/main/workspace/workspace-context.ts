@@ -93,6 +93,7 @@ export class WorkspaceContext {
   concurrentChildren = 4;
   showNewChildren = true;
   defaultAgent: string | null = null;
+  sourceDirectory: string | null = null;
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
   private localOnlyChange = false;
@@ -470,6 +471,7 @@ export class WorkspaceContext {
           | "closeFinishedAgents"
           | "restoreSessions"
           | "defaultAgent"
+          | "sourceDirectory"
           | "concurrentChildren"
           | "wakeOrchestrator"
           | "wakeIntervalMinutes"
@@ -485,6 +487,7 @@ export class WorkspaceContext {
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
     this.defaultAgent = settings.defaultAgent ?? null;
+    this.sourceDirectory = settings.sourceDirectory ?? null;
     this.orchestration.configureWake(
       settings.wakeOrchestrator ?? false,
       settings.wakeIntervalMinutes ?? 3,

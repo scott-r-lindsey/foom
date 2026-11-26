@@ -77,6 +77,7 @@ function parseSessions(value: unknown, recoverDuplicateWorktrees = false): Store
       conversationId: conversation,
       home,
       machine,
+      sourceSession,
       config,
       running,
       orchestrator,
@@ -107,6 +108,11 @@ function parseSessions(value: unknown, recoverDuplicateWorktrees = false): Store
           home !== true ||
           parentId !== undefined ||
           orchestrator !== undefined)) ||
+      (sourceSession !== undefined &&
+        (sourceSession !== true ||
+          machine !== true ||
+          remote !== undefined ||
+          agent === "shell")) ||
       (home !== undefined &&
         (home !== true ||
           (agent !== "shell" && machine !== true) ||
@@ -196,6 +202,7 @@ function parseSessions(value: unknown, recoverDuplicateWorktrees = false): Store
       ...(parentId === undefined ? {} : { parentId }),
       ...(home === true ? { home: true } : {}),
       ...(machine === true ? { machine: true } : {}),
+      ...(sourceSession === true ? { sourceSession } : {}),
       ...(config === true ? { config: true } : {}),
       agent,
       repository,
@@ -244,6 +251,7 @@ export class SessionStore {
           closeState,
           home,
           machine,
+          sourceSession,
           config,
           handoffs,
           selection,
@@ -263,6 +271,7 @@ export class SessionStore {
           ...(closeState ? { closeState } : {}),
           ...(home ? { home: true } : {}),
           ...(machine ? { machine: true } : {}),
+          ...(sourceSession ? { sourceSession: true } : {}),
           ...(config ? { config: true } : {}),
           id,
           agent,

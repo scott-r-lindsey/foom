@@ -27,6 +27,27 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
+test("the source directory persists and invalid updates leave the previous value intact", async () => {
+  const root = await directory();
+  const source = await directory();
+  const store = await SettingsStore.open(root);
+  const { realpath } = await vi.importActual<typeof Fs>("node:fs/promises");
+  const canonical = await realpath(source);
+  const save = store.update(parseSettingsPatch({ sourceDirectory: source }));
+  const invalid = store.update({ sourceDirectory: path.join(source, "missing") });
+  await expect(invalid).rejects.toThrow("Choose an existing source directory.");
+  await expect(save).resolves.toMatchObject({ sourceDirectory: canonical });
+  const file = path.join(source, "file");
+  await writeFile(file, "");
+  await expect(store.update({ sourceDirectory: file })).rejects.toThrow(
+    "Choose an existing source directory.",
+  );
+  expect(() => parseSettingsPatch({ sourceDirectory: ".." })).toThrow();
+  expect((await SettingsStore.open(root)).get().sourceDirectory).toBe(canonical);
+  await store.update({ sourceDirectory: null });
+  expect((await SettingsStore.open(root)).get().sourceDirectory).toBeNull();
+});
+
 test("a profile write can be superseded after its temporary file is staged", async () => {
   const root = await directory();
   const store = await SettingsStore.open(root);

@@ -75,6 +75,8 @@ export interface WorkspaceTerminal {
   bypass?: boolean;
   home?: boolean;
   machine?: boolean;
+  /** Local agent session started in the profile's source directory. */
+  sourceSession?: true;
   /** Runs in the Foom config folder; `repository` and `worktree` are that folder. */
   config?: boolean;
   /** Transient probe; excluded from saved sessions. */

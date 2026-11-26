@@ -440,7 +440,14 @@ export async function startMachine(
     const hosts = this.deps.hosts;
     let remote: RemoteTarget | undefined;
     let trackedLocation = location;
-    let launchHome = homeDirectory;
+    const previous = restoreId ? this.launched.get(restoreId) : undefined;
+    const source =
+      host === null && run !== "shell" && !location && !setup
+        ? restoreId
+          ? previous?.sourceSession && previous.worktree
+          : this.sourceDirectory
+        : undefined;
+    let launchHome = source || homeDirectory;
     let command = shellPath();
     const args =
       run === "shell"
@@ -595,9 +602,9 @@ export async function startMachine(
       if (host === null && run !== "shell" && !location) {
         agentResult = await this.agents.launch({
           agent: run,
-          repository: homeDirectory,
-          worktree: homeDirectory,
-          humanHome: true,
+          repository: launchHome,
+          worktree: launchHome,
+          ...(source ? { humanSource: true } : { humanHome: true }),
           ...(setup
             ? {
                 beforeSpawn: () => {
@@ -644,6 +651,7 @@ export async function startMachine(
         worktree: launchHome,
         branch: null,
         ...(trackedLocation ?? { home: true, machine: true }),
+        ...(source ? { sourceSession: true } : {}),
         attention: agentResult?.attention ?? "evaluator",
         ...(conversationId ? { conversationId } : {}),
         state: null,

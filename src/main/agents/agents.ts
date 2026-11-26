@@ -23,7 +23,7 @@ import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environme
 import { randomUUID } from "node:crypto";
 import { readLoginShell } from "../login-shell";
 import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import type {
@@ -263,7 +263,20 @@ export class AgentService {
         config !== undefined)
     )
       throw new Error("Invalid human home launch");
-    if (config === undefined && !request.remoteCheckout && !request.humanHome) {
+    if (
+      request.humanSource &&
+      (request.humanHome ||
+        !isAbsolute(request.worktree) ||
+        request.repository !== request.worktree ||
+        !request.localOnly ||
+        request.control ||
+        request.remoteCheckout ||
+        config !== undefined)
+    )
+      throw new Error("Invalid source directory launch");
+    const gitCheckout =
+      config === undefined && !request.remoteCheckout && !request.humanHome && !request.humanSource;
+    if (gitCheckout) {
       const trees = await this.worktrees.listWorktrees(request.repository);
       if (
         !trees.some(
@@ -272,11 +285,10 @@ export class AgentService {
       )
         throw new Error("Worktree is missing, bare, locked, or prunable");
     }
-    const checkoutIdentity =
-      config === undefined && !request.remoteCheckout && !request.humanHome
-        ? (request.checkoutIdentity ??
-          (await this.worktrees.launchIdentity(request.repository, request.worktree)))
-        : undefined;
+    const checkoutIdentity = gitCheckout
+      ? (request.checkoutIdentity ??
+        (await this.worktrees.launchIdentity(request.repository, request.worktree)))
+      : undefined;
     const remote = request.localOnly
       ? undefined
       : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
@@ -366,7 +378,7 @@ export class AgentService {
     try {
       // Config sessions get no repository-scoped control grant.
       control =
-        config === undefined && !request.humanHome
+        config === undefined && !request.humanHome && !request.humanSource
           ? await this.prepareControl?.(
               request.repository,
               request.worktree,
@@ -386,8 +398,7 @@ export class AgentService {
       }
       this.ensureOpen();
       if (
-        config === undefined &&
-        !request.humanHome &&
+        gitCheckout &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
           checkoutIdentity
       )
@@ -483,12 +494,17 @@ export class AgentService {
       }
       await provider.validate?.();
       if (
-        config === undefined &&
-        !request.humanHome &&
+        gitCheckout &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
           checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
+      if (
+        request.humanSource &&
+        ((await realpath(request.worktree).catch(() => undefined)) !== request.worktree ||
+          !(await stat(request.worktree).catch(() => undefined))?.isDirectory())
+      )
+        throw new Error("Source directory is unavailable.");
       await request.prepareSpawn?.();
       if (agentProvider(request.agent) !== provider)
         throw new Error("Agent plugin changed. Review it again.");

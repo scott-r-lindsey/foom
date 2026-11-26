@@ -62,6 +62,8 @@ export interface AgentLaunch {
   readonly pressure?: (value: HostPressure) => void;
   /** Main-only human home launch; grants no repository or orchestration authority. */
   readonly humanHome?: true;
+  /** Main-only local agent launch outside the Git checkout inventory. */
+  readonly humanSource?: true;
   /** Main-only registered-host capability. Never accepted from IPC. */
   readonly remoteCheckout?: {
     target: { host: string; unavailable?: (code: number) => void };

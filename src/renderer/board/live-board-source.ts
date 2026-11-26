@@ -342,16 +342,19 @@ export function createAppSource(): BoardSource {
           : {}),
         branch: entry.config
           ? "Foom config"
-          : entry.home
-            ? "~"
-            : ((checkout
-                ? checkout.branch
-                : entry.placement?.kind === "remote" &&
-                    entry.branch?.endsWith(` · ${entry.placement.host}`)
-                  ? entry.branch.slice(0, -` · ${entry.placement.host}`.length)
-                  : entry.branch) ?? `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
+          : entry.sourceSession
+            ? "Source directory"
+            : entry.home
+              ? "~"
+              : ((checkout
+                  ? checkout.branch
+                  : entry.placement?.kind === "remote" &&
+                      entry.branch?.endsWith(` · ${entry.placement.host}`)
+                    ? entry.branch.slice(0, -` · ${entry.placement.host}`.length)
+                    : entry.branch) ?? `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
         home: entry.home === true,
         machine: entry.machine === true,
+        sourceSession: entry.sourceSession === true,
         placement: entry.placement,
         config: entry.config === true,
         probe: entry.probe === true,
@@ -766,6 +769,7 @@ export function createAppSource(): BoardSource {
           hooks: setup.settings.hooks,
           registeredHosts: setup.settings.registeredHosts ?? [],
           codeFolder: setup.settings.codeFolder,
+          sourceDirectory: setup.settings.sourceDirectory,
           showNestedRepositoryNames: setup.settings.showNestedRepositoryNames,
         };
       },

@@ -209,9 +209,12 @@ export function useSidebar(props: SidebarProps) {
     ),
   }));
   const machines = source.getMachines?.() ?? [];
+  const sourceRows = rows.filter((row) => row.sourceSession);
   const homeRows = rows.filter(
     (row) =>
-      row.home && (!row.machine || (machines.length === 0 && row.placement?.kind !== "remote")),
+      row.home &&
+      !row.sourceSession &&
+      (!row.machine || (machines.length === 0 && row.placement?.kind !== "remote")),
   );
   const visibleHomeRows = homeRows.filter((row) =>
     `${sessionName(row, preferences)} ${row.reason} ~`
@@ -317,6 +320,14 @@ export function useSidebar(props: SidebarProps) {
       },
     }));
   };
+  const sourceActions: RowAction[] = launcherActions(options, undefined)
+    .filter((action) => action.run !== "shell")
+    .map((action) => ({
+      label: `New ${action.label}`,
+      badge: action.badge,
+      dismissBeforeRun: true,
+      run: () => command({ kind: "machine-launch", host: null, run: action.run }),
+    }));
   const homeActions: RowAction[] = [
     {
       label: "New shell",
@@ -324,21 +335,19 @@ export function useSidebar(props: SidebarProps) {
       dismissBeforeRun: true,
       run: () => command({ kind: "home-shell" }),
     },
-    ...(machines.length === 0
-      ? launcherActions(options, undefined)
-          .filter((action) => action.run !== "shell")
-          .map((action) => ({
-            label: `New ${action.label}`,
-            badge: action.badge,
-            dismissBeforeRun: true,
-            run: () => command({ kind: "machine-launch", host: null, run: action.run }),
-          }))
-      : []),
+    ...(machines.length === 0 && !options?.sourceDirectory ? sourceActions : []),
   ];
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }
   >();
+  if (options?.sourceDirectory)
+    subjects.set("source-directory", {
+      subject: { kind: "source-directory", directory: options.sourceDirectory },
+      name: options.sourceDirectory,
+      kind: "Source directory",
+      mark: "repository",
+    });
   subjects.set("home", {
     subject: { kind: "home", home: source.homeShell?.(), rows: homeRows },
     name: `${source.shellName?.() ?? "Shell"} ~`,
@@ -667,6 +676,8 @@ export function useSidebar(props: SidebarProps) {
     homeRows,
     homeActions,
     visibleHomeRows,
+    sourceRows,
+    sourceActions,
     configRows,
     shellRef,
     toggleButtonRef,

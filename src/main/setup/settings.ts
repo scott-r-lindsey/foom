@@ -22,7 +22,18 @@ import type { ConfigSettings } from "../../shared/config";
 import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
 import { renameSync } from "node:fs";
-import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  link,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { validAgentId } from "../../shared/providers/catalog";
 import type { Settings, SettingsPatch } from "../../shared/setup";
@@ -102,6 +113,7 @@ export const DEFAULT_SETTINGS: Settings = freezeSettings({
   terminalTheme: "follow",
   sound: structuredClone(DEFAULT_SOUND),
   codeFolder: null,
+  sourceDirectory: null,
 });
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -197,6 +209,15 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
           isAbsolute(entry)))
     )
       patch.codeFolder = entry;
+    else if (
+      key === "sourceDirectory" &&
+      (entry === null ||
+        (typeof entry === "string" &&
+          entry.length <= 4096 &&
+          !/\p{Cc}/u.test(entry) &&
+          (isAbsolute(entry) || entry.startsWith("~/"))))
+    )
+      patch.sourceDirectory = entry;
     else throw new Error("Invalid settings");
   }
   return patch;
@@ -503,7 +524,17 @@ export class SettingsStore {
     if (this.writer && Object.keys(config).length)
       await this.writer(config, ...(themeDigest ? [themeDigest] : []));
     if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;
-    await this.write(() => {
+    await this.write(async () => {
+      if (typeof profile.sourceDirectory === "string") {
+        const requested = profile.sourceDirectory;
+        const expanded = requested.startsWith("~/")
+          ? join(homedir(), requested.slice(2))
+          : requested;
+        const canonical = await realpath(expanded).catch(() => undefined);
+        if (!canonical || !(await stat(canonical).catch(() => undefined))?.isDirectory())
+          throw new Error("Choose an existing source directory.");
+        profile.sourceDirectory = canonical;
+      }
       const argumentsPatch = profile.agentArguments;
       const agentArguments = argumentsPatch
         ? parseStoredAgentDefaults({ ...this.settings.agentArguments, ...argumentsPatch })
@@ -517,7 +548,10 @@ export class SettingsStore {
     return this.committedSettings;
   }
 
-  private async write(change: () => void, canCommit?: () => boolean): Promise<void> {
+  private async write(
+    change: () => void | Promise<void>,
+    canCommit?: () => boolean,
+  ): Promise<void> {
     const write = this.pending
       .catch(() => undefined)
       .then(async () => {
@@ -531,8 +565,8 @@ export class SettingsStore {
           legacy: this.legacy,
           argumentsToMove: this.argumentsToMove,
         };
-        change();
         try {
+          await change();
           await mkdir(dirname(this.file), { recursive: true, mode: 0o700 });
           const temporary = `${this.file}.${randomUUID()}.tmp`;
           try {

@@ -106,6 +106,7 @@ export class Workspace {
           | "closeFinishedAgents"
           | "restoreSessions"
           | "defaultAgent"
+          | "sourceDirectory"
           | "concurrentChildren"
           | "wakeOrchestrator"
           | "wakeIntervalMinutes"
