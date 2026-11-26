@@ -244,6 +244,12 @@
             "workspace_roots"
           ]
         }
+      },
+      {
+        "override": {
+          "flags": ["-c", "--config"],
+          "keys": ["profile"]
+        }
       }
     ],
     "minimum": [0, 167, 0],

@@ -1738,6 +1738,16 @@ else {
     if (shots)
       await target.screenshot({ path: evidencePath(`1078/${name}`), animations: "disabled" });
   };
+  const defaults = await page.evaluate(() =>
+    window.desktop.saveSetup({ agentArguments: { codex: ["-c", 'profile="team"'] } }),
+  );
+  assert.deepEqual(defaults.settings.agentArguments.codex, ["-c", 'profile="team"']);
+  await assert.rejects(
+    page.evaluate(() =>
+      window.desktop.saveSetup({ agentPermissions: { global: { codex: { level: "ask" } } } }),
+    ),
+    /foom-error:agent-permission-conflict/u,
+  );
   await page.evaluate(() =>
     window.desktop.saveSetup({
       hooks: false,

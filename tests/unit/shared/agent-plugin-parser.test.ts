@@ -1,5 +1,8 @@
 import bundledCodex from "../../../src/shared/bundled-agents/codex.json";
-import { applyPermissionArguments } from "../../../src/shared/agent-permission-arguments";
+import {
+  applyPermissionArguments,
+  checkPermissionConflicts,
+} from "../../../src/shared/agent-permission-arguments";
 import { permissionLevelSupported } from "../../../src/shared/agent-launch-values";
 import { expect, it } from "vitest";
 import claude from "../../fixtures/agent-plugins-v2/claude.json";
@@ -76,5 +79,22 @@ it("refuses permission arguments placed after a terminator or declared without t
   const invalid = { ...model, permissionLevels: { ...policy, full: policy.workspace } };
   expect(() => applyPermissionArguments(invalid, "full", [], 0, facts)).toThrow(
     "Invalid agent permission declaration",
+  );
+});
+
+it.each([
+  { args: ["--profile", "team"] },
+  { args: ["-c", 'profile="team"'] },
+  { args: ["--config=profile=team"] },
+])("refuses Codex profile selection $args with managed permissions", ({ args }) => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  const facts = { [permissionLevelSupported]: true };
+  expect
+    .soft(() => {
+      checkPermissionConflicts(model, args);
+    })
+    .toThrow("agent-permission-conflict");
+  expect(() => applyPermissionArguments(model, "ask", args, 0, facts)).toThrow(
+    "agent-permission-conflict",
   );
 });

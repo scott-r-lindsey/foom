@@ -338,10 +338,13 @@ default consent grants no child permission.
 The manifest owns literal arguments and conflicting option matchers. A selected
 level refuses conflicting default arguments instead of deleting them or relying
 on argument order. Remove the permission options from Global default arguments
-before using the selector. This includes existing Codex bypass defaults and
-aliases recognized by its bypass matchers. A managed launch also refuses other
-known bypass arguments or bypass environment settings. The remote host expands
-the same bundled declaration against its own installed CLI discovery facts.
+before using the selector. This includes existing Codex bypass defaults,
+aliases recognized by its bypass matchers, `--profile`, and root `profile`
+config overrides such as `-c profile=team`. Codex 0.167.0 rejects that legacy
+config key at startup.
+A managed launch also refuses other known bypass arguments or bypass environment
+settings. The remote host expands the same bundled declaration against its own
+installed CLI discovery facts.
 An unsupported installed version refuses the selected level before spawn.
 
 Codex CLI **0.167.0** spelling and precedence were reviewed on **2026-11-25**
