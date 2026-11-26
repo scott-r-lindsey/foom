@@ -230,3 +230,44 @@ test("a discovery initialization failure leaves the main window usable", async (
   });
   expect(mock.attachWorkspace).toHaveBeenCalled();
 });
+
+test("the board scheme serves only IDs that the active theme currently owns", async () => {
+  await start();
+  const handler = mock.protocolHandle.mock.calls.find(([scheme]) => scheme === "foom-theme")?.[1];
+  if (!handler) throw new Error("Missing theme bitmap handler");
+  const id = "a".repeat(64);
+  const url = new Request(`foom-theme://bitmap/${id}`);
+  mock.config.activeThemeImage.mockImplementationOnce(() => Uint8Array.of(1, 2));
+  const response = await handler(url);
+  expect(mock.config.activeThemeImage).toHaveBeenCalledWith(id);
+  expect(response.headers.get("content-type")).toBe("image/png");
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.of(1, 2));
+  expect((await handler(url)).status).toBe(404);
+  expect(mock.fetch).not.toHaveBeenCalled();
+});
+
+test("defers bitmap decoding until the first window loads", async () => {
+  const loading = Promise.withResolvers<undefined>();
+  mock.window.loadURL.mockReturnValueOnce(loading.promise);
+  await start();
+  try {
+    expect(mock.config.deps?.deferThemeDecoding).toBe(true);
+    expect(mock.config.startThemeDecoding).not.toHaveBeenCalled();
+  } finally {
+    loading.resolve(undefined);
+  }
+  await vi.waitFor(() => {
+    expect(mock.config.startThemeDecoding).toHaveBeenCalledOnce();
+  });
+});
+
+test("a failed deferred bitmap refresh leaves the first window open", async () => {
+  mock.config.startThemeDecoding.mockRejectedValueOnce(new Error("Config refresh failed"));
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  await start();
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to refresh theme bitmaps");
+  });
+  expect(mock.window.loadURL).toHaveBeenCalledOnce();
+  expect(mock.quit).not.toHaveBeenCalled();
+});

@@ -55,8 +55,10 @@ immediately, exactly once, during the animation, hold or fade; “Click or press
 Esc to continue” remains visible. Reduced motion instead holds one final still
 frame, with trail, rocket near the top, short static streaks and title, for
 10 seconds, then finishes without a fade; any click or key dismisses it.
-The drawing loop and sequence timers stop on dismissal or unmount. Art uses
-hole, space-ink, accent and accent-deep tokens.
+The drawing loop and sequence timers stop on dismissal or unmount. First-run
+launch and the About replay both use Eclipse Dark colors, default fonts and
+default shapes at the selected interface size. The board appears in the
+selected theme after launch.
 
 ### Replay from About (#686)
 

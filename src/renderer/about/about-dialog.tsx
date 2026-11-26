@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import type { AppMenuApi, AppVersion } from "../../shared/app-menu";
 import { FlightCanvas, prefersReducedMotion } from "../ui/flight-canvas";
+import { eclipseDarkArtColors } from "../ui/interface-theme";
 import { Wordmark } from "../ui/wordmark";
 
 import { LaunchReplay } from "./launch-replay";
@@ -76,7 +77,8 @@ export function AboutDialog({ menu, close }: { menu: AppMenuApi; close: () => vo
     <>
       <dialog
         ref={dialogRef}
-        className="about-dialog"
+        className="about-dialog eclipse-dark-art"
+        style={eclipseDarkArtColors}
         aria-label="About Foom"
         onCancel={(event) => {
           event.preventDefault();

@@ -24,15 +24,17 @@ six-digit hex value. Names are 1–40 letters, numbers, spaces, dots, underscore
 or hyphens, with at least one nonspace character. Unknown keys, including `id`,
 reject the whole file; files cannot choose or replace a built-in ID.
 
-`main/themes/library.ts` reads at most 50 eligible JSON files per folder, at most
-64 KiB each. Names are at most 100 characters, nonhidden and path-free. Reads
+`main/themes/library.ts` reads at most 50 eligible files per folder, at most
+64 KiB per JSON file. Names are at most 100 characters, nonhidden and path-free. Reads
 inspect an open descriptor, reject nonregular files and links outside the direct
 folder, bound allocation, and recheck file and directory identity. A file link to
 a target directly in that same folder is accepted by this library; the config
 scanner and [offline validator](console.md) reject file links, including in-folder
 links. Subfolders and
-redirected theme directories are refused. Invalid names and nonfiles do not consume
-the file budget. Previously loaded files are considered first so added files cannot
+redirected theme directories are refused. Only eligible regular files count
+toward the 50-file budget. The scan inspects up to 512 entries plus an overflow
+check and refuses an over-limit folder without admitting a partial catalog. The library bounds its published catalog separately, reserving space
+for retained palettes and admitting in-folder JSON aliases after regular files. Previously loaded files are considered first so added files cannot
 evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics.
 The read descriptor closes before parsing or waiting for the config approval queue,
 so a queued restore never waits behind a reader holding its rename target open.
@@ -53,11 +55,12 @@ counts. Open accepts only the enumerated theme kind and chooses the folder in ma
 Catalog changes publish the `settings` view and retain legacy `setup:changed`
 broadcasts; native backgrounds, interface tokens,
 terminal views and the headless terminal host receive the resolved colors. The
-sandboxed preload adds no runtime imports and CSP remains unchanged.
+sandboxed preload adds no runtime imports. The board CSP permits the narrow
+[bitmap source](#decorative-bitmaps-1189).
 
 ## User interface themes version 2 (#246)
 
-User theme files accept `{ version: 2, name, base, colors, areas?, states?, shape?, type? }`
+User theme files accept `{ version: 2, name, base, colors, areas?, states?, shape?, type?, images? }`
 with optional `kind: "theme"`. Legacy kind-based files and version 1 remain valid;
 built-ins retain their strict version 1 validation. Terminal themes are unchanged.
 The global colors and optional paired highlight colors remain required as before.
@@ -75,6 +78,10 @@ supports radius 0–12 px, panel-radius 0–16 px, border 0–2 px and shadow 0�
 Panel radius inherits an explicit control radius when omitted. Existing
 per-element radius fallbacks preserve built-in geometry; circles and
 intentional zeros remain literal.
+
+About, its note and the first-run and replay launch sequences use the built-in
+Eclipse Dark palette and default typography and shapes. License and notice
+dialogs use the selected theme.
 
 Contrast below 4.5:1 rejects the whole file, retaining the last good theme. It is
 checked globally and against every area's effective bg/surface for ink, muted,
@@ -133,7 +140,8 @@ wordmarks on global, sidebar/titlebar and dialog paints; badge text on sidebar,
 panel, dialog and dialog-header paints. These checks include every parent gradient
 stop and 256 points per segment, even when the child itself has no gradient. A
 white wordmark over a white titlebar rejects despite a readable dark global
-background. Launch wordmark space ink is checked against the actual global hole.
+background. Theme validation checks the wordmark area's space ink against the
+theme's global hole.
 Opaque area roots retain their own effective-palette checks.
 
 Optional `type` has only `family` (`geist`, `geist-mono`, `system`, `system-mono`),
@@ -188,3 +196,69 @@ numeric sizes. Repeated letters cycle matches; a 700 ms pause or reopening the m
 starts a new prefix. Typing moves focus; Enter commits the choice.
 The custom-theme hint sits directly beneath its picker, before folder status.
 Terminal has no text-size helper line.
+
+## Decorative bitmaps (#1189)
+
+Version 2 theme files may add an `images` object with only `board` (empty board),
+`gutter` (the space behind occupied layout tiles), and `sidebar` (blank space
+below the repository controls, outside the compact rail). Each slot takes
+`{ "file": "picture.png", "opacity": 0.25, "fit": "contain", "anchor": "center" }`.
+The direct file name is required. Opacity is 0.05–0.6, and fit is `cover`,
+`contain`, or `tile`. Anchor accepts `center`, `top`, `bottom`, `left`,
+`right`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
+The example gives the defaults. Each slot is decorative and ignores pointer
+events. Terminal content has no image slot. Text that can cross the background
+during tile placement uses its opaque theme surface, which the palette validator
+checks against the effective ink.
+
+Regular bitmap files share the 50-file folder budget with regular JSON files. Over budget, the loader
+omits bitmap paint. File names are limited to 100 ASCII letters, digits, spaces,
+dots, underscores and hyphens, starting with a letter, digit, underscore or hyphen,
+and ending in PNG, JPEG/JPG or WebP. Subfolders, symlinks and hard links are refused.
+Main reads through the theme library's descriptor and identity checks, up to
+4 MiB. The disposable [image decoder](terminals.md#image-paste-937) sniffs and
+verifies PNG, JPEG and WebP, limits dimensions to 8,192 pixels per axis and
+16 million pixels per image, and encodes the oriented first frame as a
+metadata-free PNG of at most 4 MiB. It samples the three most prevalent
+alpha-weighted color buckets and reports a fixed warning when one is within
+ΔE 40 of attention or failure colors in the relevant palettes. Those warnings
+alone do not hold a theme. An explicit decoder refusal is cached for identical
+bytes. A timeout or premature exit can retry on a later refresh after a
+one-second cooldown. The loader schedules no automatic retry.
+
+The catalog fingerprints source bytes for an Appearance choice without
+decoding inactive themes. Foom starts bitmap decoding after the first window
+loads and decodes only the active theme or a theme being selected. Safe edits
+to other settings apply at startup while a theme selection waits for decoding
+and any settings weakenings still require approval. When a
+settings change requires decoding, Foom prepares the snapshot before taking
+the shared settings lock, then rechecks the settings, theme JSON and source
+digests under the lock before using the verified snapshot.
+
+A proposal binds the JSON, each readable source digest, and which slots decoded
+successfully. The profile records approval only for decoded artwork and retains
+previously approved bytes for unavailable slots with the same declaration.
+An earlier draft approval without verified decode provenance requires reapproval
+before its artwork can paint. Changing an active slot's file or paint settings needs **Allow /
+Keep it on**, even when the proposed file is missing. The hold lists both image
+changes and newly indistinct needs-you colors when both apply. An exact offered
+Appearance choice directly approves artwork that decodes from those source bytes.
+
+An unavailable asset leaves its slot on the normal background and stops being
+served. This preserves the approval record and applies even if the theme folder
+becomes unavailable. After restart, a matching JSON digest and matching bytes
+for available slots restore the approved palette and those slots. A restored file
+with the same bytes can paint again. Changed or previously unapproved bytes still
+wait for the gate. Keep it on restores the previous JSON when it is available
+and the remaining original assets match. It rechecks the held JSON before
+replacing it and holds a newer edit for review. If the prior JSON cannot be
+restored, it switches to Default. Allow revalidates the proposed digest before
+serving the reviewed snapshot.
+
+Theme bitmaps add only `foom-theme://bitmap` to the board's `img-src`. The
+board keeps `data:` for decision previews. The scheme handler accepts GET
+requests for opaque IDs of active, approved PNGs. It serves memory only, with a
+PNG content type and no caching or fetch API access. The renderer bridge
+projects IDs and bounded placement values.
+The confirmation partition has its existing CSP and no bitmap handler. See
+[theme image privacy](privacy.md#theme-bitmaps-1189).

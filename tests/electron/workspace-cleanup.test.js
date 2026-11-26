@@ -942,7 +942,7 @@ for (const { front, queued, sameBoard, checking, background } of [
   });
 }
 
-test("merged cleanup skips Git-ignored build folders and hides the action at zero eligible", {
+test("merged cleanup skips Git-ignored build folders and exposes reasons when none qualify", {
   timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-cleanup-990-")));

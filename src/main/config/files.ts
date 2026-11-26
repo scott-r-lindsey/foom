@@ -127,7 +127,13 @@ export class ConfigFiles {
   }
 
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */
-  async writeFile(relative: string, content: Uint8Array | string): Promise<void> {
+  writeFile(relative: string, content: Uint8Array | string): Promise<void>;
+  writeFile(relative: string, content: Uint8Array | string, expected: Uint8Array): Promise<boolean>;
+  async writeFile(
+    relative: string,
+    content: Uint8Array | string,
+    expected?: Uint8Array,
+  ): Promise<void | boolean> {
     const target = this.path(relative);
     await mkdir(dirname(target), { recursive: true });
     if (!(await this.contained(dirname(relative).replace(/^\.$/, ""))))
@@ -138,9 +144,10 @@ export class ConfigFiles {
       // Windows scanners can briefly deny replacement even after our readers close.
       // Five attempts, at most 375 ms of backoff; never unlink the existing target.
       for (let attempt = 0; ; attempt++) {
+        if (expected && !(await settle(this.read(relative), null))?.equals(expected)) return false;
         try {
           await (this.deps.rename ?? rename)(temporary, target);
-          break;
+          return expected ? true : undefined;
         } catch (error) {
           if (
             (this.deps.platform ?? process.platform) !== "win32" ||

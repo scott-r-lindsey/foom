@@ -621,6 +621,7 @@ export function Sidebar(props: SidebarProps) {
                 );
               })}
         </div>
+        <div className="sidebar-bitmap" aria-hidden="true" />
         {!compact && !filter.trim() && (
           <button
             type="button"

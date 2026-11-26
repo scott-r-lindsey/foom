@@ -3,7 +3,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdtemp, readFile, writeFile } = require("node:fs/promises");
+const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { afterEach } = require("node:test");
 const { deadline, expect } = require("./test-policy.js");
@@ -1325,4 +1325,259 @@ test("nested theme inks stay readable over parent gradients and trusted header p
     )
     .toEqual({ background: "rgb(255, 255, 255)", ink: "rgb(20, 16, 31)" });
   assert.ok(contrast(light.ink, "#ffffff") >= 4.5);
+});
+
+test("theme bitmaps render only in approved slots with a narrow board CSP and clean fallback", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-theme-bitmaps-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await sizeTileBoard(app, page, 1200, 800);
+  const fixturePrompt = "fixture>";
+  await app.evaluate(({ app }, prompt) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    const create = TerminalHostClient.prototype.create;
+    const home = app.getPath("home");
+    const windows = process.platform === "win32";
+    TerminalHostClient.prototype.create = function (spec) {
+      if (
+        !spec.shellIntegration ||
+        spec.remote ||
+        spec.cwd !== home ||
+        process.env.HOME !== home ||
+        spec.command !== (windows ? "powershell.exe" : process.env.SHELL)
+      )
+        throw new Error("Expected the local test shell in the fixture home");
+      // The harness shell stays alive on the PTY while the test places its tile.
+      // Print the fixture text ourselves so no startup file or shell prompt can
+      // add account, machine or platform-specific text to a capture.
+      return create.call(this, {
+        ...spec,
+        shellIntegration: false,
+        args: windows
+          ? [
+              "-NoLogo",
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              "[Console]::Clear(); [Console]::Write($env:FIXTURE_PROMPT + ' '); [void][Console]::ReadLine()",
+            ]
+          : [
+              "--norc",
+              "-c",
+              String.raw`printf '\033[2J\033[H%s ' "$FIXTURE_PROMPT"; IFS= read -r fixture_input`,
+            ],
+        env: {
+          ...spec.env,
+          HOME: home,
+          USERPROFILE: home,
+          PATH: process.env.PATH,
+          FIXTURE_PROMPT: prompt,
+          HISTFILE: "",
+          BASH_ENV: "",
+          ENV: "",
+        },
+      });
+    };
+  }, fixturePrompt);
+  const sharp = require("sharp");
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const themes = path.join(home, ".foom/config/themes");
+  const bitmap = async (slot, color, base) => {
+    const width = slot === "sidebar" ? 160 : 640;
+    const height = slot === "sidebar" ? 168 : 420;
+    const svg =
+      Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 160 120">
+      <g fill="none" stroke="${color}" stroke-width="1.5">
+        <ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(-24 80 60)"/>
+        <ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(24 80 60)"/>
+        <circle cx="80" cy="60" r="22" fill="${color}" fill-opacity=".3"/>
+        <path d="M80 30v60M50 60h60" stroke-dasharray="2 4"/>
+      </g>
+      <g fill="${color}"><circle cx="25" cy="76" r="3"/><circle cx="127" cy="86" r="3"/>
+      <circle cx="122" cy="29" r="2"/></g>
+    </svg>`);
+    await sharp(svg)
+      .withExif({ IFD0: { Artist: "Private source metadata" } })
+      .png()
+      .toFile(path.join(themes, `${base}-${slot}.png`));
+  };
+  for (const base of ["light", "dark"]) {
+    for (const [slot, color] of Object.entries(
+      base === "light"
+        ? { board: "#35218a", gutter: "#005975", sidebar: "#075f79" }
+        : { board: "#a2baff", gutter: "#74ecd8", sidebar: "#8eb6ff" },
+    ))
+      await bitmap(slot, color, base);
+    await writeFile(
+      path.join(themes, `bitmap-${base}.json`),
+      JSON.stringify({
+        ...interfaceThemes[`eclipse-${base}`],
+        version: 2,
+        name: `Bitmap ${base}`,
+        images: {
+          board: { file: `${base}-board.png`, opacity: 0.6 },
+          gutter: { file: `${base}-gutter.png`, opacity: 0.6, anchor: "right" },
+          sidebar: { file: `${base}-sidebar.png`, opacity: 0.55, anchor: "bottom" },
+        },
+      }),
+    );
+  }
+  const tileArea = page.locator(".tile-area");
+  const select = async (base) => {
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await chooseTheme(page, `Bitmap ${base}`);
+    await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-theme-bitmaps",
+      "board gutter sidebar",
+    );
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+      .toBe(base);
+  };
+  const slots = () =>
+    page.evaluate(async () => (await window.desktop.setupState()).themes.activeBitmaps.slots);
+  const capture = async (target, label) =>
+    target.screenshot({
+      path: evidencePath(`1189-theme-bitmaps/${label}.png`),
+      animations: "disabled",
+      // Fixture paths can contain an account name on some platforms.
+      style: ".tile-location { display: none; }",
+    });
+  const source = (paint) => `foom-theme://bitmap/${paint.id}`;
+  const paintsImage = (url) =>
+    page.evaluate(async (src) => {
+      const image = new Image();
+      image.src = src;
+      try {
+        await image.decode();
+        return image.naturalWidth > 0;
+      } catch {
+        return false;
+      }
+    }, url);
+
+  await select("light");
+  const oldBoard = source((await slots()).board);
+  const policyPage = await confirmationPage(app);
+  const csp = (target) =>
+    target.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
+  const confirmationPolicy = await csp(policyPage);
+  assert.match(confirmationPolicy, /; img-src 'self';/u);
+  assert.equal(
+    await csp(page),
+    confirmationPolicy.replace("img-src 'self';", "img-src 'self' foom-theme://bitmap data:;"),
+  );
+  const previewPng = (
+    await sharp({ create: { width: 1, height: 1, channels: 3, background: "#3366bb" } })
+      .png()
+      .toBuffer()
+  ).toString("base64");
+  assert.equal(await paintsImage(`data:image/png;base64,${previewPng}`), true);
+  const violations = [];
+  await page.exposeFunction("captureThemeCspViolation", (uri) =>
+    violations.push(uri.split(":")[0]),
+  );
+  await page.evaluate(async (png) => {
+    const blob = URL.createObjectURL(
+      new Blob([Uint8Array.from(atob(png), (char) => char.charCodeAt(0))], { type: "image/png" }),
+    );
+    document.addEventListener("securitypolicyviolation", (event) => {
+      if (event.effectiveDirective === "img-src")
+        void window.captureThemeCspViolation(event.blockedURI);
+    });
+    try {
+      await Promise.all(
+        [
+          blob,
+          "file:///bitmap.png",
+          "https://theme-test.invalid/art.png",
+          "foom-theme://unapproved/anything",
+        ].map(async (url) => {
+          const image = new Image();
+          image.src = url;
+          await image.decode().then(
+            () => {
+              throw Error("CSP unexpectedly loaded a source");
+            },
+            () => {},
+          );
+        }),
+      );
+    } finally {
+      URL.revokeObjectURL(blob);
+    }
+  }, previewPng);
+  // Chromium can reject file URLs before dispatching a policy violation.
+  await expect
+    .poll(() => [...new Set(violations.filter((uri) => uri !== "file"))].sort())
+    .toEqual(["blob", "foom-theme", "https"]);
+  assert.equal(await paintsImage(oldBoard), true);
+  assert.equal(await paintsImage(`foom-theme://bitmap/${"0".repeat(64)}`), false);
+  const delivered = await app.evaluate(async ({ net }, url) => {
+    const response = await net.fetch(url);
+    return [...new Uint8Array(await response.arrayBuffer())];
+  }, oldBoard);
+  const normalized = await sharp(Buffer.from(delivered)).metadata();
+  assert.equal(normalized.format, "png");
+  assert.equal(normalized.exif, undefined);
+  assert.doesNotMatch(JSON.stringify(await slots()), /\.png|Private source metadata/u);
+
+  for (const base of ["light", "dark"]) {
+    if (base === "dark") await select(base);
+    const images = await slots();
+    await expect(tileArea).toHaveAttribute("data-occupied", "false");
+    await expect
+      .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
+      .toBe(`url("${source(images.board)}")`);
+    assert.equal(await paintsImage(source(images.board)), true);
+    assert.equal(await paintsImage(source(images.sidebar)), true);
+    await expect(page.locator(".sidebar-bitmap")).toHaveCSS(
+      "background-image",
+      `url("${source(images.sidebar)}")`,
+    );
+    await capture(tileArea, `board-${base}`);
+    await capture(page.locator(".sidebar-shell"), `sidebar-${base}`);
+
+    await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Enter");
+    await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
+    const tileMenu = page.getByRole("button", { name: "Tile 1 menu", exact: true });
+    await expect(tileMenu).toBeEnabled();
+    await tileMenu.press("Enter");
+    await page.getByRole("menuitem", { name: "Split terminal right", exact: true }).press("Enter");
+    await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+    await expect
+      .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
+      .toBe(`url("${source(images.gutter)}")`);
+    assert.equal(await paintsImage(source(images.gutter)), true);
+    await expect(page.locator(".xterm:visible")).toHaveCount(1);
+    await expect
+      .poll(async () =>
+        (await tileArea.locator(".xterm:visible .xterm-rows").textContent())?.trim(),
+      )
+      .toBe(fixturePrompt);
+    await capture(tileArea, `gutter-${base}`);
+    await page.getByRole("button", { name: "Hide", exact: true }).click();
+    await expect(tileArea).toHaveAttribute("data-occupied", "false");
+    const spaces = page.locator('.terminal-tile[data-empty="true"]');
+    await spaces.first().click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Close space", exact: true }).click();
+    await expect(spaces).toHaveCount(1);
+  }
+
+  assert.equal(await paintsImage(oldBoard), false);
+  await rm(path.join(themes, "dark-board.png"));
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "gutter sidebar");
+  await expect
+    .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
+    .toBe("none");
+  await capture(tileArea, "board-dark-removed");
 });

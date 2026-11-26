@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { parseSettingsPatch } from "../setup/settings";
+import { parseSettingsPatch, parseThemeApproval } from "../setup/settings";
 import { legacyBypassIdentities } from "../agents/providers/bundled";
 import { isConfigSetting, migrateAppearanceSettings } from "../../shared/config-settings";
 import { parseSettingsFile } from "../../shared/config-files";
@@ -157,10 +157,8 @@ export function importSettingsRows(db: DataTransaction, text: string | null | un
       record(themes) &&
       Object.keys(themes).length <= 100 &&
       Object.entries(themes).every(
-        ([path, hash]) =>
-          /^themes\/[^/]{1,200}$/u.test(path) &&
-          typeof hash === "string" &&
-          /^[a-f0-9]{64}$/u.test(hash),
+        ([path, approval]) =>
+          /^themes\/[^/]{1,200}$/u.test(path) && parseThemeApproval(approval) !== undefined,
       )
     )
       metadata["themeDigests"] = themes;

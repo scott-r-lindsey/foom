@@ -650,3 +650,28 @@
 .tile-shell .tile-startup {
   inset: 0;
 }
+
+/* Decorative paint is behind tiles. Any text drawn over that plane has an
+   opaque surface; the theme parser already checks its effective ink. */
+:root[data-theme-bitmaps~="board"] .tile-area[data-occupied="false"]::before,
+:root[data-theme-bitmaps~="gutter"] .tile-area[data-occupied="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+:root[data-theme-bitmaps~="board"] .tile-area[data-occupied="false"]::before {
+  background:
+    var(--bitmap-board-image) var(--bitmap-board-position) / var(--bitmap-board-size)
+    var(--bitmap-board-repeat);
+  opacity: var(--bitmap-board-opacity);
+}
+:root[data-theme-bitmaps~="gutter"] .tile-area[data-occupied="true"]::before {
+  background:
+    var(--bitmap-gutter-image) var(--bitmap-gutter-position) / var(--bitmap-gutter-size)
+    var(--bitmap-gutter-repeat);
+  opacity: var(--bitmap-gutter-opacity);
+}
+:root[data-theme-bitmaps]:not([data-theme-bitmaps=""]) .tile-drop-preview {
+  background: var(--surface);
+}
