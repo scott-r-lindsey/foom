@@ -87,7 +87,7 @@ export function SidebarPanel({
           ),
         kind: kind,
         mark: mark,
-        facts: (controlRef) => {
+        facts: (controlRef, runAction) => {
           const facts = (
             <PanelFacts
               key={menu.id}
@@ -97,11 +97,14 @@ export function SidebarPanel({
               cleanupReviewRef={controlRef}
               reviewCleanup={
                 subject.kind === "repository"
-                  ? () =>
-                      command({
-                        kind: "delete-merged-worktrees",
-                        repository: subject.repository.path,
-                      })
+                  ? () => {
+                      runAction(() =>
+                        command({
+                          kind: "delete-merged-worktrees",
+                          repository: subject.repository.path,
+                        }),
+                      );
+                    }
                   : undefined
               }
             />

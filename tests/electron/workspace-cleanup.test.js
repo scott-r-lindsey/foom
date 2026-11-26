@@ -1091,6 +1091,94 @@ test("merged cleanup skips Git-ignored build folders and hides the action at zer
   await assert.rejects(realpath(merged.path), { code: "ENOENT" });
 });
 
+async function lockedMergedWorktree(context) {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-zero-eligible-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  const checkout = path.join(root, "merged");
+  const remote = path.join(root, "remote.git");
+  await mkdir(repo);
+  await mkdir(home);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  git("clone", "--bare", repo, remote);
+  git("remote", "add", "origin", remote);
+  git("worktree", "add", "--lock", "-b", "merged", checkout);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, repository) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]?.mergedCount,
+    )
+    .toBe(0);
+  return { app, page, unlock: () => git("worktree", "unlock", checkout) };
+}
+
+test("double-clicking zero eligible opens one merged cleanup review", async (context) => {
+  const { app, page } = await lockedMergedWorktree(context);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+    const request = TrustedDialog.prototype.request;
+    globalThis.mergedReviewRequests = 0;
+    TrustedDialog.prototype.request = function (content, ...args) {
+      if (content.feed) globalThis.mergedReviewRequests++;
+      return request.call(this, content, ...args);
+    };
+  });
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await page.getByRole("button", { name: "0 eligible to delete" }).dblclick();
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await app.evaluate(() => globalThis.mergedReviewRequests), 1);
+});
+
+test("eligibility refresh scrolls the focused command into the repository panel", async (context) => {
+  const { app, page, unlock } = await lockedMergedWorktree(context);
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 300 }));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.setMinimumSize(1, 1);
+    window.setContentSize(1280, 1024);
+  });
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "repo details and commands" });
+  const review = panel.getByRole("button", { name: "0 eligible to delete" });
+  await review.focus();
+  const command = panel.getByRole("menuitem", { name: "New worktree" });
+  const positionInScrollport = () =>
+    command.evaluate((button) => {
+      const { top, bottom } = button.getBoundingClientRect();
+      const scrollport = button.closest(".panel-body").getBoundingClientRect();
+      return {
+        above: bottom <= scrollport.top,
+        visible: top >= scrollport.top && bottom <= scrollport.bottom,
+      };
+    });
+  await expect.poll(async () => (await positionInScrollport()).above).toBe(true);
+  await expect(review).toBeFocused();
+  unlock();
+  await expect(review).toHaveCount(0);
+  await expect(command).toBeFocused();
+  await expect.poll(async () => (await positionInScrollport()).visible).toBe(true);
+});
+
 test("closing a board declines its queued cleanup and releases its repository before another board answers", {
   timeout: deadline(60_000),
 }, async (context) => {

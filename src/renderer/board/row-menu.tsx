@@ -39,7 +39,12 @@ export interface PanelContent {
   title: ReactNode;
   kind: string;
   mark: string;
-  facts: ReactNode | ((controlRef: RefCallback<HTMLButtonElement>) => ReactNode);
+  facts:
+    | ReactNode
+    | ((
+        controlRef: RefCallback<HTMLButtonElement>,
+        runAction: (action: () => Promise<void>) => void,
+      ) => ReactNode);
   pinned: boolean;
   enter?: () => void;
   leave?: () => void;
@@ -115,9 +120,12 @@ export function RowMenu({
     if (!removedFocusedControlRef.current) return;
     removedFocusedControlRef.current = false;
     if (document.activeElement === document.body) {
-      restoreBoardFocus(
-        ref.current?.querySelector(".row-menu-items button:not(:disabled)") ?? anchor,
+      const command = ref.current?.querySelector<HTMLButtonElement>(
+        ".row-menu-items button:not(:disabled)",
       );
+      // Like keyboard navigation within the panel, reveal the newly focused command.
+      if (command) command.focus();
+      else restoreBoardFocus(anchor);
     }
   });
   useLayoutEffect(() => {
@@ -488,7 +496,11 @@ export function RowMenu({
             ),
           )}
         </div>
-        {typeof panel?.facts === "function" ? panel.facts(controlRef) : panel?.facts}
+        {typeof panel?.facts === "function"
+          ? panel.facts(controlRef, (action) => {
+              if (!confirmation.pending) void confirmation.run(action);
+            })
+          : panel?.facts}
       </div>
       {sub && submenu && (
         <RowMenu

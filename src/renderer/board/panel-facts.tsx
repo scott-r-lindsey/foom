@@ -160,7 +160,7 @@ export function PanelFacts({
   source: BoardSource;
   options: LaunchOptions | undefined;
   cleanupReviewRef?: RefCallback<HTMLButtonElement>;
-  reviewCleanup?: (() => Promise<void>) | undefined;
+  reviewCleanup?: (() => void) | undefined;
 }) {
   const [now] = useState(Date.now);
   const [handoffError, setHandoffError] = useState("");
@@ -320,9 +320,7 @@ export function PanelFacts({
                 className="panel-cleanup-review"
                 aria-haspopup="dialog"
                 title="Review worktree eligibility"
-                onClick={() => {
-                  void reviewCleanup();
-                }}
+                onClick={reviewCleanup}
               >
                 <Chip tone="neutral">0 eligible to delete</Chip>
               </button>

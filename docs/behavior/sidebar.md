@@ -104,8 +104,8 @@ Panels have a title band, a 248 px command column and facts beside it, up to
 confirmations. Arrow keys, Home/End and Enter operate commands; copyable paths
 and conversation IDs are buttons. If a refresh removes the focused command or
 the focused eligibility review button, focus moves to the first available
-command. Clicking a session title renames it with the
-same Enter/blur, Escape and empty-name behavior as sidebar double-click rename.
+command and scrolls it into view if needed. Clicking a session title renames it
+with the same Enter/blur, Escape and empty-name behavior as sidebar double-click rename.
 
 The home shell row (`>_ shell ~`) sits above repositories. Its name and **New
 shell** command launch in the main-owned home directory. Shells group beneath
