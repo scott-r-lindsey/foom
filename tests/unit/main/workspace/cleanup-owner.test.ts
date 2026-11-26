@@ -67,6 +67,7 @@ function fixture() {
     cleanupBrokenWorktree: vi.fn(async () => {}),
     removeRepository: vi.fn(async () => {}),
     mergedDefault: vi.fn(() => Promise.resolve("base")),
+    lastFetchedMergeBase: vi.fn(() => "base"),
     mergedFetchTime: vi.fn(() => 500),
     mergedCommit: vi.fn<CleanupOwnerDependencies["worktrees"]["mergedCommit"]>(() =>
       Promise.resolve(true),

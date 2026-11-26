@@ -115,6 +115,7 @@ export interface DialogContent {
   arguments?: readonly string[];
   pairing?: { code: string; expiresAt: number };
   worktrees?: readonly { branch: string; reason?: string }[];
+  worktreeEligibility?: readonly { id: string; branch: string; reason: string }[];
   worktreePath?: string;
   changes?: string;
   discardCount?: number;

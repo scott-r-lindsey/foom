@@ -400,6 +400,7 @@ export function ConfirmationCard({
   const wide = Boolean(
     request?.cleanup ||
       request?.worktrees ||
+      request?.worktreeEligibility ||
       request?.removals ||
       request?.changes ||
       request?.sessions ||
@@ -891,6 +892,12 @@ export function ConfirmationCard({
               </Section>
             )}
             {request.changes !== undefined && <Changes value={request.changes} />}
+            {request.worktreeEligibility &&
+              (request.worktreeEligibility.length ? (
+                <Worktrees label="Worktree eligibility" items={request.worktreeEligibility} />
+              ) : (
+                <p className="prose">There are no linked worktrees.</p>
+              ))}
             {request.worktrees && !cleanup && (
               <>
                 <Section
@@ -968,7 +975,9 @@ export function ConfirmationCard({
                   ? "Done"
                   : running
                     ? "Hide"
-                    : (request.cancel ?? "Cancel")}
+                    : request.worktreeEligibility
+                      ? request.accept
+                      : (request.cancel ?? "Cancel")}
           </button>
           {request.removals && (
             <button
@@ -992,7 +1001,7 @@ export function ConfirmationCard({
                 : "Approve selected"}
             </button>
           )}
-          {!finished && !plugin && (
+          {!finished && !plugin && !request.worktreeEligibility && (
             <button
               type="button"
               disabled={disabled || (deadline !== undefined && now >= deadline)}

@@ -39,12 +39,7 @@ export interface PanelContent {
   title: ReactNode;
   kind: string;
   mark: string;
-  facts:
-    | ReactNode
-    | ((
-        controlRef: RefCallback<HTMLButtonElement>,
-        runAction: (action: () => Promise<void>) => void,
-      ) => ReactNode);
+  facts: ReactNode | ((controlRef: RefCallback<HTMLButtonElement>) => ReactNode);
   pinned: boolean;
   enter?: () => void;
   leave?: () => void;
@@ -496,11 +491,7 @@ export function RowMenu({
             ),
           )}
         </div>
-        {typeof panel?.facts === "function"
-          ? panel.facts(controlRef, (action) => {
-              if (!confirmation.pending) void confirmation.run(action);
-            })
-          : panel?.facts}
+        {typeof panel?.facts === "function" ? panel.facts(controlRef) : panel?.facts}
       </div>
       {sub && submenu && (
         <RowMenu

@@ -79,6 +79,39 @@ function invoke(channel: string, args: unknown[] = [], event: unknown = trusted)
   return handler(event, ...args);
 }
 
+test("eligibility review presents only its snapshot and ignores the dialog answer", async () => {
+  const worktrees = [{ id: "0", branch: "feature", reason: "eligible" }];
+  const reviewMergedWorktrees = vi.fn(() => Promise.resolve(worktrees));
+  const sidebarCommand = vi.fn();
+  attached.dispose();
+  mock.handle.mockClear();
+  attached = attachWorkspace(
+    window,
+    { ...workspace, reviewMergedWorktrees, sidebarCommand } as unknown as Workspace,
+    owns,
+    requestDialog,
+  );
+  const command = { kind: "review-merged-worktrees", repository: "/repo" };
+  requestDialog.mockResolvedValueOnce(false);
+  await expect(invoke("workspace:sidebar-command", [command])).resolves.toBeUndefined();
+  expect(reviewMergedWorktrees).toHaveBeenCalledExactlyOnceWith("/repo");
+  expect(requestDialog).toHaveBeenCalledWith({
+    title: "Worktree eligibility",
+    subject: "repo",
+    accept: "Close",
+    glyph: "branch",
+    localOnly: true,
+    worktreeEligibility: worktrees,
+  });
+  expect(sidebarCommand).not.toHaveBeenCalled();
+  reviewMergedWorktrees.mockImplementationOnce(() => {
+    contents.isDestroyed.mockReturnValue(true);
+    return Promise.resolve(worktrees);
+  });
+  await expect(invoke("workspace:sidebar-command", [command])).resolves.toBeUndefined();
+  expect(requestDialog).toHaveBeenCalledOnce();
+});
+
 test("rejects untrusted senders on every channel", () => {
   const channels = mock.handle.mock.calls.map(([name]) => name);
   expect(channels).toEqual([

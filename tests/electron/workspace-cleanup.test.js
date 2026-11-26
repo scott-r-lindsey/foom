@@ -1055,11 +1055,11 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
   await expect(cleanupAction).toHaveCount(0);
 
   await page.getByRole("button", { name: "0 eligible to delete" }).click();
-  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
+  await expect(confirmation.getByRole("list", { name: "Worktree eligibility" })).toContainText(
     "keep-changesuncommitted changes",
   );
-  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
-  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(confirmation.getByRole("button", { name: /Delete/ })).toHaveCount(0);
+  await confirmation.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
 
   const newMerged = path.join(path.dirname(dirty.path), "new-merged");
@@ -1168,11 +1168,11 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
   await panel.click();
   await expect(results).toBeVisible();
   await page.getByRole("button", { name: "0 eligible to delete" }).click();
-  const kept = confirmation.getByRole("list", { name: "Kept worktrees" });
+  const kept = confirmation.getByRole("list", { name: "Worktree eligibility" });
   await expect(kept).toContainText("new-lockedunavailable");
   await expect(kept).toContainText("mergedunavailable");
-  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
-  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(confirmation.getByRole("button", { name: /Delete/ })).toHaveCount(0);
+  await confirmation.getByRole("button", { name: "Close", exact: true }).click();
 
   await panel.click();
   await expect(results).toBeVisible();
@@ -1192,19 +1192,35 @@ test("double-clicking zero eligible opens one merged cleanup review", async (con
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
     const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
     const request = TrustedDialog.prototype.request;
-    globalThis.mergedReviewRequests = 0;
+    const readBase = WorktreeService.prototype.lastFetchedMergeBase;
+    globalThis.mergedReview = { requests: 0, reads: 0, finished: false };
+    WorktreeService.prototype.lastFetchedMergeBase = function (...args) {
+      globalThis.mergedReview.reads++;
+      return readBase.apply(this, args);
+    };
     TrustedDialog.prototype.request = function (content, ...args) {
-      if (content.feed) globalThis.mergedReviewRequests++;
-      return request.call(this, content, ...args);
+      const answer = request.call(this, content, ...args);
+      if (!content.worktreeEligibility) return answer;
+      globalThis.mergedReview.requests++;
+      return answer.finally(() => {
+        globalThis.mergedReview.finished = true;
+      });
     };
   });
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("button", { name: "0 eligible to delete" }).dblclick();
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
-  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
-  assert.equal(await app.evaluate(() => globalThis.mergedReviewRequests), 1);
+  await expect(confirmation.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await confirmation.keyboard.press("Escape");
+  await expect
+    .poll(() => app.evaluate(() => globalThis.mergedReview))
+    .toEqual({
+      requests: 1,
+      reads: 1,
+      finished: true,
+    });
 });
 
 async function openRepositoryPanelAtScale(app, page, interfaceScale) {
@@ -1255,10 +1271,10 @@ test("the repository panel keeps the zero-eligibility review within its width at
   await expectReviewWithinPanelWidth(review);
   await review.click();
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
+  await expect(confirmation.getByRole("list", { name: "Worktree eligibility" })).toContainText(
     "mergedunavailable",
   );
-  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await confirmation.getByRole("button", { name: "Close", exact: true }).click();
 });
 
 test("eligibility refresh scrolls the focused command into the repository panel", async (context) => {

@@ -34,8 +34,6 @@ export class CleanupRun implements CleanupFeed {
     private readonly deps: {
       checkingCount?: number | undefined;
       fetchedAt?(): number | undefined;
-      blockedBy?(): CleanupRun | undefined;
-      start?(): boolean;
       fetch(): Promise<string>;
       remove(candidate: CleanupCandidate, base: string): Promise<void>;
       branches(candidates: readonly CleanupCandidate[]): Promise<readonly string[]>;
@@ -72,7 +70,7 @@ export class CleanupRun implements CleanupFeed {
     const fetchedAt = this.deps.fetchedAt?.();
     return {
       ...(this.error ? { error: this.error } : {}),
-      stage: this.stage === "ready" && this.deps.blockedBy?.() ? "checking" : this.stage,
+      stage: this.stage,
       ...(this.deps.checkingCount !== undefined ? { checkingCount: this.deps.checkingCount } : {}),
       ...(fetchedAt !== undefined ? { fetchedAt } : {}),
       progress: {
@@ -90,12 +88,6 @@ export class CleanupRun implements CleanupFeed {
   }
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
-    const blocker = this.deps.blockedBy?.();
-    if (blocker) {
-      void blocker.settled().then(() => {
-        if (this.listeners.has(listener)) listener();
-      });
-    }
     return () => {
       this.listeners.delete(listener);
     };
@@ -140,12 +132,7 @@ export class CleanupRun implements CleanupFeed {
     this.publish();
   }
   act(): void {
-    if (
-      this.stage === "ready" &&
-      this.total > 0 &&
-      !this.stopped &&
-      (this.deps.start?.() ?? true)
-    ) {
+    if (this.stage === "ready" && this.total > 0 && !this.stopped) {
       this.stage = "run";
       this.publish();
       this.operation = this.run();

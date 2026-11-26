@@ -13,6 +13,7 @@ import { ConfirmationArming } from "../confirmations/arming";
 import type { DialogContent, ConfirmWorkspace } from "../../shared/confirmation";
 import { dialog, ipcMain, shell } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
+import { basename } from "node:path";
 import type { AgentId } from "../../shared/agents";
 import type { VerdictAction } from "../../shared/evaluator";
 import type { LaunchRequest, TerminalState, SidebarCommand } from "../../shared/workspace";
@@ -527,6 +528,20 @@ export function attachWorkspace(
               link() === url
             )
               await shell.openExternal(url);
+          });
+        }
+        if (command.kind === "review-merged-worktrees") {
+          return workspace.reviewMergedWorktrees(command.repository).then(async (worktrees) => {
+            if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL) return;
+            contents.send("confirmation:dialog");
+            await requestDialog({
+              title: "Worktree eligibility",
+              subject: basename(command.repository),
+              accept: "Close",
+              glyph: "branch",
+              localOnly: true,
+              worktreeEligibility: worktrees,
+            });
           });
         }
         const controller = launch === undefined ? undefined : new AbortController();

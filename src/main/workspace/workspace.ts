@@ -211,11 +211,14 @@ export class Workspace {
   async sidebarInventory(): Promise<SidebarInventory> {
     return this.owner.sidebarInventory();
   }
+  reviewMergedWorktrees(repository: string) {
+    return this.owner.cleanup.reviewMerged(repository);
+  }
   async cancelStartup(id: string): Promise<void> {
     return this.owner.cancelStartup(id);
   }
   async sidebarCommand(
-    command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
+    command: Exclude<SidebarCommand, { kind: "open-handoff-link" | "review-merged-worktrees" }>,
     confirm: ConfirmWorkspace,
     startup?: SidebarStartup,
   ): Promise<SidebarCommandResult> {

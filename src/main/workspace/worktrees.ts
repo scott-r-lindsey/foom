@@ -154,6 +154,11 @@ export class WorktreeService {
   async mergedDefault(repository: string, refresh = false): Promise<string> {
     return this.fetchState.mergedDefault(repository, refresh);
   }
+  lastFetchedMergeBase(repository: string): string {
+    const head = this.fetchState.facts(repository)?.head;
+    if (!head) throw new Error("The remote default branch has not been checked successfully.");
+    return head;
+  }
   mergedFetchTime(repository: string): number | undefined {
     return this.fetchState.mergedFetchTime(repository);
   }
@@ -396,10 +401,14 @@ export class WorktreeService {
 
   private async registeredWorktrees(
     repositoryPath: string,
-    timeout = 30_000,
+    options?: { timeout?: number; skipOwnership?: true },
   ): Promise<readonly Worktree[]> {
     const repository = this.repository(repositoryPath);
-    const output = await git(repository.path, ["worktree", "list", "--porcelain", "-z"], timeout);
+    const output = await git(
+      repository.path,
+      ["worktree", "list", "--porcelain", "-z"],
+      options?.timeout ?? 30_000,
+    );
     const trees: Worktree[] = await Promise.all(
       output
         .split("\0\0")
@@ -419,7 +428,9 @@ export class WorktreeService {
             branch: field("branch")?.replace(/^refs\/heads\//u, "") ?? null,
             locked: fields.some((value) => value === "locked" || value.startsWith("locked ")),
             prunable: fields.some((value) => value === "prunable" || value.startsWith("prunable ")),
-            managed: await this.isManaged(repository.path, resolve(path)),
+            managed:
+              options?.skipOwnership !== true &&
+              (await this.isManaged(repository.path, resolve(path))),
           };
         }),
     );
@@ -427,8 +438,11 @@ export class WorktreeService {
   }
 
   /** Presentation includes persisted failures; these rows never grant Git membership. */
-  async listWorktrees(repositoryPath: string): Promise<readonly Worktree[]> {
-    const trees = [...(await this.registeredWorktrees(repositoryPath))];
+  async listWorktrees(
+    repositoryPath: string,
+    options?: { skipOwnership?: true },
+  ): Promise<readonly Worktree[]> {
+    const trees = [...(await this.registeredWorktrees(repositoryPath, options))];
     for (const entry of this.pendingRemovals.values()) {
       if (entry.repository === repositoryPath && !trees.some((tree) => tree.path === entry.path))
         trees.push({
@@ -473,8 +487,15 @@ export class WorktreeService {
 
   /** Main-only snapshot for an explicitly confirmed removal, including external trees. */
   async removalIdentity(repositoryPath: string, path: string): Promise<string> {
+    // Membership and identity checks do not need to reconcile creation records.
     return checkoutIdentity(
-      { listWorktrees: this.registeredWorktrees.bind(this), git, validatePath, realpath },
+      {
+        listWorktrees: (repository) =>
+          this.registeredWorktrees(repository, { skipOwnership: true }),
+        git,
+        validatePath,
+        realpath,
+      },
       repositoryPath,
       path,
       false,
@@ -598,7 +619,7 @@ export class WorktreeService {
   ): Promise<void> {
     if ((await this.removalIdentity(repositoryPath, path)) !== identity)
       throw new RemovalError("identity_changed");
-    const tree = (await this.registeredWorktrees(repositoryPath)).find(
+    const tree = (await this.registeredWorktrees(repositoryPath, { skipOwnership: true })).find(
       (item) => item.path === path,
     );
     if (tree?.branch === null) {
@@ -1173,7 +1194,7 @@ export class WorktreeService {
   ): Promise<void> {
     const root = await realpath(this.root).catch(() => undefined);
     if (!root || !within(root, path)) return;
-    const trees = await this.registeredWorktrees(repository, timeout);
+    const trees = await this.registeredWorktrees(repository, { timeout });
     for (
       let parent = dirname(path);
       parent !== root && within(root, parent);

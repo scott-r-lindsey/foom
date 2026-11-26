@@ -12,6 +12,20 @@ import {
 } from "../../../../src/renderer/board/tiles";
 import type { PreviewApi } from "../../../../src/shared/previews";
 import type { SidebarInventory, WorkspaceSnapshot } from "../../../../src/shared/workspace";
+
+test("closing a read-only eligibility review does not refresh workspace inventory", async () => {
+  const source = createAppSource();
+  const review = Promise.withResolvers<undefined>();
+  mock.sidebarCommand.mockReturnValueOnce(review.promise);
+  const command = { kind: "review-merged-worktrees", repository: "/code/app" } as const;
+  const result = source.sidebarCommand?.(command);
+  expect(mock.sidebarCommand).toHaveBeenCalledExactlyOnceWith(command);
+  review.resolve(undefined);
+  await expect(result).resolves.toBeUndefined();
+  expect(mock.sidebarInventory).not.toHaveBeenCalled();
+  expect(mock.workspace).not.toHaveBeenCalled();
+});
+
 test("source connects independently of views, reconciles events, preserves ordering, and keeps activity outside snapshots", async () => {
   const source = createAppSource();
   expect(source.previews?.getSnapshot()).toEqual([]);

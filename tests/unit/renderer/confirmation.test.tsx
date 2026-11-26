@@ -191,6 +191,31 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     );
   }
   act(() => {
+    receive({
+      presented: true,
+      id: "eligibility",
+      title: "Worktree eligibility",
+      accept: "Close",
+      theme: resolveInterfaceTheme("follow", false),
+      worktreeEligibility: [{ id: "0", branch: "feature", reason: "eligible" }],
+    });
+  });
+  expect(view.getByRole("list", { name: "Worktree eligibility" }).textContent).toContain(
+    "featureeligible",
+  );
+  expect(view.getAllByRole("button").map((button) => button.textContent)).toEqual(["Close"]);
+  act(() => {
+    receive({
+      presented: true,
+      id: "eligibility-empty",
+      title: "Worktree eligibility",
+      accept: "Close",
+      theme: resolveInterfaceTheme("follow", false),
+      worktreeEligibility: [],
+    });
+  });
+  expect(view.getByText("There are no linked worktrees.")).toBeTruthy();
+  act(() => {
     receive(null);
   });
   expect(view.queryByRole("alertdialog")).toBeNull();

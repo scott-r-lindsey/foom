@@ -5,15 +5,13 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 ### Delete merged worktrees
 
 For repositories with linked worktrees, the menu offers **Delete merged
-worktrees…** below **Remove from Foom…** when at least one worktree is eligible,
-before the first scan completes, or after a scan fails. The dialog lists
-retained checkouts with their reasons. A completed scan with zero eligible
-worktrees hides the command and leaves **0 eligible to delete** in the repository facts.
-Select that count to check the current worktrees and review why each is kept.
-Completed cleanup results stay available through **Cleanup results**.
-The menu keeps the latest completed result during a background scan and updates
-when the scan finishes, including while the menu is open. An active cleanup
-or its undismissed results remain accessible from the menu.
+worktrees…** below **Remove from Foom…** when the eligibility count is positive.
+At zero, the repository facts show **0 eligible to delete**. Select that count
+for a read-only review of current checkouts against the last fetched default
+branch. Each checkout shows its eligibility or the reason it would be kept.
+The review has a **Close** button. The menu updates when a background scan
+finishes, including while the menu is open. Open an active run through
+**Deleting merged worktrees** and its completed checklist through **Cleanup results**.
 
 Foom fetches the remote (`origin`, or the sole remote) and resolves its advertised
 default branch. A branch is merged when `git merge-tree --write-tree <default> <branch>` produces

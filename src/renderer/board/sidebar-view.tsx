@@ -414,12 +414,7 @@ export function Sidebar(props: SidebarProps) {
                           });
                         },
                       },
-                      ...(cleanup ||
-                      (repo.repository.mergedCount !== 0 &&
-                        (repo.repository.canDeleteMerged ||
-                          repo.repository.worktrees.some(
-                            (tree) => tree.path !== repo.repository.path && !tree.bare,
-                          )))
+                      ...(cleanup || (repo.repository.mergedCount ?? 0) > 0
                         ? [
                             null,
                             {
@@ -431,7 +426,9 @@ export function Sidebar(props: SidebarProps) {
                               glyph: "trash" as const,
                               hint: deleting
                                 ? `${String(cleanup.done)}/${String(cleanup.total)}`
-                                : String(repo.repository.mergedCount ?? ""),
+                                : cleanup
+                                  ? ""
+                                  : String(repo.repository.mergedCount),
                               run: () =>
                                 command({
                                   kind: "delete-merged-worktrees",

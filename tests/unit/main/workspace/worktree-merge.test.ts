@@ -791,14 +791,17 @@ describe("merged worktree containment", () => {
   });
   it("fetches the advertised default, shares inventory fetches and refuses failed refreshes", async () => {
     expect(service.mergedFetchTime(repo)).toBeUndefined();
+    expect(() => service.lastFetchedMergeBase(repo)).toThrow("has not been checked");
     await expect(service.mergedDefault(repo)).rejects.toThrow("remote");
     const upstream = await remote();
     const base = await service.mergedDefault(repo, true);
     expect(service.mergedFetchTime(repo)).toEqual(expect.any(Number));
     await git("remote", "set-url", "origin", join(temporary, "missing"));
+    expect(service.lastFetchedMergeBase(repo)).toBe(base);
     expect(await service.mergedDefault(repo)).toBe(base);
     await expect(service.mergedDefault(repo, true)).rejects.toThrow("fetch failed");
     expect(service.mergedFetchTime(repo)).toBeUndefined();
+    expect(() => service.lastFetchedMergeBase(repo)).toThrow("has not been checked");
     await git("remote", "set-url", "origin", upstream);
     await git("branch", "next");
     await git("push", "origin", "next");

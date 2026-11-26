@@ -48,19 +48,17 @@ publish after repository removal or shutdown.
 
 Sidebar inventory never awaits remote merge checks. Main caches eligibility for
 one minute, starts a background scan for a new local worktree/session inventory
-or an expired result, and emits a workspace change when it finishes. The
-inventory continues to show the latest completed result while a scan runs.
-The replacement scan starts without a cached review plan. Matching
+or an expired result, and emits a workspace change when it finishes. Matching
 in-flight scans are shared; superseded scans, removed repositories and disposed
 workspaces cannot publish late results. Git status reads use `--no-optional-locks`
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
-it opens checking before awaiting the fresh plan. The zero-count review scans
-current worktrees independently of retained cleanup results. If the scan finds
-eligible worktrees, a new cleanup run replaces those results only after approval.
-A review queued on another board cannot prevent approval of the visible review.
-A separate review waits in the checking state while a hidden cleanup is active.
-Approval always fetches afresh.
-Fetch operations are queued per repository, including background and explicit scans.
+it opens checking before awaiting the fresh plan. The zero-count review runs the
+eligibility checks against current checkout state and the last successfully
+fetched default commit. It reads Git membership without reconciling Foom's
+creation records and presents a static, read-only dialog after the checks
+finish. Only deletion uses a cleanup run, repository reservation and removal
+queue. Deletion approval always fetches afresh. Fetch operations are queued per
+repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.
 Default discovery runs `ls-remote --symref` alongside `fetch --prune`, then tests
 the advertised commit with `cat-file -e`. Only an absent object needs the explicit

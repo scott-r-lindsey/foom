@@ -147,7 +147,7 @@ export interface WorkspaceMethods {
   probeState(id: string, state: TerminalState | null): TerminalState | null;
   sidebarInventory(): Promise<SidebarInventory>;
   sidebarCommand(
-    command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
+    command: Exclude<SidebarCommand, { kind: "open-handoff-link" | "review-merged-worktrees" }>,
     confirm: ConfirmWorkspace,
     validateClose?: () => void,
     closeSignal?: AbortSignal,
@@ -272,6 +272,7 @@ export interface WorkspaceDependencies {
     | "removeWorktree"
     | "removeRepository"
     | "mergedDefault"
+    | "lastFetchedMergeBase"
     | "mergedFetchTime"
     | "mergedCommit"
     | "deleteMergedBranch"
