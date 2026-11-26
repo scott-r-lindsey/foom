@@ -2,8 +2,10 @@ import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
+import { RemovalPresentations } from "../../../../src/main/confirmations/removal-review";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import type { CleanupFeed } from "../../../../src/shared/cleanup";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
 import { bound, cleanupCommand, deps, launched, repo, tree } from "./workspace-fixture";
@@ -488,6 +490,74 @@ test("a fresh review can start cleanup when a checkout has become eligible", asy
     { state: "removed" },
   ]);
   await workspace.dispose();
+});
+
+test("a queued Delete review cannot block approval of the visible fresh review", async () => {
+  const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, locked: true }]);
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedCount)
+    .toBe(0);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const presentations = new RemovalPresentations();
+  const opened = Promise.withResolvers<CleanupFeed>();
+  const hide = Promise.withResolvers<boolean>();
+  const finishRemoval = Promise.withResolvers<undefined>();
+  vi.mocked(deps.worktrees.deleteMergedBranches).mockImplementation(async () => {
+    await finishRemoval.promise;
+    return [];
+  });
+  const front = workspace.sidebarCommand(
+    { kind: "review-merged-worktrees", repository: repo.path },
+    (request) =>
+      presentations.run(() => {
+        if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+        opened.resolve(request.feed);
+        return hide.promise;
+      }),
+  );
+  const feed = await opened.promise;
+  await vi.waitFor(() => {
+    expect(feed.current()).toMatchObject({ stage: "ready", progress: { total: 1 } });
+  });
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedCount)
+    .toBe(1);
+  const next = Promise.withResolvers<CleanupFeed>();
+  const decline = Promise.withResolvers<boolean>();
+  const queued = workspace.sidebarCommand(
+    { kind: "delete-merged-worktrees", repository: repo.path },
+    (request) =>
+      presentations.run(() => {
+        if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+        next.resolve(request.feed);
+        return decline.promise;
+      }),
+  );
+  try {
+    feed.act();
+    expect(feed.current().stage).toBe("run");
+    hide.resolve(false);
+    const queuedFeed = await next.promise;
+    expect(queuedFeed.current().stage).toBe("checking");
+    const updated = Promise.withResolvers<undefined>();
+    const unsubscribe = queuedFeed.subscribe(() => {
+      updated.resolve(undefined);
+    });
+    finishRemoval.resolve(undefined);
+    await updated.promise;
+    unsubscribe();
+    expect(queuedFeed.current().stage).toBe("ready");
+  } finally {
+    hide.resolve(false);
+    finishRemoval.resolve(undefined);
+    decline.resolve(false);
+    await Promise.all([front, queued]);
+    await workspace.dispose();
+  }
+  expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
 });
 
 test("cleanup retains branch reservations until the checked-ref transaction settles", async () => {

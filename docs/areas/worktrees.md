@@ -57,6 +57,8 @@ so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses
 it opens checking before awaiting the fresh plan. The zero-count review scans
 current worktrees independently of retained cleanup results. If the scan finds
 eligible worktrees, a new cleanup run replaces those results only after approval.
+A review queued on another board cannot prevent approval of the visible review.
+A separate review waits in the checking state while a hidden cleanup is active.
 Approval always fetches afresh.
 Fetch operations are queued per repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.

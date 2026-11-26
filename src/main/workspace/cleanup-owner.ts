@@ -623,14 +623,17 @@ export class CleanupOwner {
     }
     return this.deps.withRepository(repository, async () => {
       const releases = new Set<() => void>();
+      const otherActiveRun = (): CleanupRun | undefined => {
+        const current = this.cleanupRuns.get(repository);
+        return current?.active && current !== run ? current : undefined;
+      };
       const run: CleanupRun = new CleanupRun({
         checkingCount: this.mergeEligibility.get(repository)?.count,
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
+        blockedBy: otherActiveRun,
         start: () => {
-          if (this.deps.closed()) return false;
-          const current = this.cleanupRuns.get(repository);
-          if (current !== run && current?.pending) return false;
-          // A fresh review only becomes the tracked run after Delete is approved.
+          if (this.deps.closed() || otherActiveRun()) return false;
+          // A queued plan can be shared for review, but only approval claims the run.
           this.cleanupRuns.set(repository, run);
           return true;
         },
@@ -737,9 +740,13 @@ export class CleanupOwner {
       try {
         if (!plan) {
           // Avoid opening Git handles in a checkout while an existing run is removing it.
-          if (reviewCurrent && existing?.active) await existing.settled();
+          let blocker = otherActiveRun();
+          while (blocker) {
+            await blocker.settled();
+            blocker = otherActiveRun();
+          }
           const prepare = this.mergedPlan(repository, !reviewCurrent);
-          if (reviewCurrent) this.trackMergeScan(repository, prepare);
+          this.trackMergeScan(repository, prepare);
           run.ready(await prepare);
         }
       } catch {
