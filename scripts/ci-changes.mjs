@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { selectAffected } from "./electron-affected.mjs";
@@ -49,7 +50,12 @@ export function electronSelection(
     }),
   inventory = suiteFiles().map((file) => file.split(/[\\/]/).at(-1)),
 ) {
-  if (eventName !== "pull_request" || event.pull_request?.draft !== true) return [];
+  if (
+    eventName !== "pull_request" ||
+    event.action === "ready_for_review" ||
+    event.pull_request?.draft !== true
+  )
+    return [];
   const { base, head } = event.pull_request;
   if (![base?.sha, head?.sha].every((sha) => typeof sha === "string" && /^[a-f0-9]{40}$/.test(sha)))
     throw new Error("Missing or invalid comparison commit");
@@ -83,11 +89,25 @@ export function detectDesktop(
   if (![base, head].every((sha) => typeof sha === "string" && /^[a-f0-9]{40}$/.test(sha))) {
     throw new Error("Missing or invalid comparison commit");
   }
+  if (eventName === "pull_request" && event.action === "ready_for_review") return true;
   // A new branch has no previous commit to compare; validate the whole app.
   if (/^0+$/.test(base)) return true;
   const range = `${base}${eventName === "pull_request" ? "..." : ".."}${head}`;
   const changed = diff(range);
   return requiresDesktop(changed.split("\0").filter(Boolean));
+}
+
+function workflowFingerprint(sha) {
+  if (typeof sha !== "string" || !/^[a-f0-9]{40}$/.test(sha)) return "";
+  try {
+    const bytes = execFileSync("git", ["show", `${sha}:.github/workflows/ci.yml`], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return createHash("sha256").update(bytes).digest("hex");
+  } catch {
+    // A workflow commit unavailable in the checkout cannot prove reuse.
+    return "";
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -103,6 +123,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ...matrices,
     `electron_suites=${JSON.stringify(suites)}`,
   ];
+  if (process.env.GITHUB_EVENT_NAME === "pull_request") {
+    const fingerprint = workflowFingerprint(process.env.GITHUB_WORKFLOW_SHA);
+    if (fingerprint) outputs.push(`workflow_fingerprint=${fingerprint}`);
+  }
   appendFileSync(process.env.GITHUB_OUTPUT, `${outputs.join("\n")}\n`);
   console.log(
     required
