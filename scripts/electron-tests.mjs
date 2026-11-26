@@ -9,7 +9,11 @@ import {
 import { cpSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { buildFingerprint, fingerprint } from "./validation-fingerprint.mjs";
+import {
+  buildFingerprint,
+  buildOutputFingerprint,
+  fingerprint,
+} from "./validation-fingerprint.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
 import { guardWorktreeWrites } from "../tests/helpers/worktree-writes.js";
 const checkWorktreeWrites = guardWorktreeWrites();
@@ -84,7 +88,7 @@ function matchesReceipt(inputs, catalog, revision, requireReuse) {
       saved?.inputs === inputs &&
       saved.catalog === catalog &&
       saved.revision === revision &&
-      saved.output === fingerprint(["build"])
+      saved.output === buildOutputFingerprint()
     );
   } catch {
     // A missing, malformed or unreadable receipt or build cannot prove reuse.
@@ -105,6 +109,7 @@ if (!packaged) {
   if (allowAutomaticReuse && !requireReuse) createRequire(import.meta.url)("electron");
   const inputs = buildFingerprint();
   const reuse =
+    inputs !== undefined &&
     catalog !== undefined &&
     (requireReuse || allowAutomaticReuse) &&
     matchesReceipt(inputs, catalog, revision, requireReuse);
@@ -162,14 +167,14 @@ if (!packaged) {
     checkoutRevision(process.cwd()) !== revision
   )
     throw new Error("Build inputs changed during Electron preparation; run again.");
-  if (!reuse && !override && catalog !== undefined) {
+  if (!reuse && !override && inputs !== undefined && catalog !== undefined) {
     writeFileSync(
       receipt,
       JSON.stringify({
         inputs,
         catalog,
         revision,
-        output: fingerprint(["build"]),
+        output: buildOutputFingerprint(),
         local: allowAutomaticReuse,
       }),
     );

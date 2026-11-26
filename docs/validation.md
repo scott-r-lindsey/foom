@@ -38,7 +38,11 @@ On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 Local development Electron runs automatically reuse the app and its fixture when
 the receipt matches the checkout revision, build inputs and output. A missing
 receipt, changed source or dependency, or modified output triggers a rebuild.
-The inputs include the selected Node executable and the license the build ships.
+The inputs include transitive TypeScript configs, the selected Node executable
+and the license the build ships. Unresolved config bases require a fresh build.
+Output verification rejects symlinks and special files. The fixture SEA's
+runtime-extracted native files are checked against their source bytes and may
+appear between runs without invalidating the receipt.
 `--reuse-build` requires a matching receipt and fails if verification fails.
 CI rebuilds by default. Custom or strict remote-host catalog settings require a
 fresh build. A complete default remote-host catalog is fingerprinted alongside the

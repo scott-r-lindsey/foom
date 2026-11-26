@@ -2,7 +2,7 @@ import ts from "typescript";
 import { gitSync } from "../tests/helpers/git.js";
 import { evidencePath } from "../tests/helpers/evidence.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   cpSync,
   mkdirSync,
@@ -10,15 +10,16 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { hostPlatforms } from "./remote-host-artifacts.mjs";
 
-function fixture(context) {
+function fixture(context, { timeout } = {}) {
   const root = mkdtempSync(join(tmpdir(), "foom-wrapper-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   for (const dir of ["scripts", "tests/helpers", "tests/electron", "src", "node_modules"]) {
@@ -60,9 +61,10 @@ function fixture(context) {
   writeFileSync(
     join(root, "scripts/build.mjs"),
     `
-    import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+    import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
     appendFileSync('test-results/app-builds', 'build\\n');
     if (process.env.ESBUILD_BINARY_PATH === 'broken-esbuild') throw Error('esbuild fixture failed');
+    rmSync('build', { recursive: true, force: true });
     mkdirSync('build', { recursive: true });
     writeFileSync('build/app.js', 'built');
   `,
@@ -76,6 +78,11 @@ function fixture(context) {
     appendFileSync('test-results/host-builds', 'build\\n');
     mkdirSync('build/remote-host', { recursive: true });
     writeFileSync('build/remote-host/foom-host', 'fixture host');
+    if (process.platform === 'darwin') {
+      mkdirSync('build/remote-sea');
+      writeFileSync('build/remote-sea/pty.node', 'fixture pty');
+      writeFileSync('build/remote-sea/spawn-helper', 'fixture helper');
+    }
     if (process.env.TEST_HOST_FAILURE === 'build') process.exit(7);
     const manifest = await writeHostManifest('build/remote-host', {
       version: '0.1.0', platform: process.platform, arch: process.arch,
@@ -124,6 +131,7 @@ function fixture(context) {
         cwd: root,
         env: { ...env, ...extraEnv },
         encoding: "utf8",
+        timeout,
       });
       return { ...result, output: result.stdout + result.stderr };
     },
@@ -240,6 +248,66 @@ test("local runs reuse a matching build and rebuild when its receipt, inputs or 
     }
   }
 });
+
+test("local reuse fingerprints transitive relative and package tsconfig bases", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const shared = join(root, "compiler-config");
+  const preset = join(shared, "node_modules/@fixture/tsconfig");
+  mkdirSync(preset, { recursive: true });
+  symlinkSync(
+    dirname(fileURLToPath(import.meta.resolve("typescript/package.json"))),
+    join(root, "node_modules/typescript"),
+    "junction",
+  );
+  writeFileSync(join(root, "tsconfig.base.json"), '{"extends":"./compiler-config/base"}');
+  writeFileSync(join(shared, "base.json"), '{"extends":["@fixture/tsconfig","./relative"]}');
+  writeFileSync(join(preset, "package.json"), '{"tsconfig":"preset.json"}');
+  const changed = [join(preset, "preset.json"), join(shared, "relative.json")];
+  for (const file of changed) writeFileSync(file, '{"compilerOptions":{"strict":true}}');
+  const check = (reused) => {
+    const result = run([filter]);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(result.output.includes("Reusing verified"), reused, result.output);
+  };
+  check(false);
+  check(true);
+  for (const file of changed) {
+    writeFileSync(file, '{"compilerOptions":{"strict":false}}');
+    check(false);
+    check(true);
+  }
+  rmSync(changed[1]);
+  assert.notEqual(run(["--reuse-build", filter]).status, 0);
+  check(false);
+  check(false);
+});
+
+for (const kind of ["symlink", "FIFO"]) {
+  test(`local reuse rebuilds for a ${kind} in build output`, {
+    skip: process.platform === "win32",
+  }, (context) => {
+    const { root, run } = fixture(context, { timeout: kind === "FIFO" ? 5000 : undefined });
+    const filter = "--test-name-pattern=^selected case$";
+    assert.equal(run([filter]).status, 0);
+    const output = join(root, "build/app.js");
+    rmSync(output);
+    if (kind === "symlink") {
+      const identical = join(root, "test-results/identical.js");
+      writeFileSync(identical, "built");
+      symlinkSync(identical, output);
+    } else {
+      execFileSync("mkfifo", [output]);
+    }
+    const strict = run(["--reuse-build", filter]);
+    assert.equal(strict.status, 1, strict.error?.message ?? strict.output);
+    assert.match(strict.output, /No current verified build/);
+    const rebuilt = run([filter]);
+    assert.equal(rebuilt.status, 0, rebuilt.output);
+    assert.doesNotMatch(rebuilt.output, /Reusing verified/);
+    assert.equal(readFileSync(join(root, "test-results/app-builds"), "utf8"), "build\nbuild\n");
+  });
+}
 
 test("CI and custom catalog runs rebuild even when a local receipt matches", (context) => {
   const { root, run } = fixture(context);
@@ -483,11 +551,19 @@ test("runner builds and verifies one same-revision host before cases and reuses 
   skip: process.platform === "win32",
 }, (context) => {
   const { root, run } = fixture(context);
+  if (process.platform !== "darwin") {
+    const originals = join(
+      root,
+      `node_modules/node-pty/prebuilds/${process.platform}-${process.arch}`,
+    );
+    mkdirSync(originals, { recursive: true });
+    writeFileSync(join(originals, "pty.node"), "fixture pty");
+  }
   writeFileSync(
     join(root, "tests/electron/one.test.js"),
     `
     const { test } = require('./test-shard.js');
-    const { readFileSync } = require('node:fs');
+    const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
     for (const name of ['first remote', 'second remote']) test(name, () => {
       require('node:assert/strict').equal(
         readFileSync('test-results/host-builds', 'utf8'), 'build\\n');
@@ -496,6 +572,10 @@ test("runner builds and verifies one same-revision host before cases and reuses 
       require('node:assert/strict').equal(
         readFileSync('build/remote-hosts/' + process.platform + '-' + process.arch + '/manifest.json', 'utf8'),
         readFileSync('build/remote-host/manifest.json', 'utf8'));
+      mkdirSync('build/remote-host/native', { recursive: true, mode: 0o700 });
+      writeFileSync('build/remote-host/native/pty.node', 'fixture pty', { mode: 0o600 });
+      if (process.platform === 'darwin')
+        writeFileSync('build/remote-host/native/spawn-helper', 'fixture helper', { mode: 0o700 });
     });
   `,
   );
@@ -503,7 +583,11 @@ test("runner builds and verifies one same-revision host before cases and reuses 
   assert.equal(fresh.status, 0, fresh.output);
   const reused = run([]);
   assert.equal(reused.status, 0, reused.output);
+  assert.match(reused.output, /Reusing verified current Electron build/);
   assert.equal(readFileSync(join(root, "test-results/host-builds"), "utf8"), "build\n");
+  assert.equal(readFileSync(join(root, "test-results/app-builds"), "utf8"), "build\n");
+  writeFileSync(join(root, "build/remote-host/native/pty.node"), "corrupt pty");
+  assert.match(run(["--reuse-build"]).output, /No current verified build/);
 });
 
 for (const failure of ["build", "revision", "gzip", "executable"]) {
