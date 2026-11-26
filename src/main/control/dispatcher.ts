@@ -3,7 +3,11 @@ import { lstat, open } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { atomicPrivate, verifyPrivate } from "../../node-common/private-files";
 import { ControlError, exact, identifier, object } from "../../shared/control-validation";
-import type { DispatcherLaunch, DispatcherView } from "../../shared/dispatcher";
+import type {
+  DispatcherLaunch,
+  DispatcherLaunchLifecycle,
+  DispatcherView,
+} from "../../shared/dispatcher";
 import { dispatcherLaunch, sourceRepositoryName } from "../../shared/dispatcher-validation";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { ChildInput } from "../../shared/child-input-types";
@@ -80,6 +84,7 @@ export interface DispatcherHost {
     dispatcher: string,
     validate: () => Promise<void>,
     active: () => void,
+    lifecycle: DispatcherLaunchLifecycle,
   ): Promise<string>;
   prompt(id: string, input: ChildInput): Promise<void>;
   stop(id: string): Promise<void>;
@@ -144,6 +149,11 @@ function savedScope(value: unknown): Scope {
 
 export class Dispatcher {
   private readonly live = new Set<string>();
+  private readonly demoting = new Map<string, { exited: boolean }>();
+  private readonly bindingReports = new Map<
+    string,
+    { repository: string; authorize: () => Scope }
+  >();
   private readonly elevating = new Set<string>();
   private writes: Promise<unknown> = Promise.resolve();
 
@@ -260,6 +270,15 @@ export class Dispatcher {
 
   canReport(actor: Principal): boolean {
     if (actor.role !== "orchestrator" || actor.parentId !== null) return false;
+    const binding = this.bindingReports.get(actor.terminalId);
+    if (binding?.repository === actor.repository) {
+      try {
+        binding.authorize();
+        return true;
+      } catch {
+        return false;
+      }
+    }
     return this.scopes.some(
       (scope) =>
         this.live.has(scope.id) &&
@@ -285,7 +304,11 @@ export class Dispatcher {
     const validate = () => {
       if (
         this.row(id).worktree !== directory ||
-        this.scopes.some((scope) => scope.directory === directory && this.live.has(scope.id))
+        this.scopes.some(
+          (scope) =>
+            scope.directory === directory &&
+            (this.live.has(scope.id) || this.demoting.has(scope.id)),
+        )
       )
         throw new ControlError("conflict");
     };
@@ -357,6 +380,7 @@ export class Dispatcher {
     if (
       row.worktree !== scope.directory ||
       (await this.host.directoryIdentity(scope.directory)) !== scope.identity ||
+      this.demoting.has(id) ||
       this.scopes.find((candidate) => candidate.id === id) !== scope
     )
       return false;
@@ -369,14 +393,18 @@ export class Dispatcher {
   async demote(id: string, setRole: (id: string, role: "agent") => void): Promise<void> {
     if (!this.live.has(id)) throw new ControlError("not_found");
     this.live.delete(id);
+    const demotion = { exited: false };
+    this.demoting.set(id, demotion);
     try {
       await this.write(
         (scopes) => scopes.filter((scope) => scope.id !== id),
         () => {},
       );
     } catch (error) {
-      this.live.add(id);
+      if (!demotion.exited) this.live.add(id);
       throw error;
+    } finally {
+      this.demoting.delete(id);
     }
     setRole(id, "agent");
     this.clearRequests(id);
@@ -384,7 +412,9 @@ export class Dispatcher {
   }
 
   exited(id: string) {
-    if (!this.live.delete(id)) return;
+    const demotion = this.demoting.get(id);
+    if (demotion) demotion.exited = true;
+    if (!this.live.delete(id) && !demotion) return;
     this.clearRequests(id);
     this.changed();
   }
@@ -669,7 +699,8 @@ export class Dispatcher {
         throw new ControlError("conflict");
       authorize();
     };
-    let dispatched = false;
+    const effects: { spawnDispatched: boolean; bindingId?: string } = { spawnDispatched: false };
+    let resultId: string | undefined;
     try {
       await recheck();
       if (add) {
@@ -691,8 +722,15 @@ export class Dispatcher {
       }
       await operations.finish(actor, operation.operationId, "running", "intent");
       await recheck();
-      dispatched = true;
-      const id = await this.host.launch(input, repository, actor.terminalId, recheck, authorize);
+      const id = await this.host.launch(input, repository, actor.terminalId, recheck, authorize, {
+        spawning: () => {
+          effects.spawnDispatched = true;
+        },
+        binding: (id) => {
+          effects.bindingId = id;
+          this.bindingReports.set(id, { repository: repository.path, authorize });
+        },
+      });
       await this.write(
         (scopes) =>
           scopes.map((scope) =>
@@ -709,15 +747,20 @@ export class Dispatcher {
         authorize,
       );
       this.changed();
-      return await operations.finish(actor, operation.operationId, "succeeded", "completed", id);
+      resultId = id;
     } catch {
-      return operations.finish(
-        actor,
-        operation.operationId,
-        dispatched ? "indeterminate" : "failed",
-        dispatched ? "uncertain" : "refused",
-      );
+      // The spawn boundary determines whether the launch can have taken effect.
+    } finally {
+      if (effects.bindingId !== undefined) this.bindingReports.delete(effects.bindingId);
     }
+    if (resultId !== undefined)
+      return operations.finish(actor, operation.operationId, "succeeded", "completed", resultId);
+    return operations.finish(
+      actor,
+      operation.operationId,
+      effects.spawnDispatched ? "indeterminate" : "failed",
+      effects.spawnDispatched ? "uncertain" : "refused",
+    );
   }
 
   decisions(value: unknown, board: BoardDecisions): BoardDecisions {
@@ -747,9 +790,7 @@ export class Dispatcher {
           grant: true,
           status: "open",
           question: {
-            title:
-              `Launch ${request.agentName} orchestrator in ${metadataName(request.repository.name)}` +
-              (request.input.host ? ` on ${metadataName(request.input.host)}` : ""),
+            title: `Launch ${request.agentName} orchestrator${request.input.host ? ` on ${request.input.host}` : ""} in ${request.repository.name}`,
             ...(request.input.reason ? { detail: request.input.reason } : {}),
             options: GRANT_OPTIONS.map((option) => ({ ...option })),
           },

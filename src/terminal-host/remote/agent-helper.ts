@@ -281,7 +281,14 @@ export async function remoteMcp(
       } else if (id === undefined) return;
       else if (initialized && value["method"] === "ping")
         respond({ jsonrpc: "2.0", id, result: {} });
-      else if (ready && value["method"] === "tools/list")
+      else if (ready && value["method"] === "tools/list") {
+        let listed = capabilities;
+        if (orchestrator) {
+          const identity = await endpointRequest("/call", { method: "whoami", params: {} });
+          if (identity?.type !== "identity" || identity.role !== "orchestrator")
+            throw new Error("Remote grant unavailable");
+          listed = identity.capabilities;
+        }
         respond({
           jsonrpc: "2.0",
           id,
@@ -290,7 +297,7 @@ export async function remoteMcp(
               orchestrator ? 16 : 1,
               orchestrator ? bundledAgentData.map(({ id }) => id) : [],
             )
-              .filter((tool) => capabilities.includes(tool.name))
+              .filter((tool) => listed.includes(tool.name))
               .map((tool) =>
                 tool.name === "whoami" && !orchestrator
                   ? {
@@ -302,7 +309,7 @@ export async function remoteMcp(
               ),
           },
         });
-      else if (ready && value["method"] === "tools/call") {
+      } else if (ready && value["method"] === "tools/call") {
         if (
           !keys(params, ["name", "arguments", "_meta"]) ||
           typeof params["name"] !== "string" ||

@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import type { AgentId, AgentLaunch } from "../../shared/agents";
-import type { DispatcherLaunch } from "../../shared/dispatcher";
+import type { DispatcherLaunch, DispatcherLaunchLifecycle } from "../../shared/dispatcher";
 import { ControlError } from "../../shared/control-validation";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { ShellState } from "../../shared/desktop";
@@ -168,6 +168,7 @@ export async function launchOrchestrator(
   repository: { path: string; identity: string },
   verify: () => Promise<void>,
   active: () => void,
+  lifecycle: DispatcherLaunchLifecycle,
   remote?: NonNullable<AgentLaunch["remoteOrchestrator"]> & { worktree: string },
 ): Promise<string> {
   const path = repository.path;
@@ -186,6 +187,7 @@ export async function launchOrchestrator(
       worktree: identity,
     });
     if ("existing" in slot) throw new ControlError("conflict");
+    let bindingId: string | undefined;
     try {
       const admission = remote
         ? undefined
@@ -217,10 +219,20 @@ export async function launchOrchestrator(
           {
             automated: true,
             ...(remote ? { remoteOrchestrator: remote } : {}),
-            control: { role: "orchestrator" },
+            control: {
+              role: "orchestrator",
+              beforeBind: (id) => {
+                lifecycle.binding(id);
+                bindingId = id;
+                slot.bind(id);
+              },
+            },
             prompt: request.prompt,
             pressure: () => {},
-            beforeSpawn: active,
+            beforeSpawn: () => {
+              active();
+              lifecycle.spawning();
+            },
             prepareSpawn: verify,
           },
         );
@@ -230,6 +242,9 @@ export async function launchOrchestrator(
       } finally {
         admission?.release();
       }
+    } catch (error) {
+      if (bindingId !== undefined && slot.isCurrent()) this.orchestration.revoke(bindingId);
+      throw error;
     } finally {
       slot.release();
     }

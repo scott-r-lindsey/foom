@@ -380,6 +380,18 @@ test("remote orchestrator CLI and MCP expose only the capabilities returned by t
   expect(await remoteCli(["call", "sessions", "--params", "{}"], input(""))).toEqual({
     error: "unavailable",
   });
+  const orchestratorIdentity = {
+    ...identity,
+    role: "orchestrator" as const,
+    capabilities: ["whoami", "sessions"],
+  };
+  vi.mocked(endpointRequest)
+    .mockResolvedValueOnce(orchestratorIdentity)
+    .mockResolvedValueOnce(orchestratorIdentity)
+    .mockResolvedValueOnce({
+      ...orchestratorIdentity,
+      capabilities: ["whoami", "sessions", "handoff"],
+    });
   const out = output();
   await remoteMcp(
     input(
@@ -412,6 +424,7 @@ test("remote orchestrator CLI and MCP expose only the capabilities returned by t
       tools: [
         expect.objectContaining({ name: "whoami" }),
         expect.objectContaining({ name: "sessions" }),
+        expect.objectContaining({ name: "handoff" }),
       ],
     },
   });

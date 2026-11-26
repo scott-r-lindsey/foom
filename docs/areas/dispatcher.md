@@ -30,13 +30,16 @@ that orchestrator's tile and row.
 
 When a dispatcher requests a launch outside its pre-approved repositories, Foom
 opens a grant question in the decisions stepper. Main builds the title using the
-agent's manifest display name and supplies the three fixed choices. A request
+agent's manifest display name and the full repository selector, including the
+registered host when specified. Main supplies the three fixed choices. A request
 without a matching manifest fails before a grant question is opened. The optional
 agent-supplied reason is untrusted plain text.
 **Allow once** authorizes the bound launch. **Allow and add to dispatcher repos**
 commits the repository identity and authorizes the launch. **Don't launch**
 resolves the question. Main reserves the idempotency key and durable operation
-intent before acting. Authorization ends on demotion or process exit.
+intent before acting. A rejection before the PTY spawn boundary reports failure.
+An error after spawn dispatch can report an indeterminate outcome. Authorization
+ends on demotion or process exit, including if the demotion save fails after exit.
 
 The dispatcher grant allows `repos`, `launch_orchestrator`, `prompt`, `stop`,
 `read_handoff`, `session_state`, `wait_for` and `operation_status`. Human answers
@@ -49,8 +52,11 @@ again before spawning. A separate per-launch relay forwards only the
 repository orchestrator's approved calls. Child launches retain their existing
 restricted relay. See [registered hosts](hosts.md#dispatcher-placement-1300).
 
-Dispatcher-launched orchestrators can send pull-only handoffs through their
-launch grants. Adopted orchestrators keep their existing tools and grants.
+Dispatcher-launched orchestrators can send pull-only handoffs as soon as main
+binds their launch grants. Main clears provisional reporting authority when
+launch tracking completes or fails. Remote MCP discovery reads the current
+grant when listing orchestrator tools. Adopted orchestrators keep their
+existing tools and grants.
 Their retained reports, when present, are read through the same bounded
 handoff interface. Foom's authorization governs Foom tools. Provider file
 and command permissions follow the provider's own configuration.

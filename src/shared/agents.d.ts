@@ -121,7 +121,9 @@ export interface AgentLaunch {
    * Main-only control role: the repository panel's orchestrator, or an orchestrator's
    * child (an ordinary agent naming its parent). Never copied from IPC or the control API.
    */
-  readonly control?: { readonly role: "orchestrator" } | { readonly parentId: string };
+  readonly control?:
+    | { readonly role: "orchestrator"; readonly beforeBind?: (id: string) => void }
+    | { readonly parentId: string };
   /** Main-owned initial prompt for a child or human host setup session, passed as one argv entry. */
   readonly prompt?: string;
   /** Main-only Environment layers (All sessions, then this agent's); never from IPC. */

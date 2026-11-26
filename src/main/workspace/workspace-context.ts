@@ -130,7 +130,7 @@ export class WorkspaceContext {
     repository: sourceRepository,
     repositories: sourceRepositories,
     agentName: (id) => agentProviders().find((provider) => provider.id === id)?.name,
-    launch: async (request, repository, dispatcher, verify, active) => {
+    launch: async (request, repository, dispatcher, verify, active, lifecycle) => {
       await verify();
       if (!this.deps.worktrees.listRepositories().some((row) => row.path === repository.path)) {
         const added = await this.addRepository(repository.path);
@@ -170,6 +170,7 @@ export class WorkspaceContext {
         repository,
         verify,
         scope,
+        lifecycle,
         remote && {
           ...remote,
           worktree: `/foom-remote/${locationId(JSON.stringify([host, remote.path]))}`,
@@ -284,13 +285,23 @@ export class WorkspaceContext {
           await this.initializeControl();
           const control = await this.control;
           if (!control) throw new Error("Control service unavailable");
-          return role === undefined
-            ? source
+          if (role === undefined)
+            return source
               ? control.prepare(repository, worktree, sessionId, "agent", null, source)
-              : control.prepare(repository, worktree, sessionId)
-            : "role" in role
-              ? control.prepare(repository, worktree, sessionId, "orchestrator")
-              : control.prepare(repository, worktree, sessionId, "agent", role.parentId);
+              : control.prepare(repository, worktree, sessionId);
+          if ("parentId" in role)
+            return control.prepare(repository, worktree, sessionId, "agent", role.parentId);
+          const grant = control.prepare(repository, worktree, sessionId, "orchestrator");
+          const beforeBind = role.beforeBind;
+          return beforeBind
+            ? {
+                ...grant,
+                bind(id, mcp) {
+                  beforeBind(id);
+                  grant.bind(id, mcp);
+                },
+              }
+            : grant;
         }
       : undefined;
     this.orchestrationHost = workspaceOrchestrationHost(this.features.orchestrationHost);

@@ -217,6 +217,9 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
   assert.equal(launch.result?.status, "succeeded", JSON.stringify(launch));
   const first = await request("launch_orchestrator", launchRequest("billing"));
   assert.equal(first.result?.resultId, launch.result?.resultId);
+  const occupied = await request("launch_orchestrator", launchRequest("billing", "occupied"));
+  assert.equal(occupied.result?.status, "failed");
+  assert.equal(occupied.result?.reason, "refused");
   const waited = await consoleCall(
     sourceGrant,
     "wait-for",

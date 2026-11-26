@@ -26,6 +26,7 @@ const launchRequest: DispatcherLaunch = {
   idempotencyKey: "launch",
   prompt: "Review the release.",
 };
+const lifecycle = { spawning() {}, binding() {} };
 
 test("dispatcher launches use the ordinary orchestrator slot and recheck scope before spawn", async () => {
   scans.current = {
@@ -35,32 +36,68 @@ test("dispatcher launches use the ordinary orchestrator slot and recheck scope b
   const workspace = createWorkspace();
   const verify = vi.fn(() => Promise.resolve());
   const active = vi.fn();
+  const launchLifecycle = { spawning: vi.fn(), binding: vi.fn() };
   launch.mockImplementationOnce(async (request) => {
     await request.prepareSpawn?.();
     request.beforeSpawn?.();
+    if (request.control && "role" in request.control) request.control.beforeBind?.("orchestrator");
+    expect(workspace.orchestration.active(repo.path)).toBe("orchestrator");
     return { id: "orchestrator", attention: "evaluator" };
   });
   await expect(
-    workspace.dispatcherHost.launch(launchRequest, proof, "dispatcher", verify, active),
+    workspace.dispatcherHost.launch(
+      launchRequest,
+      proof,
+      "dispatcher",
+      verify,
+      active,
+      launchLifecycle,
+    ),
   ).resolves.toBe("orchestrator");
   expect(verify).toHaveBeenCalledTimes(3);
   expect(active).toHaveBeenCalledTimes(3);
+  expect(launchLifecycle.spawning).toHaveBeenCalledOnce();
+  expect(launchLifecycle.binding).toHaveBeenCalledExactlyOnceWith("orchestrator");
   expect(launch).toHaveBeenCalledWith(
     expect.objectContaining({
       repository: repo.path,
       worktree: repo.path,
       automated: true,
       localOnly: true,
-      control: { role: "orchestrator" },
       prompt: launchRequest.prompt,
     }),
   );
+  expect(launch.mock.calls[0]?.[0].control).toMatchObject({ role: "orchestrator" });
   expect(workspace.orchestration.active(repo.path)).toBe("orchestrator");
   expect(deps.placeChild).toHaveBeenCalledWith("orchestrator", "dispatcher");
   await expect(
-    workspace.dispatcherHost.launch(launchRequest, proof, "dispatcher", verify, active),
+    workspace.dispatcherHost.launch(launchRequest, proof, "dispatcher", verify, active, lifecycle),
   ).rejects.toThrow("conflict");
   expect(launch).toHaveBeenCalledOnce();
+});
+
+test("a failed launch releases an orchestrator slot already bound for startup", async () => {
+  scans.current = {
+    ...scans.current,
+    agents: scans.current.agents.map((agent) => ({ ...agent, initialPrompt: true })),
+  };
+  const workspace = createWorkspace();
+  launch.mockImplementationOnce((request) => {
+    request.beforeSpawn?.();
+    if (request.control && "role" in request.control) request.control.beforeBind?.("failed");
+    return Promise.reject(new Error("Launch failed"));
+  });
+  await expect(
+    workspace.dispatcherHost.launch(
+      launchRequest,
+      proof,
+      "dispatcher",
+      () => Promise.resolve(),
+      vi.fn(),
+      lifecycle,
+    ),
+  ).rejects.toThrow("Launch failed");
+  expect(workspace.orchestration.active(repo.path)).toBeUndefined();
 });
 
 test("dispatcher remote launch binds the selected host and its verified repository origin", async () => {
@@ -100,6 +137,7 @@ test("dispatcher remote launch binds the selected host and its verified reposito
       "dispatcher",
       verify,
       active,
+      lifecycle,
     ),
   ).resolves.toBe("orchestrator");
   expect(mapped).toMatchObject({ path: `${folder}/${clone}`, origin, target: { host: "worker" } });
@@ -135,6 +173,7 @@ test("dispatcher revalidates the approved checkout before remote preparation dis
       "dispatcher",
       verify,
       vi.fn(),
+      lifecycle,
     ),
   ).rejects.toThrow("checkout changed");
   expect(prepareCheckout).not.toHaveBeenCalled();
@@ -153,9 +192,16 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
   const factory = deps.agents;
   if (!factory) throw new Error("Missing fixture agent factory");
   let prepareControl: Parameters<typeof factory>[1];
+  let sourceEnv: Readonly<Record<string, string>> | undefined;
+  let projectIdentity = "";
   const workspace = createWorkspace({
     ...deps,
     control: () => startRuntime(),
+    worktrees: {
+      ...deps.worktrees,
+      listRepositories: () => [{ ...repo, path: project }],
+      launchIdentity: () => Promise.resolve(projectIdentity),
+    },
     agents: (hooks, control) => {
       prepareControl = control;
       return factory(hooks, control);
@@ -179,6 +225,10 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
   try {
     await expect(workspace.demoteDispatcher("missing")).rejects.toThrow("unavailable");
     workspace.configure({ hooks: true, agents: ENABLED_AGENTS, sourceDirectory: source });
+    scans.current = {
+      ...scans.current,
+      agents: scans.current.agents.map((agent) => ({ ...agent, initialPrompt: true })),
+    };
     launch.mockImplementationOnce(async (request) => {
       expect(request.worktree).toBe(source);
       const grant = await prepareControl?.(
@@ -190,6 +240,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
       );
       if (!grant) throw new Error("Missing source control grant");
       grant.bind("dispatcher");
+      sourceEnv = grant.env;
       return { id: "dispatcher", attention: "evaluator" };
     });
     await workspace.sidebarCommand({ kind: "machine-launch", run: "claude", host: null }, confirm);
@@ -213,6 +264,50 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
         idempotencyKey: "unrelated",
       }),
     ).rejects.toThrow("not_found");
+    projectIdentity = (await workspace.dispatcherHost.repository(source, "project")).identity;
+    launch.mockImplementationOnce(async (request) => {
+      await request.prepareSpawn?.();
+      request.beforeSpawn?.();
+      const grant = await prepareControl?.(
+        request.repository,
+        request.worktree,
+        undefined,
+        request.control,
+      );
+      if (!grant?.remoteCall) throw new Error("Missing orchestrator relay");
+      grant.bind("early-orchestrator");
+      expect(workspace.orchestration.active(project)).toBe("early-orchestrator");
+      const identity = await grant.remoteCall("whoami", {});
+      if (identity.type !== "identity") throw new Error("Missing relay identity");
+      expect(identity.capabilities).toContain("handoff");
+      const result = await grant.remoteCall("handoff", {
+        status: "done",
+        summary: "Fixture finished.",
+        idempotencyKey: "startup-report",
+      });
+      if (result.type !== "orchestrator-result") throw new Error("Startup handoff failed");
+      expect(result.payload).toContain('"seq":1');
+      return { id: "early-orchestrator", attention: "evaluator" };
+    });
+    const endpoint = sourceEnv?.["FOOM_CONTROL_URL"];
+    if (!endpoint) throw new Error("Missing source endpoint");
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${sourceEnv?.["FOOM_CONTROL_TOKEN"] ?? ""}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        version: 1,
+        instanceId: sourceEnv?.["FOOM_CONTROL_INSTANCE"],
+        method: "launch_orchestrator",
+        params: { ...launchRequest, repo: "project" },
+      }),
+    });
+    expect(await response.json()).toMatchObject({
+      result: { status: "succeeded", resultId: "early-orchestrator" },
+    });
+    expect(workspace.orchestration.handoffs.latest("early-orchestrator")).toMatchObject({ seq: 1 });
     await workspace.demoteDispatcher("dispatcher");
     expect(workspace.snapshot().terminals[0]?.dispatcher).toBeUndefined();
   } finally {
@@ -233,6 +328,7 @@ test("dispatcher refuses unavailable placements and providers before spawning", 
       "dispatcher",
       verify,
       active,
+      lifecycle,
     ),
   ).rejects.toThrow("conflict");
   await expect(
@@ -242,10 +338,11 @@ test("dispatcher refuses unavailable placements and providers before spawning", 
       "dispatcher",
       verify,
       active,
+      lifecycle,
     ),
   ).rejects.toThrow("host_unavailable");
   await expect(
-    local.dispatcherHost.launch(launchRequest, proof, "dispatcher", verify, active),
+    local.dispatcherHost.launch(launchRequest, proof, "dispatcher", verify, active, lifecycle),
   ).rejects.toThrow("unsupported");
   const unapproved = createWorkspace({
     ...deps,
@@ -270,6 +367,7 @@ test("dispatcher refuses unavailable placements and providers before spawning", 
       "dispatcher",
       verify,
       active,
+      lifecycle,
     ),
   ).rejects.toThrow("host_unavailable");
   expect(launch).not.toHaveBeenCalled();

@@ -16,3 +16,9 @@ export interface DispatcherLaunch {
   reason?: string;
   idempotencyKey: string;
 }
+
+/** Main-only boundaries for a dispatcher launch. */
+export interface DispatcherLaunchLifecycle {
+  spawning(): void;
+  binding(id: string): void;
+}

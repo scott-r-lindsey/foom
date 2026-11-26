@@ -2,7 +2,7 @@ import { join, resolve } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { expect, test, vi } from "vitest";
-import { Dispatcher } from "../../../../src/main/control/dispatcher";
+import { Dispatcher, type DispatcherHost } from "../../../../src/main/control/dispatcher";
 import { ControlService } from "../../../../src/main/control/service";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { Operations } from "../../../../src/main/control/operations";
@@ -47,7 +47,7 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
     }),
     repositories: vi.fn(() => Promise.resolve(repos)),
     agentName: vi.fn((id: string) => (id === "claude" ? "Claude Code" : undefined)),
-    launch: vi.fn(() => Promise.resolve("secondary-orchestrator")),
+    launch: vi.fn<DispatcherHost["launch"]>(() => Promise.resolve("secondary-orchestrator")),
     prompt: vi.fn(() => Promise.resolve()),
     stop: vi.fn(() => Promise.resolve()),
   };
@@ -476,6 +476,60 @@ test("failed elevation and demotion never leave a half-written role grant", asyn
   await expect(call("repos")).rejects.toThrow("forbidden");
 });
 
+test("a failed demotion does not restore an exited dispatcher", async () => {
+  const { dispatcher, elevate, save, service, source } = harness();
+  await elevate();
+  const entered = Promise.withResolvers<undefined>();
+  const saved = Promise.withResolvers<undefined>();
+  save.mockImplementationOnce(() => {
+    entered.resolve(undefined);
+    return saved.promise;
+  });
+  const demotion = dispatcher.demote("dispatcher", service.setRole.bind(service));
+  const rejected = expect(demotion).rejects.toThrow("Disk unavailable");
+  await entered.promise;
+  source.dispose();
+  saved.reject(new Error("Disk unavailable"));
+  await rejected;
+  await expect(
+    dispatcher.elevate("second", () => Promise.resolve([]), service.setRole.bind(service)),
+  ).resolves.toBeUndefined();
+});
+
+test("distinct repository selectors remain visible in launch approvals", async () => {
+  const tool = harness();
+  await tool.elevate();
+  const names = ["a", "b"].map((suffix) => `${"x".repeat(160)}${suffix}`);
+  for (const name of names) {
+    tool.repos.push({ name, path: resolve(directory, name), identity: name });
+    await expect(
+      tool.call("launch_orchestrator", { ...launch, repo: name, idempotencyKey: name }),
+    ).resolves.toMatchObject({ status: "pending_confirmation" });
+  }
+  expect(setup(tool).questions.map(({ question }) => question.title)).toEqual(
+    names.map((name) => `Launch Claude Code orchestrator in ${name}`),
+  );
+});
+
+test("a launch refused before the spawn boundary records a definitive failure", async () => {
+  const { call, elevate, host } = harness();
+  await elevate();
+  host.launch.mockRejectedValueOnce(new Error("Orchestrator slot occupied"));
+  await expect(call("launch_orchestrator", { ...launch, repo: "primary" })).resolves.toMatchObject({
+    status: "failed",
+    reason: "refused",
+  });
+  host.launch.mockImplementationOnce(
+    (_input, _repository, _dispatcher, _verify, _active, lifecycle) => {
+      lifecycle.spawning();
+      return Promise.reject(new Error("Spawn acknowledgment lost"));
+    },
+  );
+  await expect(
+    call("launch_orchestrator", { ...launch, repo: "primary", idempotencyKey: "spawn-uncertain" }),
+  ).resolves.toMatchObject({ status: "indeterminate", reason: "uncertain" });
+});
+
 test("dispatcher wait deduplicates targets, handles an unchanged revision, and honors cancellation", async () => {
   const { call, elevate } = harness();
   await elevate();
@@ -509,29 +563,45 @@ test("trusted grant projections keep host and reason separate and handoff requir
   const grant = service.humanDecisions({ repository: scope, watch: [] });
   const [question] = grant.questions;
   if (!question) throw new Error("Expected grant");
-  expect(question.question.title).toBe("Launch Claude Code orchestrator in secondary on worker");
+  expect(question.question.title).toBe("Launch Claude Code orchestrator on worker in secondary");
   expect(question.question.detail).toBeUndefined();
   expect(service.humanDecisions({ repository: "unrelated", watch: [] }).questions).toEqual([]);
   expect(
     service.humanDecisions({ repository: "unrelated", watch: [{ post: question.post, index: 0 }] })
       .questions,
   ).toContainEqual(question);
-  await dispatcher.answer({
-    answers: [{ post: question.post, index: 0, option: "once" }],
-    idempotencyKey: "allow",
-  });
-  expect(host.launch).toHaveBeenCalledOnce();
   const parent = service.prepare(other, other, "orchestrator");
-  parent.bind("secondary-orchestrator");
-  const actor = service.authenticate(parent.env["FOOM_CONTROL_TOKEN"] ?? "");
   const report = {
     method: "handoff",
     params: { status: "done", summary: "Finished", idempotencyKey: "report" },
     version: 1,
     instanceId: service.instanceId,
   };
-  await expect(service.call(actor, report)).resolves.toEqual({ seq: 1 });
+  const relay = parent.remoteCall;
+  if (!relay) throw new Error("Missing relay");
+  host.launch.mockImplementationOnce(
+    async (_request, _repository, _dispatcher, _verify, _active, lifecycle) => {
+      lifecycle.spawning();
+      lifecycle.binding("secondary-orchestrator");
+      parent.bind("secondary-orchestrator");
+      const identity = await relay("whoami", {});
+      if (identity.type !== "identity") throw new Error("Missing relay identity");
+      expect(identity.capabilities).toContain("handoff");
+      await expect(relay("handoff", report.params)).resolves.toEqual({
+        type: "orchestrator-result",
+        payload: '{"seq":1}',
+      });
+      return "secondary-orchestrator";
+    },
+  );
+  await dispatcher.answer({
+    answers: [{ post: question.post, index: 0, option: "once" }],
+    idempotencyKey: "allow",
+  });
+  expect(host.launch).toHaveBeenCalledOnce();
   expect(dispatcherHandoff).toHaveBeenCalledOnce();
+  const actor = service.authenticate(parent.env["FOOM_CONTROL_TOKEN"] ?? "");
+  expect(dispatcher.canReport(actor)).toBe(true);
   await dispatcher.demote("dispatcher", service.setRole.bind(service));
   expect(dispatcher.canReport(actor)).toBe(false);
 });
