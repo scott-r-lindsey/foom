@@ -46,6 +46,7 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
       return repo ? Promise.resolve(repo) : Promise.reject(new Error("repository refused"));
     }),
     repositories: vi.fn(() => Promise.resolve(repos)),
+    agentName: vi.fn((id: string) => (id === "claude" ? "Claude Code" : undefined)),
     launch: vi.fn(() => Promise.resolve("secondary-orchestrator")),
     prompt: vi.fn(() => Promise.resolve()),
     stop: vi.fn(() => Promise.resolve()),
@@ -328,6 +329,13 @@ test("dispatcher validates launch, state, wait and input arguments before effect
     );
   }
   await expect(
+    call("launch_orchestrator", { ...launch, agent: "missing", idempotencyKey: "unknown-agent" }),
+  ).resolves.toMatchObject({ status: "failed" });
+  expect(
+    service.humanDecisions({ repository: Dispatcher.decisionScope("dispatcher"), watch: [] })
+      .questions,
+  ).toEqual([]);
+  await expect(
     call("prompt", {
       id: "primary-orchestrator",
       text: "\u001b",
@@ -471,7 +479,7 @@ test("trusted grant projections keep host and reason separate and handoff requir
   const grant = service.humanDecisions({ repository: scope, watch: [] });
   const [question] = grant.questions;
   if (!question) throw new Error("Expected grant");
-  expect(question.question.title).toContain("on worker");
+  expect(question.question.title).toBe("Launch Claude Code orchestrator in secondary on worker");
   expect(question.question.detail).toBeUndefined();
   expect(service.humanDecisions({ repository: "unrelated", watch: [] }).questions).toEqual([]);
   expect(

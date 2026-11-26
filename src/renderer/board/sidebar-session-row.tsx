@@ -5,6 +5,7 @@ import type { SidebarRowEvents } from "./sidebar-interactions.d";
 import type { CSSProperties, ReactNode } from "react";
 import type { BoardRow } from "./board.d";
 import { OrchestrationMark } from "./orchestration-mark";
+import { dispatcherGlyphPath } from "./panel-glyphs";
 import { AgentBadge } from "./agent-badge";
 import { agentBadges } from "./sidebar-model";
 import { lightState, movingLight } from "./light-activity";
@@ -153,7 +154,7 @@ export function SidebarSessionRow({
                   fill="none"
                   stroke="currentColor"
                 >
-                  <path d="M8 2 14 6 8 10 2 6Z M2 10l6 4 6-4" />
+                  <path d={dispatcherGlyphPath} />
                 </svg>
                 {" Dispatcher"}
                 {decisionCount > 0 && (

@@ -3,11 +3,14 @@
 General → Source directory accepts an existing local directory. Main commits the
 canonical path under the profile settings lock. New local agents launched from
 the source directory's sidebar menu start as plain sessions with the manual and
-identity tools. Existing sessions keep their launch directory.
+identity tools. The sidebar shows source paths on one line, with an ellipsis
+when needed and the full path on hover. Existing sessions keep their launch
+directory.
 
 A source-session row offers **Elevate to dispatcher…**. The trusted dialog opens
-in the requesting board window and lists direct Git repositories. Select the
-repositories to pre-approve. Each selected repository's running orchestrators
+in the requesting board window with the same layered glyph as the dispatcher's
+sidebar row. It lists direct Git repositories. Select the repositories to
+pre-approve. Each selected repository's running orchestrators
 become addressable by the dispatcher. Their current repository authority and
 child ownership carry forward. One source directory has one active dispatcher.
 **Demote** releases that role while its orchestrators continue running.
@@ -26,8 +29,10 @@ counts its own pending launch requests. Each orchestrator's decisions stay on
 that orchestrator's tile and row.
 
 When a dispatcher requests a launch outside its pre-approved repositories, Foom
-opens a grant question in the decisions stepper. Main builds the title and the
-three fixed choices. The optional agent-supplied reason is untrusted plain text.
+opens a grant question in the decisions stepper. Main builds the title using the
+agent's manifest display name and supplies the three fixed choices. A request
+without a matching manifest fails before a grant question is opened. The optional
+agent-supplied reason is untrusted plain text.
 **Allow once** authorizes the bound launch. **Allow and add to dispatcher repos**
 commits the repository identity and authorizes the launch. **Don't launch**
 resolves the question. Main reserves the idempotency key and durable operation

@@ -40,6 +40,7 @@ import { EMPTY_AGENT_ARGUMENTS } from "../agents/default-arguments";
 import type { ProbeHttp } from "../agents/probe-http";
 import type { AgentProbes } from "../agents/probes";
 import { prepareHookLaunch } from "../agents/providers/hook-launch";
+import { agentProviders } from "../agents/providers/registry";
 import { flushV2Health } from "../agents/providers/v2-health";
 import { Orchestration } from "../control/orchestration";
 import type { ControlRuntime } from "../control/runtime";
@@ -128,6 +129,7 @@ export class WorkspaceContext {
     directoryIdentity: sourceDirectoryIdentity,
     repository: sourceRepository,
     repositories: sourceRepositories,
+    agentName: (id) => agentProviders().find((provider) => provider.id === id)?.name,
     launch: async (request, repository, dispatcher, verify, active) => {
       await verify();
       if (!this.deps.worktrees.listRepositories().some((row) => row.path === repository.path)) {

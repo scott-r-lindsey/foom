@@ -318,13 +318,13 @@ export function Sidebar(props: SidebarProps) {
                           }}
                         >
                           <PanelMark mark="repository" />
-                          {directory}
+                          <span className="tree-label">{directory}</span>
                         </button>
                         {actions(id, "source directory", sourceActions)}
                       </>
                     ) : (
                       <span className="tree-name" title={directory}>
-                        {directory}
+                        <span className="tree-label">{directory}</span>
                       </span>
                     )}
                   </div>

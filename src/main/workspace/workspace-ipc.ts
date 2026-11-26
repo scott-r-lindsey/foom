@@ -517,7 +517,7 @@ export function attachWorkspace(
               title: "Elevate to dispatcher",
               subject: directory,
               accept: "Elevate",
-              glyph: "orbit",
+              glyph: "dispatcher",
               userAction: true,
               dispatcherRepositories: repositories,
               selectDispatcherRepositories: (names) => {

@@ -48,6 +48,9 @@ interface GrantRequest {
   operation: Operation;
   authorize: () => Scope;
 }
+interface PendingGrant extends GrantRequest {
+  agentName: string;
+}
 
 export const DISPATCHER_METHODS = [
   "repos",
@@ -70,6 +73,7 @@ export interface DispatcherHost {
   directoryIdentity(path: string): Promise<string>;
   repository(directory: string, name: string): Promise<RepositoryProof>;
   repositories(directory: string): Promise<RepositoryProof[]>;
+  agentName(id: DispatcherLaunch["agent"]): string | undefined;
   launch(
     request: DispatcherLaunch,
     repository: RepositoryProof,
@@ -405,7 +409,7 @@ export class Dispatcher {
   static decisionScope(id: string): string {
     return locationId(JSON.stringify(["dispatcher", id]));
   }
-  private readonly requests = new Map<string, GrantRequest>();
+  private readonly requests = new Map<string, PendingGrant>();
   private readonly answers = new Map<
     string,
     { fingerprint: string; result: Promise<BoardMutation> }
@@ -535,7 +539,12 @@ export class Dispatcher {
             .length >= OPEN_DECISION_LIMIT
         )
           throw new ControlError("capacity");
-        this.requests.set(operation.operationId, request);
+        const agentName = this.host.agentName(input.agent);
+        if (!agentName) throw new ControlError("not_found");
+        this.requests.set(operation.operationId, {
+          ...request,
+          agentName: metadataName(agentName),
+        });
         this.changed();
         return operations.lookup(actor, { operationId: operation.operationId });
       } catch {
@@ -726,7 +735,7 @@ export class Dispatcher {
           status: "open",
           question: {
             title:
-              `Launch ${request.input.agent} orchestrator in ${metadataName(request.repository.name)}` +
+              `Launch ${request.agentName} orchestrator in ${metadataName(request.repository.name)}` +
               (request.input.host ? ` on ${metadataName(request.input.host)}` : ""),
             ...(request.input.reason ? { detail: request.input.reason } : {}),
             options: GRANT_OPTIONS.map((option) => ({ ...option })),

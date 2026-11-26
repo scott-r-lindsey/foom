@@ -19,7 +19,7 @@ const {
 const { waitForFixtureRecord } = require("./fixture-records.js");
 
 async function fixture(context) {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-dispatcher-")));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "d-")));
   removeAfterApps(context, root);
   const source = path.join(root, "src");
   const creds = path.join(root, "credentials");
@@ -70,6 +70,11 @@ process.stdout.write("FOOM_AGENT_READY`,
   const page = await boardPage(app);
   await page.evaluate((sourceDirectory) => window.desktop.saveSetup({ sourceDirectory }), source);
   const section = page.getByRole("treeitem", { name: `Source directory ${source}`, exact: true });
+  const sourceName = section.getByRole("button", { name: source, exact: true });
+  await expect(sourceName).toHaveAttribute("title", source);
+  const sourceLabel = sourceName.getByText(source, { exact: true });
+  await expect(sourceLabel).toHaveCSS("white-space", "nowrap");
+  await expect(sourceLabel).toHaveCSS("text-overflow", "ellipsis");
   await section.getByRole("button", { name: "Actions for source directory" }).click();
   await page.getByRole("menuitem", { name: "New Claude Code" }).click();
   const row = section.locator(".board-row");
@@ -152,11 +157,14 @@ async function elevate(app, page, row, takeScreenshot) {
   await row.getByRole("button", { name: /Actions for/ }).click();
   await page.getByRole("menuitem", { name: "Elevate to dispatcher…" }).click();
   const confirm = await confirmationPage(app, "Elevate to dispatcher");
+  const glyph = await confirm.locator(".glyph svg path").getAttribute("d");
+  assert.ok(glyph);
   const option = confirm.getByRole("checkbox", { name: "billing" });
   await option.check();
   await takeScreenshot?.(confirm);
   await confirm.getByRole("button", { name: "Elevate", exact: true }).click();
   await expect(row).toContainText("Dispatcher");
+  await expect(row.locator(".session-orchestration svg path")).toHaveAttribute("d", glyph);
 }
 
 function launchRequest(repo, key = repo) {
@@ -226,7 +234,9 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
     assert.equal(pending.result?.status, "pending_confirmation");
     await page.getByRole("button", { name: "1 decision needed from you", exact: true }).click();
     const stepper = page.getByRole("dialog", { name: /decisions$/ });
-    await expect(stepper.getByText(`Launch claude orchestrator in ${repo}`)).toBeVisible();
+    await expect(
+      stepper.getByText(`Launch Claude Code orchestrator in ${repo}`, { exact: true }),
+    ).toBeVisible();
     assert.equal(await stepper.getByLabel("Other answer").count(), 0);
     if (repo === "infra") await captureThemes(page, page, "grant");
     await stepper.getByRole("radio", { name: choice, exact: true }).check();

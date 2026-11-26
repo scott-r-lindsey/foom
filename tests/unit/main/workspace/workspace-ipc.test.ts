@@ -1169,6 +1169,7 @@ test("dispatcher elevation stays on the requesting board and rejects foreign or 
   expect(requestDialog).toHaveBeenCalledWith(
     expect.objectContaining({
       userAction: true,
+      glyph: "dispatcher",
       dispatcherRepositories: [{ name: "project", running: true }],
     }),
   );

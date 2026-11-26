@@ -106,7 +106,7 @@ export interface DialogContent {
   detail?: string;
   quiet?: string;
   subject?: string;
-  glyph?: "trash" | "branch" | "power" | "orbit" | "link" | "shield" | "bell";
+  glyph?: "trash" | "branch" | "power" | "orbit" | "dispatcher" | "link" | "shield" | "bell";
   note?: string;
   sections?: readonly {
     label: string;

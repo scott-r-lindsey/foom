@@ -2,6 +2,7 @@ import { ApprovalGeometry } from "./approval-geometry";
 import { applyInterfaceTypography, interfaceGradientCss } from "./ui/interface-theme";
 import { interfaceColorNames, interfaceHighlightNames } from "../shared/interface-themes";
 import { CopyValue } from "./ui/copy-value";
+import { dispatcherGlyphPath } from "./board/panel-glyphs";
 import {
   createContext,
   use,
@@ -26,6 +27,7 @@ const glyphPaths = {
   branch: "M4 2v12M4 9c0-2 3-2.5 4.5-3.5M10.5 9.5l4 4M14.5 9.5l-4 4",
   power: "M8 1.8v6M4.4 4a5.2 5.2 0 1 0 7.2 0",
   orbit: "M8 5.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4M2 10c-3-4 9-9 12-4s-9 9-12 4",
+  dispatcher: dispatcherGlyphPath,
   link: "M6.5 9.5l3-3M7 4.5l1.2-1.2a2.6 2.6 0 0 1 3.7 3.7L10.7 8.2M9 11.5l-1.2 1.2a2.6 2.6 0 0 1-3.7-3.7l1.2-1.2",
   shield: "M8 1.8l5 2v4c0 3.2-2.2 5.3-5 6.4-2.8-1.1-5-3.2-5-6.4v-4zM6 6l4 4M10 6l-4 4",
   bell: "M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3zM6.5 14h3",
