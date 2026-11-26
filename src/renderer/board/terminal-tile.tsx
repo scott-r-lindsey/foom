@@ -223,6 +223,9 @@ export function Tile({
   const parent = row ? sidebarParent(row, rows) : undefined;
   const driver = rows.find((entry) => entry.id === row?.probeOwner);
   const occupied = Boolean(row || preview);
+  const removalControls = tileRemovalControls(row, Boolean(preview));
+  // Preserve the primary button's focus when Hide becomes Close on exit.
+  const [primaryRemoval] = removalControls;
   const name = row ? sessionName(row, preferences) : (preview?.relativePath ?? "");
   useEffect(
     () =>
@@ -595,9 +598,9 @@ export function Tile({
                 </svg>
               </button>
             )}
-            {tileRemovalControls(row, Boolean(preview)).map((control) => (
+            {removalControls.map((control) => (
               <button
-                key={control.action}
+                key={control === primaryRemoval ? "primary-removal" : "secondary-removal"}
                 type="button"
                 aria-label={control.label}
                 title={control.label}

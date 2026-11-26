@@ -104,6 +104,7 @@ Maximize/Restore, Reload and Close. The tile menu offers Allow network… when o
 Narrow preview headers give space to the menu and action buttons before the
 preview identity and network text. The globe remains visible when the network
 text no longer fits and exposes “Network enabled” as its accessible name and tooltip.
+When the menu and action buttons need more room, the buttons move to a second row.
 
 Preview headers have a keyboard-reachable **Reload** icon beside Close. It is faint at
 rest and fully opaque when the header is hovered or the icon has keyboard focus, with
@@ -231,8 +232,9 @@ The tile header and tile menu offer **Hide** for running sessions and both
 **Hide** and **Close** for exited agents with a saved conversation ID outside the
 config environment. Hide clears the tile and keeps the sidebar row and Resume
 conversation. Exited config agents, exited shells, exited agents without a saved
-conversation and previews offer **Close** only. Tile Close uses the same command
-as Close in the session sidebar menu.
+conversation and previews offer **Close** only. When a focused Hide button becomes
+Close on exit, it keeps keyboard focus. Tile Close uses the same command as Close
+in the session sidebar menu.
 A retained dormant tile on an unavailable host offers **Forget…** in its menu,
 with the same local-only confirmation as the [sidebar](sidebar.md).
 A refused Close keeps the tile and shows a fixed reason. Parents with child rows

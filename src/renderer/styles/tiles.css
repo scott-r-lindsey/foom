@@ -64,6 +64,10 @@
   font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
+.terminal-tile[data-kind="preview"] .tile-title {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
 .terminal-tile[data-focused="true"] .tile-title {
   background: color-mix(in srgb, var(--highlight) 10%, var(--surface));
   color: var(--ink);
@@ -130,12 +134,22 @@
   opacity: 0;
   min-width: 0;
 }
+.terminal-tile[data-kind="preview"] .tile-controls {
+  /* Move the controls below the menu before fitting them into a narrower row. */
+  flex-shrink: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
 .terminal-tile:hover .tile-controls,
 .terminal-tile:focus-within .tile-controls,
 .terminal-tile[data-focused="true"] .tile-controls {
   opacity: 1;
 }
 .tile-controls button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  overflow: clip;
   min-width: 0;
   padding: 0;
   width: 20px;
@@ -412,9 +426,6 @@
 }
 .tile-controls .preview-reload {
   opacity: 0.4;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  place-items: center;
 }
 .preview-reload svg {
   max-width: 100%;

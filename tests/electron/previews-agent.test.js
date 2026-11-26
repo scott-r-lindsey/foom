@@ -201,6 +201,32 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
     "Close",
   ]);
 
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ interfaceScale: 250, terminalFontSize: 10 }),
+  );
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThanOrEqual(512);
+  await divider.press("End");
+  await expect.poll(tileWidth).toBeLessThan(80);
+  const maximize = tile.getByRole("button", { name: "Maximize tile", exact: true });
+  const glyph = await maximize.evaluate((button) => {
+    const text = document.createRange();
+    text.selectNodeContents(button);
+    const { x, y, width, height } = text.getBoundingClientRect();
+    return { x: x + width / 2, y: y + height / 2 };
+  });
+  await page.mouse.click(glyph.x, glyph.y);
+  await expect(tile).toHaveAttribute("data-maximized", "true");
+  await tile.getByRole("button", { name: "Restore tile", exact: true }).click();
+  await expect.poll(tileWidth).toBeLessThan(80);
+  await expectTileHeaderHitTargets(tile, [
+    "Tile 2 menu",
+    "Maximize tile",
+    "Back",
+    "Forward",
+    "Reload",
+    "Close",
+  ]);
+
   await tile.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Block network", exact: true }).click();
   await expect(network).toHaveCount(0);
