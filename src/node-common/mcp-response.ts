@@ -1,5 +1,5 @@
-/** The stdio bridge's complete JSON response bound, also used to budget pages. */
-export const MCP_RESPONSE_LIMIT = 256 * 1024;
+export { MCP_RESPONSE_LIMIT } from "../shared/mcp-protocol";
+
 export const MCP_ID_LIMIT = 200;
 
 /** Preserve both MCP representations when measuring or sending a tool result. */

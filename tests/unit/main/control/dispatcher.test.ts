@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, test, vi } from "vitest";
 import { Dispatcher, type DispatcherHost } from "../../../../src/main/control/dispatcher";
 import { ControlService } from "../../../../src/main/control/service";
+import { locationId } from "../../../../src/main/control/metadata";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { Operations } from "../../../../src/main/control/operations";
 import { atomicPrivate, privateDirectory } from "../../../../src/node-common/private-files";
@@ -75,7 +76,7 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
     undefined,
     new MessageBoard(
       async () => {},
-      () => [],
+      () => [{ id: locationId(repository), name: "Primary" }],
     ),
     dispatcher,
   );
@@ -134,6 +135,40 @@ test("registered remote orchestrator relay authenticates its own grant and refus
   grant.dispose();
   await expect(relay("sessions", {})).resolves.toMatchObject({ error: "unauthorized" });
 });
+test("remote board reads return complete local pages that exceed 64 KiB", async () => {
+  const { service } = harness({ call: vi.fn(), authorizeBoard: () => {} });
+  const grant = service.prepare(repository, repository, "orchestrator");
+  grant.bind("primary-orchestrator");
+  const relay = grant.remoteCall;
+  if (!relay) throw new Error("Missing remote relay");
+  const actor = service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  const call = (method: string, params: unknown) =>
+    service.call(actor, { version: 1, instanceId: service.instanceId, method, params });
+  const first = await call("board_post", {
+    title: "Large page",
+    to: [locationId(repository)],
+    kind: "fyi",
+    text: "x".repeat(8120),
+    idempotencyKey: "first",
+  });
+  if (typeof first !== "object" || !first || !("resultId" in first))
+    throw new Error("Missing thread");
+  for (let i = 1; i < 8; i++)
+    await call("board_post", {
+      thread: first.resultId,
+      kind: "fyi",
+      text: "x".repeat(8120),
+      idempotencyKey: `post-${String(i)}`,
+    });
+  const params = { thread: first.resultId };
+  const local = await call("board_read", params);
+  expect(local).toMatchObject({ posts: Array(8).fill(expect.any(Object)), next: null });
+  expect(Buffer.byteLength(JSON.stringify(local))).toBeGreaterThan(65536);
+  const result = await relay("board_read", params);
+  expect(result.type).toBe("orchestrator-result");
+  if (result.type === "orchestrator-result") expect(result.payload).toBe(JSON.stringify(local));
+});
+
 function setup(tool: ReturnType<typeof harness>) {
   return tool.dispatcher.decisions(
     { repository: Dispatcher.decisionScope("dispatcher"), watch: [] },
@@ -474,6 +509,77 @@ test("failed elevation and demotion never leave a half-written role grant", asyn
   await expect(call("repos")).resolves.toMatchObject({ untrusted: true });
   await dispatcher.demote("dispatcher", service.setRole.bind(service));
   await expect(call("repos")).rejects.toThrow("forbidden");
+});
+
+test("source exit during the directory check prevents opening the elevation dialog", async () => {
+  const { dispatcher, host, save, service, source } = harness();
+  const identity = Promise.withResolvers<string>();
+  host.directoryIdentity.mockReturnValueOnce(identity.promise);
+  const select = vi.fn(() => Promise.resolve(["primary"]));
+  const elevation = dispatcher.elevate("dispatcher", select, service.setRole.bind(service));
+  source.dispose();
+  identity.resolve("source-proof");
+  await expect(elevation).rejects.toThrow("not_found");
+  expect(select).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
+
+test("source exit after elevation commit validation rolls back the saved scope and frees the slot", async () => {
+  const { dispatcher, elevate, save, rows, service, source } = harness();
+  const entered = Promise.withResolvers<undefined>();
+  const saved = Promise.withResolvers<undefined>();
+  save.mockImplementationOnce((_state, validate) => {
+    validate();
+    entered.resolve(undefined);
+    return saved.promise;
+  });
+  const elevation = elevate();
+  const rejected = expect(elevation).rejects.toThrow("not_found");
+  await entered.promise;
+  source.dispose();
+  saved.resolve(undefined);
+  await rejected;
+  expect(dispatcher.view("dispatcher", rows)).toBeUndefined();
+  expect(save).toHaveBeenLastCalledWith({ version: 1, scopes: [] }, expect.any(Function));
+  await expect(
+    dispatcher.elevate("second", () => Promise.resolve([]), service.setRole.bind(service)),
+  ).resolves.toBeUndefined();
+});
+
+test("a replacement preserves dispatcher read access to the retained previous launch", async () => {
+  const { call, elevate, host, rows } = harness();
+  await elevate(["secondary"]);
+  const previous = row("secondary-orchestrator", other, "orchestrator");
+  rows.push(previous);
+  await expect(call("launch_orchestrator", launch)).resolves.toMatchObject({ status: "succeeded" });
+  previous.exited = true;
+  if (previous.orchestration?.role !== "orchestrator")
+    throw new Error("Missing orchestration state");
+  previous.orchestration.active = false;
+  previous.handoff = {
+    seq: 1,
+    status: "done",
+    summary: "Finished",
+    links: [],
+    timestamp: "2025-01-01T00:00:00.000Z",
+  };
+  const replacement = row("replacement", other, "orchestrator");
+  rows.push(replacement);
+  host.launch.mockResolvedValueOnce(replacement.id);
+  await expect(
+    call("launch_orchestrator", { ...launch, idempotencyKey: "replacement" }),
+  ).resolves.toMatchObject({ status: "succeeded" });
+  await expect(call("session_state", { id: previous.id })).resolves.toMatchObject({
+    id: previous.id,
+    state: "exited",
+  });
+  await expect(call("read_handoff", { id: previous.id })).resolves.toMatchObject(previous.handoff);
+  await expect(call("session_state", { id: replacement.id })).resolves.toMatchObject({
+    id: replacement.id,
+  });
+  await expect(
+    call("prompt", { id: previous.id, text: "Continue", idempotencyKey: "old-prompt" }),
+  ).rejects.toThrow("not_found");
 });
 
 test("a failed demotion does not restore an exited dispatcher", async () => {

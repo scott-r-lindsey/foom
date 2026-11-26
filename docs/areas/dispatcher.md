@@ -40,6 +40,8 @@ resolves the question. Main reserves the idempotency key and durable operation
 intent before acting. A rejection before the PTY spawn boundary reports failure.
 An error after spawn dispatch can report an indeterminate outcome. Authorization
 ends on demotion or process exit, including if the demotion save fails after exit.
+If the source exits while elevation is being saved, main rolls back the scope
+and releases the directory slot.
 
 The dispatcher grant allows `repos`, `launch_orchestrator`, `prompt`, `stop`,
 `read_handoff`, `session_state`, `wait_for` and `operation_status`. Human answers
@@ -55,8 +57,12 @@ restricted relay. See [registered hosts](hosts.md#dispatcher-placement-1300).
 Dispatcher-launched orchestrators can send pull-only handoffs as soon as main
 binds their launch grants. Main clears provisional reporting authority when
 launch tracking completes or fails. Remote MCP discovery reads the current
-grant when listing orchestrator tools. Adopted orchestrators keep their
-existing tools and grants.
-Their retained reports, when present, are read through the same bounded
-handoff interface. Foom's authorization governs Foom tools. Provider file
+grant when listing orchestrator tools. Pi uses the relay's authenticated
+capability list to expose those tools. Adopted orchestrators keep their existing
+tools and grants.
+
+A replacement launch preserves the dispatcher's access to prior orchestrators
+it launched while their session rows and repository identities are retained.
+The dispatcher can read their session state and bounded handoffs. Prompt and
+stop still require a live orchestrator. Foom's authorization governs Foom tools. Provider file
 and command permissions follow the provider's own configuration.

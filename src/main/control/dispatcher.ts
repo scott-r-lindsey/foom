@@ -154,7 +154,7 @@ export class Dispatcher {
     string,
     { repository: string; authorize: () => Scope }
   >();
-  private readonly elevating = new Set<string>();
+  private readonly elevating = new Map<string, { directory: string; exited: boolean }>();
   private writes: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -224,7 +224,11 @@ export class Dispatcher {
     );
   }
 
-  private async write(update: (current: Scope[]) => Scope[], validate: () => void) {
+  private async write(
+    update: (current: Scope[]) => Scope[],
+    validate: () => void,
+    commit?: () => void,
+  ) {
     const task = this.writes.then(async () => {
       validate();
       const scopes = update(this.scopes).map(savedScope);
@@ -232,6 +236,13 @@ export class Dispatcher {
       if (scopes.length > SCOPE_LIMIT || Buffer.byteLength(JSON.stringify(state)) > STORAGE_LIMIT)
         throw new ControlError("capacity");
       await this.save(state, validate);
+      try {
+        commit?.();
+      } catch (error) {
+        // Keep rollback in the write queue so it cannot overwrite another scope update.
+        await this.save({ version: 1, scopes: this.scopes }, () => {});
+        throw error;
+      }
       this.scopes = scopes;
     });
     this.writes = task.catch(() => undefined);
@@ -299,9 +310,10 @@ export class Dispatcher {
     ) => Promise<readonly string[] | undefined>,
     setRole: (id: string, role: "agent" | "dispatcher") => void,
   ): Promise<void> {
-    const row = this.row(id);
-    const directory = row.worktree;
+    const directory = this.row(id).worktree;
+    const elevation = { directory, exited: false };
     const validate = () => {
+      if (elevation.exited) throw new ControlError("not_found");
       if (
         this.row(id).worktree !== directory ||
         this.scopes.some(
@@ -312,64 +324,68 @@ export class Dispatcher {
       )
         throw new ControlError("conflict");
     };
-    validate();
-    const identity = await this.host.directoryIdentity(directory);
-    const repositories = await this.host.repositories(directory);
-    const current = this.rows();
-    const chosen = await select(
-      directory,
-      repositories.map(({ name, path }) => ({
-        name,
-        running: current.some(
-          (row) =>
-            row.repository === path &&
-            row.orchestration?.role === "orchestrator" &&
-            row.orchestration.active,
-        ),
-      })),
-    );
-    if (chosen === undefined) return;
-    validate();
-    if (identity !== (await this.host.directoryIdentity(directory)))
+    if ([...this.elevating.values()].some((pending) => pending.directory === directory))
       throw new ControlError("conflict");
-    const approved: Scope["approved"] = [];
-    const adopted: Adopted[] = [];
-    for (const name of chosen) {
-      const previous = repositories.find((repo) => repo.name === name);
-      if (!previous) throw new ControlError("invalid_request");
-      const repository = await this.host.repository(directory, name);
-      if (repository.identity !== previous.identity) throw new ControlError("conflict");
-      approved.push({ name, identity: repository.identity });
-      for (const candidate of this.rows()) {
-        if (
-          candidate.repository !== repository.path ||
-          candidate.orchestration?.role !== "orchestrator" ||
-          !candidate.orchestration.active ||
-          candidate.exited
-        )
-          continue;
-        adopted.push({ id: candidate.id, name, identity: repository.identity });
-      }
-    }
-    validate();
-    if (this.elevating.has(directory)) throw new ControlError("conflict");
-    this.elevating.add(directory);
+    this.elevating.set(id, elevation);
     try {
-      setRole(id, "dispatcher");
+      validate();
+      const identity = await this.host.directoryIdentity(directory);
+      validate();
+      const repositories = await this.host.repositories(directory);
+      validate();
+      const current = this.rows();
+      const chosen = await select(
+        directory,
+        repositories.map(({ name, path }) => ({
+          name,
+          running: current.some(
+            (row) =>
+              row.repository === path &&
+              row.orchestration?.role === "orchestrator" &&
+              row.orchestration.active,
+          ),
+        })),
+      );
+      validate();
+      if (chosen === undefined) return;
+      const verified = await this.host.directoryIdentity(directory);
+      validate();
+      if (identity !== verified) throw new ControlError("conflict");
+      const approved: Scope["approved"] = [];
+      const adopted: Adopted[] = [];
+      for (const name of chosen) {
+        const previous = repositories.find((repo) => repo.name === name);
+        if (!previous) throw new ControlError("invalid_request");
+        const repository = await this.host.repository(directory, name);
+        validate();
+        if (repository.identity !== previous.identity) throw new ControlError("conflict");
+        approved.push({ name, identity: repository.identity });
+        for (const candidate of this.rows()) {
+          if (
+            candidate.repository !== repository.path ||
+            candidate.orchestration?.role !== "orchestrator" ||
+            !candidate.orchestration.active ||
+            candidate.exited
+          )
+            continue;
+          adopted.push({ id: candidate.id, name, identity: repository.identity });
+        }
+      }
       await this.write(
         (current) => [
           ...current.filter((scope) => scope.directory !== directory),
           savedScope({ id, directory, identity, approved, adopted }),
         ],
         validate,
+        () => {
+          validate();
+          setRole(id, "dispatcher");
+          this.live.add(id);
+        },
       );
-      this.live.add(id);
       this.changed();
-    } catch (error) {
-      setRole(id, "agent");
-      throw error;
     } finally {
-      this.elevating.delete(directory);
+      this.elevating.delete(id);
     }
   }
 
@@ -412,6 +428,8 @@ export class Dispatcher {
   }
 
   exited(id: string) {
+    const elevation = this.elevating.get(id);
+    if (elevation) elevation.exited = true;
     const demotion = this.demoting.get(id);
     if (demotion) demotion.exited = true;
     if (!this.live.delete(id) && !demotion) return;
@@ -731,21 +749,24 @@ export class Dispatcher {
           this.bindingReports.set(id, { repository: repository.path, authorize });
         },
       });
-      await this.write(
-        (scopes) =>
-          scopes.map((scope) =>
-            scope.id !== actor.terminalId
-              ? scope
-              : {
-                  ...scope,
-                  adopted: [
-                    ...scope.adopted.filter((entry) => entry.name !== repository.name),
-                    { id, name: repository.name, identity: repository.identity, launched: true },
-                  ],
-                },
-          ),
-        authorize,
-      );
+      await this.write((scopes) => {
+        const retained = new Set(this.rows().map((row) => row.id));
+        return scopes.map((scope) =>
+          scope.id !== actor.terminalId
+            ? scope
+            : {
+                ...scope,
+                adopted: [
+                  ...scope.adopted.filter(
+                    (entry) =>
+                      entry.id !== id &&
+                      (entry.launched ? retained.has(entry.id) : entry.name !== repository.name),
+                  ),
+                  { id, name: repository.name, identity: repository.identity, launched: true },
+                ],
+              },
+        );
+      }, authorize);
       this.changed();
       resultId = id;
     } catch {

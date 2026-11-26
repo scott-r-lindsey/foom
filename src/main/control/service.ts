@@ -179,8 +179,7 @@ export class ControlService {
         if (grant.principal) {
           this.operations.revoke(grant.principal);
           this.previews?.revoke(grant.principal);
-          if (grant.principal.role === "dispatcher")
-            this.dispatcher?.exited(grant.principal.terminalId);
+          if (grant.principal.source) this.dispatcher?.exited(grant.principal.terminalId);
         }
         clearTimeout(grant.timer);
         clearTimeout(grant.mcpTimer);

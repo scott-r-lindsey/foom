@@ -70,6 +70,19 @@ function raw(
 }
 
 test.skipIf(process.platform === "win32")(
+  "the helper receives board pages above 64 KiB through the private socket",
+  async () => {
+    const result = {
+      type: "orchestrator-result" as const,
+      payload: JSON.stringify({ posts: Array(8).fill({ text: '"'.repeat(6000) }), next: null }),
+    };
+    const { env } = await fixture(() => Promise.resolve(result));
+    await expect(
+      endpointRequest("/call", { method: "board_read", params: { thread: "thread" } }, env),
+    ).resolves.toEqual(result);
+  },
+);
+test.skipIf(process.platform === "win32")(
   "a bounded remote wait can finish after the normal socket and helper deadlines",
   { timeout: 15000 },
   async () => {

@@ -441,9 +441,13 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test.skipIf(process.platform === "win32").each(["pi", "opencode"])(
-  "fixture %s consumes generated module and sends reduced lifecycle events over the private socket",
-  async (agent) => {
+test.skipIf(process.platform === "win32").each([
+  ["pi", "child", ["whoami", "manual", "handoff"]],
+  ["pi", "orchestrator", ["whoami", "sessions", "session_state", "board_read"]],
+  ["opencode", "child", ["whoami", "manual", "handoff"]],
+] as const)(
+  "fixture %s with the %s grant consumes its generated module over the private socket",
+  async (agent, role, capabilities) => {
     vi.mocked(hostDiscovery).mockResolvedValueOnce({
       command: process.execPath,
       env: { PATH: "/fixture" },
@@ -455,8 +459,8 @@ test.skipIf(process.platform === "win32").each(["pi", "opencode"])(
       Promise.resolve({
         type: "identity" as const,
         alias: "11111111-1111-4111-8111-111111111111",
-        role: "child" as const,
-        capabilities: ["whoami", "manual", "handoff"],
+        role,
+        capabilities: [...capabilities],
       }),
     );
     const prepared = await prepareRemoteAgent(
@@ -491,7 +495,7 @@ if(agent==='pi') {
  assert.equal(registered,undefined);
  process.env.FOOM_REMOTE_TOKEN=token;
  await handlers.get('before_agent_start')({},ctx);
- assert.deepEqual(Object.keys(registered.toolExposure),['whoami','manual','handoff']);
+ assert.deepEqual(registered.toolExposure,Object.fromEntries(${JSON.stringify(capabilities)}.map(tool=>[tool,"direct"])));
  assert.deepEqual(registered.args,['--mcp']);
  assert.equal(registered.command,process.execPath);
  await handlers.get('agent_start')({},ctx);

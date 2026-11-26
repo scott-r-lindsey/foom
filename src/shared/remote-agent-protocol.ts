@@ -1,5 +1,6 @@
 import { CHILD_GUIDANCE } from "./control-guidance";
 import { ControlError, object as controlObject, exact as controlExact } from "./control-validation";
+import { MCP_RESPONSE_LIMIT } from "./mcp-protocol";
 import { handoffRequest } from "./handoff-validation";
 import type {
   RemoteAgentReady,
@@ -13,6 +14,8 @@ import { conversationId } from "./conversation";
 export const REMOTE_PHASE_2_REASON =
   "Remote phase 2 permits only handoff, manual and sanitized identity; filesystem preview and fleet/repository tools are unavailable to remote children.";
 export const REMOTE_AGENT_BYTES = 65536;
+// The relay carries the same escaped JSON text as MCP, without the structured copy.
+export const REMOTE_ORCHESTRATOR_RESPONSE_LIMIT = MCP_RESPONSE_LIMIT;
 export const REMOTE_CONTROL_DEADLINE_MS = 10000;
 
 /** Allow the advertised bounded wait plus relay overhead after request validation. */
@@ -198,8 +201,12 @@ function manual(value: unknown): boolean {
   );
 }
 export function remoteControlResult(value: unknown): value is RemoteControlResult {
-  if (!record(value) || new TextEncoder().encode(JSON.stringify(value)).length > REMOTE_AGENT_BYTES)
-    return false;
+  if (!record(value)) return false;
+  const limit =
+    value["type"] === "orchestrator-result"
+      ? REMOTE_ORCHESTRATOR_RESPONSE_LIMIT
+      : REMOTE_AGENT_BYTES;
+  if (new TextEncoder().encode(JSON.stringify(value)).length > limit) return false;
   switch (value["type"]) {
     case "identity":
       return (
@@ -225,8 +232,7 @@ export function remoteControlResult(value: unknown): value is RemoteControlResul
         new Set(value["capabilities"]).size === value["capabilities"].length
       );
     case "orchestrator-result":
-      if (!keys(value, ["type", "payload"]) || !text(value["payload"], REMOTE_AGENT_BYTES))
-        return false;
+      if (!keys(value, ["type", "payload"]) || !text(value["payload"], limit)) return false;
       try {
         return record(JSON.parse(value["payload"]));
       } catch {

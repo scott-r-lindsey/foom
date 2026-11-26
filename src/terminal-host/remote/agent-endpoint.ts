@@ -11,6 +11,7 @@ import {
   keys,
   record,
   REMOTE_CONTROL_DEADLINE_MS,
+  REMOTE_ORCHESTRATOR_RESPONSE_LIMIT,
   remoteControlResult,
   remoteControlParams,
   remoteWaitDeadline,
@@ -259,7 +260,8 @@ export function endpointRequest(
         const chunks: Buffer[] = [];
         res.on("data", (bytes: Buffer) => {
           size += bytes.length;
-          if (size > 65536) res.destroy(new Error("Remote response too large"));
+          if (size > REMOTE_ORCHESTRATOR_RESPONSE_LIMIT)
+            res.destroy(new Error("Remote response too large"));
           else chunks.push(bytes);
         });
         res.on("error", reject);
