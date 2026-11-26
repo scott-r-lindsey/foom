@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { nodeRuntimeLicense } from "./node-runtime.mjs";
 
 // Hash bytes, names and modes, including installed dependencies and declarations.
 // A lockfile alone cannot detect local edits to installed packages.
@@ -34,6 +35,9 @@ export function fingerprint(paths, ignored = new Set()) {
 
 export function buildFingerprint() {
   return fingerprint([
+    // The SEA builders copy the selected Node executable and notice into the build.
+    process.execPath,
+    nodeRuntimeLicense(),
     "src",
     "scripts",
     "node_modules",

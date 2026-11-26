@@ -72,7 +72,11 @@ function matchesReceipt(inputs, revision, requireReuse) {
 
 if (!packaged) {
   const revision = checkoutRevision(process.cwd());
-  const allowAutomaticReuse = automaticReuseAllowed();
+  // An override can run an arbitrary wrapper with inputs outside the fingerprint.
+  const usesEsbuildOverride = Boolean(process.env.ESBUILD_BINARY_PATH);
+  if (usesEsbuildOverride && requireReuse)
+    throw new Error("ESBUILD_BINARY_PATH requires a fresh build. Run without --reuse-build.");
+  const allowAutomaticReuse = !usesEsbuildOverride && automaticReuseAllowed();
   // Electron may install its binary on first require, changing node_modules.
   // Finish that setup before taking the local build's input snapshot.
   if (allowAutomaticReuse && !requireReuse) createRequire(import.meta.url)("electron");
@@ -130,7 +134,7 @@ if (!packaged) {
   }
   if ((!reuse && buildFingerprint() !== inputs) || checkoutRevision(process.cwd()) !== revision)
     throw new Error("Build inputs changed during Electron preparation; run again.");
-  if (!reuse) {
+  if (!reuse && !usesEsbuildOverride) {
     writeFileSync(
       receipt,
       JSON.stringify({

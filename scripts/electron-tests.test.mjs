@@ -26,6 +26,7 @@ function fixture(context) {
     "electron-tests.mjs",
     "electron-summary.mjs",
     "validation-fingerprint.mjs",
+    "node-runtime.mjs",
     "remote-host-artifacts.mjs",
   ]) {
     cpSync(new URL(name, import.meta.url), join(root, "scripts", name));
@@ -59,6 +60,7 @@ function fixture(context) {
     `
     import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
     appendFileSync('test-results/app-builds', 'build\\n');
+    if (process.env.ESBUILD_BINARY_PATH === 'broken-esbuild') throw Error('esbuild fixture failed');
     mkdirSync('build', { recursive: true });
     writeFileSync('build/app.js', 'built');
   `,
@@ -111,10 +113,11 @@ function fixture(context) {
   delete env.FOOM_PACKAGE;
   delete env.FOOM_REQUIRE_REMOTE_HOSTS;
   delete env.FOOM_REMOTE_HOST_ARTIFACTS;
+  delete env.ESBUILD_BINARY_PATH;
   return {
     root,
-    run: (args, extraEnv = {}) => {
-      const result = spawnSync(process.execPath, ["scripts/electron-tests.mjs", ...args], {
+    run: (args, extraEnv = {}, executable = process.execPath) => {
+      const result = spawnSync(executable, ["scripts/electron-tests.mjs", ...args], {
         cwd: root,
         env: { ...env, ...extraEnv },
         encoding: "utf8",
@@ -253,6 +256,55 @@ test("CI and custom catalog runs rebuild even when a local receipt matches", (co
     // Start each iteration with a fresh local build.
     rmSync(join(root, "test-results/electron-build.json"));
   }
+});
+
+test("esbuild overrides require a fresh build and never leave a reusable receipt", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  assert.equal(run([filter]).status, 0);
+  const override = { ESBUILD_BINARY_PATH: "broken-esbuild" };
+  const strict = run(["--reuse-build", filter], override);
+  assert.notEqual(strict.status, 0, strict.output);
+  assert.match(strict.output, /ESBUILD_BINARY_PATH requires a fresh build/);
+  assert.doesNotMatch(strict.output, /SELECTED_BODY/);
+
+  const failed = run([filter], override);
+  assert.notEqual(failed.status, 0, failed.output);
+  assert.match(failed.output, /esbuild fixture failed/);
+  assert.doesNotMatch(failed.output, /SELECTED_BODY/);
+
+  assert.equal(run([filter]).status, 0);
+  const built = run([filter], { ESBUILD_BINARY_PATH: "working-esbuild" });
+  assert.equal(built.status, 0, built.output);
+  assert.doesNotMatch(built.output, /Reusing verified/);
+  assert.throws(() => readFileSync(join(root, "test-results/electron-build.json")), {
+    code: "ENOENT",
+  });
+  const normal = run([filter]);
+  assert.equal(normal.status, 0, normal.output);
+  assert.doesNotMatch(normal.output, /Reusing verified/);
+});
+
+test("replacing the selected Node license invalidates the build at the same Node version", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const runtime = join(root, "test-results/runtime");
+  const bin = process.platform === "win32" ? runtime : join(runtime, "bin");
+  mkdirSync(bin, { recursive: true });
+  const executable = join(bin, process.platform === "win32" ? "node.exe" : "node");
+  cpSync(process.execPath, executable);
+  const license = join(runtime, "LICENSE");
+  writeFileSync(license, "Fixture license");
+
+  const built = run([filter], {}, executable);
+  assert.equal(built.status, 0, built.output);
+  const reused = run([filter], {}, executable);
+  assert.equal(reused.status, 0, reused.output);
+  assert.match(reused.output, /Reusing verified current Electron build/);
+  writeFileSync(license, "Updated fixture license");
+  const rebuilt = run([filter], {}, executable);
+  assert.equal(rebuilt.status, 0, rebuilt.output);
+  assert.doesNotMatch(rebuilt.output, /Reusing verified/);
 });
 
 test("suite selection validates inventory, executes only selected files and rejects zero tests", (context) => {

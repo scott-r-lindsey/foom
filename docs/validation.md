@@ -38,9 +38,11 @@ On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 Local development Electron runs automatically reuse the app and its fixture when
 the receipt matches the checkout revision, build inputs and output. A missing
 receipt, changed source or dependency, or modified output triggers a rebuild.
+The inputs include the selected Node executable and the license the build ships.
 `--reuse-build` requires a matching receipt and fails if verification fails.
 CI and local runs with custom or strict remote-host catalog settings rebuild by
-default. Packaged smoke tests use the existing package.
+default. Each run with an `ESBUILD_BINARY_PATH` override requires a fresh build.
+Packaged smoke tests use the existing package.
 
 Unit coverage includes every executable TypeScript file under `src/`, including
 files no test imports; only declarations are excluded. Thresholds are defined in
