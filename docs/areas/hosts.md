@@ -209,6 +209,8 @@ using its existing launch fields. New launches requesting a managed level requir
 the capability.
 
 Recovered tiles show the applied level and retain the Full access bypass warning.
+Recovery skips an inventory row that reports both reviewer mode and Full access,
+while keeping other sessions eligible for recovery.
 A live agent in a remote main clone keeps its agent identity, Main checkout
 label and remote clone path even when the level is unspecified. A live linked
 checkout without a hub mapping keeps the agent and remote checkout identity too.

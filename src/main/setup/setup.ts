@@ -305,8 +305,11 @@ export class Setup {
       if (scope.startsWith("host:") && !registration)
         throw new Error("Machine is no longer registered.");
       if (registration)
-        machineCurrent = () =>
-          this.deps.store.get().registeredHosts?.includes(registration) === true;
+        machineCurrent = () => {
+          if (!this.deps.store.get().registeredHosts?.includes(registration))
+            throw new Error("Machine registration changed. Save the permission level again.");
+          return true;
+        };
       for (const [agent, choice] of Object.entries(choices)) {
         if (!choice) continue;
         const provider = agentProviders().find(({ id }) => id === agent);

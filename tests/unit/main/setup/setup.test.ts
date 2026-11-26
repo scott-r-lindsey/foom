@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
+import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/settings";
 import { Setup } from "../../../../src/main/setup/setup";
 import { bypassConsentIdentity } from "../../../../src/main/agents/default-arguments";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
@@ -856,4 +856,49 @@ test("only the Settings confirmation can authorize Full access for a scope", asy
   await expect(
     setup.save({ agentPermissions: { global: { codex: null } } }),
   ).resolves.toBeDefined();
+});
+
+test("a queued host addition does not discard a permission downgrade", async ({
+  onTestFinished,
+}) => {
+  const root = await mkdtemp(join(tmpdir(), "foom-setup-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const store = await SettingsStore.open(root);
+  await store.update({ registeredHosts: [{ host: "worker", codeFolder: "/code" }] });
+  const setup = new Setup({ ...deps, store, confirmBypass: () => Promise.resolve(true) });
+  const save = (level: "full" | "workspace") =>
+    setup.save({ agentPermissions: { "host:worker": { codex: { level } } } });
+  await save("full");
+  const registeredHosts = [
+    ...(store.get().registeredHosts ?? []),
+    { host: "other", codeFolder: "/code" },
+  ];
+  await Promise.all([store.update({ registeredHosts }), save("workspace")]);
+  expect((await SettingsStore.open(root)).get()).toMatchObject({
+    registeredHosts,
+    agentPermissions: { "host:worker": { codex: { level: "workspace" } } },
+  });
+});
+
+test("a permission save visibly fails if its host is removed and re-enrolled during confirmation", async ({
+  onTestFinished,
+}) => {
+  const root = await mkdtemp(join(tmpdir(), "foom-setup-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const store = await SettingsStore.open(root);
+  const registeredHosts = [{ host: "worker", codeFolder: "/code" }];
+  await store.update({ registeredHosts });
+  const setup = new Setup({
+    ...deps,
+    store,
+    confirmBypass: async () => {
+      await store.update({ registeredHosts: [] });
+      await store.update({ registeredHosts });
+      return true;
+    },
+  });
+  await expect(
+    setup.save({ agentPermissions: { "host:worker": { codex: { level: "full" } } } }),
+  ).rejects.toThrow("Machine registration changed");
+  expect((await SettingsStore.open(root)).get().agentPermissions?.["host:worker"]).toBeUndefined();
 });

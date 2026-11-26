@@ -213,6 +213,28 @@ else if (args[0] !== 'status') process.exit(1);
   );
   assert.equal(defaultClone.opened.state, "live");
   defaultClone.close();
+  const invalidReviewer = await hostChannel(
+    socket,
+    manifest.sha256,
+    "invalid-reviewer",
+    cleanup,
+    80,
+    24,
+    false,
+    profileTag,
+    {
+      human: true,
+      context: { repository, worktree, agent: "codex", branch: "Main checkout", reviewer: true },
+      machine: {
+        agent: "codex",
+        codeFolder,
+        permissionLevel: "full",
+        repository: { directory, origin },
+      },
+    },
+  );
+  assert.equal(invalidReviewer.opened.state, "live");
+  invalidReviewer.close();
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
@@ -297,6 +319,9 @@ else if (args[0] !== 'status') process.exit(1);
       .getByRole("button", { name: "Stop all and quit" })
       .click();
   });
+  const saved = JSON.parse(await readFile(path.join(profilePath, "sessions.json"), "utf8"));
+  assert.ok(saved.some(({ id }) => id === "default-clone"));
+  assert.ok(saved.every(({ id }) => id !== "invalid-reviewer"));
 });
 
 test("Machines menu agent image paste survives SSH reconnect and cleans up on Stop", {

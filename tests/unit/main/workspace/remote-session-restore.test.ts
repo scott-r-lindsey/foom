@@ -1,14 +1,19 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import {
   discoverRemoteSessions,
   reattachRemoteSession,
 } from "../../../../src/main/workspace/remote-session-restore";
 import { homeDirectory } from "../../../../src/main/workspace/home-shell";
+import { SessionStore } from "../../../../src/main/workspace/session-store";
 import { locationId } from "../../../../src/main/control/metadata";
 import type { Hosts } from "../../../../src/main/setup/hosts";
 import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import type { AgentLaunch, AgentLaunched } from "../../../../src/shared/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
+import { remoteResponse } from "../../../../src/shared/remote-host-protocol";
 const entry: StoredSession = {
   id: "one",
   agent: "claude",
@@ -78,6 +83,40 @@ test("profile discovery creates ordinary human rows without inheriting any paren
     },
   ]);
   expect((await discoverRemoteSessions(hosts))[0]?.agent).toBe("shell");
+});
+
+test("inconsistent reviewer permission metadata cannot erase unrelated saved sessions", async ({
+  onTestFinished,
+}) => {
+  const root = await mkdtemp(join(tmpdir(), "foom-remote-recovery-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const context = {
+    repository: "/remote",
+    worktree: "/remote",
+    branch: null,
+    agent: "codex",
+    machine: true,
+    reviewer: true,
+  } as const;
+  const inventory: unknown = {
+    type: "inventory-result",
+    own: [
+      { id: "invalid", context, permissionLevel: "full" },
+      { id: "valid", context, permissionLevel: "workspace" },
+    ],
+    foreign: [],
+  };
+  if (!remoteResponse(inventory) || inventory.type !== "inventory-result")
+    throw new Error("Expected a structurally valid inventory reply");
+  const recovered = await discoverRemoteSessions({
+    registered: hosts.registered,
+    sessions: () => Promise.resolve(inventory.own.map((session) => ({ host: "worker", session }))),
+  });
+  const store = new SessionStore(root);
+  await store.save([entry, ...recovered]);
+  const rows = await new SessionStore(root).load();
+  expect(rows.map(({ id }) => id)).toEqual(["one", "valid"]);
+  expect(rows[1]).toMatchObject({ reviewer: true, permissionLevel: "workspace", bypass: false });
 });
 test("saved owned children reconnect without new agent-open or transcript access, and retain a live-parent guard", async () => {
   const create = vi.fn<(spec: TerminalSpec) => Promise<string>>();

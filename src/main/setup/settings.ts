@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 import { renameSync } from "node:fs";
 import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { validAgentId } from "../../shared/providers/catalog";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
@@ -526,6 +527,14 @@ export class SettingsStore {
         ? parseStoredAgentDefaults({ ...this.settings.agentArguments, ...argumentsPatch })
         : this.settings.agentArguments;
       const next = { ...this.settings, ...profile, agentArguments };
+      if (profile.registeredHosts) {
+        const current = new Map(this.settings.registeredHosts?.map((host) => [host.host, host]));
+        // Keep unchanged registrations recognizable across unrelated host writes.
+        next.registeredHosts = profile.registeredHosts.map((host) => {
+          const previous = current.get(host.host);
+          return previous && isDeepStrictEqual(previous, host) ? previous : host;
+        });
+      }
       if (profile.agentPermissions || (profile.registeredHosts && this.settings.agentPermissions)) {
         const permissions = { ...this.settings.agentPermissions };
         for (const [scope, choices] of Object.entries(profile.agentPermissions ?? {})) {

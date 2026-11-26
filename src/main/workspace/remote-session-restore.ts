@@ -12,8 +12,11 @@ export async function discoverRemoteSessions(
   hosts: Pick<Hosts, "registered"> & Partial<Pick<Hosts, "sessions" | "placement">>,
 ): Promise<StoredSession[]> {
   const sessions = (await hosts.sessions?.()) ?? [];
-  return sessions.map(({ host, session }) => {
+  const recovered: StoredSession[] = [];
+  for (const { host, session } of sessions) {
     const context = session.context;
+    // Refuse the inconsistent row before it can invalidate the saved session file.
+    if (context?.reviewer && session.permissionLevel === "full") continue;
     const placed = context && hosts.placement?.(context.worktree);
     const provider = context && builtinAgent(context.agent);
     const checkoutPath =
@@ -32,7 +35,7 @@ export async function discoverRemoteSessions(
     const located = placed || remoteRepository;
     const agent = provider && (located || context.machine) ? provider.id : "shell";
     const permissionLevel = agent === "shell" ? undefined : session.permissionLevel;
-    return {
+    recovered.push({
       id: session.id,
       agent,
       kind: agent === "shell" ? "shell" : "agent",
@@ -69,8 +72,9 @@ export async function discoverRemoteSessions(
       dormant: true,
       running: true,
       recovered: true,
-    };
-  });
+    });
+  }
+  return recovered;
 }
 
 export class RemoteSessionExit extends Error {
