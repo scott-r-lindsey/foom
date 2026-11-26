@@ -113,6 +113,15 @@
   min-width: 0;
   flex-shrink: 1;
 }
+.terminal-tile[data-exited="true"] .tile-identity :is(.board-light, .session-program) {
+  /* Keep the exit state together ahead of the clipped identity text. */
+  order: -1;
+  flex-shrink: 0;
+}
+.terminal-tile[data-exited="true"] .tile-identity .session-program {
+  /* Leave room for the 10px light and 6px gap when a recipe has a long status. */
+  max-width: calc(100% - 16px);
+}
 .tile-number {
   flex-shrink: 0;
   font: var(--type-weight, 400) calc(10px * var(--type-scale, 1)) var(--font-mono);

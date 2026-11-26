@@ -235,6 +235,7 @@ conversation. Exited config agents, exited shells, exited agents without a saved
 conversation and previews offer **Close** only. Terminal headers reserve a
 separate Close position so a pointer over Hide stays clear of Close on exit.
 When a focused Hide button becomes Close on exit, it keeps keyboard focus.
+The exit label sits beside the state light so both stay readable as the header narrows.
 Tile Close uses the same command as Close in the session sidebar menu.
 A retained dormant tile on an unavailable host offers **Forget…** in its menu,
 with the same local-only confirmation as the [sidebar](sidebar.md).

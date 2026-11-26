@@ -283,6 +283,38 @@ if (resumed) {
         await expect.poll(tileWidth).toBeGreaterThan(previous);
         await expectTileHeaderHitTargets(tile, controls);
       }
+      const targetWidth = 191;
+      const handle = await divider.boundingBox();
+      assert.ok(handle);
+      const x = handle.x + handle.width / 2;
+      const y = handle.y + handle.height / 2;
+      const delta = targetWidth - (await tileWidth());
+      await restored.mouse.move(x, y);
+      await restored.mouse.down();
+      await restored.mouse.move(x + delta, y);
+      await restored.mouse.up();
+      await expect
+        .poll(async () => Math.abs((await tileWidth()) - targetWidth))
+        .toBeLessThanOrEqual(2);
+      const shellTile = restored.locator('.terminal-tile[data-kind="shell"]');
+      await shellTile.locator(".xterm").click();
+      await expect(shellTile).toHaveAttribute("data-focused", "true");
+      await expect(tile.locator(".tile-controls")).toHaveCSS("opacity", "0");
+      const status = await tile.locator(".session-program").evaluate((label) => {
+        const identity = label.closest(".tile-identity");
+        const light = identity.querySelector('.board-light[data-exited="true"]');
+        const lightBounds = light.getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(label);
+        const textBounds = text.getBoundingClientRect();
+        return {
+          lightKeepsWidth: lightBounds.width === lightBounds.height,
+          labelFits:
+            textBounds.right <=
+            Math.min(label.getBoundingClientRect().right, identity.getBoundingClientRect().right),
+        };
+      });
+      assert.deepEqual(status, { lightKeepsWidth: true, labelFits: true });
       await divider.press("Home");
       await expect.poll(tileWidth).toBeLessThan(120);
     }
