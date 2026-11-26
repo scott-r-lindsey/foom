@@ -66,7 +66,8 @@ for (const agent of ["claude", "codex", "agy"]) {
     skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
   }, async (context) => {
     const { chmod } = require("node:fs/promises");
-    const root = await mkdtemp(path.join(tmpdir(), "foom-resume-"));
+    // Match the repository path in the preview picker's inventory on macOS.
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-resume-")));
     removeAfterApps(context, root);
     const bin = path.join(root, "bin");
     const repo = path.join(root, "repo");
