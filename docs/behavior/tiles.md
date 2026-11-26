@@ -50,8 +50,9 @@ an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore a
 the Hide and Close controls appear on hover, focus, or the focused tile, as
 applicable to the session.
 As the tile narrows, the light and menu stay visible and the session identity
-truncates. When the controls need more room, they move to a second row at the
-same width for running and exited sessions.
+truncates. The terminal header stays on one row to preserve screen height.
+Maximize/Restore moves into the tile menu first, followed by Hide and Close.
+The same widths apply to running and exited sessions.
 Child terminals also show the sidebar’s robot mark, named Worker, including after takeover.
 Review-loop reviewers use the lens variant named Reviewer; authors and other children keep Worker.
 Double-clicking the title bar toggles maximize. Right-click opens the same tile
@@ -229,13 +230,14 @@ Focus follows the moved tile.
 
 ## Exited resumable agents (#975, #1311)
 
-The tile header and tile menu offer **Hide** for running sessions and both
-**Hide** and **Close** for exited agents with a saved conversation ID outside the
-config environment. Hide clears the tile and keeps the sidebar row and Resume
+The tile menu offers **Hide** for running sessions and both **Hide** and **Close**
+for exited agents with a saved conversation ID outside the config environment.
+These controls also appear in the header when it has room. Hide clears the tile
+and keeps the sidebar row and Resume
 conversation. Exited config agents, exited shells, exited agents without a saved
 conversation and previews offer **Close** only. Terminal headers reserve a
 separate Close position so a pointer over Hide stays clear of Close on exit.
-When a focused Hide button becomes Close on exit, it keeps keyboard focus.
+When a focused header Hide button becomes Close on exit, it keeps keyboard focus.
 The exit label sits beside the state light. At widths that cannot fit the exit
 word, an exit icon provides the full status as its accessible name and tooltip.
 Tile Close uses the same command as Close in the session sidebar menu.

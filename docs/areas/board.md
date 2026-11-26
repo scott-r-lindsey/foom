@@ -70,7 +70,8 @@ Tile panels reuse the sidebar panel's portal, keyboard navigation and styling.
 Hide clears the leaf in place (subject to minimum-size repair) and records it as
 the landing spot without stopping its session. Exited agents with saved
 conversations outside the config environment offer both Hide and Close in the
-tile header and menu. Exited config agents, exited shells, exited agents without
+tile menu and in headers with enough room. Terminal headers use one row to
+preserve the screen's height. Exited config agents, exited shells, exited agents without
 saved conversations, and previews offer Close only. Close uses the existing
 validated sidebar command. Refused closes retain the view. Accepted closes
 release it before cleanup and restore a sidebar row if cleanup fails.

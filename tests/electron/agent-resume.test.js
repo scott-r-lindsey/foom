@@ -48,14 +48,34 @@ async function expectHeaderIndicators(tile, selectors) {
   assert.deepEqual(missing, [], `Indicators clipped at a ${width}px header`);
 }
 
-async function sweepTileHeader(divider, tile, controls, indicators) {
+async function sweepTileHeader(divider, tile, controls, indicators, menu) {
   await divider.press("Home");
   await expect(divider).toBeFocused();
   await expect(tile.locator(".tile-controls")).toHaveCSS("opacity", "1");
   // Occupied leaves span at most 15–85%, in five-point keyboard increments.
   for (let step = 0; step <= 14; step++) {
-    await expectTileHeaderHitTargets(tile, controls);
+    const inline = await tile
+      .locator(".tile-title button:visible")
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")));
+    await expectTileHeaderHitTargets(
+      tile,
+      controls.filter((label) => inline.includes(label)),
+    );
+    expect(inline).toContain(controls[0]);
     await expectHeaderIndicators(tile, indicators);
+    const overflow = controls.slice(1).filter((label) => !inline.includes(label));
+    if (overflow.length) {
+      assert.ok(menu, "Preview controls must remain in the header");
+      await tile.getByRole("button", { name: controls[0], exact: true }).click();
+      for (const label of overflow) {
+        const action =
+          label === "Maximize tile"
+            ? menu.getByRole("menuitem", { name: /^Maximize\b/ })
+            : menu.getByRole("menuitem", { name: label, exact: true });
+        await action.click({ trial: true });
+      }
+      await menu.press("Escape");
+    }
     if (step < 14) await divider.press("ArrowRight");
   }
 }
@@ -229,30 +249,32 @@ if (resumed) {
     assert.ok(resumedLaunch.token);
     assert.notEqual(resumedLaunch.token, firstLaunch.token);
     const tile = restored.locator('.terminal-tile[data-kind="agent"]');
+    const tileMenu = tile.getByRole("button", { name: "Tile 1 menu", exact: true });
+    const menu = restored.getByRole("dialog", { name: "Tile 1 menu", exact: true });
     const hide = tile.getByRole("button", { name: "Hide", exact: true });
     const close = tile.getByRole("button", { name: "Close", exact: true });
-    const hoverHide = async () => {
-      const bounds = await hide.boundingBox();
+    const hoverControl = async (button) => {
+      const bounds = await button.boundingBox();
       assert.ok(bounds);
       const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
       await restored.mouse.move(point.x, point.y);
-      const hitLabel = () =>
-        restored.evaluate(
-          ({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.ariaLabel,
+      const hits = () =>
+        button.evaluate(
+          (element, { x, y }) => element.contains(document.elementFromPoint(x, y)),
           point,
         );
-      assert.equal(await hitLabel(), "Hide");
-      return hitLabel;
+      assert.ok(await hits());
+      return hits;
     };
     const tileWidth = () => tile.evaluate((element) => element.offsetWidth);
     await expect(hide).toBeVisible();
     await expect(close).toHaveCount(0);
     await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
-    let wideHitLabel;
+    let wideHideHit;
     if (agent === "codex") {
       await restored.emulateMedia({ reducedMotion: "reduce" });
       await expect.poll(tileWidth).toBeGreaterThan(120);
-      wideHitLabel = await hoverHide();
+      wideHideHit = await hoverControl(hide);
     }
     await restored.locator(".xterm-helper-textarea").press("Control+c");
     await expect
@@ -263,7 +285,7 @@ if (resumed) {
     await expect(hide).toHaveText("−");
     await expect(close).toHaveText("×");
     await expect(close).toHaveAttribute("title", "Close");
-    const wideHitAfterExit = await wideHitLabel?.();
+    if (wideHideHit) assert.ok(await wideHideHit());
     if (agent === "codex") {
       for (const theme of ["eclipse-light", "eclipse-dark"]) {
         await restored.evaluate(
@@ -308,7 +330,6 @@ if (resumed) {
     let shell;
     let divider;
     if (agent === "codex") {
-      const tileMenu = tile.getByRole("button", { name: "Tile 1 menu", exact: true });
       await tileMenu.click();
       await restored.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
       shell = await restored.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
@@ -321,24 +342,28 @@ if (resumed) {
         tile,
         ["Tile 1 menu", "Maximize tile", "Hide"],
         ['.board-light[data-exited="false"][aria-label]'],
+        menu,
       );
       await divider.press("Home");
       await expect.poll(tileWidth).toBeLessThan(120);
       await expect(close).toHaveCount(0);
     }
-    const minimumHitLabel = divider ? await hoverHide() : undefined;
-    await tile.locator(".xterm-helper-textarea").press("Control+c");
-    await expect(close).toBeVisible();
-    if (divider && minimumHitLabel) {
-      assert.deepEqual(
-        { wide: wideHitAfterExit, minimum: await minimumHitLabel() },
-        { wide: "Hide", minimum: "Hide" },
-      );
+    if (divider) {
+      await expect(hide).toHaveCount(0);
+      await tileMenu.click();
+      const menuHide = menu.getByRole("menuitem", { name: "Hide", exact: true });
+      await menuHide.focus();
+      const narrowHideHit = await hoverControl(menuHide);
+      await restored.evaluate((id) => window.desktop.input(id, "\u0003"), id);
+      await expect(menu.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
+      await expect(menuHide).toBeFocused();
+      assert.ok(await narrowHideHit());
+      await menu.press("Escape");
       const controls = ["Tile 1 menu", "Maximize tile", "Hide", "Close"];
       const light = '.board-light[data-exited="true"][aria-label]';
       const exitWord = ".tile-exit-status > span:first-child";
       const exitIcon = '.tile-exit-status[title="exited"] > svg[aria-label="exited"]';
-      await sweepTileHeader(divider, tile, controls, [light, `${exitWord}, ${exitIcon}`]);
+      await sweepTileHeader(divider, tile, controls, [light, `${exitWord}, ${exitIcon}`], menu);
 
       // Exercise the reported width between keyboard increments with the
       // controls faded. The exit word still needs to fit in full.
@@ -364,8 +389,12 @@ if (resumed) {
       await expectHeaderIndicators(tile, [light, exitWord]);
       await divider.press("Home");
       await expect.poll(tileWidth).toBeLessThan(120);
+      await tileMenu.click();
+      await menu.getByRole("menuitem", { name: "Close", exact: true }).click();
+    } else {
+      await tile.locator(".xterm-helper-textarea").press("Control+c");
+      await close.click();
     }
-    await close.click();
     await expect(tile).toHaveCount(0);
     await expect(restored.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
     assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);

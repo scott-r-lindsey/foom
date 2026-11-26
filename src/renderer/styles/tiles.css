@@ -57,13 +57,18 @@
 .tile-title {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 0 min(6px, 2%);
   min-height: 30px;
   padding: 0 min(5px, 2%);
   background: var(--surface);
   font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
+}
+.terminal-tile[data-kind="preview"] .tile-title {
+  flex-wrap: wrap;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-title {
+  container: terminal-title / inline-size;
 }
 .terminal-tile[data-focused="true"] .tile-title {
   background: color-mix(in srgb, var(--highlight) 10%, var(--surface));
@@ -74,7 +79,7 @@
   border: 0;
 }
 .tile-title-main {
-  /* Keep the menu next to the heading while the controls wrap as a group. */
+  /* Keep the menu next to the heading when preview controls wrap. */
   display: flex;
   flex: 1 1 max-content;
   align-items: center;
@@ -201,6 +206,13 @@
   margin-inline-start: auto;
   white-space: nowrap;
 }
+.terminal-tile:not([data-kind="preview"]) .tile-title .tile-number {
+  flex-wrap: nowrap;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-number span {
+  min-width: 0;
+  overflow: clip;
+}
 .tile-number[data-focused="true"],
 .terminal-tile[data-focused="true"] .tile-number {
   border-color: var(--highlight);
@@ -230,7 +242,7 @@
   border: 0;
   background: transparent;
 }
-.terminal-tile:not([data-kind="preview"]) .tile-controls {
+:where(.terminal-tile:not([data-kind="preview"])) .tile-controls {
   /* Reserve separate hit targets for Maximize, Hide and Close across exit. */
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -240,7 +252,23 @@
   width: 100%;
 }
 .terminal-tile:not([data-kind="preview"]) .tile-controls [data-removal="close"] {
-  grid-column: 3;
+  grid-column: -2;
+}
+/* Leave space for the state light, exit word and numbered menu before adding
+   the 20px buttons. Maximize, Hide and Close are also in the tile menu. */
+@container terminal-title (inline-size < calc(106px + 12ch)) {
+  .tile-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 40px;
+  }
+  .tile-controls > button:first-child {
+    display: none;
+  }
+}
+@container terminal-title (inline-size < calc(86px + 12ch)) {
+  .tile-controls {
+    display: none;
+  }
 }
 .tile-shell,
 .tile-terminal {
