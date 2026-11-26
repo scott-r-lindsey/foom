@@ -207,6 +207,7 @@ export function TileArea({
   return (
     <div
       className="tile-area"
+      data-occupied={geometry.tiles.some(({ tile }) => tile.content !== null)}
       role="group"
       aria-label="Terminal tiles"
       hidden={inactive}

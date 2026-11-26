@@ -232,3 +232,16 @@ provider can receive the selected notes as setup context. Markdown is untrusted
 text and displays without active content. An explicit remote host check reads
 only bounded Codex account config for the approvals observation. The config's
 contents, file path and unrelated values stay on that host.
+
+## Theme bitmaps (#1189)
+
+Theme art stays local. Main reads only bounded direct image files named by
+version 2 interface themes, using descriptor and folder identity checks.
+The disposable image decoder strips source metadata before the board paints
+a normalized PNG. The renderer receives opaque IDs and bounded placement data.
+Original bytes, bitmap file names and paths, source metadata, raw decoder
+errors and sampled colors stay out of the renderer, diagnostics and control
+tools. No network request or agent input carries theme artwork.
+The board adds only `foom-theme://bitmap` to `img-src`. Its dedicated handler
+serves active approved image IDs in the board session. The confirmation partition
+keeps its existing CSP.

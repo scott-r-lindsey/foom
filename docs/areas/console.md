@@ -43,6 +43,10 @@ and check it again after opening and before/after reading. JSON is
 limited to 64 KiB and theme folders to 50 entries; sound kind folders to 100 entries,
 with 8 MiB Working files and 2 MiB other files. Invalid entries count toward these
 offline traversal bounds so hostile directories cannot force unbounded work.
+Theme bitmaps count toward the same limit. Theme folder validation checks each
+declared file for direct placement, link refusal, the 4 MiB bound, and a PNG,
+JPEG or WebP signature. Single JSON file validation checks the declaration only. Foom decodes the image and checks pixel bounds and dominant
+colors when loading the theme.
 
 Diagnostics contain a filename, JSON path and fixed reason from the validation
 vocabulary, with optional warning severity and fixed detail. Text prints one

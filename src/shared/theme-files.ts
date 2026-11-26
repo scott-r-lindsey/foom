@@ -1,3 +1,4 @@
+import { parseThemeBitmaps } from "./theme-bitmaps";
 import type { ParsedThemeFile, ThemeKind } from "./theme-file";
 import { parseUserInterfaceTheme, userThemeWarnings } from "./user-interface-theme";
 import { ansiNames, isTerminalTheme } from "./terminal-themes";
@@ -20,7 +21,10 @@ export function parseThemeFile(text: string, kind: ThemeKind): ParsedThemeFile {
       : ["kind", "name", "background", "foreground", "cursor", "ansi"],
     "$",
     kind === "theme"
-      ? ["version", ...(value["version"] === 2 ? ["areas", "states", "shape", "type"] : [])]
+      ? [
+          "version",
+          ...(value["version"] === 2 ? ["areas", "states", "shape", "type", "images"] : []),
+        ]
       : [],
   );
   if ((Object.hasOwn(value, "kind") || kind !== "theme") && value["kind"] !== kind)
@@ -31,7 +35,8 @@ export function parseThemeFile(text: string, kind: ThemeKind): ParsedThemeFile {
   if (kind === "theme") {
     const theme = parseUserInterfaceTheme(value);
     const warnings = userThemeWarnings(theme);
-    return { kind, theme, ...(warnings.length ? { warnings } : {}) };
+    const images = Object.hasOwn(value, "images") ? parseThemeBitmaps(value["images"]) : undefined;
+    return { kind, theme, ...(images && { images }), ...(warnings.length ? { warnings } : {}) };
   }
 
   const background = themeColor(value["background"], "$.background");

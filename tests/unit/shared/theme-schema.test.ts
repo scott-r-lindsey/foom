@@ -97,3 +97,40 @@ test("generated theme schema and parser agree on versioned structural examples",
     expect(() => parseThemeFile(JSON.stringify(value), "theme")).toThrow();
   }
 });
+
+test("bitmap schema agrees with the parser on fixed slots, direct names and paint bounds", () => {
+  const schema: unknown = JSON.parse(OWNED_FILES["schemas/theme.schema.json"] ?? "{}");
+  if (typeof schema !== "object" || !schema) throw Error("Missing schema");
+  const validate = new Ajv().compile(schema);
+  const base = { ...interfaceThemes["eclipse-dark"], version: 2 };
+  const value = {
+    ...base,
+    images: {
+      board: { file: "Board 1.PNG" },
+      gutter: { file: "gutter.webp", opacity: 0.05, fit: "cover", anchor: "top-right" },
+      sidebar: { file: "lower.jpeg", opacity: 0.6, fit: "tile", anchor: "bottom" },
+    },
+  };
+  expect(validate(value), JSON.stringify(validate.errors)).toBe(true);
+  expect(parseThemeFile(JSON.stringify(value), "theme")).toMatchObject({
+    images: { board: { file: "Board 1.PNG", opacity: 0.25, fit: "contain", anchor: "center" } },
+  });
+  for (const patch of [
+    { version: 1, images: value.images },
+    { images: { terminal: { file: "board.png" } } },
+    { images: { board: "board.png" } },
+    { images: { board: { file: "/board.png" } } },
+    { images: { board: { file: "sub/board.png" } } },
+    { images: { board: { file: "sub\\board.png" } } },
+    { images: { board: { file: "board.gif" } } },
+    { images: { board: { file: "board.png", opacity: 0.04 } } },
+    { images: { board: { file: "board.png", opacity: 0.61 } } },
+    { images: { board: { file: "board.png", tint: "transparent" } } },
+    { images: { board: { file: "board.png", anchor: "15% 20%" } } },
+    { images: { board: { file: "board.png", fit: "fill" } } },
+  ]) {
+    const invalid = { ...base, ...patch };
+    expect(validate(invalid)).toBe(false);
+    expect(() => parseThemeFile(JSON.stringify(invalid), "theme")).toThrow();
+  }
+});

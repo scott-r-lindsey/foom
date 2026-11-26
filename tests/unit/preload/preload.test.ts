@@ -2358,3 +2358,37 @@ test("projects decision facts and accepts only a bounded PNG preview response", 
     await expect(api.preview(address)).rejects.toThrow();
   }
 });
+
+test("theme bitmap projection copies only fixed paint fields and rejects arbitrary sources", async () => {
+  const api = await bridge();
+  const paint = { id: "d".repeat(64), opacity: 0.25, fit: "contain", anchor: "top-left" };
+  const activeBitmaps = {
+    theme: "user:gallery.json",
+    slots: { board: { ...paint, file: "/private.png", png: Uint8Array.of(1) }, terminal: paint },
+  };
+  const themes = { interface: [], terminal: [], errors: [], activeBitmaps };
+  mock.invoke.mockResolvedValue({ ...setup, themes });
+  expect((await api.setupState()).themes?.activeBitmaps).toEqual({
+    theme: activeBitmaps.theme,
+    slots: { board: paint },
+  });
+  for (const patch of [
+    { id: "https://example.invalid/secret" },
+    { id: "0".repeat(63) },
+    { opacity: 1 },
+    { anchor: "1px 1px" },
+    { fit: "scale-down" },
+  ]) {
+    mock.invoke.mockResolvedValue({
+      ...setup,
+      themes: {
+        ...themes,
+        activeBitmaps: {
+          theme: activeBitmaps.theme,
+          slots: { board: { ...paint, ...patch } },
+        },
+      },
+    });
+    await expect(api.setupState()).rejects.toThrow("Invalid setup response");
+  }
+});
