@@ -40,9 +40,11 @@ the receipt matches the checkout revision, build inputs and output. A missing
 receipt, changed source or dependency, or modified output triggers a rebuild.
 The inputs include the selected Node executable and the license the build ships.
 `--reuse-build` requires a matching receipt and fails if verification fails.
-CI and local runs with custom or strict remote-host catalog settings rebuild by
-default. Each run with an `ESBUILD_BINARY_PATH` override requires a fresh build.
-Packaged smoke tests use the existing package.
+CI rebuilds by default. Custom or strict remote-host catalog settings require a
+fresh build. A complete default remote-host catalog is fingerprinted alongside the
+other inputs. An incomplete default catalog is omitted and allows reuse.
+`ESBUILD_BINARY_PATH` and `NODE_OPTIONS` each require a fresh build. Packaged smoke
+tests use the existing package.
 
 Unit coverage includes every executable TypeScript file under `src/`, including
 files no test imports; only declarations are excluded. Thresholds are defined in

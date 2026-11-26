@@ -15,6 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
+import { hostPlatforms } from "./remote-host-artifacts.mjs";
 
 function fixture(context) {
   const root = mkdtempSync(join(tmpdir(), "foom-wrapper-"));
@@ -114,6 +116,7 @@ function fixture(context) {
   delete env.FOOM_REQUIRE_REMOTE_HOSTS;
   delete env.FOOM_REMOTE_HOST_ARTIFACTS;
   delete env.ESBUILD_BINARY_PATH;
+  delete env.NODE_OPTIONS;
   return {
     root,
     run: (args, extraEnv = {}, executable = process.execPath) => {
@@ -256,6 +259,15 @@ test("CI and custom catalog runs rebuild even when a local receipt matches", (co
     // Start each iteration with a fresh local build.
     rmSync(join(root, "test-results/electron-build.json"));
   }
+  assert.equal(run([filter]).status, 0);
+  for (const env of [
+    { FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+    { FOOM_REMOTE_HOST_ARTIFACTS: "custom-hosts" },
+  ]) {
+    const strict = run(["--reuse-build", filter], env);
+    assert.notEqual(strict.status, 0, strict.output);
+    assert.doesNotMatch(strict.output, /SELECTED_BODY/);
+  }
 });
 
 test("esbuild overrides require a fresh build and never leave a reusable receipt", (context) => {
@@ -283,6 +295,72 @@ test("esbuild overrides require a fresh build and never leave a reusable receipt
   const normal = run([filter]);
   assert.equal(normal.status, 0, normal.output);
   assert.doesNotMatch(normal.output, /Reusing verified/);
+});
+
+test("Node startup hooks rebuild even when the hook lives outside the input snapshot", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  assert.equal(run([filter]).status, 0);
+  const hook = join(root, "test-results/build-hook.mjs");
+  const output = join(root, "build/app.js");
+  const env = { NODE_OPTIONS: `--import=${pathToFileURL(hook).href}` };
+  for (const marker of ["first instrumentation", "updated instrumentation"]) {
+    writeFileSync(
+      hook,
+      `
+      import { appendFileSync } from 'node:fs';
+      import { basename } from 'node:path';
+      if (basename(process.argv[1] ?? '') === 'build.mjs')
+        process.once('exit', () => appendFileSync('build/app.js', ${JSON.stringify(marker)}));
+    `,
+    );
+    const result = run([filter], env);
+    assert.equal(result.status, 0, result.output);
+    assert.doesNotMatch(result.output, /Reusing verified/);
+    assert.equal(readFileSync(output, "utf8"), `built${marker}`);
+    assert.throws(() => readFileSync(join(root, "test-results/electron-build.json")), {
+      code: "ENOENT",
+    });
+  }
+  const strict = run(["--reuse-build", filter], env);
+  assert.notEqual(strict.status, 0, strict.output);
+  assert.match(strict.output, /NODE_OPTIONS requires a fresh build/);
+  assert.doesNotMatch(strict.output, /SELECTED_BODY/);
+  const normal = run([filter]);
+  assert.equal(normal.status, 0, normal.output);
+  assert.doesNotMatch(normal.output, /Reusing verified/);
+  assert.equal(readFileSync(output, "utf8"), "built");
+});
+
+test("an incomplete default catalog allows reuse and a complete catalog is fingerprinted", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const catalog = join(root, ".cache/remote-hosts");
+  const check = (reuse) => {
+    const result = run([filter]);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(result.output.includes("Reusing verified current Electron build"), reuse);
+  };
+  mkdirSync(catalog, { recursive: true });
+  check(false);
+  check(true);
+  for (const target of hostPlatforms) {
+    const directory = join(catalog, target);
+    mkdirSync(directory);
+    writeFileSync(join(directory, "manifest.json"), "{}");
+    if (target !== hostPlatforms.at(-1)) writeFileSync(join(directory, "foom-host.gz"), "fixture");
+  }
+  check(true);
+  const archive = join(catalog, hostPlatforms.at(-1), "foom-host.gz");
+  writeFileSync(archive, "complete");
+  check(false);
+  check(true);
+  writeFileSync(archive, "changed");
+  check(false);
+  check(true);
+  rmSync(archive);
+  check(false);
+  check(true);
 });
 
 test("replacing the selected Node license invalidates the build at the same Node version", (context) => {

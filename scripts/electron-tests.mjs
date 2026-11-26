@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { checkoutRevision, digest, verifyHostArtifact } from "./remote-host-artifacts.mjs";
-import { cpSync, existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  checkoutRevision,
+  digest,
+  hostPlatforms,
+  verifyHostArtifact,
+} from "./remote-host-artifacts.mjs";
+import { cpSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { buildFingerprint, fingerprint } from "./validation-fingerprint.mjs";
@@ -41,26 +46,43 @@ if (packaged && requireReuse)
 mkdirSync("test-results", { recursive: true });
 const receipt = "test-results/electron-build.json";
 
-function automaticReuseAllowed() {
-  // Build overrides and external catalogs are outside the ordinary input fingerprint.
+function isCI() {
   const env = process.env;
-  return !(
-    env.CI ||
-    env.GITHUB_ACTIONS ||
-    env.FOOM_CI_ELECTRON_SUITES !== undefined ||
-    env.FOOM_PACKAGE === "1" ||
-    env.FOOM_REQUIRE_REMOTE_HOSTS === "1" ||
-    env.FOOM_REMOTE_HOST_ARTIFACTS !== undefined ||
-    existsSync(".cache/remote-hosts")
-  );
+  return env.CI || env.GITHUB_ACTIONS || env.FOOM_CI_ELECTRON_SUITES !== undefined;
 }
 
-function matchesReceipt(inputs, revision, requireReuse) {
+function defaultCatalogFingerprint() {
+  const env = process.env;
+  // Other catalog policies require the build to validate their inputs.
+  if (
+    env.FOOM_PACKAGE === "1" ||
+    env.FOOM_REQUIRE_REMOTE_HOSTS === "1" ||
+    env.FOOM_REMOTE_HOST_ARTIFACTS !== undefined
+  )
+    return undefined;
+  const files = hostPlatforms.flatMap((target) =>
+    ["manifest.json", "foom-host.gz"].map((name) => join(".cache/remote-hosts", target, name)),
+  );
+  try {
+    const entries = files.map((file) => statSync(file, { throwIfNoEntry: false }));
+    // The app omits the entire default catalog if any required file is missing.
+    if (entries.some((entry) => entry === undefined)) return null;
+    if (entries.some((entry) => !entry.isFile() || entry.size > 200 * 1024 * 1024))
+      return undefined;
+    return fingerprint(files);
+  } catch {
+    // Without a readable snapshot, build fresh and leave no reusable receipt.
+    return undefined;
+  }
+}
+
+function matchesReceipt(inputs, catalog, revision, requireReuse) {
   try {
     const saved = JSON.parse(readFileSync(receipt, "utf8"));
     return (
       (requireReuse || saved?.local === true) &&
       saved?.inputs === inputs &&
+      saved.catalog === catalog &&
       saved.revision === revision &&
       saved.output === fingerprint(["build"])
     );
@@ -72,17 +94,20 @@ function matchesReceipt(inputs, revision, requireReuse) {
 
 if (!packaged) {
   const revision = checkoutRevision(process.cwd());
-  // An override can run an arbitrary wrapper with inputs outside the fingerprint.
-  const usesEsbuildOverride = Boolean(process.env.ESBUILD_BINARY_PATH);
-  if (usesEsbuildOverride && requireReuse)
-    throw new Error("ESBUILD_BINARY_PATH requires a fresh build. Run without --reuse-build.");
-  const allowAutomaticReuse = !usesEsbuildOverride && automaticReuseAllowed();
+  // An override can load executable code with inputs outside the fingerprint.
+  const override = ["ESBUILD_BINARY_PATH", "NODE_OPTIONS"].find((name) => process.env[name]);
+  if (override && requireReuse)
+    throw new Error(`${override} requires a fresh build. Run without --reuse-build.`);
+  const catalog = defaultCatalogFingerprint();
+  const allowAutomaticReuse = !override && catalog !== undefined && !isCI();
   // Electron may install its binary on first require, changing node_modules.
   // Finish that setup before taking the local build's input snapshot.
   if (allowAutomaticReuse && !requireReuse) createRequire(import.meta.url)("electron");
   const inputs = buildFingerprint();
   const reuse =
-    (requireReuse || allowAutomaticReuse) && matchesReceipt(inputs, revision, requireReuse);
+    catalog !== undefined &&
+    (requireReuse || allowAutomaticReuse) &&
+    matchesReceipt(inputs, catalog, revision, requireReuse);
   if (requireReuse && !reuse)
     throw new Error("No current verified build. Run pnpm run test:electron without --reuse-build.");
   if (reuse) {
@@ -132,16 +157,20 @@ if (!packaged) {
       );
     }
   }
-  if ((!reuse && buildFingerprint() !== inputs) || checkoutRevision(process.cwd()) !== revision)
+  if (
+    (!reuse && (buildFingerprint() !== inputs || defaultCatalogFingerprint() !== catalog)) ||
+    checkoutRevision(process.cwd()) !== revision
+  )
     throw new Error("Build inputs changed during Electron preparation; run again.");
-  if (!reuse && !usesEsbuildOverride) {
+  if (!reuse && !override && catalog !== undefined) {
     writeFileSync(
       receipt,
       JSON.stringify({
         inputs,
+        catalog,
         revision,
         output: fingerprint(["build"]),
-        local: allowAutomaticReuse && automaticReuseAllowed(),
+        local: allowAutomaticReuse,
       }),
     );
   }
