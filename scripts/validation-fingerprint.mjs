@@ -16,6 +16,7 @@ import { basename, isAbsolute, join, resolve, sep } from "node:path";
 import { nodeRuntimeLicense } from "./node-runtime.mjs";
 
 const listDirectory = readdirSync;
+export const systemCodesign = process.platform === "darwin" ? "/usr/bin/codesign" : undefined;
 
 export class BuildInputChanged extends Error {}
 
@@ -175,6 +176,7 @@ export function buildEnvironmentFingerprint() {
     )
     .update(buildFileDigest(process.execPath))
     .update(buildFileDigest(nodeRuntimeLicense()))
+    .update(systemCodesign ? buildFileDigest(systemCodesign) : "")
     .digest("hex");
 }
 

@@ -347,6 +347,84 @@ function useFixtureEsbuild(root) {
     cpSync(join(modules, name), join(root, "node_modules", name), { recursive: true });
 }
 
+test("an optional relative esbuild import invalidates reuse when its source appears", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  useFixtureEsbuild(root);
+  mkdirSync(join(root, "src/plugins/folder"), { recursive: true });
+  writeFileSync(
+    join(root, "src/input.ts"),
+    `
+    for (const marker of [
+      (() => { try { return require('./plugins/optional.js'); } catch { return 'fallback'; } })(),
+      (() => { try { return require('./plugins/folder'); } catch { return 'folder fallback'; } })(),
+    ]) console.log(marker);
+    `,
+  );
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { bundleBuild } from './bundle-build.mjs';
+    await bundleBuild({
+      entryPoints: ['src/input.ts'],
+      bundle: true,
+      platform: 'node',
+      outfile: 'build/optional.cjs',
+    });
+    `,
+  );
+  const check = (expected, reuse) => {
+    const result = run([filter]);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(result.output.includes("Reusing verified"), reuse, result.output);
+    assert.equal(
+      execFileSync(process.execPath, [join(root, "build/optional.cjs")], {
+        encoding: "utf8",
+      }).trim(),
+      expected,
+    );
+  };
+  check("fallback\nfolder fallback", false);
+  check("fallback\nfolder fallback", true);
+  writeFileSync(join(root, "src/plugins/optional.js"), "module.exports = 'optional file';");
+  check("optional file\nfolder fallback", false);
+  writeFileSync(join(root, "src/plugins/folder/index.js"), "module.exports = 'optional folder';");
+  check("optional file\noptional folder", false);
+  check("optional file\noptional folder", true);
+});
+
+test("macOS ad-hoc signing permits reuse with the system codesign", {
+  skip: process.platform !== "darwin",
+}, (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  cpSync("/usr/bin/true", join(root, "src/signing-fixture"));
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { execFileSync, spawnSync } from 'node:child_process';
+    import { copyFileSync } from 'node:fs';
+    copyFileSync('src/signing-fixture', 'build/signing-fixture');
+    execFileSync('codesign', ['--force', '--sign', '-', 'build/signing-fixture']);
+    const verify = spawnSync('codesign', ['--verify', '--strict', 'build/signing-fixture']);
+    if (verify.status !== 0) throw Error(String(verify.stderr));
+    `,
+  );
+  const bin = join(root, "src/bin");
+  mkdirSync(bin);
+  const env = { PATH: [bin, "/usr/bin", "/bin"].join(delimiter) };
+  const built = run([filter], env);
+  assert.equal(built.status, 0, built.output);
+  assert.doesNotMatch(built.output, /Reusing verified/);
+  const reused = run(["--reuse-build", filter], env);
+  assert.equal(reused.status, 0, reused.output);
+  assert.match(reused.output, /Reusing verified/);
+  cpSync("/usr/bin/codesign", join(bin, "codesign"));
+  const shadowed = run(["--reuse-build", filter], env);
+  assert.notEqual(shadowed.status, 0);
+  assert.match(shadowed.output, /No current verified build/);
+});
+
 test("esbuild tracks an external stylesheet imported by the renderer", (context) => {
   const { root, run } = fixture(context);
   const filter = "--test-name-pattern=^selected case$";

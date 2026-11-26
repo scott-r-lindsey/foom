@@ -197,9 +197,12 @@ function runBuild(script, args, env) {
 if (!packaged) {
   const revision = checkoutRevision(process.cwd());
   // An override can load executable code with inputs outside the fingerprint.
-  const override = ["ESBUILD_BINARY_PATH", "NODE_OPTIONS", "NODE_PATH"].find(
-    (name) => process.env[name] !== undefined,
-  );
+  const override = [
+    "ESBUILD_BINARY_PATH",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    ...(process.platform === "darwin" ? ["CODESIGN_ALLOCATE"] : []),
+  ].find((name) => process.env[name] !== undefined);
   if (override && requireReuse)
     throw new Error(`${override} requires a fresh build. Run without --reuse-build.`);
   const catalog = defaultCatalogFingerprint();

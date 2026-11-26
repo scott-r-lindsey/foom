@@ -14,6 +14,7 @@ import {
   dependencyDirectoryDigest,
   isCheckoutBuildPath,
   isExecutableFile,
+  systemCodesign,
 } from "./validation-fingerprint.mjs";
 import { nodeRuntimeLicense } from "./node-runtime.mjs";
 
@@ -114,11 +115,17 @@ function recordModuleContext(path, started) {
   }
 }
 
-function recordCandidate(path, started) {
+function recordCandidate(path, started, unresolved = false) {
   if (!inputPath(path)) return;
-  if (recordLookup(dirname(path)) === "directory") recordBuildDirectory(dirname(path));
+  const recordDirectory = (directory) => {
+    // A new resolution candidate may have appeared after esbuild tried the import.
+    if (unresolved && lstatSync(directory, { throwIfNoEntry: false })?.ctimeMs >= started)
+      changed = true;
+    recordBuildDirectory(directory);
+  };
+  if (recordLookup(dirname(path)) === "directory") recordDirectory(dirname(path));
   if (recordLookup(path) === "directory") {
-    recordBuildDirectory(path);
+    recordDirectory(path);
     recordManifest(join(path, "package.json"), started);
   }
 }
@@ -183,8 +190,14 @@ export function recordBundleInputs(metafile, started, tsconfig) {
         if (recordConfig(join(dir, "tsconfig.json"), started) || dir === dirname(dir)) break;
       }
     }
-    for (const { original, external, kind } of imports) {
-      if (external || !original) continue;
+    for (const { original, external, kind, path: imported } of imports) {
+      if (external) {
+        // esbuild leaves unresolved optional imports external and omits "original".
+        if (/^\.{1,2}(?:[/\\]|$)/.test(imported) || isAbsolute(imported))
+          recordCandidate(resolve(dirname(path), imported), started, true);
+        continue;
+      }
+      if (!original) continue;
       if (original.startsWith(".") || isAbsolute(original)) {
         recordCandidate(resolve(dirname(path), original), started);
       } else {
@@ -234,6 +247,11 @@ function trackCopyTree(original) {
   };
 }
 
+function recordCommandInput(path) {
+  // The runner fingerprints the system signer before and after the build.
+  if (path !== systemCodesign) recordBuildInput(path);
+}
+
 function trackCommand(original) {
   return function (command, ...args) {
     // The runner checks the Git revision and selected Node executable separately.
@@ -242,7 +260,7 @@ function trackCommand(original) {
       const options = Array.isArray(args[0]) ? args[1] : args[0];
       const cwd = options?.cwd instanceof URL ? fileURLToPath(options.cwd) : (options?.cwd ?? root);
       if (!options?.shell && (isAbsolute(command) || command.includes("/"))) {
-        recordBuildInput(resolve(cwd, command));
+        recordCommandInput(resolve(cwd, command));
       } else if (!options?.shell && process.platform !== "win32") {
         const path = (options?.env ?? process.env).PATH;
         if (path === undefined) valid = false;
@@ -253,7 +271,7 @@ function trackCommand(original) {
             return executables.get(candidate) === true;
           });
           if (selected === undefined) valid = false;
-          else recordBuildInput(resolve(cwd, selected, command));
+          else recordCommandInput(resolve(cwd, selected, command));
         }
       } else {
         // Shell and Windows command searches have different resolution rules.
