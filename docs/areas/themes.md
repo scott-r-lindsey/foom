@@ -79,6 +79,10 @@ Panel radius inherits an explicit control radius when omitted. Existing
 per-element radius fallbacks preserve built-in geometry; circles and
 intentional zeros remain literal.
 
+About, its note and the first-run and replay launch sequences use the built-in
+Eclipse Dark palette and default typography and shapes. License and notice
+dialogs use the selected theme.
+
 Contrast below 4.5:1 rejects the whole file, retaining the last good theme. It is
 checked globally and against every area's effective bg/surface for ink, muted,
 accent, highlight and status inks, plus badge and space-ink pairs. Brand hue,
@@ -136,7 +140,8 @@ wordmarks on global, sidebar/titlebar and dialog paints; badge text on sidebar,
 panel, dialog and dialog-header paints. These checks include every parent gradient
 stop and 256 points per segment, even when the child itself has no gradient. A
 white wordmark over a white titlebar rejects despite a readable dark global
-background. Launch wordmark space ink is checked against the actual global hole.
+background. Theme validation checks the wordmark area's space ink against the
+theme's global hole.
 Opaque area roots retain their own effective-palette checks.
 
 Optional `type` has only `family` (`geist`, `geist-mono`, `system`, `system-mono`),

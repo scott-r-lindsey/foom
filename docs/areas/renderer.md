@@ -81,6 +81,12 @@ surface, notch and opening animation, returns focus to its button on dismissal,
 and closes before About on Escape. `app-menu:version` returns main's app and
 Electron versions through a bounded, runtime-validated preload capability.
 
+About and the shared launch sequence apply the built-in Eclipse Dark palette
+at their own roots (#1329). They use a dark color scheme and default typography,
+shape and state tokens. The note and wordmarks inherit this palette inside
+these roots. The window's interface zoom still applies. License and notice
+dialogs use the live theme.
+
 ### Reproducing the flight assets
 
 Run `node scripts/bake-flight.mjs` with Node 24. It reuses
