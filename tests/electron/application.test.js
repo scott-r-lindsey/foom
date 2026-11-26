@@ -3,9 +3,16 @@ const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { readFile, mkdir } = require("node:fs/promises");
+const { readFile, mkdir, mkdtemp, writeFile } = require("node:fs/promises");
+const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
-const { assertAccessible, boardPage, launchApp, launchCheckoutShell } = require("./harness.js");
+const {
+  assertAccessible,
+  boardPage,
+  launchApp,
+  launchCheckoutShell,
+  removeAfterApps,
+} = require("./harness.js");
 
 test("shared board startup restores a native-hidden CDP-visible board and delivers frames", {
   timeout: deadline(45_000),
@@ -329,6 +336,150 @@ async function pauseReplayClock(page) {
   // Installing the clock starts it; leave room for Windows transport latency.
   await page.clock.pauseAt(new Date(time.getTime() + 3_600_000));
 }
+
+test("About and launch replay keep Eclipse Dark while the board and legal dialogs follow the theme", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-about-theme-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  for (const base of ["dark", "light"]) {
+    const theme = interfaceThemes[`eclipse-${base}`];
+    const ink = base === "dark" ? "#ddf5ff" : "#18252f";
+    await writeFile(
+      path.join(home, ".foom/config/themes", `art-${base}.json`),
+      JSON.stringify({
+        ...theme,
+        version: 2,
+        name: `Art fixture ${base}`,
+        colors: { ...theme.colors, "accent-deep": "#2759a0", hole: "#101820" },
+        areas: { dialogs: { ink }, menus: { ink }, wordmark: { ink, "space-ink": "#edfaff" } },
+        type: { family: "system-mono", scale: 1.25, weight: 600 },
+        shape: { radius: 0, border: 2, shadow: 0 },
+        states: { hover: "#345078", focus: "#345078" },
+      }),
+    );
+  }
+  const select = async (id, background) => {
+    if (id.startsWith("user:")) {
+      await expect
+        .poll(() =>
+          page.evaluate(async (id) => {
+            const catalog = await window.desktop.listThemes();
+            return catalog.interface.find((entry) => entry.id === id)?.digest;
+          }, id),
+        )
+        .toBeTruthy();
+    }
+    await page.evaluate(async (id) => {
+      const catalog = await window.desktop.listThemes();
+      const digest = catalog.interface.find((entry) => entry.id === id)?.digest;
+      await window.desktop.saveSetup({ interfaceTheme: id }, digest);
+    }, id);
+    await expect(page.locator("html")).toHaveCSS("background-color", background);
+  };
+  const about = page.getByRole("dialog", { name: "About Foom", exact: true });
+  const close = about.getByRole("button", { name: "Close", exact: true });
+  const note = about.getByRole("dialog", { name: "A note from Scott" });
+  const launch = page.getByRole("dialog", { name: "Launch", exact: true });
+  const paint = (root, selectors) =>
+    root.evaluate((root, selectors) => {
+      const properties = [
+        "background-color",
+        "background-image",
+        "border-color",
+        "border-radius",
+        "border-width",
+        "box-shadow",
+        "color",
+        "color-scheme",
+        "font-family",
+        "font-size",
+        "font-weight",
+        "outline-color",
+        "outline-style",
+        "--accent",
+        "--accent-deep",
+        "--hole",
+        "--ink",
+        "--raised-hover",
+        "--space-ink",
+      ];
+      const style = (element, pseudo) => {
+        const computed = getComputedStyle(element, pseudo);
+        return properties.map((property) => computed.getPropertyValue(property));
+      };
+      return [
+        style(root),
+        style(root, "::backdrop"),
+        ...selectors.map((selector) => style(root.querySelector(selector))),
+      ];
+    }, selectors);
+  const aboutPaint = () =>
+    paint(about, [
+      ".wordmark",
+      "canvas",
+      ".about-link",
+      ".about-note-button",
+      ".about-note",
+      ".about-footer button:last-child",
+    ]);
+  const launchPaint = () => paint(launch, ["canvas", ".wordmark", ".launch-skip"]);
+  let baselineAbout;
+  let baselineLaunch;
+  for (const [id, background] of [
+    ["eclipse-dark", "rgb(5, 4, 10)"],
+    ["eclipse-light", "rgb(243, 240, 250)"],
+    ["user:art-dark.json", "rgb(5, 4, 10)"],
+    ["user:art-light.json", "rgb(243, 240, 250)"],
+    ["follow", "rgb(243, 240, 250)"],
+  ]) {
+    await select(id, background);
+    await expect(page.locator("html")).toHaveCSS(
+      "--hole",
+      id.startsWith("user:") ? "#101820" : "#06050b",
+    );
+    await page.evaluate(() => window.desktop.appMenu.execute("about"));
+    await expect(about).toHaveCSS("color-scheme", "dark");
+    await about.getByRole("button", { name: "A note from Scott" }).click();
+    await expect(note).toBeVisible();
+    await close.hover();
+    baselineAbout ??= await aboutPaint();
+    assert.deepEqual(await aboutPaint(), baselineAbout, id);
+
+    if (id === "eclipse-dark") {
+      await select("eclipse-light", "rgb(243, 240, 250)");
+      assert.deepEqual(await aboutPaint(), baselineAbout, "live change while About is open");
+      await select(id, background);
+    }
+    await page.keyboard.press("Escape");
+    await expect(note).toHaveCount(0);
+    await page.keyboard.press("Tab");
+    const licenses = about.getByRole("button", { name: "Licenses", exact: true });
+    await expect(licenses).toBeFocused();
+    await expect(licenses).toHaveCSS("outline-style", "solid");
+    await expect(licenses).toHaveCSS("outline-color", "rgb(155, 107, 255)");
+    for (const title of ["Licenses", "Third-party notices"]) {
+      await about.getByRole("button", { name: title, exact: true }).click();
+      const legal = page.getByRole("dialog", { name: title, exact: true });
+      await expect(legal).toHaveCSS("background-color", background);
+      const legalClose = legal.getByRole("button", { name: "Close", exact: true });
+      await expect(legalClose).toHaveCSS("border-radius", id.startsWith("user:") ? "0px" : "5px");
+      await legalClose.click();
+    }
+    await about.getByRole("button", { name: "Replay launch" }).press("Enter");
+    await expect(launch).toBeVisible();
+    await expect(launch).toHaveCSS("color-scheme", "dark");
+    baselineLaunch ??= await launchPaint();
+    assert.deepEqual(await launchPaint(), baselineLaunch, id);
+    await launch.press("Escape");
+    await expect(about).toHaveCount(0);
+    await expect(page.locator("html")).toHaveCSS("background-color", background);
+  }
+});
 
 test("About rocket replays launch by mouse and keyboard without changing setup", {
   timeout: deadline(45_000),

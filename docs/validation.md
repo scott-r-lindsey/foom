@@ -196,35 +196,39 @@ for the assignment method and measurement history.
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`, plus scheduled and manual runs:
 
 1. Independent Linux jobs for change detection, static checks (format, documentation integrity, lint, typecheck, full dependency audit and CI policy tests), and unit coverage.
-2. Electron launch tests and Forge installer/ZIP packaging on Ubuntu, Windows, and macOS, alongside static checks when desktop validation is required.
-3. A stable **Quality gate** status for ready PRs and non-PR runs that requires all three Linux jobs to succeed and desktop validation to pass, or to be explicitly classified as unnecessary and skipped. Failed detection never permits a skip. Draft PRs report **Draft quality gate** with the same dependency checks.
+2. When desktop validation is required, Linux and Windows Electron and all host builds start after change detection. Native checks and Forge installer/ZIP packaging on all three platforms wait for the complete host catalog. macOS Electron and macOS native checks and packaging also wait for every Linux Electron shard to succeed.
+3. **Quality gate** requires current change detection, static checks and coverage to succeed. When desktop validation is required, all Electron, host build and packaging jobs must succeed. An allowed documentation-only skip or verified reuse requires all desktop jobs in the current run to be skipped. Failed, cancelled or skipped required jobs fail the gate. Draft PRs report **Draft quality gate** with the same dependency checks.
 
 Draft PRs select Electron suites using the existing mapping in
 `scripts/electron-affected.mjs` against the PR merge-base diff. When every changed
 path is mapped, those suites run once on each platform using shard `1/1`.
 Unmapped paths, empty diffs or missing mapped suites retain the full eighteen-shard
-matrix. The full desktop gate requires all eighteen Electron jobs and the three
-native-check/packaging jobs. Each full desktop run requests ten macOS jobs,
+matrix. Both modes use the same Linux-to-macOS dependency. A failed or cancelled
+Linux Electron shard skips macOS Electron and macOS native checks and packaging
+and fails the gate. The Darwin build still supplies the catalog required by Linux
+and Windows packaging. Each full desktop run requests ten macOS jobs,
 including the eight Electron shards, native-check/packaging and combined Darwin
-host build. The `ready_for_review` event and every push while ready run the full
-matrix.
-`converted_to_draft` also starts a new run. Main pushes, schedules, manual runs,
-nightly publication and the documentation-only desktop skip retain their policy.
+host build.
 
-Merge safety depends on the check name, not an asynchronous readiness check:
-the workflow names every draft aggregate **Draft quality gate**, including draft
-runs that fall back to full coverage or skip desktop for documentation. It never
-creates or skips a check named **Quality gate** for a draft. Existing branch
-protection requires **Quality gate** from GitHub Actions, so a successful partial
-draft run cannot satisfy it. Marking ready does not change the SHA; before the
-new full run starts, the required context is still absent. Only the full-policy
-run can publish that context. A previous green required context on the same SHA
-can only come from a full-policy run, never from affected draft coverage. The
-same invariant survives cancellation, reruns and conversion back to draft. No
-repository setting changes are required. Credential-only manual runs retain their
-skipped aggregate under **Credential-only gate**, preventing that skipped check
-from satisfying the full-validation requirement as well. CI-policy tests evaluate the actual
-workflow check-name expression and exercise draft-to-ready on the same SHA.
+Only `ready_for_review` can reuse previous validation. Change detection looks up
+successful completed CI runs for the same PR and exact head SHA. It verifies the
+base branch and commit, the workflow path and the workflow file fingerprint
+recorded by the earlier run. It requires one successful job from the same run
+attempt for every Electron shard, host build and packaging platform, plus
+successful change detection, static checks, unit coverage and the aggregate gate.
+This admits a full draft run. Affected, documentation-only and incomplete runs
+lack the required evidence. Missing history, changed inputs or an unavailable
+lookup run the full matrix, including on a documentation-only ready transition.
+On a reuse hit, current static checks and coverage still run. The **Quality gate**
+on the ready event links to the earlier full run in its summary and log.
+The lookup uses job-scoped `actions: read` on Change detection.
+
+Every push while ready uses fresh validation. `converted_to_draft` also starts a
+new run. Draft runs always publish **Draft quality gate**, including when they
+run the full matrix. Branch protection requires **Quality gate** from GitHub
+Actions. Credential-only manual runs keep their own **Credential-only gate**
+name. The CI policy tests cover both gate names and verify reuse and fallback
+against mismatched, partial, failed and cancelled runs.
 
 Electron and native-check/packaging jobs restore `actions/cache` entries keyed by
 runner OS, architecture and the exact Electron version resolved by the frozen
@@ -244,11 +248,10 @@ appends a download configuration to its disposable `forge.config.js` checkout so
 neither the ZIP nor remote `SHASUMS256.txt`. Existing Forge hooks are preserved;
 no application or local packaging behavior changes. Release-environment jobs do
 not use this cache: they retain their tested ZIP/DMG and same-run SEA inputs.
-The Quality gate, required job graph and deadlines are unchanged.
 
 CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push runs for PRs. The [Electron sharding guide](electron-shards.md) owns the desktop job layout and assignment details. Test deadlines come from `tests/electron/test-policy.js`.
 
-Desktop validation is skipped only when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, direct HTML mockups under `docs/mockups/`, or reference/prototype material under `inspiration/` or `spikes/` (the exact allowlist is in [`scripts/ci-changes.mjs`](../scripts/ci-changes.mjs)). Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails change detection.
+Outside the ready transition, change detection allows a documentation-only desktop skip when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, direct HTML mockups under `docs/mockups/`, or reference/prototype material under `inspiration/` or `spikes/` (the exact allowlist is in [`scripts/ci-changes.mjs`](../scripts/ci-changes.mjs)). Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails change detection.
 
 CI retains HTML/LCOV coverage for three days. Platform installers and ZIPs are built and validated on every required desktop run, and are uploaded on main pushes, for scheduled nightlies or **Actions → CI → Run workflow → publish_nightly** on `main`. Only the nightly publication job has repository contents write permission in CI, and it waits for the Quality gate. The schedule skips desktop validation once the current main commit has a completed nightly. Manual runs without `publish_nightly` never publish. The separate `upload_packages` option uploads development ZIPs without publishing. These manually requested ZIPs are retained for three days. macOS CI also uploads its tested ZIP on PRs and other desktop runs, then downloads it to exercise the release artifact layout with ad-hoc signing; this artifact has the same three-day retention. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `pnpm install --frozen-lockfile`, and Node comes from `.nvmrc`.
 
@@ -294,8 +297,8 @@ metadata, verifies native SEA startup with invalid arguments (no daemon or
 network), and uploads its catalog entry with three-day retention. Nightly version
 stamping uses the same condition and deterministic stamp as desktop packaging.
 
-The three existing native-check/packaging jobs wait for the complete host matrix,
-download only their own run's four artifacts into `.cache/remote-hosts`, and
+The three native-check/packaging jobs wait for the complete host matrix. They
+download only their own run's four artifacts into `.cache/remote-hosts` and
 package all four compressed hosts outside ASAR. Packaging verifies every target,
 revision, version, protocol, size and hash and refuses missing entries. Both host
 and app builders use `git rev-parse HEAD` with argument arrays, including local

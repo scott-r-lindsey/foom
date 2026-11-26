@@ -1,6 +1,7 @@
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
+import { WorkspaceContext } from "../../../../src/main/workspace/workspace-context";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import type { Launched } from "./workspace-fixture";
@@ -544,4 +545,42 @@ test("returns the saved shell to startup after a failed manual Restart", async (
   expect(terminals.create.mock.lastCall?.[0]).toMatchObject({ id: saved.id });
   expect(workspace.snapshot().terminals).toMatchObject([{ id: saved.id, exited: false }]);
   await workspace.dispose();
+});
+
+test("revalidates a prepared spawn after each quit pause", async () => {
+  const context = new WorkspaceContext(deps);
+  const first = Promise.withResolvers<undefined>();
+  const second = Promise.withResolvers<undefined>();
+  vi.spyOn(context.sessions, "restoreSpawnPause")
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const verified = Promise.withResolvers<undefined>();
+  const revalidate = vi.fn(() => Promise.resolve());
+  revalidate.mockImplementationOnce(() => {
+    verified.resolve(undefined);
+    return Promise.resolve();
+  });
+  const create = vi.spyOn(deps.terminals, "create");
+  revalidate.mockRejectedValueOnce(new Error("Checkout replaced"));
+  const spawn = context.createTerminal(
+    {
+      id: "saved",
+      command: "claude",
+      args: [],
+      cwd: tree.path,
+      cols: 80,
+      rows: 24,
+      env: {},
+    },
+    revalidate,
+  );
+  const rejected = expect(spawn).rejects.toThrow("Checkout replaced");
+  first.resolve(undefined);
+  await verified.promise;
+  expect(create).not.toHaveBeenCalled();
+  second.resolve(undefined);
+  await rejected;
+  expect(revalidate).toHaveBeenCalledTimes(2);
+  expect(create).not.toHaveBeenCalled();
+  await context.dispose();
 });

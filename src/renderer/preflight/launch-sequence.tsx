@@ -2,6 +2,7 @@ import { Wordmark } from "../ui/wordmark";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { FlightCanvas, prefersReducedMotion } from "../ui/flight-canvas";
+import { eclipseDarkArtColors } from "../ui/interface-theme";
 export { prefersReducedMotion } from "../ui/flight-canvas";
 
 const STEADY_MS = 3900;
@@ -78,7 +79,8 @@ export function LaunchSequence({
   return (
     <div
       ref={overlayRef}
-      className="launch"
+      className="launch eclipse-dark-art"
+      style={eclipseDarkArtColors}
       data-phase={phase}
       data-start={start}
       data-fading={fading}
