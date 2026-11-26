@@ -26,6 +26,16 @@ export function imageDimensions(width: number, height: number): boolean {
     width > 0 && height > 0 && width <= 8192 && height <= 8192 && width * height <= IMAGE_PIXELS
   );
 }
+export function rasterImageFormat(bytes: Uint8Array): "png" | "jpeg" | "webp" | "gif" | undefined {
+  const signature = bytes.subarray(0, 12);
+  if ([137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => signature[index] === byte))
+    return "png";
+  if (signature[0] === 255 && signature[1] === 216 && signature[2] === 255) return "jpeg";
+  const ascii = String.fromCharCode(...signature);
+  if (ascii.length === 12 && ascii.startsWith("RIFF") && ascii.endsWith("WEBP")) return "webp";
+  if (/^GIF8[79]a/u.test(ascii)) return "gif";
+  return undefined;
+}
 /** Only normalized PNGs travel to hosts; decoding belongs to the hub. */
 export function imagePng(bytes: Uint8Array): boolean {
   if (bytes.length < 33 || bytes.length > IMAGE_BYTES) return false;

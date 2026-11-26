@@ -2071,3 +2071,23 @@ button.failure-mark {
   color: var(--attention);
   text-shadow: 0 0 5px var(--attention);
 }
+
+.sidebar-bitmap {
+  display: none;
+}
+:root[data-theme-bitmaps~="sidebar"] .sidebar-shell[data-compact="false"] .board-list {
+  display: flex;
+  flex-direction: column;
+}
+:root[data-theme-bitmaps~="sidebar"] .sidebar-shell[data-compact="false"] .board-list > * {
+  flex-shrink: 0;
+}
+:root[data-theme-bitmaps~="sidebar"] .sidebar-shell[data-compact="false"] .sidebar-bitmap {
+  display: block;
+  flex: 1 0 0;
+  pointer-events: none;
+  background:
+    var(--bitmap-sidebar-image) var(--bitmap-sidebar-position) / var(--bitmap-sidebar-size)
+    var(--bitmap-sidebar-repeat);
+  opacity: var(--bitmap-sidebar-opacity);
+}

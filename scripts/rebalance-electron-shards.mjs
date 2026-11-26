@@ -7,6 +7,14 @@ import { runInNewContext } from "node:vm";
 import { suiteFiles } from "../tests/electron/test-suites.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+// The setup allowances are measured step wall time minus JUnit case time.
+// See the #1295 measurements and #1351 budget in docs/electron-shards.md.
+export const shardBudgets = {
+  "ubuntu-24.04": { stepMinutes: 14, setupSeconds: 65.2 },
+  "windows-2025": { stepMinutes: 14, setupSeconds: 80.1 },
+  "macos-15": { stepMinutes: 20, setupSeconds: 161.1 },
+};
+
 const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 function decode(value) {
   const entities = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
@@ -173,8 +181,23 @@ function projectedTotals(shards, durations, width) {
     });
   }
   return Array.from({ length: width }, (_, p) =>
-    loads.map((load) => (Math.round(load[p] * 10) / 10).toFixed(1)),
+    loads.map((load) => Math.round(load[p] * 1000) / 1000),
   );
+}
+
+export function reportShardHeadroom(platform, label, totals) {
+  const { stepMinutes, setupSeconds } = shardBudgets[platform];
+  const stepSeconds = stepMinutes * 60;
+  const target = stepSeconds * 0.75 - setupSeconds;
+  console.info(
+    `${platform}: ${label} (step limit ${stepSeconds}s, setup ${setupSeconds}s, case target ${target.toFixed(1)}s)`,
+  );
+  for (const [index, total] of totals.entries()) {
+    const headroom = stepSeconds - setupSeconds - total;
+    const line = `  ${platform} ${index + 1}/${totals.length}: ${total.toFixed(3)}s cases, ${headroom.toFixed(3)}s headroom (${((headroom / stepSeconds) * 100).toFixed(1)}%)`;
+    if (total > target) console.warn(`${line} — WARNING: ${label} leaves less than 25% headroom`);
+    else console.info(line);
+  }
 }
 
 export function writePlan(path, plan) {
@@ -259,10 +282,9 @@ function main(args) {
       ["Before (including hash fallback)", old.shards[count]],
       ["After", assignments],
     ]) {
-      console.info(`${count} shards: ${label}`);
-      projectedTotals(plan, durations, old.platforms.length).forEach((totals, p) =>
-        console.info(`  ${old.platforms[p]}: ${totals.join(" / ")}`),
-      );
+      projectedTotals(plan, durations, old.platforms.length).forEach((totals, p) => {
+        if (counts[p] === Number(count)) reportShardHeadroom(old.platforms[p], label, totals);
+      });
     }
   }
   if (args.includes("--write")) {

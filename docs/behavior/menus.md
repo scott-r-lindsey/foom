@@ -35,21 +35,24 @@ Action Log and Toggle Developer Tools share Developer; Quit Foom is last in the 
 
 Individual tile, focus and swap commands, Focus sidebar, Longest waiting, Maximize,
 Copy, Paste, Close Window and Foom on GitHub are not in the wordmark menu. Their
-shortcuts still work. About Foom opens an in-board modal on every platform; the
-native About panel is gone. Its full-bleed art uses the theme sky, a black Eclipse
-hole, the exponential flight path and a white/violet rocket. Gentle flame, ring
-and rocket motion pauses when unfocused and stops on close; reduced motion is a
-still frame. Text shows the wordmark, By Scott Lindsey, app version (including a
-nightly stamp when present), Electron version and “Nothing needs you. Yet.”
+shortcuts still work. About Foom opens an in-board modal on every platform. Its
+full-bleed Eclipse Dark art shows a black hole, the exponential flight path and
+a white/violet rocket. The art, text, controls, note and backdrop keep Eclipse
+Dark colors, default fonts and default shapes across theme and OS appearance
+changes. Interface size still applies. Gentle flame, ring and rocket motion
+pauses when unfocused and stops on close. Reduced motion shows a still frame.
+Text shows the wordmark, By Scott Lindsey, app version (including a nightly
+stamp when present), Electron version and “Nothing needs you. Yet.”
 
 The round (?) opens a note beside its button in the same raised, notched surface
 as row menus. Escape or an outside press closes the note and returns focus to (?).
 Escape with no note, or Close, dismisses About and restores its previous focus.
 The footer's Licenses and Third-party notices use fixed registry commands to read
-the bundled LICENSE and build/THIRD_PARTY_NOTICES.txt into a themed, read-only
-modal with a scrollable text region and a fixed Close footer. Escape, a click
-outside, or Close dismisses the text view and restores focus to its opener; About
-stays open underneath. The macOS Help menu uses the same view. Source opens the
+the bundled LICENSE and build/THIRD_PARTY_NOTICES.txt into a read-only modal
+that follows the selected theme, with a scrollable text region and a fixed
+Close footer. Escape, a click outside, or Close dismisses the text view and
+restores focus to its opener. About stays open underneath. The macOS Help menu
+uses the same view. Source opens the
 fixed GitHub repository URL. No renderer path or URL is accepted. Third-party licenses remains a menu alias for Licenses.
 On macOS with no board, About creates a board before opening the in-board dialog.
 

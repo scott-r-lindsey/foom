@@ -8,6 +8,7 @@ import {
   measurementCounts,
   parseCases,
   readMeasurements,
+  reportShardHeadroom,
   writePlan,
 } from "./rebalance-electron-shards.mjs";
 
@@ -97,6 +98,32 @@ test("maxima across runs feed deterministic balancing and no-op writes preserve 
   assert.equal(readFileSync(path, "utf8"), original);
   writePlan(path, { shards: [] });
   assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { shards: [] });
+});
+
+test("shard reports include measured overhead and warn below 25% headroom", (t) => {
+  const info = t.mock.method(console, "info", () => {});
+  const warn = t.mock.method(console, "warn", () => {});
+  reportShardHeadroom("ubuntu-24.04", "After", [564.8, 564.801]);
+  reportShardHeadroom("windows-2025", "After", [549.9]);
+  reportShardHeadroom("macos-15", "After", [738.9, 1050]);
+  assert.deepEqual(
+    info.mock.calls.map(({ arguments: [line] }) => line),
+    [
+      "ubuntu-24.04: After (step limit 840s, setup 65.2s, case target 564.8s)",
+      "  ubuntu-24.04 1/2: 564.800s cases, 210.000s headroom (25.0%)",
+      "windows-2025: After (step limit 840s, setup 80.1s, case target 549.9s)",
+      "  windows-2025 1/1: 549.900s cases, 210.000s headroom (25.0%)",
+      "macos-15: After (step limit 1200s, setup 161.1s, case target 738.9s)",
+      "  macos-15 1/2: 738.900s cases, 300.000s headroom (25.0%)",
+    ],
+  );
+  assert.deepEqual(
+    warn.mock.calls.map(({ arguments: [line] }) => line),
+    [
+      "  ubuntu-24.04 2/2: 564.801s cases, 209.999s headroom (25.0%) — WARNING: After leaves less than 25% headroom",
+      "  macos-15 2/2: 1050.000s cases, -11.100s headroom (-0.9%) — WARNING: After leaves less than 25% headroom",
+    ],
+  );
 });
 
 test("mixed platform shard counts require every report on each platform", (t) => {

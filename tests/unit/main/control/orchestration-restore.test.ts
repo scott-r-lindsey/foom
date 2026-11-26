@@ -370,6 +370,45 @@ it("charges unverified unused records to the persisted worktree budget", async (
   expect(h.orchestration.savedWorktrees("parent")).toEqual([tree]);
 });
 
+it("reserves unused checkout capacity while startup proof is pending", async () => {
+  const h = harness();
+  const trees = ["one", "two", "three", "four"].map((branch) => ({
+    path: join(repo, "trees", branch),
+    identity: `id-${branch}`,
+    state: "unused" as const,
+  }));
+  const check = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(check.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", trees);
+  try {
+    await expect(h.mutate("create_worktree", { branch: "fifth" })).rejects.toThrow("capacity");
+    expect(h.host.createWorktree).not.toHaveBeenCalled();
+    expect(h.orchestration.savedWorktrees("parent")).toEqual(trees);
+  } finally {
+    check.resolve({ branch: "one", identity: "id-one" });
+    await restoring;
+  }
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual(trees);
+});
+
+it("keeps outstanding checkout identities in the save while requiring proof for ownership", async () => {
+  const h = harness();
+  const trees = ["stalled", "queued"].map((branch) => ({
+    path: join(repo, "trees", branch),
+    identity: `id-${branch}`,
+    state: "used" as const,
+  }));
+  const check = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(check.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", trees);
+  expect(h.orchestration.savedWorktrees("parent")).toEqual(trees);
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([]);
+
+  check.reject(new LaunchFailure("remote_worktree_unavailable"));
+  await restoring;
+  expect(h.orchestration.savedWorktrees("parent")).toEqual([trees[1]]);
+});
+
 it("refuses an old child when creation supersedes the checkout during an outstanding check", async () => {
   const h = harness();
   const path = join(repo, "trees", "replacement");

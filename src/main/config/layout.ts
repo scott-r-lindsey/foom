@@ -1,3 +1,9 @@
+import {
+  themeBitmapAnchors,
+  themeBitmapFilePattern,
+  themeBitmapFits,
+  themeBitmapSlots,
+} from "../../shared/theme-bitmaps";
 import agentSchema from "../../shared/agent-plugin.schema.json";
 import agentExample from "../../shared/agent-plugin.example.json";
 import {
@@ -214,6 +220,26 @@ const themeSchema = schema("foom:theme", {
                     : {}),
                 },
                 dependentRequired: { gradient: ["bg"] },
+              },
+            ]),
+          ),
+        },
+        images: {
+          type: "object",
+          additionalProperties: false,
+          properties: Object.fromEntries(
+            themeBitmapSlots.map((slot) => [
+              slot,
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["file"],
+                properties: {
+                  file: { type: "string", maxLength: 100, pattern: themeBitmapFilePattern },
+                  opacity: { type: "number", minimum: 0.05, maximum: 0.6, default: 0.25 },
+                  fit: { enum: themeBitmapFits, default: "contain" },
+                  anchor: { enum: themeBitmapAnchors, default: "center" },
+                },
               },
             ]),
           ),
@@ -526,6 +552,11 @@ edit their agent's global configuration. Validate the manifest with
   against each ink. Endpoint checks alone do not guarantee interior contrast.
   Area colors override global colors. Text contrast must remain at least 4.5:1
   within every area. Brand deviations apply with warnings, printed by the CLI.
+- Version 2 images use fixed slots board (empty board), gutter (behind tiles),
+  and sidebar (lower watermark). Each slot has a direct file name in themes/,
+  optional opacity (0.05–0.6), fit (cover, contain or tile) and anchor (center
+  or a named side/corner). Use PNG, JPEG or WebP, up to 4 MiB per file.
+  Active image edits wait for approval. Missing artwork leaves the normal background.
 - A file edit that newly makes needs-you hard to distinguish in the active theme,
   or selects such a theme, waits for approval. Hue-only warnings do not wait.
   Sizes and turning sounds on apply without approval.
@@ -559,6 +590,9 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
+  "84378b75bb1296eb95aa025e07c34e3b6912ab956c108e55d2d867b76278f2c7",
+  "f86073feaedc5ea73a5863927950977bef68af4fbcf6e79644139974159b0550",
+  "a72376c3acd4feb9930e6e65f9130e68ee5f9910059df9987573674c8106b782",
   "48865503e8f33029f2dd535de5b8e050253d3e6de5c23955427ab7859c4ae243",
   "6680be1a90682e4b36deff51bb448822a68f51e037b0a9c8cd1a9bb9532d0b4c",
   "8c2d280e0ed7cb2833228f7ed823e2a5351abe545088c7cc7ad748556495401d",
@@ -612,6 +646,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "648cead2a9d760fb80a48889b240441220d06f99b65d0f9213ec47045e2050a0",
   ],
   "schemas/theme.schema.json": [
+    "add57d054e68d788be3f6e64351b0785954fe4a9014cf1b73050fa2c10180beb",
     "831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc",
     "d1f8e5722da3ab7688b91b0b8a55c4508815d74fa844ca3df73da11e35ee9a3a",
   ],
