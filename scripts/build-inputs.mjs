@@ -1,0 +1,278 @@
+// Preloaded only for a reusable Electron build, including its Node subprocesses.
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import childProcess from "node:child_process";
+import { createRequire, registerHooks, syncBuiltinESMExports } from "node:module";
+import { dirname, delimiter, isAbsolute, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  BuildInputChanged,
+  buildDirectoryDigest,
+  buildFileDigest,
+  buildPathKind,
+} from "./validation-fingerprint.mjs";
+
+const staging = process.env.FOOM_BUILD_INPUTS;
+const root = process.cwd();
+const generated = join(root, "build");
+const inputs = new Map();
+const directories = new Map();
+const manifests = new Map();
+const lookups = new Map();
+const parsedConfigs = new Set();
+const require = createRequire(import.meta.url);
+const { lstatSync, readFileSync, readdirSync, writeFileSync, statSync } = fs;
+let valid = true;
+let changed = false;
+
+function inputPath(value) {
+  if (typeof value !== "string" && !(value instanceof URL && value.protocol === "file:")) return;
+  const path = resolve(value instanceof URL ? fileURLToPath(value) : value);
+  if (path !== generated && !path.startsWith(generated + sep)) return path;
+}
+
+function capture(path, digest, entries) {
+  try {
+    const hash = digest(path);
+    if (entries.has(path) && entries.get(path) !== hash) changed = true;
+    entries.set(path, hash);
+  } catch (error) {
+    if (error instanceof BuildInputChanged) changed = true;
+    else valid = false;
+  }
+}
+
+export function recordBuildInput(value) {
+  if (!staging) return;
+  const path = inputPath(value);
+  if (path && !inputs.has(path)) capture(path, buildFileDigest, inputs);
+}
+
+export function recordBuildDirectory(value) {
+  if (!staging) return;
+  const path = inputPath(value);
+  if (path && !directories.has(path)) capture(path, buildDirectoryDigest, directories);
+}
+
+function recordLookup(path) {
+  if (!lookups.has(path)) capture(path, buildPathKind, lookups);
+  return lookups.get(path);
+}
+
+function recordManifest(file, started) {
+  if (!manifests.has(file))
+    capture(file, (path) => buildFileDigest(path, { optional: true, before: started }), manifests);
+}
+
+function recordModuleContext(path, started) {
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    recordBuildDirectory(dir);
+    recordManifest(join(dir, "package.json"), started);
+
+    if (dir === root || !dir.startsWith(root + sep)) break;
+  }
+}
+
+function recordCandidate(path, started) {
+  if (!inputPath(path)) return;
+  if (recordLookup(dirname(path)) === "directory") recordBuildDirectory(dirname(path));
+  if (recordLookup(path) === "directory") {
+    recordBuildDirectory(path);
+    recordManifest(join(path, "package.json"), started);
+  }
+}
+
+function recordPackageCandidates(importer, specifier, started) {
+  const packageName = /^(?:@[^/#:]+\/)?[^/#:]+/.exec(specifier)?.[0];
+  if (!packageName) return;
+  for (let dir = dirname(importer); ; dir = dirname(dir)) {
+    const candidate = join(dir, "node_modules", packageName);
+    if (recordLookup(candidate) === "directory") recordCandidate(candidate, started);
+    if (dir === dirname(dir)) break;
+  }
+}
+
+function recordConfig(path, started) {
+  recordManifest(path, started);
+  if (!manifests.get(path) || parsedConfigs.has(path))
+    return manifests.has(path) && manifests.get(path) !== null;
+  parsedConfigs.add(path);
+  // esbuild's metafile omits its own tsconfig inheritance. Read the config
+  // with TypeScript's parser so the filesystem hooks capture its bases.
+  try {
+    const ts = require("typescript");
+    const config = ts.getParsedCommandLineOfConfigFile(
+      path,
+      {},
+      {
+        ...ts.sys,
+        readDirectory: () => [],
+        onUnRecoverableConfigFileDiagnostic() {
+          valid = false;
+        },
+      },
+    );
+    // A newly created alias target can take precedence over a metafile input.
+    // The metafile does not expose the paths that esbuild tried and skipped.
+    if (
+      !config ||
+      config.options.paths ||
+      config.options.baseUrl ||
+      config.errors.some(({ code }) => code !== 18002 && code !== 18003)
+    )
+      valid = false;
+  } catch {
+    valid = false;
+  }
+  return true;
+}
+
+export function recordBundleInputs(metafile, started, tsconfig) {
+  if (!staging) return;
+  if (tsconfig) recordConfig(resolve(tsconfig), started);
+  for (const [name, { imports }] of Object.entries(metafile.inputs)) {
+    const path = resolve(name);
+    capture(path, (file) => buildFileDigest(file, { before: started }), inputs);
+    // Metafiles identify loaded files. Track nearby manifests and resolution
+    // candidates as well, so a newly added entry can invalidate a previous match.
+    recordModuleContext(path, started);
+    if (!tsconfig && !path.split(sep).includes("node_modules")) {
+      for (let dir = dirname(path); ; dir = dirname(dir)) {
+        if (
+          recordConfig(join(dir, "tsconfig.json"), started) ||
+          dir === root ||
+          !dir.startsWith(root + sep)
+        )
+          break;
+      }
+    }
+    for (const { original, external, kind } of imports) {
+      if (external || !original) continue;
+      if (original.startsWith(".") || isAbsolute(original)) {
+        recordCandidate(resolve(dirname(path), original), started);
+      } else {
+        recordPackageCandidates(path, original, started);
+        if (kind === "import-rule" || kind === "url-token" || kind === "composes-from")
+          recordCandidate(resolve(dirname(path), original), started);
+      }
+    }
+  }
+}
+
+function trackRead(original, optional = false) {
+  return function (path, ...args) {
+    const file = inputPath(path);
+    try {
+      if (file && (!optional || lstatSync(file, { throwIfNoEntry: false }))) recordBuildInput(file);
+    } catch {
+      valid = false;
+    }
+    return original(path, ...args);
+  };
+}
+
+function trackCopyTree(original) {
+  return function (path, target, options) {
+    return original(path, target, {
+      ...options,
+      filter(source, destination) {
+        const included = options?.filter?.(source, destination) ?? true;
+        // The build's copy filters are synchronous. Promise-returning filters
+        // are still conservatively tracked before the copy.
+        if (included) {
+          try {
+            if (statSync(source).isDirectory()) recordBuildDirectory(source);
+            else recordBuildInput(source);
+          } catch {
+            valid = false;
+          }
+        }
+        return included;
+      },
+    });
+  };
+}
+
+function trackCommand(original) {
+  return function (command, ...args) {
+    // The runner checks the revision returned by Git before and after the build.
+    if (command === "git") return original(command, ...args);
+    try {
+      const path = isAbsolute(command)
+        ? command
+        : (process.env.PATH ?? "")
+            .split(delimiter)
+            .map((dir) => resolve(dir, command))
+            .find((file) => statSync(file, { throwIfNoEntry: false })?.isFile());
+      if (path) recordBuildInput(path);
+      else valid = false;
+    } catch {
+      valid = false;
+    }
+    return original(command, ...args);
+  };
+}
+
+if (staging) {
+  registerHooks({
+    load(url, context, nextLoad) {
+      if (url.startsWith("file:")) {
+        const path = inputPath(new URL(url));
+        if (path && !inputs.has(path)) {
+          recordBuildInput(path);
+          recordModuleContext(path);
+        }
+      }
+      return nextLoad(url, context);
+    },
+  });
+  // tsc's CLI uses the system host's synchronous reads for its program,
+  // package metadata and the full config inheritance chain.
+  fs.readFileSync = trackRead(readFileSync, true);
+  fs.readdirSync = function (value, ...args) {
+    const path = inputPath(value);
+    if (path && recordLookup(path) === "directory") recordBuildDirectory(path);
+    return readdirSync(value, ...args);
+  };
+  // TypeScript probes potential module and type locations before reading them.
+  // Record those results so a new module cannot shadow a previously loaded one.
+  if (/[/\\]_?tsc(?:\.js)?$/.test(process.argv[1] ?? "")) {
+    fs.statSync = function (value, ...args) {
+      const path = inputPath(value);
+      if (path) recordLookup(path);
+      return statSync(value, ...args);
+    };
+  }
+  fs.copyFileSync = trackRead(fs.copyFileSync);
+  fs.cpSync = trackCopyTree(fs.cpSync);
+  const readdir = fsp.readdir;
+  fsp.readdir = async function (path, ...args) {
+    const result = await readdir(path, ...args);
+    recordBuildDirectory(path);
+    return result;
+  };
+  fsp.readFile = trackRead(fsp.readFile, true);
+  fsp.copyFile = trackRead(fsp.copyFile);
+  fsp.cp = trackCopyTree(fsp.cp);
+  childProcess.spawn = trackCommand(childProcess.spawn);
+  childProcess.spawnSync = trackCommand(childProcess.spawnSync);
+  childProcess.execFileSync = trackCommand(childProcess.execFileSync);
+  syncBuiltinESMExports();
+  process.on("exit", () => {
+    try {
+      writeFileSync(
+        join(staging, `${process.pid}.json`),
+        JSON.stringify({
+          valid,
+          changed,
+          inputs: [...inputs],
+          directories: [...directories],
+          manifests: [...manifests],
+          lookups: [...lookups],
+        }),
+      );
+    } catch {
+      // Missing evidence makes the build ineligible for reuse.
+    }
+  });
+}

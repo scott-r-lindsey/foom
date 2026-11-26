@@ -43,8 +43,8 @@ The build also writes the app icon set to `build/icons/` from the generator in
 generator source renders it in a few seconds; later builds copy the set from the
 Git-ignored `.cache/foom-icons/`. Each cache entry is published atomically with a
 manifest of file sizes and SHA-256 digests; an entry with a missing, extra or
-changed file, or a missing or invalid manifest, is discarded and rendered again. It stays outside `node_modules`, which the
-Electron build fingerprint hashes before and after each build. Forge's
+changed file, or a missing or invalid manifest, is discarded and rendered again.
+The Electron build receipt includes any cached icon files the build reads. Forge's
 `prePackage` build runs before the packager and makers read their icon paths,
 so no generated image is committed.
 The packager embeds `foom.icns` in the macOS bundle and `foom.ico` in
@@ -106,8 +106,8 @@ xvfb-run -a pnpm run test:electron --test-name-pattern='^agent discovery uses th
 ```
 
 Repeat the same command to reuse a matching build. The wrapper verifies the
-checkout revision, source, build scripts, compiler configuration, installed
-dependency bytes and build output against its receipt. For defaults and
+checkout revision, build scripts, recorded compiler and bundler inputs, other
+files read during the build and the build output against its receipt. For defaults and
 `--reuse-build`, see [validation](validation.md#tests-and-coverage). Run builds
 and validation sequentially in each worktree and finish edits before validation.
 

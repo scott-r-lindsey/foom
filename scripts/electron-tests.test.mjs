@@ -11,6 +11,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -22,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { hostPlatforms } from "./remote-host-artifacts.mjs";
 
 function fixture(context, { timeout } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "foom-wrapper-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "foom-wrapper-")));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   for (const dir of ["scripts", "tests/helpers", "tests/electron", "src", "node_modules"]) {
     mkdirSync(join(root, dir), { recursive: true });
@@ -31,6 +32,8 @@ function fixture(context, { timeout } = {}) {
     "electron-tests.mjs",
     "electron-summary.mjs",
     "validation-fingerprint.mjs",
+    "build-inputs.mjs",
+    "bundle-build.mjs",
     "node-runtime.mjs",
     "remote-host-artifacts.mjs",
   ]) {
@@ -63,8 +66,10 @@ function fixture(context, { timeout } = {}) {
   writeFileSync(
     join(root, "scripts/build.mjs"),
     `
-    import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+    import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
     appendFileSync('test-results/app-builds', 'build\\n');
+    readFileSync('src/input.ts');
+    readFileSync('node_modules/types.d.ts');
     if (process.env.ESBUILD_BINARY_PATH === 'broken-esbuild') throw Error('esbuild fixture failed');
     rmSync('build', { recursive: true, force: true });
     mkdirSync('build', { recursive: true });
@@ -203,16 +208,15 @@ test("explicit build reuse rejects missing receipts and changed inputs, dependen
   for (const file of [
     "src/input.ts",
     "node_modules/types.d.ts",
-    "tsconfig.json",
+    "pnpm-lock.yaml",
     "scripts/build.mjs",
     "build/app.js",
   ]) {
     const path = join(root, file);
-    const before = file === "tsconfig.json" ? "" : readFileSync(path, "utf8");
+    const before = readFileSync(path, "utf8");
     writeFileSync(path, before + "\n// change");
     assert.notEqual(run(["--reuse-build", filter]).status, 0, file);
-    if (file === "tsconfig.json") rmSync(path);
-    else writeFileSync(path, before);
+    writeFileSync(path, before);
     assert.equal(run(["--reuse-build", filter]).status, 0, file);
   }
 });
@@ -251,11 +255,16 @@ test("local runs reuse a matching build and rebuild when its receipt, inputs or 
   }
 });
 
-function linkTypeScript(root) {
-  symlinkSync(
-    dirname(fileURLToPath(import.meta.resolve("typescript/package.json"))),
-    join(root, "node_modules/typescript"),
-    "junction",
+function installFixtureCompiler(root) {
+  const compiler = fileURLToPath(import.meta.resolve("typescript"));
+  mkdirSync(join(root, "node_modules/typescript"));
+  cpSync(dirname(compiler), join(root, "node_modules/typescript/lib"), { recursive: true });
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { execFileSync } from 'node:child_process';
+    execFileSync(process.execPath, ['node_modules/typescript/lib/tsc.js', '-p', 'tsconfig.main.json'], { stdio: 'inherit' });
+  `,
   );
 }
 
@@ -265,7 +274,16 @@ test("local reuse fingerprints transitive relative and package tsconfig bases", 
   const shared = join(root, "compiler-config");
   const preset = join(shared, "node_modules/@fixture/tsconfig");
   mkdirSync(preset, { recursive: true });
-  linkTypeScript(root);
+  installFixtureCompiler(root);
+  writeFileSync(join(root, "src/input.ts"), "export {};");
+  writeFileSync(
+    join(root, "tsconfig.main.json"),
+    JSON.stringify({
+      extends: "./tsconfig.base.json",
+      compilerOptions: { noEmit: true },
+      files: ["src/input.ts"],
+    }),
+  );
   writeFileSync(join(root, "tsconfig.base.json"), '{"extends":"./compiler-config/base"}');
   writeFileSync(join(shared, "base.json"), '{"extends":["@fixture/tsconfig","./relative"]}');
   writeFileSync(join(preset, "package.json"), '{"tsconfig":"preset.json"}');
@@ -285,14 +303,15 @@ test("local reuse fingerprints transitive relative and package tsconfig bases", 
   }
   rmSync(changed[1]);
   assert.notEqual(run(["--reuse-build", filter]).status, 0);
-  check(false);
-  check(false);
+  const failed = run([filter]);
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.output, /TS6053/);
 });
 
 test("local reuse rebuilds when an external declaration consumed by tsc changes", (context) => {
   const { root, run } = fixture(context);
   const filter = "--test-name-pattern=^selected case$";
-  linkTypeScript(root);
+  installFixtureCompiler(root);
   mkdirSync(join(root, "declarations"));
   writeFileSync(
     join(root, "tsconfig.main.json"),
@@ -304,13 +323,6 @@ test("local reuse rebuilds when an external declaration consumed by tsc changes"
   writeFileSync(join(root, "src/input.ts"), 'const value: BuildValue = "original";');
   const ambient = join(root, "declarations/ambient.d.ts");
   writeFileSync(ambient, "type BuildValue = string;");
-  appendFileSync(
-    join(root, "scripts/build.mjs"),
-    `
-    import { execFileSync } from 'node:child_process';
-    execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.main.json'], { stdio: 'inherit' });
-  `,
-  );
   assert.equal(run([filter]).status, 0);
   assert.match(run([filter]).output, /Reusing verified/);
   writeFileSync(ambient, "type BuildValue = number;");
@@ -318,6 +330,71 @@ test("local reuse rebuilds when an external declaration consumed by tsc changes"
   assert.notEqual(rebuilt.status, 0, rebuilt.output);
   assert.match(rebuilt.output, /TS2322/);
   assert.doesNotMatch(rebuilt.output, /SELECTED_BODY/);
+});
+
+test("esbuild tracks an external stylesheet imported by the renderer", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  mkdirSync(join(root, "src/renderer/styles"), { recursive: true });
+  mkdirSync(join(root, "theme"));
+  const theme = join(root, "theme/theme.css");
+  const unused = join(root, "theme/unused.css");
+  writeFileSync(unused, "/* unreferenced */");
+  writeFileSync(theme, "body { color: red; }");
+  writeFileSync(
+    join(root, "src/renderer/styles/styles.css"),
+    '@import "../../../theme/theme.css";',
+  );
+  // Resolve the real esbuild from this checkout without a fixture symlink.
+  const wrapper = join(root, "scripts/bundle-build.mjs");
+  writeFileSync(
+    wrapper,
+    readFileSync(wrapper, "utf8").replace(
+      '"esbuild"',
+      JSON.stringify(import.meta.resolve("esbuild")),
+    ),
+  );
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { bundleBuild } from './bundle-build.mjs';
+    await bundleBuild({
+      entryPoints: ['src/renderer/styles/styles.css'],
+      bundle: true,
+      outfile: 'build/styles.css',
+    });
+  `,
+  );
+  const built = run([filter]);
+  assert.equal(built.status, 0, built.output);
+  const first = JSON.parse(readFileSync(join(root, "test-results/electron-build.json"), "utf8"));
+  assert.ok(
+    first.snapshot.inputs.some(([file, hash]) => file === theme && /^[a-f0-9]{64}$/.test(hash)),
+  );
+  writeFileSync(unused, "/* edited without changing the graph */");
+  assert.match(run([filter]).output, /Reusing verified/);
+  writeFileSync(theme, "body { color: blue; }");
+  assert.match(run(["--reuse-build", filter]).output, /No current verified build/);
+  const rebuilt = run([filter]);
+  assert.equal(rebuilt.status, 0, rebuilt.output);
+  assert.doesNotMatch(rebuilt.output, /Reusing verified/);
+  assert.match(readFileSync(join(root, "build/styles.css"), "utf8"), /color: blue/);
+});
+
+test("a FIFO receipt is rejected and automatic reuse rebuilds without opening it", {
+  skip: process.platform === "win32",
+}, (context) => {
+  const { root, run } = fixture(context, { timeout: 5000 });
+  const filter = "--test-name-pattern=^selected case$";
+  mkdirSync(join(root, "test-results"));
+  execFileSync("mkfifo", [join(root, "test-results/electron-build.json")]);
+  const strict = run(["--reuse-build", filter]);
+  assert.equal(strict.status, 1, strict.error?.message ?? strict.output);
+  assert.match(strict.output, /No current verified build/);
+  const fresh = run([filter]);
+  assert.equal(fresh.status, 0, fresh.error?.message ?? fresh.output);
+  assert.doesNotMatch(fresh.output, /Reusing verified/);
+  assert.match(run([filter]).output, /Reusing verified/);
 });
 
 test("fresh runner executes tests when a copied asset symlink prevents reuse", {

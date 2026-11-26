@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { bundleBuild } from "./bundle-build.mjs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -14,7 +14,7 @@ await mkdir(output, { recursive: true });
 await mkdir(temporary, { recursive: true });
 const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 const bundle = join(temporary, "cli.cjs");
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/cli/main.ts")],
   bundle: true,
   platform: "node",

@@ -7,14 +7,16 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   statSync,
 } from "node:fs";
-import { createRequire } from "node:module";
-import { basename, join, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, resolve, sep } from "node:path";
 import { nodeRuntimeLicense } from "./node-runtime.mjs";
 
-const buildDirectories = new Set(["src", "scripts", "node_modules"]);
+const listDirectory = readdirSync;
+
+export class BuildInputChanged extends Error {}
 
 function readRegularFile(path, stat, followSymlinks) {
   const flags = constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY;
@@ -22,8 +24,12 @@ function readRegularFile(path, stat, followSymlinks) {
   try {
     const opened = fstatSync(fd);
     if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino)
-      throw new Error(`Changed fingerprint input: ${path}`);
-    return readFileSync(fd);
+      throw new BuildInputChanged(`Changed fingerprint input: ${path}`);
+    const bytes = readFileSync(fd);
+    const after = fstatSync(fd);
+    if (after.ctimeMs !== opened.ctimeMs || after.size !== bytes.length)
+      throw new BuildInputChanged(`Changed fingerprint input: ${path}`);
+    return bytes;
   } finally {
     closeSync(fd);
   }
@@ -66,63 +72,86 @@ export function fingerprint(
   return hash.digest("hex");
 }
 
-function compilerInputs() {
-  const configs = readdirSync(".").filter((name) => /^tsconfig.*\.json$/.test(name));
-  if (configs.length === 0) return [];
-  const ts = createRequire(import.meta.url)("typescript");
-  const files = new Set();
-  const readInput = (path) => {
-    const text = ts.sys.readFile(path);
-    if (text !== undefined) files.add(path);
-    return text;
-  };
-  const host = {
-    ...ts.sys,
-    readFile: readInput,
-    onUnRecoverableConfigFileDiagnostic() {},
-  };
-  for (const config of configs) {
-    // Only the configs passed to tsc by build.mjs need a compiler source graph.
-    const compiled = config === "tsconfig.main.json" || config === "tsconfig.renderer.json";
-    const parsed = ts.getParsedCommandLineOfConfigFile(
-      resolve(config),
-      {},
-      compiled ? host : { ...host, readDirectory: () => [] },
-    );
-    // Configs parsed only for their inheritance can report no input files.
-    if (!parsed || parsed.errors.some(({ code }) => code !== 18003)) return undefined;
-    if (!compiled) continue;
-    const compiler = ts.createCompilerHost(parsed.options);
-    compiler.readFile = (path) => {
-      const [directory, entry] = relative(process.cwd(), path).split(sep);
-      if (buildDirectories.has(directory) && entry !== ".vite" && entry !== ".vite-temp")
-        return ts.sys.readFile(path);
-      return readInput(path);
-    };
-    // Resolve the same imports, type roots and references as tsc without checking or emitting.
-    ts.createProgram({
-      rootNames: parsed.fileNames,
-      options: parsed.options,
-      projectReferences: parsed.projectReferences,
-      host: compiler,
-    });
-  }
-  return files;
+function regularPath(path, optional = false) {
+  const stat = lstatSync(path, { throwIfNoEntry: !optional });
+  if (!stat) return;
+  if (!stat.isFile() || realpathSync(path) !== path)
+    throw new Error(`Unsupported fingerprint input: ${path}`);
+  return stat;
 }
 
-export function buildFingerprint() {
-  const files = compilerInputs();
-  if (!files) return undefined;
-  return fingerprint([
-    // The SEA builders copy the selected Node executable and notice into the build.
-    process.execPath,
-    nodeRuntimeLicense(),
-    ...buildDirectories,
-    "package.json",
-    "pnpm-lock.yaml",
-    ".npmrc",
-    ...files,
-  ]);
+export function readBuildFile(path) {
+  const absolute = resolve(path);
+  return readRegularFile(absolute, regularPath(absolute), false);
+}
+
+export function buildFileDigest(path, { optional = false, before = Infinity } = {}) {
+  const stat = regularPath(path, optional);
+  if (!stat) return null;
+  if (stat.ctimeMs >= before) throw new BuildInputChanged(`Changed bundle input: ${path}`);
+  return createHash("sha256")
+    .update(JSON.stringify([stat.mode, stat.size]))
+    .update(readRegularFile(path, stat, false))
+    .digest("hex");
+}
+
+export function buildPathKind(path) {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (!stat) return null;
+  if (realpathSync(path) !== path || (!stat.isFile() && !stat.isDirectory()))
+    throw new Error(`Unsupported fingerprint path: ${path}`);
+  return stat.isDirectory() ? "directory" : "file";
+}
+
+export function buildDirectoryDigest(path) {
+  const stat = lstatSync(path);
+  if (!stat.isDirectory() || realpathSync(path) !== path)
+    throw new Error(`Unsupported fingerprint directory: ${path}`);
+  // Generated products can come and go without changing module resolution.
+  const generated =
+    path === process.cwd()
+      ? new Set(["build", "out", "coverage", "test-results", ".oxlintcache", ".cache"])
+      : path === resolve("node_modules")
+        ? new Set([".vite", ".vite-temp"])
+        : new Set();
+  const names = listDirectory(path, { withFileTypes: true })
+    .filter((entry) => !generated.has(entry.name))
+    .map((entry) => [
+      entry.name,
+      entry.isFile(),
+      entry.isDirectory(),
+      entry.isSymbolicLink() ? readlinkSync(join(path, entry.name)) : null,
+    ])
+    .sort();
+  return createHash("sha256").update(JSON.stringify(names)).digest("hex");
+}
+
+export function buildEnvironmentFingerprint() {
+  return createHash("sha256")
+    .update(JSON.stringify([process.execPath, process.env.PATH, process.env.NODE_PATH]))
+    .update(
+      fingerprint(["scripts", "package.json", "pnpm-lock.yaml", ".npmrc"], {
+        followSymlinks: false,
+      }),
+    )
+    .update(buildFileDigest(process.execPath))
+    .update(buildFileDigest(nodeRuntimeLicense()))
+    .digest("hex");
+}
+
+export function matchesBuildInputs(snapshot) {
+  return [
+    [snapshot.inputs, buildFileDigest],
+    [snapshot.directories, buildDirectoryDigest],
+    [snapshot.lookups, buildPathKind],
+    [snapshot.manifests, (path) => buildFileDigest(path, { optional: true })],
+  ].every(
+    ([entries, digest]) =>
+      Array.isArray(entries) &&
+      entries.every(
+        ([path, hash]) => typeof path === "string" && isAbsolute(path) && digest(path) === hash,
+      ),
+  );
 }
 
 export function buildOutputFingerprint() {
@@ -147,14 +176,14 @@ export function buildOutputFingerprint() {
       if (darwin && !lstatSync(source).isDirectory())
         throw new Error(`Unsafe fixture asset directory: ${source}`);
       const original = join(source, basename(path));
-      const info = darwin ? lstatSync(original) : statSync(original);
+      const info = regularPath(resolve(original));
       const mode = path === `${nativeDir}/spawn-helper` ? 0o700 : 0o600;
       if (
         !bytes ||
         stat.uid !== process.getuid() ||
         (stat.mode & 0o777) !== mode ||
         !info.isFile() ||
-        !bytes.equals(readRegularFile(original, info, !darwin))
+        !bytes.equals(readRegularFile(original, info, false))
       )
         throw new Error(`Unsafe fixture asset: ${path}`);
       return true;

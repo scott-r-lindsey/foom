@@ -38,18 +38,23 @@ On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 Local development Electron runs automatically reuse the app and its fixture when
 the receipt matches the checkout revision, build inputs and output. A missing
 receipt, changed source or dependency, or modified output triggers a rebuild.
-The inputs include transitive TypeScript configs, files loaded by the compiler,
-the selected Node executable and the license the build ships. Unresolved config
-bases require a fresh build. Symlinks and special files in fresh build output
-prevent reuse and the tests still run. The fixture SEA's runtime-extracted native
-files are checked for matching bytes and required permissions, so valid copies
-can appear between runs without invalidating the receipt.
+The receipt records a content hash for each esbuild metafile input, including
+CSS imports outside the source tree, and for files opened by the TypeScript
+compiler, including transitive configs. It also covers files read or copied by
+the build scripts and SEA assembly, including native inputs and the selected Node
+executable and license. Resolution checks cover directory entries, TypeScript
+path lookups and esbuild's surrounding manifests. esbuild configs with path
+aliases or a custom base URL require a fresh build. Missing, unreadable, symlinked
+or special-file inputs, receipts or outputs prevent reuse. The fixture SEA's
+runtime-extracted native files are checked for matching bytes and required
+permissions, so valid copies can appear between runs without invalidating the
+receipt.
 `--reuse-build` requires a matching receipt and fails if verification fails.
 CI rebuilds by default. Custom or strict remote-host catalog settings require a
 fresh build. A complete default remote-host catalog is fingerprinted alongside the
 other inputs. An incomplete default catalog is omitted and allows reuse.
-`ESBUILD_BINARY_PATH` and `NODE_OPTIONS` each require a fresh build. Packaged smoke
-tests use the existing package.
+`ESBUILD_BINARY_PATH`, `NODE_OPTIONS` and `NODE_PATH` each require a fresh build.
+Packaged smoke tests use the existing package.
 
 Unit coverage includes every executable TypeScript file under `src/`, including
 files no test imports; only declarations are excluded. Thresholds are defined in
