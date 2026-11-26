@@ -1,6 +1,7 @@
 import { ApplicationError } from "./application-errors";
 import { matchesArguments } from "./agent-argument-matchers";
 import { selected } from "./agent-conditions";
+import { type DiscoveryFacts, permissionLevelSupported } from "./agent-launch-values";
 import type { AgentManifestV2 } from "./agent-manifest-v2";
 import type { AgentPermissionLevel } from "./agent-permissions";
 
@@ -35,11 +36,11 @@ export function applyPermissionArguments(
   level: AgentPermissionLevel | undefined,
   args: string[],
   index: number,
-  facts: Readonly<Record<string, unknown>>,
+  facts: DiscoveryFacts,
 ): string[] {
   if (!level) return args;
   const policy = model.permissionLevels;
-  if (!policy || facts["permissionLevelSupported"] !== true || !selected(policy.when, facts))
+  if (!policy || facts[permissionLevelSupported] !== true || !selected(policy.when, facts))
     throw new ApplicationError("agent-permission-unavailable");
   if (
     args.slice(0, index).includes("--") ||

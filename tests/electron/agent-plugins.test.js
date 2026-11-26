@@ -91,7 +91,9 @@ process.stdin.resume();`,
     name: "Fixture agent",
     badge: "FT",
     executables: ["foom-test-agent"],
-    discovery: { facts: [] },
+    discovery: {
+      facts: [{ id: "permissionLevelSupported", helpTokens: ["--version"] }],
+    },
     launch: {
       ...v2.launch,
       order: [
@@ -106,7 +108,10 @@ process.stdin.resume();`,
         "prompt",
       ],
       arguments: { arguments: [script, "$(literal)", "--yolo"] },
-      display: undefined,
+      display: {
+        arguments: ["--fixture-display"],
+        when: { all: [{ field: "permissionLevelSupported", op: "eq", value: true }] },
+      },
       prompt: { arguments: ["--prompt", "{prompt}"] },
       environment: [
         {
@@ -194,7 +199,7 @@ process.stdin.resume();`,
   await expect
     .poll(async () =>
       (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
-        (agent) => agent.id === "foom-test-agent" && agent.path !== null,
+        (agent) => agent.id === "foom-test-agent" && agent.path !== null && agent.inline,
       ),
     )
     .toBe(true);
@@ -239,6 +244,7 @@ process.stdin.resume();`,
     .toEqual(["$(literal)", "--yolo"]);
   {
     const args = JSON.parse(await readFile(output, "utf8"));
+    assert.ok(args.includes("--fixture-display"));
     assert.ok(!args.includes("--mcp"));
     assert.equal(
       args.filter((arg) => /^mcp__foom_.*__(open_preview|list_previews|close_preview)$/u.test(arg))
@@ -277,9 +283,13 @@ process.stdin.resume();`,
     ask: ["--ask"],
     full: ["--yolo"],
     conflicts: [{ flag: "--ask", forms: ["exact"] }],
+    helpTokens: ["--ask"],
   };
   await writeFile(file, JSON.stringify({ ...manifest, permissionLevels }));
   const permission = page.getByLabel("Fixture agent permission level", { exact: true });
+  await expect(permission).toHaveValue("");
+  const { agents } = await page.evaluate(() => window.desktop.scanAgents(true));
+  assert.equal(agents.find(({ id }) => id === "foom-test-agent")?.inline, true);
   await permission.selectOption("ask");
   await expect(permission).toHaveValue("ask");
   await page.getByRole("tab", { name: "Global", exact: true }).click();

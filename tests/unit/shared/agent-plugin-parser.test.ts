@@ -1,5 +1,6 @@
 import bundledCodex from "../../../src/shared/bundled-agents/codex.json";
 import { applyPermissionArguments } from "../../../src/shared/agent-permission-arguments";
+import { permissionLevelSupported } from "../../../src/shared/agent-launch-values";
 import { expect, it } from "vitest";
 import claude from "../../fixtures/agent-plugins-v2/claude.json";
 import codex from "../../fixtures/agent-plugins-v2/codex.json";
@@ -57,7 +58,7 @@ it.each([1, 0, 3, 99, "2", null, undefined])(
 
 it("refuses permission arguments placed after a terminator or declared without their bypass classification", () => {
   const { model } = parse(JSON.stringify(bundledCodex));
-  const facts = { permissionLevelSupported: true };
+  const facts = { [permissionLevelSupported]: true };
   expect(() => applyPermissionArguments(model, "workspace", ["--", "prompt"], 2, facts)).toThrow(
     "agent-permission-conflict",
   );

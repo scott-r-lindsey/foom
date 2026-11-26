@@ -188,15 +188,21 @@ export function v2Provider(
               provider.setupFacts?.(installation.path, { healthTrusted: false }) ?? {},
             )
           : undefined;
-      const facts = discoveryFacts(model, probe?.version ?? "", probe?.help ?? "", {
-        control: Boolean(control),
-        hooksEnabled,
-        configGreeting,
-        hasPrompt: request.prompt !== undefined,
-        resume: request.conversationId !== undefined,
-        healthTrusted: binding?.v2?.runtime?.health.get() === "trusted",
-        setupState: setupStatus?.state ?? "unavailable",
-      });
+      const facts = discoveryFacts(
+        model,
+        probe?.version ?? "",
+        probe?.help ?? "",
+        {
+          control: Boolean(control),
+          hooksEnabled,
+          configGreeting,
+          hasPrompt: request.prompt !== undefined,
+          resume: request.conversationId !== undefined,
+          healthTrusted: binding?.v2?.runtime?.health.get() === "trusted",
+          setupState: setupStatus?.state ?? "unavailable",
+        },
+        permissionLevel,
+      );
       if (
         request.prompt !== undefined &&
         (!request.prompt.length ||

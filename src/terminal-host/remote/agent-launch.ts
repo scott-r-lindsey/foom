@@ -187,15 +187,21 @@ export async function prepareRemoteAgent(
       }
     }
     const facts = {
-      ...discoveryFacts(model, found.version, found.help, {
-        control: true,
-        hooksEnabled: request.hooks,
-        hasPrompt: request.prompt !== undefined,
-        configGreeting: false,
-        resume: request.conversationId !== undefined,
-        healthTrusted: false,
-        setupState,
-      }),
+      ...discoveryFacts(
+        model,
+        found.version,
+        found.help,
+        {
+          control: true,
+          hooksEnabled: request.hooks,
+          hasPrompt: request.prompt !== undefined,
+          configGreeting: false,
+          resume: request.conversationId !== undefined,
+          healthTrusted: false,
+          setupState,
+        },
+        request.permissionLevel,
+      ),
     };
     // The installed plugin bridge targets local loopback HTTP, not the private remote socket.
     facts["pluginMcp"] = false;

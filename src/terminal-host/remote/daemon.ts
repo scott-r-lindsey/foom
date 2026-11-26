@@ -975,7 +975,13 @@ export function serveHost(
                     throw new Error(
                       "A bypass environment conflicts with the selected permission level.",
                     );
-                  const facts = discoveryFacts(model, found.version, found.help, {});
+                  const facts = discoveryFacts(
+                    model,
+                    found.version,
+                    found.help,
+                    {},
+                    machine.permissionLevel,
+                  );
                   args = applyPermissionArguments(model, machine.permissionLevel, args, 0, facts);
                   owned.machinePermissionLevel = machine.permissionLevel;
                 }

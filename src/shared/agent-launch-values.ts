@@ -1,6 +1,10 @@
 import type { AgentManifestV2 } from "./agent-manifest-v2";
+import type { AgentPermissionLevel } from "./agent-permissions";
 
+export const permissionLevelSupported = Symbol("permissionLevelSupported");
 export type Facts = Readonly<Record<string, unknown>>;
+type DiscoveryFactValues = Record<string, unknown> & { [permissionLevelSupported]?: boolean };
+export type DiscoveryFacts = Readonly<DiscoveryFactValues>;
 export { selected } from "./agent-conditions";
 import { selected } from "./agent-conditions";
 
@@ -9,7 +13,8 @@ export function discoveryFacts(
   version: string,
   help: string,
   engine: Facts,
-): Facts {
+  permissionLevel?: AgentPermissionLevel,
+): DiscoveryFacts {
   const grammar = model.discovery.version;
   let parsed: number[] | undefined;
   if (grammar && version.startsWith(grammar.prefix)) {
@@ -48,7 +53,7 @@ export function discoveryFacts(
       }
       return false;
     });
-  const facts: Record<string, unknown> = { ...engine };
+  const facts: DiscoveryFactValues = { ...engine };
   for (const fact of model.discovery.facts) {
     facts[fact.id] =
       fact.enabled &&
@@ -57,8 +62,8 @@ export function discoveryFacts(
       selected(fact.when, facts);
   }
   const policy = model.permissionLevels;
-  if (policy)
-    facts["permissionLevelSupported"] =
+  if (permissionLevel && policy)
+    facts[permissionLevelSupported] =
       minimum(policy.minimum ?? grammar?.minimum) && advertised(policy.helpTokens);
   return facts;
 }
