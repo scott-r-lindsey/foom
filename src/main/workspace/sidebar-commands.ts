@@ -762,8 +762,12 @@ export async function sidebarCommand(
     });
     return;
   }
-  if (command.kind === "delete-merged-worktrees") {
-    await this.cleanup.deleteMerged(command.repository, confirm);
+  if (command.kind === "delete-merged-worktrees" || command.kind === "review-merged-worktrees") {
+    await this.cleanup.deleteMerged(
+      command.repository,
+      confirm,
+      command.kind === "review-merged-worktrees",
+    );
     return;
   }
   if (command.kind === "remove-repository") {

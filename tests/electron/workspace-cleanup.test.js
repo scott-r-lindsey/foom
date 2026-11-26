@@ -1091,7 +1091,7 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
   await assert.rejects(realpath(merged.path), { code: "ENOENT" });
 });
 
-async function lockedMergedWorktree(context) {
+async function lockedMergedWorktree(context, withEligibleCheckout = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-zero-eligible-")));
   removeAfterApps(context, root);
   const repo = path.join(root, "repo");
@@ -1109,6 +1109,7 @@ async function lockedMergedWorktree(context) {
   git("clone", "--bare", repo, remote);
   git("remote", "add", "origin", remote);
   git("worktree", "add", "--lock", "-b", "merged", checkout);
+  if (withEligibleCheckout) git("worktree", "add", "-b", "eligible", path.join(root, "eligible"));
   const app = await launchApp(context, { fixture: "empty-board", home });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repository) => {
@@ -1120,9 +1121,69 @@ async function lockedMergedWorktree(context) {
       async () =>
         (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]?.mergedCount,
     )
-    .toBe(0);
-  return { app, page, unlock: () => git("worktree", "unlock", checkout) };
+    .toBe(withEligibleCheckout ? 1 : 0);
+  return {
+    app,
+    page,
+    unlock: () => git("worktree", "unlock", checkout),
+    addLocked: (branch) => git("worktree", "add", "--lock", "-b", branch, path.join(root, branch)),
+  };
 }
+
+test("zero eligibility reviews current worktrees and preserves hidden cleanup results", async (context) => {
+  const { app, page, addLocked } = await lockedMergedWorktree(context, true);
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.releaseCleanupBranches?.()).catch(() => {});
+  });
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const original = WorktreeService.prototype.deleteMergedBranches;
+    const gate = Promise.withResolvers();
+    globalThis.releaseCleanupBranches = () => gate.resolve();
+    WorktreeService.prototype.deleteMergedBranches = async function (...args) {
+      const result = await original.apply(this, args);
+      await gate.promise;
+      return result;
+    };
+  });
+  const panel = page.getByRole("button", { name: "Actions for repo", exact: true });
+  const results = page.getByRole("menuitem", { name: /Cleanup results/ });
+  await panel.click();
+  await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("checkbox", { name: "Close when completed" })).toBeChecked();
+  await assertConfirmationFocus(
+    app,
+    confirmation,
+    confirmation.getByRole("button", { name: "Cancel" }),
+  );
+  await confirmation.getByRole("button", { name: "Delete 1", exact: true }).click();
+  await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
+  addLocked("new-locked");
+  await app.evaluate(() => globalThis.releaseCleanupBranches());
+
+  await panel.click();
+  await expect(results).toBeVisible();
+  await page.getByRole("button", { name: "0 eligible to delete" }).click();
+  const kept = confirmation.getByRole("list", { name: "Kept worktrees" });
+  await expect(kept).toContainText("new-lockedunavailable");
+  await expect(kept).toContainText("mergedunavailable");
+  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await panel.click();
+  await expect(results).toBeVisible();
+  await results.click();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]?.cleanup,
+    )
+    .toBeUndefined();
+});
 
 test("double-clicking zero eligible opens one merged cleanup review", async (context) => {
   const { app, page } = await lockedMergedWorktree(context);

@@ -211,7 +211,7 @@ test("the zero eligibility fact and cleanup command share the active review", as
   fireEvent.click(reviewButton);
   fireEvent.click(reviewButton);
   expect(view.command).toHaveBeenCalledWith({
-    kind: "delete-merged-worktrees",
+    kind: "review-merged-worktrees",
     repository: "/foom",
   });
   act(() => {

@@ -441,12 +441,24 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
   await workspace.dispose();
 });
 
-test("hidden finished cleanup reopens its retained results without another fetch", async () => {
+test("a fresh eligibility review keeps hidden cleanup results available without another fetch", async () => {
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
   workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
   await cleanupCommand(workspace, command, () => Promise.resolve(true));
+  const freshCheckout = { ...tree, path: "/trees/new-locked", branch: "new-locked", locked: true };
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([freshCheckout]);
+  await cleanupCommand(
+    workspace,
+    { kind: "review-merged-worktrees", repository: repo.path },
+    (request) => {
+      expect(request).toMatchObject({
+        worktrees: [{ branch: "new-locked", reason: "unavailable" }],
+      });
+      return Promise.resolve(false);
+    },
+  );
   const fetches = vi.mocked(deps.worktrees.mergedDefault).mock.calls.length;
   await workspace.sidebarCommand(command, (request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
@@ -455,6 +467,26 @@ test("hidden finished cleanup reopens its retained results without another fetch
     return Promise.resolve(false);
   });
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
+  await workspace.dispose();
+});
+
+test("a fresh review can start cleanup when a checkout has become eligible", async () => {
+  const workspace = new Workspace(deps);
+  workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, locked: true }]);
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedCount)
+    .toBe(0);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+
+  await cleanupCommand(workspace, { kind: "review-merged-worktrees", repository: repo.path }, () =>
+    Promise.resolve(true),
+  );
+
+  expect((await workspace.sidebarInventory()).repositories[0]?.cleanup?.items).toMatchObject([
+    { state: "removed" },
+  ]);
   await workspace.dispose();
 });
 

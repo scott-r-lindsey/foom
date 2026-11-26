@@ -601,17 +601,21 @@ export class CleanupOwner {
     );
   }
 
-  async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
+  async deleteMerged(
+    repository: string,
+    confirm: ConfirmWorkspace,
+    reviewCurrent = false,
+  ): Promise<void> {
     this.deps.known(repository);
     const existing = this.cleanupRuns.get(repository);
-    if (existing && (existing.pending || existing.current().stage === "run")) {
+    if (!reviewCurrent && existing && (existing.pending || existing.current().stage === "run")) {
       await confirm({
         kind: "merged-worktrees",
         subject: basename(repository),
         worktrees: [],
         feed: existing,
       });
-      if (!existing.pending) {
+      if (!existing.pending && this.cleanupRuns.get(repository) === existing) {
         this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
@@ -619,9 +623,17 @@ export class CleanupOwner {
     }
     return this.deps.withRepository(repository, async () => {
       const releases = new Set<() => void>();
-      const run = new CleanupRun({
+      const run: CleanupRun = new CleanupRun({
         checkingCount: this.mergeEligibility.get(repository)?.count,
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
+        start: () => {
+          if (this.deps.closed()) return false;
+          const current = this.cleanupRuns.get(repository);
+          if (current !== run && current?.pending) return false;
+          // A fresh review only becomes the tracked run after Delete is approved.
+          this.cleanupRuns.set(repository, run);
+          return true;
+        },
         fetch: async () => {
           // Windows cannot remove a checkout while a background Git process uses it as cwd.
           // Include superseded scans too: their publication is discarded, but they still run.
@@ -711,13 +723,10 @@ export class CleanupOwner {
           );
         },
       });
-      this.cleanupRuns.set(repository, run);
-      const cached = this.mergeEligibility.get(repository);
-      const prepare =
-        cached?.plan && this.deps.now() < cached.expires
-          ? Promise.resolve(cached.plan)
-          : this.mergedPlan(repository, true);
-      if (cached?.plan && this.deps.now() < cached.expires) run.ready(cached.plan);
+      if (!reviewCurrent) this.cleanupRuns.set(repository, run);
+      const cached = reviewCurrent ? undefined : this.mergeEligibility.get(repository);
+      const plan = cached && this.deps.now() < cached.expires ? cached.plan : undefined;
+      if (plan) run.ready(plan);
       // Request presentation before awaiting network or filesystem checks.
       const answer = confirm({
         kind: "merged-worktrees",
@@ -726,7 +735,13 @@ export class CleanupOwner {
         feed: run,
       });
       try {
-        run.ready(await prepare);
+        if (!plan) {
+          // Avoid opening Git handles in a checkout while an existing run is removing it.
+          if (reviewCurrent && existing?.active) await existing.settled();
+          const prepare = this.mergedPlan(repository, !reviewCurrent);
+          if (reviewCurrent) this.trackMergeScan(repository, prepare);
+          run.ready(await prepare);
+        }
       } catch {
         run.failed();
       }
@@ -734,10 +749,24 @@ export class CleanupOwner {
       const reviewed = run.current().stage === "run" && !run.pending;
       // Hide resolves presentation, but the repository reservation lasts through the run.
       await run.settled();
-      if (reviewed || run.current().stage !== "run") {
+      if ((reviewed || run.current().stage !== "run") && this.cleanupRuns.get(repository) === run) {
         this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
+    });
+  }
+
+  private trackMergeScan(repository: string, scan: Promise<unknown>): void {
+    const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
+    this.mergeScans.set(repository, scans);
+    const settled = scan.then(
+      () => {},
+      () => {},
+    );
+    scans.add(settled);
+    void settled.then(() => {
+      scans.delete(settled);
+      if (scans.size === 0) this.mergeScans.delete(repository);
     });
   }
 
@@ -777,10 +806,9 @@ export class CleanupOwner {
       entry.expires = this.deps.now() + 60_000;
       this.deps.onChange?.();
     };
-    const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
-    this.mergeScans.set(repository, scans);
-    const scan: Promise<void> = this.mergedPlan(repository, false, worktrees)
-      .then(
+    this.trackMergeScan(
+      repository,
+      this.mergedPlan(repository, false, worktrees).then(
         (plan) => {
           entry.plan = plan;
           publish({
@@ -794,12 +822,8 @@ export class CleanupOwner {
             mergedError: error instanceof Error ? error.message : String(error),
           });
         },
-      )
-      .finally(() => {
-        scans.delete(scan);
-        if (scans.size === 0) this.mergeScans.delete(repository);
-      });
-    scans.add(scan);
+      ),
+    );
     return entry.result;
   }
 }

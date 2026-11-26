@@ -34,6 +34,7 @@ export class CleanupRun implements CleanupFeed {
     private readonly deps: {
       checkingCount?: number | undefined;
       fetchedAt?(): number | undefined;
+      start?(): boolean;
       fetch(): Promise<string>;
       remove(candidate: CleanupCandidate, base: string): Promise<void>;
       branches(candidates: readonly CleanupCandidate[]): Promise<readonly string[]>;
@@ -132,7 +133,12 @@ export class CleanupRun implements CleanupFeed {
     this.publish();
   }
   act(): void {
-    if (this.stage === "ready" && this.total > 0 && !this.stopped) {
+    if (
+      this.stage === "ready" &&
+      this.total > 0 &&
+      !this.stopped &&
+      (this.deps.start?.() ?? true)
+    ) {
       this.stage = "run";
       this.publish();
       this.operation = this.run();

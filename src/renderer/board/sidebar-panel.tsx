@@ -100,7 +100,7 @@ export function SidebarPanel({
                   ? () => {
                       runAction(() =>
                         command({
-                          kind: "delete-merged-worktrees",
+                          kind: "review-merged-worktrees",
                           repository: subject.repository.path,
                         }),
                       );
