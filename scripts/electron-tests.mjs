@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { checkoutRevision, digest, verifyHostArtifact } from "./remote-host-artifacts.mjs";
-import { cpSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { buildFingerprint, fingerprint } from "./validation-fingerprint.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
 import { guardWorktreeWrites } from "../tests/helpers/worktree-writes.js";
 const checkWorktreeWrites = guardWorktreeWrites();
 const args = process.argv.slice(2);
 const packaged = args.includes("--packaged");
-const reuse = args.includes("--reuse-build");
+const requireReuse = args.includes("--reuse-build");
 const forwarded = [];
 const selectedSuites = [];
 const inventory = suiteFiles();
@@ -35,21 +36,52 @@ for (let index = 0; index < args.length; index++) {
 }
 if (packaged && selectedSuites.length > 0)
   throw new Error("--suite is only for development Electron tests");
-if (packaged && reuse) throw new Error("--reuse-build is only for development Electron tests");
+if (packaged && requireReuse)
+  throw new Error("--reuse-build is only for development Electron tests");
 mkdirSync("test-results", { recursive: true });
 const receipt = "test-results/electron-build.json";
+
+function automaticReuseAllowed() {
+  // Build overrides and external catalogs are outside the ordinary input fingerprint.
+  const env = process.env;
+  return !(
+    env.CI ||
+    env.GITHUB_ACTIONS ||
+    env.FOOM_CI_ELECTRON_SUITES !== undefined ||
+    env.FOOM_PACKAGE === "1" ||
+    env.FOOM_REQUIRE_REMOTE_HOSTS === "1" ||
+    env.FOOM_REMOTE_HOST_ARTIFACTS !== undefined ||
+    existsSync(".cache/remote-hosts")
+  );
+}
+
+function matchesReceipt(inputs, revision, requireReuse) {
+  try {
+    const saved = JSON.parse(readFileSync(receipt, "utf8"));
+    return (
+      (requireReuse || saved?.local === true) &&
+      saved?.inputs === inputs &&
+      saved.revision === revision &&
+      saved.output === fingerprint(["build"])
+    );
+  } catch {
+    // A missing, malformed or unreadable receipt or build cannot prove reuse.
+    return false;
+  }
+}
+
 if (!packaged) {
+  const revision = checkoutRevision(process.cwd());
+  const allowAutomaticReuse = automaticReuseAllowed();
+  // Electron may install its binary on first require, changing node_modules.
+  // Finish that setup before taking the local build's input snapshot.
+  if (allowAutomaticReuse && !requireReuse) createRequire(import.meta.url)("electron");
   const inputs = buildFingerprint();
+  const reuse =
+    (requireReuse || allowAutomaticReuse) && matchesReceipt(inputs, revision, requireReuse);
+  if (requireReuse && !reuse)
+    throw new Error("No current verified build. Run pnpm run test:electron without --reuse-build.");
   if (reuse) {
-    let saved;
-    try {
-      saved = JSON.parse(readFileSync(receipt, "utf8"));
-    } catch {
-      throw new Error("No verified build. Run pnpm run test:electron without --reuse-build first.");
-    }
-    if (saved.inputs !== inputs || saved.output !== fingerprint(["build"])) {
-      throw new Error("Stale build. Run pnpm run test:electron without --reuse-build.");
-    }
     console.info("Reusing verified current Electron build.");
   } else {
     rmSync(receipt, { force: true });
@@ -75,12 +107,7 @@ if (!packaged) {
     }
     const { version } = JSON.parse(readFileSync("package.json", "utf8"));
     const target = `${process.platform}-${process.arch}`;
-    const { manifest } = await verifyHostArtifact(
-      "build/remote-host",
-      target,
-      version,
-      checkoutRevision(process.cwd()),
-    );
+    const { manifest } = await verifyHostArtifact("build/remote-host", target, version, revision);
     assert.equal(
       digest(readFileSync("build/remote-host/foom-host")),
       manifest.sha256,
@@ -95,16 +122,24 @@ if (!packaged) {
       writeFileSync(
         "build/build-metadata.json",
         JSON.stringify({
-          source: checkoutRevision(process.cwd()),
+          source: revision,
           remoteHostsAvailable: true,
         }),
       );
     }
   }
+  if ((!reuse && buildFingerprint() !== inputs) || checkoutRevision(process.cwd()) !== revision)
+    throw new Error("Build inputs changed during Electron preparation; run again.");
   if (!reuse) {
-    if (buildFingerprint() !== inputs)
-      throw new Error("Build inputs changed during build; run again.");
-    writeFileSync(receipt, JSON.stringify({ inputs, output: fingerprint(["build"]) }));
+    writeFileSync(
+      receipt,
+      JSON.stringify({
+        inputs,
+        revision,
+        output: fingerprint(["build"]),
+        local: allowAutomaticReuse && automaticReuseAllowed(),
+      }),
+    );
   }
 }
 const summaryPath = `test-results/${packaged ? "packaged" : "electron"}-summary.json`;

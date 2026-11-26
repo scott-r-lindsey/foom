@@ -71,8 +71,7 @@ may appear as Node runner placeholders; these are not named test registrations.
 xvfb-run -a pnpm run test:electron
 # One exact test across discovered suites
 xvfb-run -a pnpm run test:electron --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
-# Reuse the verified build for another focused run
-xvfb-run -a pnpm run test:electron --reuse-build --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
+# Run the same command again to reuse a matching build
 # Match CI shard 2 of 4
 FOOM_ELECTRON_SHARD=2/4 xvfb-run -a pnpm run test:electron
 # Registration, sharding and filter checks without launching Electron
@@ -81,9 +80,9 @@ node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs s
 
 On Windows/macOS omit `xvfb-run -a`. Both `--test-name-pattern=REGEX` and
 `--test-name-pattern REGEX` are supported. Filters precede all suite paths;
-zero passing selected tests fail. `--reuse-build` verifies the wrapper's build
-receipt and rejects changed inputs/output. Focused checks do not replace the
-full validation required by `AGENTS.md`.
+zero passing selected tests fail. See [build reuse](validation.md#tests-and-coverage)
+for the local default and strict `--reuse-build` mode. Follow the full validation
+workflow in `AGENTS.md` before delivery.
 
 ## Measurements
 

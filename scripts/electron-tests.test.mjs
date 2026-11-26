@@ -45,10 +45,20 @@ function fixture(context) {
   writeFileSync(join(root, ".gitignore"), "build/\ntest-results/\nnode_modules/\n");
   writeFileSync(join(root, "src/input.ts"), "original");
   writeFileSync(join(root, "node_modules/types.d.ts"), "original declaration");
+  mkdirSync(join(root, "node_modules/electron"));
+  writeFileSync(
+    join(root, "node_modules/electron/index.js"),
+    `
+    const { existsSync, writeFileSync } = require('node:fs');
+    if (!existsSync('node_modules/electron/path.txt'))
+      writeFileSync('node_modules/electron/path.txt', 'installed lazily');
+  `,
+  );
   writeFileSync(
     join(root, "scripts/build.mjs"),
     `
-    import { mkdirSync, writeFileSync } from 'node:fs';
+    import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+    appendFileSync('test-results/app-builds', 'build\\n');
     mkdirSync('build', { recursive: true });
     writeFileSync('build/app.js', 'built');
   `,
@@ -95,6 +105,12 @@ function fixture(context) {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   delete env.FOOM_ELECTRON_SHARD;
+  delete env.CI;
+  delete env.GITHUB_ACTIONS;
+  delete env.FOOM_CI_ELECTRON_SUITES;
+  delete env.FOOM_PACKAGE;
+  delete env.FOOM_REQUIRE_REMOTE_HOSTS;
+  delete env.FOOM_REMOTE_HOST_ARTIFACTS;
   return {
     root,
     run: (args, extraEnv = {}) => {
@@ -182,6 +198,60 @@ test("explicit build reuse rejects missing receipts and changed inputs, dependen
     if (file === "tsconfig.json") rmSync(path);
     else writeFileSync(path, before);
     assert.equal(run(["--reuse-build", filter]).status, 0, file);
+  }
+});
+
+test("local runs reuse a matching build and rebuild when its receipt, inputs or output change", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  const builds = () =>
+    readFileSync(join(root, "test-results/app-builds"), "utf8").trim().split("\n").length;
+  const invalidations = [
+    () => writeFileSync(join(root, "src/input.ts"), "changed"),
+    () => writeFileSync(join(root, "node_modules/types.d.ts"), "changed"),
+    () => writeFileSync(join(root, "build/app.js"), "corrupt"),
+    () => rmSync(join(root, "build"), { recursive: true }),
+    () => writeFileSync(join(root, "test-results/electron-build.json"), "null"),
+    () => writeFileSync(join(root, "test-results/electron-build.json"), "{"),
+    () => rmSync(join(root, "test-results/electron-build.json")),
+  ];
+  for (let index = 0; index <= invalidations.length; index++) {
+    if (index > 0) invalidations[index - 1]();
+    const built = run([filter]);
+    assert.equal(built.status, 0, built.output);
+    assert.doesNotMatch(built.output, /Reusing verified/);
+    assert.equal(builds(), index + 1);
+    assert.equal(
+      readFileSync(join(root, "node_modules/electron/path.txt"), "utf8"),
+      "installed lazily",
+    );
+    assert.equal(readFileSync(join(root, "build/app.js"), "utf8"), "built");
+    if (index === 0 || index === invalidations.length) {
+      const reused = run([filter]);
+      assert.equal(reused.status, 0, reused.output);
+      assert.match(reused.output, /Reusing verified current Electron build/);
+      assert.equal(builds(), index + 1);
+    }
+  }
+});
+
+test("CI and custom catalog runs rebuild even when a local receipt matches", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  for (const env of [
+    { CI: "true" },
+    { GITHUB_ACTIONS: "true" },
+    { FOOM_CI_ELECTRON_SUITES: "[]" },
+    { FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+  ]) {
+    for (const invocation of [{}, env, env, {}]) {
+      const result = run([filter], invocation);
+      assert.equal(result.status, 0, result.output);
+      assert.doesNotMatch(result.output, /Reusing verified/);
+    }
+    assert.match(run([filter]).output, /Reusing verified current Electron build/);
+    // Start each iteration with a fresh local build.
+    rmSync(join(root, "test-results/electron-build.json"));
   }
 });
 
@@ -301,7 +371,7 @@ test("runner builds and verifies one same-revision host before cases and reuses 
   );
   const fresh = run([]);
   assert.equal(fresh.status, 0, fresh.output);
-  const reused = run(["--reuse-build"]);
+  const reused = run([]);
   assert.equal(reused.status, 0, reused.output);
   assert.equal(readFileSync(join(root, "test-results/host-builds"), "utf8"), "build\n");
 });
@@ -311,7 +381,10 @@ for (const failure of ["build", "revision", "gzip", "executable"]) {
     skip: process.platform === "win32",
   }, (context) => {
     const { root, run } = fixture(context);
-    const result = run(["--test-name-pattern=^selected case$"], { TEST_HOST_FAILURE: failure });
+    const filter = "--test-name-pattern=^selected case$";
+    assert.equal(run([filter]).status, 0);
+    writeFileSync(join(root, "src/input.ts"), "changed");
+    const result = run([filter], { TEST_HOST_FAILURE: failure });
     assert.notEqual(result.status, 0, result.output);
     assert.doesNotMatch(result.output, /SELECTED_BODY/);
     assert.throws(() => readFileSync(join(root, "test-results/electron-build.json")), {
@@ -319,9 +392,7 @@ for (const failure of ["build", "revision", "gzip", "executable"]) {
     });
   });
 }
-test("reused fixture rejects a new checkout revision even with unchanged build inputs", {
-  skip: process.platform === "win32",
-}, (context) => {
+test("a new checkout revision requires rebuilding even with unchanged build inputs", (context) => {
   const { root, run } = fixture(context);
   const filter = "--test-name-pattern=^selected case$";
   assert.equal(run([filter]).status, 0);
@@ -340,8 +411,13 @@ test("reused fixture rejects a new checkout revision even with unchanged build i
   );
   const stale = run(["--reuse-build", filter]);
   assert.notEqual(stale.status, 0, stale.output);
-  assert.match(stale.output, /Host source revision mismatch/);
+  assert.match(stale.output, /No current verified build/);
   assert.doesNotMatch(stale.output, /SELECTED_BODY/);
+  const rebuilt = run([filter]);
+  assert.equal(rebuilt.status, 0, rebuilt.output);
+  assert.doesNotMatch(rebuilt.output, /Reusing verified/);
+  assert.equal(readFileSync(join(root, "test-results/app-builds"), "utf8"), "build\nbuild\n");
+  assert.match(run([filter]).output, /Reusing verified current Electron build/);
 });
 
 // Queue actions have an explicit accessible prefix; raw input in the dedicated

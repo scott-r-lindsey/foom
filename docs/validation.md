@@ -35,6 +35,13 @@ six Windows and eight macOS shards. See [explicit Electron fixtures](electron-fi
 for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
+Local development Electron runs automatically reuse the app and its fixture when
+the receipt matches the checkout revision, build inputs and output. A missing
+receipt, changed source or dependency, or modified output triggers a rebuild.
+`--reuse-build` requires a matching receipt and fails if verification fails.
+CI and local runs with custom or strict remote-host catalog settings rebuild by
+default. Packaged smoke tests use the existing package.
+
 Unit coverage includes every executable TypeScript file under `src/`, including
 files no test imports; only declarations are excluded. Thresholds are defined in
 [contributor standards](../AGENTS.md#tests-and-coverage). Successful

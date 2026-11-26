@@ -12,7 +12,7 @@ The package manager is pinned in `package.json`. `.npmrc` keeps a hoisted layout
 
 ## How TypeScript fits into Electron
 
-Electron runs JavaScript compiled from your TypeScript. `pnpm start`, `pnpm run test:electron`, `pnpm run package`, and `pnpm run make` compile automatically. Edit files in `src/`; `build/` is generated and ignored by Git.
+Electron runs JavaScript compiled from your TypeScript. `pnpm start`, `pnpm run test:electron`, `pnpm run package`, and `pnpm run make` prepare the build automatically. Edit files in `src/`. Git ignores the generated `build/` directory.
 
 Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs one fresh production build. Direct `pnpm exec electron-forge package` and `pnpm exec electron-forge make` use the same hook. Local packages can omit unavailable remote hosts with a warning; CI and explicit
 `FOOM_REQUIRE_REMOTE_HOSTS=1` builds require the complete verified catalog (see
@@ -74,7 +74,7 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 | `pnpm run typecheck` | Check application, tests, and Vitest configuration without emitting files |
 | `pnpm test` / `pnpm run test:watch` | Run Vitest once / in watch mode, without a desktop display |
 | `pnpm run test:coverage` | Enforce per-file coverage and write HTML, LCOV, JSON, and terminal reports |
-| `pnpm run test:electron` | Build and launch the real Electron feature suites |
+| `pnpm run test:electron` | Prepare a verified build and launch the real Electron feature suites |
 | `pnpm run build` | Compile application code, bundle xterm, and copy assets |
 | `pnpm run package` / `pnpm run make` | Create an executable application / native installers and ZIP |
 
@@ -103,14 +103,13 @@ On Linux, run a named Electron test through the supported wrapper:
 
 ```sh
 xvfb-run -a pnpm run test:electron --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
-xvfb-run -a pnpm run test:electron --reuse-build --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
 ```
 
-The first command builds by default. `--reuse-build` requires a successful build
-receipt from this wrapper and verifies the current source, build scripts, compiler
-configuration, installed dependency bytes and build output. Missing/changed inputs
-or output fail; rerun without `--reuse-build`. A standalone build (including a
-sample build) does not create a receipt. Do not edit inputs during validation.
+Repeat the same command to reuse a matching build. The wrapper verifies the
+checkout revision, source, build scripts, compiler configuration, installed
+dependency bytes and build output against its receipt. For defaults and
+`--reuse-build`, see [validation](validation.md#tests-and-coverage). Run builds
+and validation sequentially in each worktree and finish edits before validation.
 
 Both `--test-name-pattern=REGEX` and `--test-name-pattern REGEX` work. The wrapper
 forwards these Node options **before** all discovered feature suite paths. Unknown
