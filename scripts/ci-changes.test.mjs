@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { desktopMatrix, detectDesktop, requiresDesktop, electronSelection } from "./ci-changes.mjs";
 import { packagingConfig, retryDownload } from "../.github/scripts/prepare-electron.mjs";
+import { findReusableRun } from "../.github/scripts/ready-validation.mjs";
 
 test("Electron preparation retries only transient downloads, at most three times", async () => {
   for (const error of [
@@ -343,7 +344,10 @@ test("macOS desktop jobs wait for Linux Electron while Linux and Windows packagi
     "platform-macos",
   ]) {
     // With no status override, GitHub skips these jobs after any unmet dependency.
-    assert.match(job(name), /^ {4}if: needs\.changes\.outputs\.desktop_required == 'true'$/m);
+    assert.match(
+      job(name),
+      /^ {4}if: needs\.changes\.outputs\.desktop_required == 'true' && needs\.changes\.outputs\.reused_run_id == ''$/m,
+    );
     assert.doesNotMatch(job(name), /^ {4}continue-on-error:/m);
   }
 });
@@ -376,6 +380,7 @@ test("invalid payloads and unavailable history fail instead of granting a skip",
 
 test("CLI uses real Git history, includes renamed source paths, and emits no skip on failure", async () => {
   const { spawnSync } = await import("node:child_process");
+  const { createHash } = await import("node:crypto");
   const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -387,6 +392,10 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
     git("init", "--quiet");
     git("config", "user.name", "CI test");
     git("config", "user.email", "ci@example.invalid");
+    mkdirSync(join(directory, ".github/workflows"), { recursive: true });
+    const workflowPath = join(directory, ".github/workflows/ci.yml");
+    const oldWorkflow = "name: Original CI\n";
+    writeFileSync(workflowPath, oldWorkflow);
     writeFileSync(join(directory, "source.ts"), "export const value = 1;\n");
     git("add", ".");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial");
@@ -397,7 +406,7 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
     const docs = git("rev-parse", "HEAD");
     const eventPath = join(directory, "event.json");
     const outputPath = join(directory, "output");
-    const run = (before, after, draft) => {
+    const run = (before, after, draft, workflowSha = "") => {
       writeFileSync(
         eventPath,
         JSON.stringify({
@@ -417,6 +426,7 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
             GITHUB_EVENT_NAME: draft === undefined ? "push" : "pull_request",
             GITHUB_EVENT_PATH: eventPath,
             GITHUB_OUTPUT: outputPath,
+            GITHUB_WORKFLOW_SHA: workflowSha,
           },
           encoding: "utf8",
         },
@@ -429,7 +439,7 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
           .split("\n")
           .map((line) => {
             const [key, value] = line.split("=");
-            return [key, JSON.parse(value)];
+            return [key, key === "workflow_fingerprint" ? value : JSON.parse(value)];
           }),
       );
     const full = {
@@ -459,6 +469,17 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
     git("mv", "source.ts", "NOTICE");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "rename");
     assert.equal(run(docs, git("rev-parse", "HEAD")).status, 0);
+    assert.deepEqual(outputs(), { ...full, desktop_required: true });
+    writeFileSync(workflowPath, "name: Updated CI\n");
+    git("add", ".github");
+    git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "workflow");
+    const updated = git("rev-parse", "HEAD");
+    assert.equal(run(docs, updated, false, initial).status, 0);
+    assert.equal(
+      outputs().workflow_fingerprint,
+      createHash("sha256").update(oldWorkflow).digest("hex"),
+    );
+    assert.equal(run(docs, updated, false, "f".repeat(40)).status, 0);
     assert.deepEqual(outputs(), { ...full, desktop_required: true });
     assert.notEqual(run("f".repeat(40), docs).status, 0);
     assert.equal(readFileSync(outputPath, "utf8"), "");
@@ -662,6 +683,27 @@ test("the shared gate rejects any required job that fails, is cancelled or is sk
   }
   assert.equal(run("false", { CHANGES: "failure" }), 1);
   assert.equal(run(""), 1);
+
+  const reuse = {
+    REUSED_RUN_ID: "123",
+    READY_TRANSITION: "true",
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_REPOSITORY: "owner/repo",
+    GITHUB_STEP_SUMMARY: "/dev/null",
+    ...Object.fromEntries(desktopJobs.map((job) => [job, "skipped"])),
+  };
+  assert.equal(run("true", reuse), 0);
+  assert.equal(run("false", reuse), 1);
+  assert.equal(run("true", { ...reuse, READY_TRANSITION: "false" }), 1);
+  assert.equal(run("true", { ...reuse, REUSED_RUN_ID: "" }), 1);
+  assert.equal(run("true", { ...reuse, REUSED_RUN_ID: "invalid" }), 1);
+  for (const variable of Object.keys(bindings)) {
+    for (const result of ["success", "failure", "cancelled", "skipped", ""]) {
+      const expected = desktopJobs.includes(variable) ? "skipped" : "success";
+      if (result !== expected)
+        assert.equal(run("true", { ...reuse, [variable]: result }), 1, `${variable}: ${result}`);
+    }
+  }
 });
 
 test("dependency jobs enable pinned pnpm before caching and freeze every repository install", async () => {
@@ -917,4 +959,182 @@ test("a partial draft check can never satisfy Quality gate, even before the read
   assert.match(desktop, /run: xvfb-run -a pnpm run test:electron:affected --ci/);
   assert.match(desktop, /run: pnpm run test:electron:affected --ci/);
   assert.doesNotMatch(quality, /continue-on-error/);
+});
+
+test("unverifiable ready transitions retain every shard even for documentation-only changes", () => {
+  const ready = {
+    action: "ready_for_review",
+    pull_request: { draft: false, base: { sha: base }, head: { sha: head } },
+  };
+  assert.equal(
+    detectDesktop("pull_request", ready, () => "docs/validation.md\0"),
+    true,
+  );
+  assert.deepEqual(electronSelection("pull_request", ready), []);
+});
+
+function readyReuseFixture() {
+  const repository = { id: 100 };
+  const pull_request = {
+    number: 42,
+    draft: false,
+    base: { sha: base, ref: "main", repo: repository },
+    head: { sha: head, ref: "feature", repo: repository },
+  };
+  const context = {
+    eventName: "pull_request",
+    runId: 456,
+    repo: { owner: "owner", repo: "repo" },
+    payload: { action: "ready_for_review", pull_request, repository },
+  };
+  const run = {
+    id: 123,
+    run_attempt: 2,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request",
+    status: "completed",
+    conclusion: "success",
+    head_sha: head,
+    repository,
+    head_repository: repository,
+    pull_requests: [structuredClone(pull_request)],
+  };
+  const workflowFingerprint = "c".repeat(64);
+  const jobs = [
+    "Change detection",
+    "Static checks",
+    "Unit tests and coverage",
+    ...desktopMatrix().map(({ os, shard }) => `Electron (${os}, ${shard})`),
+    "Remote host (linux-x64)",
+    "Remote host (linux-arm64)",
+    "Remote host (darwin-arm64 + darwin-x64)",
+    "Native checks and packaging (ubuntu-24.04)",
+    "Native checks and packaging (windows-2025)",
+    "Native checks and packaging (macos-15)",
+    "Draft quality gate",
+  ].map((name) => ({
+    name,
+    status: "completed",
+    conclusion: "success",
+    head_sha: head,
+    run_id: 123,
+    run_attempt: 2,
+  }));
+  jobs[0].steps = [
+    {
+      name: `Record full PR inputs (100, main, ${base}, ${workflowFingerprint})`,
+      status: "completed",
+      conclusion: "success",
+    },
+  ];
+  const report = { jobs, total_count: jobs.length };
+  const calls = [];
+  const warnings = [];
+  const actions = {
+    listWorkflowRuns: async (request) => {
+      calls.push(request);
+      return { data: { workflow_runs: [run] } };
+    },
+    listJobsForWorkflowRunAttempt: async (request) => {
+      calls.push(request);
+      return { data: report };
+    },
+  };
+  const find = () =>
+    findReusableRun({
+      github: { rest: { actions } },
+      context,
+      workflowFingerprint,
+      warn: (message) => warnings.push(message),
+    });
+  return { context, run, report, jobs, actions, calls, warnings, find };
+}
+
+test("ready reuse verifies an exact full CI attempt before returning its run ID", async () => {
+  const fixture = readyReuseFixture();
+  assert.equal(await fixture.find(), "123");
+  assert.equal(fixture.calls.length, 2);
+  assert.equal(fixture.calls[0].head_sha, head);
+  assert.equal(fixture.calls[0].workflow_id, "ci.yml");
+  assert.equal(fixture.calls[1].run_id, 123);
+  assert.equal(fixture.calls[1].attempt_number, 2);
+  fixture.jobs.at(-1).name = "Quality gate";
+  assert.equal(await fixture.find(), "123");
+});
+
+test("ready reuse rejects mismatched or incomplete proof and falls back on API failure", async () => {
+  for (const [reason, alter] of Object.entries({
+    "new push": ({ context }) => (context.payload.action = "synchronize"),
+    "still draft": ({ context }) => (context.payload.pull_request.draft = true),
+    "different PR": ({ run }) => (run.pull_requests[0].number = 999),
+    "different head": ({ run }) => (run.head_sha = base),
+    "changed base commit": ({ run }) => (run.pull_requests[0].base.sha = head),
+    "changed base branch": ({ run }) => (run.pull_requests[0].base.ref = "other"),
+    "different workflow": ({ run }) => (run.path = ".github/workflows/other.yml"),
+    "different workflow bytes": ({ jobs }) => (jobs[0].steps[0].name += "mismatch"),
+    "absent provenance": ({ jobs }) => (jobs[0].steps = []),
+    "current run": ({ run }) => (run.id = 456),
+    "running workflow": ({ run }) => (run.status = "in_progress"),
+    "cancelled workflow": ({ run }) => (run.conclusion = "cancelled"),
+    "affected matrix": ({ jobs }) => (jobs[3].name = "Electron (ubuntu-24.04, 1/1)"),
+    "incomplete response": ({ report }) => report.total_count++,
+    "missing packaging": ({ jobs, report }) => {
+      jobs.splice(
+        jobs.findIndex(({ name }) => name === "Native checks and packaging (macos-15)"),
+        1,
+      );
+      report.total_count--;
+    },
+    "failed shard": ({ jobs }) => (jobs[3].conclusion = "failure"),
+    "cancelled shard": ({ jobs }) => (jobs[3].conclusion = "cancelled"),
+    "skipped host build": ({ jobs }) => {
+      jobs.find(({ name }) => name === "Remote host (linux-x64)").conclusion = "skipped";
+    },
+    "mixed attempts": ({ jobs }) => (jobs[3].run_attempt = 1),
+    "skipped gate": ({ jobs }) => (jobs.at(-1).conclusion = "skipped"),
+  })) {
+    const fixture = readyReuseFixture();
+    alter(fixture);
+    assert.equal(await fixture.find(), "", reason);
+  }
+
+  for (const method of ["listWorkflowRuns", "listJobsForWorkflowRunAttempt"]) {
+    const fixture = readyReuseFixture();
+    fixture.actions[method] = async () => {
+      throw new Error("unavailable");
+    };
+    assert.equal(await fixture.find(), "");
+    assert.equal(fixture.warnings.length, 1);
+  }
+});
+
+test("only Change detection can look up previous CI and only on the ready transition", async () => {
+  const { readFileSync } = await import("node:fs");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const changes = workflow.split("\n  changes:\n")[1].split("\n  checks:\n")[0];
+  const reuse = changes.split("        id: reuse\n")[1];
+  const actionsReaders = workflow
+    .split(/\n {2}(?=[a-z-]+:\n)/)
+    .filter((job) => job.includes("actions: read"));
+  assert.deepEqual(
+    actionsReaders.map((job) => job.split(":")[0]),
+    ["changes", "nightly"],
+  );
+  assert.match(changes, /permissions:\n {6}contents: read\n {6}actions: read/);
+  assert.match(changes, /steps\.reuse\.outcome == 'success' && steps\.reuse\.outputs\.run-id/);
+  assert.match(changes, /Record full PR inputs .*steps\.changes\.outputs\.workflow_fingerprint/);
+  assert.match(
+    changes,
+    /steps\.changes\.outputs\.desktop_required == 'true' && steps\.changes\.outputs\.electron_suites == '\[\]'/,
+  );
+  assert.match(
+    reuse,
+    /github\.event_name == 'pull_request' && github\.event\.action == 'ready_for_review'/,
+  );
+  assert.match(
+    reuse,
+    /github\.event\.pull_request\.draft == false && steps\.changes\.outputs\.workflow_fingerprint != ''/,
+  );
+  assert.match(reuse, /continue-on-error: true/);
+  assert.match(reuse, /if \(runId\) core\.setOutput\('run-id', runId\)/);
 });
