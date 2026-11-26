@@ -1073,6 +1073,13 @@ test("merged cleanup skips Git-ignored build folders and hides the action at zer
   await expect(page.getByRole("menuitem", { name: "New worktree" })).toBeFocused();
   await page.keyboard.press("End");
   await expect(page.getByRole("menuitem", { name: /Remove from Foom/ })).toBeFocused();
+  const review = page.getByRole("button", { name: "0 eligible to delete" });
+  await review.focus();
+  git("worktree", "unlock", newMerged);
+  await expect(cleanupAction).toHaveText("Delete merged worktrees…1");
+  await expect(page.getByRole("menuitem", { name: "New worktree" })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(cleanupAction).toBeFocused();
   assert.equal(
     await readFile(path.join(dirty.path, "tracked.txt"), "utf8"),
     "keep tracked changes\n",

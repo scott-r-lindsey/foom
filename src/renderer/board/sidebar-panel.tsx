@@ -87,13 +87,14 @@ export function SidebarPanel({
           ),
         kind: kind,
         mark: mark,
-        facts: (() => {
+        facts: (controlRef) => {
           const facts = (
             <PanelFacts
               key={menu.id}
               subject={subject}
               source={source}
               options={options}
+              cleanupReviewRef={controlRef}
               reviewCleanup={
                 subject.kind === "repository"
                   ? () =>
@@ -163,7 +164,7 @@ export function SidebarPanel({
           ) : (
             facts
           );
-        })(),
+        },
         pinned: menu.pinned,
         enter: () => {
           enter();

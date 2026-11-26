@@ -1,6 +1,6 @@
 import { CopyValue as Copy } from "../ui/copy-value";
 import { useEffect, useState, useRef, useCallback } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefCallback } from "react";
 import type { OrchestrationEntry, OrchestrationView, SidebarCommand } from "../../shared/workspace";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { ConfigStatus } from "../../shared/foom-config";
@@ -153,11 +153,13 @@ export function PanelFacts({
   subject,
   source,
   options,
+  cleanupReviewRef,
   reviewCleanup,
 }: {
   subject: PanelSubject;
   source: BoardSource;
   options: LaunchOptions | undefined;
+  cleanupReviewRef?: RefCallback<HTMLButtonElement>;
   reviewCleanup?: (() => Promise<void>) | undefined;
 }) {
   const [now] = useState(Date.now);
@@ -313,6 +315,7 @@ export function PanelFacts({
               <Sub>merged count unknown</Sub>
             ) : subject.repository.mergedCount === 0 && reviewCleanup ? (
               <button
+                ref={cleanupReviewRef}
                 type="button"
                 className="panel-cleanup-review"
                 aria-haspopup="dialog"

@@ -762,7 +762,8 @@ export class CleanupOwner {
       key,
       count: worktrees.length,
       expires: Number.POSITIVE_INFINITY,
-      result: { canDeleteMerged: false },
+      // Keep the last completed result for display while the new plan is checked.
+      result: cached?.result ?? { canDeleteMerged: false },
     };
     this.mergeEligibility.set(repository, entry);
     const publish = (result: {

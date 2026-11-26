@@ -10,7 +10,8 @@ before the first scan completes, or after a scan fails. The dialog lists
 retained checkouts with their reasons. A completed scan with zero eligible
 worktrees hides the command and leaves **0 eligible to delete** in the repository facts.
 Select that count to review the reasons in the cleanup dialog.
-The menu updates with each scan, including while it is open. An active cleanup
+The menu keeps the latest completed result during a background scan and updates
+when the scan finishes, including while the menu is open. An active cleanup
 or its undismissed results remain accessible from the menu.
 
 Foom fetches the remote (`origin`, or the sole remote) and resolves its advertised

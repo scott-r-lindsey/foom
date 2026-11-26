@@ -182,6 +182,9 @@ test("an open repository menu hides merged cleanup at zero and restores it when 
   expect(
     view.getAllByRole("separator").filter((item) => item.closest('[role="menu"]')),
   ).toHaveLength(1);
+  const review = view.getByRole("button", { name: "0 eligible to delete" });
+  review.focus();
+  expect(document.activeElement).toBe(review);
   view.source.getSidebar = () => [{ ...repository, canDeleteMerged: true, mergedCount: 2 }];
   act(() => {
     view.base.update("a", { state: "working" });
@@ -189,6 +192,9 @@ test("an open repository menu hides merged cleanup at zero and restores it when 
   expect(view.getByRole("menuitem", { name: /Delete merged worktrees…/ }).textContent).toBe(
     "Delete merged worktrees…2",
   );
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "New worktree" }));
+  fireEvent.keyDown(view.getByRole("menuitem", { name: "New worktree" }), { key: "End" });
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: /Delete merged/ }));
 });
 
 test("the zero eligibility fact opens the cleanup review without a delete menu item", async () => {

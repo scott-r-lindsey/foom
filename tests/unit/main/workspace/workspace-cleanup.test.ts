@@ -257,7 +257,10 @@ test("local inventory and launches proceed while a remote check is pending; comp
   expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(true);
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledOnce();
   now = 60_001;
-  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
+  expect((await workspace.sidebarInventory()).repositories[0]).toMatchObject({
+    canDeleteMerged: true,
+    mergedCount: 1,
+  });
   await vi.waitFor(() => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
@@ -265,6 +268,37 @@ test("local inventory and launches proceed while a remote check is pending; comp
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(2);
   await workspace.dispose();
 });
+
+test.each(["eligible", "failed"])(
+  "zero eligibility stays visible while changed inventory is rescanned (%s)",
+  async (outcome) => {
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, locked: true }]);
+    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+    const workspace = new Workspace(deps);
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
+    const inventory = async () => (await workspace.sidebarInventory()).repositories[0];
+    await expect.poll(async () => (await inventory())?.mergedCount).toBe(0);
+
+    const refresh = Promise.withResolvers<string>();
+    vi.mocked(deps.worktrees.mergedDefault).mockReturnValueOnce(refresh.promise);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
+    try {
+      expect(await inventory()).toMatchObject({ canDeleteMerged: false, mergedCount: 0 });
+      expect(await inventory()).toMatchObject({ canDeleteMerged: false, mergedCount: 0 });
+    } finally {
+      if (outcome === "eligible") refresh.resolve("base");
+      else refresh.reject(new Error("fetch failed"));
+      await refresh.promise.catch(() => {});
+    }
+    if (outcome === "eligible") {
+      await expect.poll(inventory).toMatchObject({ canDeleteMerged: true, mergedCount: 1 });
+    } else {
+      await expect.poll(async () => (await inventory())?.mergedError).toBe("fetch failed");
+      expect((await inventory())?.mergedCount).toBeUndefined();
+    }
+    await workspace.dispose();
+  },
+);
 
 test.each([new Error("offline"), "offline"])(
   "background fetch failures publish status without rejecting inventory: %s",
