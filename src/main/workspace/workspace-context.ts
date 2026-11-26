@@ -426,9 +426,6 @@ export class WorkspaceContext {
       },
       onChange: (localOnly) => deps.onChange?.(localOnly),
     });
-    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) =>
-      this.sessions.pruneHosts(host),
-    );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
       : new AgentService(
@@ -455,6 +452,10 @@ export class WorkspaceContext {
             },
           },
         );
+    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) => {
+      this.agents.forgetHostPermissions(host);
+      return this.sessions.pruneHosts(host);
+    });
   }
 
   /** Setup's choices apply to later launches; running agents keep theirs. */

@@ -18,7 +18,6 @@ export async function discoverRemoteSessions(
     const provider = context && builtinAgent(context.agent);
     // The daemon confirms this launch, but its path cannot confer a local checkout or grant.
     const mainClone =
-      session.permissionLevel !== undefined &&
       provider !== undefined &&
       context?.branch === "Main checkout" &&
       context.worktree === `/foom-remote/${locationId(JSON.stringify([host, context.repository]))}`;

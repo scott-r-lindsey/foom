@@ -310,6 +310,7 @@ test("recovers a managed main clone as an agent without inventing a local checko
       Promise.resolve([
         { host: "worker", session: { id: "clone", permissionLevel: "full", context } },
         { host: "other", session: { id: "wrong-host", permissionLevel: "full", context } },
+        { host: "worker", session: { id: "default-clone", context } },
       ]),
   });
   expect(rows[0]).toMatchObject({
@@ -322,4 +323,8 @@ test("recovers a managed main clone as an agent without inventing a local checko
   expect(rows[0]).not.toHaveProperty("remoteCheckout");
   expect(rows[0]).not.toHaveProperty("orchestrator");
   expect(rows[1]).toMatchObject({ kind: "shell", home: true });
+  expect(rows[2]).toMatchObject({ ...context, kind: "agent", running: true });
+  expect(rows[2]).not.toHaveProperty("permissionLevel");
+  expect(rows[2]).not.toHaveProperty("home");
+  expect(rows[2]).not.toHaveProperty("remoteCheckout");
 });

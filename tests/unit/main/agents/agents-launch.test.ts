@@ -563,11 +563,16 @@ describe("main-owned permission levels", () => {
     service.setPermissionLevels({
       global: { codex: { level: "ask" } },
       "host:fixture-a": { codex: { level: "full", identity } },
+      "host:fixture-c": { codex: { level: "workspace" } },
     });
     const remote = service.permissionForLaunch("codex", "fixture-a", []);
     expect(remote.level).toBe("full");
     expect(service.permissionForLaunch("codex", "fixture-b", []).level).toBe("ask");
     expect(service.permissionForLaunch("codex", undefined, []).level).toBe("ask");
+    service.forgetHostPermissions("fixture-a");
+    expect(service.permissionForLaunch("codex", "fixture-a", []).level).toBe("ask");
+    expect(service.permissionForLaunch("codex", "fixture-c", []).level).toBe("workspace");
+    expect(remote.validate).toThrow(/permission settings changed/);
     service.setPermissionLevels({ global: { codex: { level: "full", identity } } });
     expect(remote.validate).toThrow(/permission settings changed/);
   });

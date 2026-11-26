@@ -352,7 +352,7 @@ export function serveHost(
     pendingConnections.add(socket);
     const frames = new RemoteFrames();
     let negotiated = false;
-    let inventoryPermissions = false;
+    let permissionMetadata = false;
     let id: string | undefined;
     let prepared:
       | {
@@ -374,13 +374,16 @@ export function serveHost(
       }
       pendingConnections.delete(socket);
       clearTimeout(deadline);
-      if (session.agent && !session.human)
+      if (session.agent && !session.human) {
+        const ready = { ...session.agent.ready };
+        if (!permissionMetadata) delete ready.permissionLevel;
         await send(socket, {
           type: "agent-ready",
           id,
-          ready: session.agent.ready,
+          ready,
           ...(session.imageOwner ? { imageOwner: session.imageOwner } : {}),
         });
+      }
       await send(socket, {
         type: "open-result",
         id,
@@ -424,11 +427,12 @@ export function serveHost(
           return;
         }
         negotiated = true;
-        inventoryPermissions = message.inventoryPermissions === 1;
+        permissionMetadata = message.inventoryPermissions === 1;
         await send(socket, {
           type: "hello",
           build,
           compatible: 2,
+          inventoryPermissions: 1,
           childPressure: 1,
           hostFacts: 1,
           hostPreflight: 1,
@@ -518,12 +522,12 @@ export function serveHost(
                 const permissionLevel =
                   session.agent?.ready.permissionLevel ?? session.machinePermissionLevel;
                 const context = session.context && { ...session.context };
-                if (context?.reviewer && !inventoryPermissions) delete context.reviewer;
+                if (context?.reviewer && !permissionMetadata) delete context.reviewer;
                 return {
                   id,
                   ...(context ? { context } : {}),
                   ...(session.checkout ? { checkout: session.checkout } : {}),
-                  ...(inventoryPermissions && permissionLevel ? { permissionLevel } : {}),
+                  ...(permissionMetadata && permissionLevel ? { permissionLevel } : {}),
                 };
               }),
             foreign: [

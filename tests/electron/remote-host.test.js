@@ -33,6 +33,80 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
+async function installPermissionFixture(bin) {
+  await writeFile(
+    path.join(bin, "codex"),
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('codex-cli 0.167.0');
+else if (args[0] === '--help') console.log('--sandbox --ask-for-approval -c');
+else {
+  console.log('PERMISSION_RECOVERY:' + (args.includes('--sandbox') ? args[args.indexOf('--sandbox') + 1] : 'default'));
+  process.stdout.write('$ ');
+  process.stdin.resume();
+}
+`,
+    { mode: 0o700 },
+  );
+}
+
+test("re-enrolling a host discards its Full access approval", {
+  skip: process.platform === "win32",
+  timeout: deadline(45000),
+}, async (context) => {
+  const fixture = await remoteFixture(context);
+  const { bin, remoteHome } = fixture;
+  await installPermissionFixture(bin);
+  const original = path.join(remoteHome, "code");
+  const replacement = path.join(remoteHome, "replacement");
+  await mkdir(original, { mode: 0o700 });
+  await mkdir(replacement, { mode: 0o700 });
+  const { app, page } = await remoteApp(context, fixture);
+  const host = "fixture-cloud";
+  const enroll = (codeFolder) =>
+    page.evaluate((input) => window.desktop.hosts(input), { action: "add", host, codeFolder });
+  assert.equal((await enroll(original)).result.ok, true);
+  await page.evaluate(() => window.desktop.saveSetup({ agents: { codex: true } }));
+  await page.evaluate(() =>
+    window.desktop.saveSetup({
+      agentPermissions: { global: { codex: { level: "ask" } } },
+    }),
+  );
+  const pending = page.evaluate(
+    (scope) =>
+      window.desktop.saveSetup({
+        agentPermissions: { [scope]: { codex: { level: "full" } } },
+      }),
+    `host:${host}`,
+  );
+  const disclosure = await confirmationPage(app, "Allow Full access for Codex?");
+  await disclosure.getByRole("button", { name: "Allow Full access", exact: true }).click();
+  const approved = await pending;
+  assert.equal(approved.settings.agentPermissions[`host:${host}`].codex.level, "full");
+
+  const removed = await page.evaluate(
+    (host) => window.desktop.hosts({ action: "remove", host }),
+    host,
+  );
+  assert.deepEqual(removed.hosts, []);
+  assert.equal((await enroll(replacement)).result.ok, true);
+  const { settings } = await page.evaluate(() => window.desktop.setupState());
+  assert.equal(settings.agentPermissions[`host:${host}`], undefined);
+  assert.equal(settings.agentPermissions.global.codex.level, "ask");
+  const { terminalId } = await page.evaluate(
+    (host) => window.desktop.sidebarCommand({ kind: "machine-launch", host, run: "codex" }),
+    host,
+  );
+  const row = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (entry) => entry.id === terminalId,
+  );
+  assert.equal(row?.permissionLevel, "ask");
+  assert.equal(row?.bypass, false);
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), terminalId))
+    .toContain("PERMISSION_RECOVERY:workspace-write");
+});
+
 test("remote machine recovery preserves the daemon's permission labels and bypass warning", {
   skip: process.platform === "win32",
   timeout: deadline(45000),
@@ -61,20 +135,7 @@ else if (args[0] !== 'status') process.exit(1);
 `,
     { mode: 0o700 },
   );
-  await writeFile(
-    path.join(bin, "codex"),
-    `#!${process.execPath}
-const args = process.argv.slice(2);
-if (args[0] === '--version') console.log('codex-cli 0.167.0');
-else if (args[0] === '--help') console.log('--sandbox --ask-for-approval -c');
-else {
-  console.log('PERMISSION_RECOVERY:' + args[args.indexOf('--sandbox') + 1]);
-  process.stdout.write('$ ');
-  process.stdin.resume();
-}
-`,
-    { mode: 0o700 },
-  );
+  await installPermissionFixture(bin);
   const { app, page, profilePath, profileTag, hubHome } = await remoteApp(context, fixture);
   await page.evaluate(() => window.desktop.saveSetup({ agents: { codex: true } }));
   const enrolled = await page.evaluate(
@@ -135,6 +196,23 @@ else {
       .includes("PERMISSION_RECOVERY:danger-full-access"),
   );
   clone.close();
+  const defaultClone = await hostChannel(
+    socket,
+    manifest.sha256,
+    "default-clone",
+    cleanup,
+    80,
+    24,
+    false,
+    profileTag,
+    {
+      human: true,
+      context: { repository, worktree, agent: "codex", branch: "Main checkout" },
+      machine: { agent: "codex", codeFolder, repository: { directory, origin } },
+    },
+  );
+  assert.equal(defaultClone.opened.state, "live");
+  defaultClone.close();
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
@@ -176,6 +254,28 @@ else {
       }),
     )
     .toEqual(["agent", "full", true, "Main checkout", false, false]);
+  await expect
+    .poll(() =>
+      restored.evaluate(async () => {
+        const row = (await window.desktop.workspace()).terminals.find(
+          (row) => row.id === "default-clone",
+        );
+        return row && [row.kind, row.permissionLevel ?? null, row.branch, row.dormant, row.exited];
+      }),
+    )
+    .toEqual(["agent", null, "Main checkout", false, false]);
+  const recoveredClone = restored.locator(".session-entry").filter({
+    has: restored.locator('[data-drag-session="recovered-clone"]'),
+  });
+  await expect(recoveredClone.locator('[data-drag-session="recovered-clone"]')).toBeVisible();
+  await expect(restored.getByText("Worktree removed", { exact: false })).toHaveCount(0);
+  await recoveredClone
+    .locator(":scope > .board-row")
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await expect(restored.getByRole("menuitem", { name: "Stop Codex" })).toBeVisible();
+  await expect(restored.getByRole("menuitem", { name: "Make orchestrator…" })).toHaveCount(0);
+  await restored.keyboard.press("Escape");
   await expect(restored.locator(".board-row .session-bypass")).toHaveText(["◇ Bypass", "◇ Bypass"]);
   await quitAndWait(restarted, async () => {
     await restarted.evaluate(({ app }) => app.quit());

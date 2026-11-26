@@ -60,6 +60,7 @@ export let agents: {
     typeof vi.fn<(identities?: Readonly<Record<string, string>>) => void>
   >;
   setPermissionLevels: ReturnType<typeof vi.fn<() => void>>;
+  forgetHostPermissions: ReturnType<typeof vi.fn<() => void>>;
   permissionForLaunch: ReturnType<typeof vi.fn<() => { level: undefined; validate(): void }>>;
 };
 
@@ -127,6 +128,7 @@ beforeEach(async () => {
     setHooksEnabled: vi.fn<(enabled: boolean) => void>(),
     setBypassIdentities: vi.fn(),
     setPermissionLevels: vi.fn(),
+    forgetHostPermissions: vi.fn(),
     permissionForLaunch: vi.fn(() => ({ level: undefined, validate: () => {} })),
   };
   deps = {

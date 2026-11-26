@@ -371,6 +371,7 @@ export function createAppSource(): BoardSource {
           inventoryLoaded &&
           !entry.home &&
           !entry.config &&
+          !(entry.placement?.kind === "remote" && entry.branch === "Main checkout") &&
           !sidebar.find((repo) => repo.path === entry.repository)?.unavailable &&
           (!checkout || checkout.prunable) &&
           !(

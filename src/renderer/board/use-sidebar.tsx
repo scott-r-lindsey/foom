@@ -573,7 +573,7 @@ export function useSidebar(props: SidebarProps) {
                   run: () => command({ kind: "take-over", id: row.id }),
                 },
               ]
-            : row.kind === "agent" && !row.config && !row.home
+            : row.kind === "agent" && !row.config && !row.home && row.placement?.kind !== "remote"
               ? [
                   row.orchestration?.role === "orchestrator" && row.orchestration.active
                     ? {

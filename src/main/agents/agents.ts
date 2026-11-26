@@ -181,6 +181,12 @@ export class AgentService {
     this.permissions = settings;
   }
 
+  forgetHostPermissions(host: string): void {
+    const permissions = { ...this.permissions };
+    delete permissions[`host:${host}`];
+    this.permissions = permissions;
+  }
+
   /** Resolve in main, once for this placement. A later check prevents stale consent at dispatch. */
   permissionForLaunch(
     agent: AgentId,

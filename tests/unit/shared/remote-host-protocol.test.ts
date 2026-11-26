@@ -270,6 +270,9 @@ test("profile inventory and confirmed cleanup are closed, bounded and incarnatio
   expect(remoteRequest({ type: "hello", build: "a".repeat(64), inventoryPermissions: 2 })).toBe(
     false,
   );
+  expect(remoteResponse({ type: "hello", build: "a".repeat(64), inventoryPermissions: 1 })).toBe(
+    true,
+  );
   expect(remoteRequest({ type: "inventory", profile })).toBe(true);
   expect(remoteRequest({ type: "end-sessions", profile, ids: [foreign] })).toBe(true);
   expect(

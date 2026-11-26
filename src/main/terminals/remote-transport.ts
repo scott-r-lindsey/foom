@@ -125,6 +125,7 @@ export class RemoteTransport extends EventEmitter {
   private ready = false;
   private opened = false;
   private childPressure = false;
+  private permissionMetadata = false;
   private upgrades = 0;
   private retries = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -238,30 +239,42 @@ export class RemoteTransport extends EventEmitter {
   }
 
   private openRequest(request: number, reattach: boolean): RemoteRequest {
-    this.startupSent = true;
     const session = this.session;
     if (!session) throw new Error("Remote session unavailable");
-    if (this.target.cleanup)
+    if (this.target.cleanup) {
+      this.startupSent = true;
       return this.target.profile
         ? { type: "session-close", id: session.id, request, profile: this.target.profile }
         : { type: "agent-close", id: session.id, request };
-    if (!reattach && !this.target.reattach) this.openingThemeKey = this.themeKey();
+    }
+    const restoring = reattach || this.target.reattach === true;
+    const context = this.target.context && { ...this.target.context };
+    const agent = !restoring && this.target.agent ? { ...this.target.agent.spec } : undefined;
+    const machine = !restoring && this.target.machine ? { ...this.target.machine } : undefined;
+    if (!this.permissionMetadata) {
+      if (agent?.permissionLevel || machine?.permissionLevel)
+        throw new LaunchFailure("remote_prepare_refused");
+      if (context) delete context.reviewer;
+      if (agent) delete agent.reviewer;
+      if (machine) delete machine.reviewer;
+    }
+    this.startupSent = true;
+    if (!restoring) this.openingThemeKey = this.themeKey();
     const metadata = {
       dark: this.theme?.dark ?? false,
       ...(this.theme?.theme ? { theme: this.theme.theme } : {}),
       ...(this.target.profile ? { profile: this.target.profile } : {}),
-      ...(this.target.context ? { context: this.target.context } : {}),
+      ...(context ? { context } : {}),
     };
-    const agentSpec = this.target.agent ? { ...this.target.agent.spec } : undefined;
-    if (agentSpec && !this.childPressure) delete agentSpec.childPressure;
-    return this.target.agent && !reattach && !this.target.reattach
+    if (agent && !this.childPressure) delete agent.childPressure;
+    return agent
       ? {
           type: "agent-open",
           id: session.id,
           request,
           cols: session.spec.cols,
           rows: session.spec.rows,
-          spec: agentSpec ?? this.target.agent.spec,
+          spec: agent,
           ...metadata,
         }
       : {
@@ -270,10 +283,10 @@ export class RemoteTransport extends EventEmitter {
           request,
           cols: session.spec.cols,
           rows: session.spec.rows,
-          reattach: reattach || this.target.reattach === true,
+          reattach: restoring,
           ...metadata,
           ...(this.target.human ? { human: true } : {}),
-          ...(!reattach && this.target.machine ? { machine: this.target.machine } : {}),
+          ...(machine ? { machine } : {}),
           ...(!reattach && this.target.trustOrigin ? { trustOrigin: this.target.trustOrigin } : {}),
           ...(!reattach && this.target.recipe ? { recipe: this.target.recipe } : {}),
           ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
@@ -484,7 +497,7 @@ export class RemoteTransport extends EventEmitter {
             this.send({
               type: "hello",
               build: artifact.sha256,
-              ...(this.management?.type === "inventory" ? { inventoryPermissions: 1 } : {}),
+              inventoryPermissions: 1,
             });
             bytes = header;
             header = Buffer.alloc(0);
@@ -519,6 +532,7 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Host version mismatch");
             }
             this.childPressure = value.childPressure === 1;
+            this.permissionMetadata = value.inventoryPermissions === 1;
             // This recipe stages assets from the daemon's own executable. Protocol
             // compatibility alone cannot bind those bytes to the desktop's approval.
             if (

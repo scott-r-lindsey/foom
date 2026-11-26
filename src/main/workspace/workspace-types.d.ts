@@ -234,6 +234,7 @@ export type Agents = Pick<
   | "setHooksEnabled"
   | "setBypassIdentities"
   | "setPermissionLevels"
+  | "forgetHostPermissions"
   | "permissionForLaunch"
 >;
 export interface WorkspaceDependencies {

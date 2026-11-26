@@ -415,6 +415,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         type: "hello",
         build,
         compatible: 2,
+        inventoryPermissions: 1,
         childPressure: 1,
         hostFacts: 1,
         hostPreflight: 1,
@@ -1486,6 +1487,7 @@ test.skipIf(process.platform === "win32")(
       type: "hello",
       build,
       compatible: 2,
+      inventoryPermissions: 1,
       childPressure: 1,
       hostFacts: 1,
       hostPreflight: 1,
@@ -1869,6 +1871,7 @@ test.skipIf(process.platform === "win32")(
         type: "hello",
         build,
         compatible: 2,
+        inventoryPermissions: 1,
         childPressure: 1,
         hostFacts: 1,
         hostPreflight: 1,
@@ -3269,6 +3272,64 @@ test.skipIf(process.platform === "win32")(
       pressure: { reservations: 0 },
     });
     expect(mock.create).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "remote child reattachment sends the applied permission only to capable hubs",
+  async () => {
+    await start();
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: "/fixture/codex",
+      env: { PATH: "/fixture" },
+      version: "codex-cli 0.167.0",
+      help: "--sandbox --ask-for-approval -c",
+    });
+    const c = await client();
+    const id = "managed-child";
+    const profile = "f".repeat(32);
+    c.send({ type: "hello", build, inventoryPermissions: 1 });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      id,
+      profile,
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        agent: "codex",
+        repository: "/remote/repo",
+        worktree: "/remote/tree",
+        defaults: [],
+        hooks: false,
+        permissionLevel: "ask",
+      },
+    });
+    await c.wait(2);
+    expect(c.messages[1]).toMatchObject({ type: "agent-prepared", id });
+    c.send({ type: "agent-start", id });
+    await c.wait(4);
+    expect(c.messages[2]).toMatchObject({ type: "agent-ready", ready: { permissionLevel: "ask" } });
+    await disconnect(c);
+
+    for (const capable of [false, true]) {
+      const attached = await client();
+      attached.send({
+        type: "hello",
+        build: (capable ? "a" : "b").repeat(64),
+        ...(capable ? { inventoryPermissions: 1 } : {}),
+      });
+      await attached.wait(1);
+      attached.send({ type: "open", id, profile, request: 1, cols: 80, rows: 24, reattach: true });
+      await attached.wait(3);
+      expect(attached.messages[1]).toMatchObject({ type: "agent-ready", id });
+      if (capable) expect(attached.messages[1]).toHaveProperty("ready.permissionLevel", "ask");
+      else expect(attached.messages[1]).not.toHaveProperty("ready.permissionLevel");
+      expect(attached.messages[2]).toMatchObject({ type: "open-result", id, state: "live" });
+      await disconnect(attached);
+    }
+    expect(mock.create).toHaveBeenCalledOnce();
   },
 );
 

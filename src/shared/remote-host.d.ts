@@ -140,6 +140,8 @@ export type RemoteResponse =
       type: "hello";
       build: string;
       compatible?: 2;
+      /** This daemon accepts launch permission and reviewer fields. */
+      inventoryPermissions?: 1;
       childPressure?: 1;
       hostFacts?: 1;
       hostPreflight?: 1;
