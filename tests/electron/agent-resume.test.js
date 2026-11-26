@@ -48,7 +48,7 @@ async function expectHeaderIndicators(tile, selectors) {
   assert.deepEqual(missing, [], `Indicators clipped at a ${width}px header`);
 }
 
-async function sweepTileHeader(divider, tile, controls, indicators, menu) {
+async function sweepTileHeader(divider, tile, controls, indicators, menu, optionalControls = []) {
   await divider.press("Home");
   await expect(divider).toBeFocused();
   await expect(tile.locator(".tile-controls")).toHaveCSS("opacity", "1");
@@ -63,9 +63,11 @@ async function sweepTileHeader(divider, tile, controls, indicators, menu) {
     );
     expect(inline).toContain(controls[0]);
     await expectHeaderIndicators(tile, indicators);
-    const overflow = controls.slice(1).filter((label) => !inline.includes(label));
+    const overflow = controls
+      .slice(1)
+      .filter((label) => !inline.includes(label) && !optionalControls.includes(label));
     if (overflow.length) {
-      assert.ok(menu, "Preview controls must remain in the header");
+      assert.ok(menu, `Controls missing from the header: ${overflow.join(", ")}`);
       await tile.getByRole("button", { name: controls[0], exact: true }).click();
       for (const label of overflow) {
         const action =
@@ -422,6 +424,68 @@ if (resumed) {
         [".preview-glyph", ".preview-network svg"],
       );
       await preview.getByRole("button", { name: "Close", exact: true }).click();
+      await restored.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
+      await shellTile.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+      await restored.getByRole("menuitem", { name: "Split terminal right", exact: true }).click();
+
+      // Keep the first attachment reply pending so Close still cancels startup.
+      await restoredApp.evaluate(({ ipcMain }) => {
+        const channel = "terminal:attach";
+        const attach = ipcMain._invokeHandlers.get(channel);
+        const { promise, resolve } = Promise.withResolvers();
+        globalThis.startupAttachHeld = false;
+        globalThis.releaseStartupAttach = () => {
+          ipcMain.removeHandler(channel);
+          ipcMain.handle(channel, attach);
+          resolve();
+        };
+        ipcMain.removeHandler(channel);
+        ipcMain.handle(channel, async (...args) => {
+          const reply = await attach(...args);
+          globalThis.startupAttachHeld = true;
+          await promise;
+          return reply;
+        });
+      });
+      try {
+        await restored
+          .getByRole("button", { name: "Actions for Home shell", exact: true })
+          .press("Enter");
+        await restored.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
+        const overlay = restored.locator(".tile-startup");
+        await expect(overlay).toHaveText("Starting on Local…");
+        await expect
+          .poll(() => restoredApp.evaluate(() => globalThis.startupAttachHeld))
+          .toBe(true);
+        const starting = restored.locator(".terminal-tile").filter({ has: overlay });
+        const startingMenu = starting.getByRole("button", { name: "Tile 1 menu", exact: true });
+        const cancel = starting.getByRole("button", { name: "Close", exact: true });
+        const startupDivider = restored.getByRole("separator", { name: "Resize tiles" });
+        await expect(startingMenu).toBeDisabled();
+        await sweepTileHeader(
+          startupDivider,
+          starting,
+          ["Tile 1 menu", "Maximize tile", "Close"],
+          [".board-light[aria-label]"],
+          undefined,
+          ["Maximize tile"],
+        );
+        await startupDivider.press("Home");
+        await expect
+          .poll(() => starting.locator(".tile-title").evaluate((element) => element.offsetWidth))
+          .toBeLessThan(120);
+        await cancel.click();
+        await expect(overlay).toHaveCount(0);
+      } finally {
+        await restoredApp.evaluate(() => globalThis.releaseStartupAttach());
+      }
+      await expect
+        .poll(() =>
+          restored.evaluate(async () =>
+            (await window.desktop.workspace()).terminals.map((row) => row.id),
+          ),
+        )
+        .toEqual([shell.terminalId]);
       await restored.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
       await restored.evaluate((id) => window.desktop.input(id, "exit\r"), shell.terminalId);
       await expect

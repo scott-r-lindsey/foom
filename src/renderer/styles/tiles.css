@@ -267,6 +267,16 @@
 }
 @container terminal-title (inline-size < calc(86px + 12ch)) {
   .tile-controls {
+    grid-template-columns: minmax(0, 1fr);
+    width: 20px;
+  }
+  .tile-controls [data-removal="hide"] {
+    display: none;
+  }
+}
+@container terminal-title (inline-size < calc(66px + 12ch)) {
+  /* A startup tile has no menu fallback. Keep its Close button in the header. */
+  .tile-title-main:has(.tile-number:enabled) + .tile-controls {
     display: none;
   }
 }
