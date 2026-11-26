@@ -23,7 +23,8 @@ export function requiresDesktop(paths) {
 }
 
 /** Every run, including draft pull requests, validates all three platforms. */
-export const allPlatforms = ["ubuntu-24.04", "windows-2025", "macos-15"];
+const platformsByJob = { linux: "ubuntu-24.04", windows: "windows-2025", macos: "macos-15" };
+export const allPlatforms = Object.values(platformsByJob);
 
 const { shardCounts } = JSON.parse(
   readFileSync(new URL("../tests/electron/shard-plan.json", import.meta.url), "utf8"),
@@ -93,12 +94,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   const required = detectDesktop(process.env.GITHUB_EVENT_NAME, event);
   const suites = electronSelection(process.env.GITHUB_EVENT_NAME, event);
-  const matrix =
-    suites.length > 0 ? allPlatforms.map((os) => ({ os, shard: "1/1" })) : desktopMatrix();
-  appendFileSync(
-    process.env.GITHUB_OUTPUT,
-    `desktop_required=${required}\ndesktop_matrix=${JSON.stringify(matrix)}\nelectron_suites=${JSON.stringify(suites)}\n`,
-  );
+  const matrices = Object.entries(platformsByJob).map(([job, os]) => {
+    const matrix = suites.length > 0 ? [{ os, shard: "1/1" }] : desktopMatrix([os]);
+    return `desktop_matrix_${job}=${JSON.stringify(matrix)}`;
+  });
+  const outputs = [
+    `desktop_required=${required}`,
+    ...matrices,
+    `electron_suites=${JSON.stringify(suites)}`,
+  ];
+  appendFileSync(process.env.GITHUB_OUTPUT, `${outputs.join("\n")}\n`);
   console.log(
     required
       ? `Desktop validation required on ${allPlatforms.join(", ")}.`
