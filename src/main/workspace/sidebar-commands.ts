@@ -733,6 +733,8 @@ export async function sidebarCommand(
     else await cleanup();
     return;
   }
+  if (command.kind === "elevate-dispatcher" || command.kind === "demote-dispatcher")
+    throw new Error("Dispatcher roles require the trusted window");
   this.known(command.repository);
   if (command.kind === "prune-worktree" || command.kind === "cleanup-worktree") {
     await this.withRepository(command.repository, async () => {

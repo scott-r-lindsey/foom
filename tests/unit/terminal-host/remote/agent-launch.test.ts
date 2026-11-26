@@ -22,6 +22,7 @@ import {
 } from "../../../../src/terminal-host/remote/agent-launch";
 import {
   hostDiscovery,
+  hostProbe,
   remoteCheckout,
 } from "../../../../src/terminal-host/remote/agent-discovery";
 vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
@@ -58,6 +59,26 @@ const spec = {
   prompt: "Do the task",
 };
 const call = () => Promise.resolve({ type: "error" as const, error: "unavailable" as const });
+test.skipIf(process.platform === "win32")(
+  "remote orchestrator launch pins the approved clone origin",
+  async () => {
+    const origin = "https://example.test/project.git";
+    const parent = { ...spec, worktree: spec.repository, orchestratorOrigin: origin };
+    const prepare = (profile?: string) =>
+      prepareRemoteAgent(parent, "/fixture/shell", home, () => {}, call, undefined, profile);
+    await expect(prepare()).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+    vi.mocked(hostProbe).mockResolvedValueOnce("https://example.test/foreign.git\n");
+    await expect(prepare("fixture")).rejects.toMatchObject({
+      reason: "remote_worktree_unavailable",
+    });
+    vi.mocked(hostProbe).mockResolvedValueOnce(`${origin}\n`).mockResolvedValueOnce(`${origin}\n`);
+    const prepared = await prepare("fixture");
+    endpoints.push(prepared.endpoint);
+    expect(prepared.spec.cwd).toBe(spec.repository);
+    expect(prepared.spec.args.join(" ")).toContain("Task from your Foom dispatcher");
+    expect(prepared.spec.args.join(" ")).toContain("__create_worktree");
+  },
+);
 test.skipIf(process.platform === "win32")(
   "remote Claude uses host discovery, private stdio MCP and reduced hooks without hub credentials or terminal IDs",
   async () => {

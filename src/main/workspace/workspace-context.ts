@@ -14,6 +14,13 @@ import { ApplicationError } from "../../shared/application-errors";
 import { workspaceFeatureWiring } from "./workspace-feature-wiring";
 import { workspaceOrchestrationHost } from "./workspace-orchestration-host";
 import * as orchestrationCommands from "./orchestration-commands";
+import {
+  sourceDirectoryIdentity,
+  sourceRepositories,
+  sourceRepository,
+} from "./source-repositories";
+import { canRestoreControl } from "./session-restore";
+import { ControlError } from "../../shared/control-validation";
 
 import type { ActionLogPage } from "../../shared/action-log";
 import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
@@ -36,6 +43,7 @@ import { prepareHookLaunch } from "../agents/providers/hook-launch";
 import { flushV2Health } from "../agents/providers/v2-health";
 import { Orchestration } from "../control/orchestration";
 import type { ControlRuntime } from "../control/runtime";
+import { locationId } from "../control/metadata";
 import type { ControlLaunch } from "../control/types";
 import { CleanupOwner } from "./cleanup-owner";
 import { ExecutionOwner } from "./execution-owner";
@@ -77,7 +85,7 @@ export class WorkspaceContext {
           Partial<
             Pick<
               ControlRuntime,
-              "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview"
+              "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview" | "dispatcher"
             >
           >
       >
@@ -94,6 +102,7 @@ export class WorkspaceContext {
   showNewChildren = true;
   defaultAgent: string | null = null;
   sourceDirectory: string | null = null;
+  private dispatcher: ControlRuntime["dispatcher"];
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
   private localOnlyChange = false;
@@ -112,9 +121,84 @@ export class WorkspaceContext {
       this.control = undefined;
       throw error;
     });
-    await this.control;
+    this.dispatcher = (await this.control).dispatcher;
   }
 
+  readonly dispatcherHost: NonNullable<Parameters<typeof ControlRuntime.start>[9]> = {
+    directoryIdentity: sourceDirectoryIdentity,
+    repository: sourceRepository,
+    repositories: sourceRepositories,
+    launch: async (request, repository, dispatcher, verify, active) => {
+      await verify();
+      if (!this.deps.worktrees.listRepositories().some((row) => row.path === repository.path)) {
+        const added = await this.addRepository(repository.path);
+        if (added.path !== repository.path) throw new ControlError("conflict");
+      }
+      const host = request.host;
+      const hosts = this.deps.hosts;
+      let remote: AgentLaunch["remoteOrchestrator"];
+      let scope = active;
+      if (host !== undefined) {
+        if (!hosts?.repositoryTarget) throw new ControlError("host_unavailable");
+        const registration = hosts.registered(host);
+        await hosts.requireAgent(host, request.agent);
+        scope = () => {
+          active();
+          hosts.registered(host, registration.codeFolder);
+        };
+        const target = await hosts.repositoryTarget(host, repository.path, scope);
+        const placement = target.machine?.repository;
+        const folder = target.machine?.codeFolder;
+        if (!placement || folder !== registration.codeFolder)
+          throw new ControlError("host_unavailable");
+        remote = {
+          target,
+          path: `${folder}/${placement.directory}`,
+          origin: placement.origin,
+          validate: async () => {
+            await verify();
+            scope();
+          },
+        };
+      }
+      const id = await orchestrationCommands.launchOrchestrator.call(
+        this.features.orchestrationCommands,
+        request,
+        repository,
+        verify,
+        scope,
+        remote && {
+          ...remote,
+          worktree: `/foom-remote/${locationId(JSON.stringify([host, remote.path]))}`,
+        },
+      );
+      this.deps.placeChild?.(id, dispatcher);
+      return id;
+    },
+    prompt: (id, input) =>
+      this.orchestrationHost.reply?.(id, input) ?? Promise.reject(new ControlError("unavailable")),
+    stop: async (id) => {
+      if (!(await this.orchestrationHost.stop(id))) throw new ControlError("conflict");
+    },
+    handoffs: (id) => this.orchestration.handoffs.entries(id),
+  };
+
+  async elevateDispatcher(
+    id: string,
+    select: Parameters<NonNullable<ControlRuntime["dispatcher"]>["elevate"]>[1],
+  ) {
+    await this.initializeControl();
+    const control = await this.control;
+    if (!control?.dispatcher || this.sessions.isRestoring(id))
+      throw new ControlError("unavailable");
+    await control.dispatcher.elevate(id, select, control.setRole.bind(control));
+  }
+
+  async demoteDispatcher(id: string) {
+    const control = await this.control;
+    if (!control?.dispatcher) throw new ControlError("unavailable");
+    await control.dispatcher.demote(id, control.setRole.bind(control));
+  }
   async messageBoard(method: string, input: unknown): Promise<unknown> {
     await this.initializeControl();
     const runtime = await this.control;
@@ -124,7 +208,7 @@ export class WorkspaceContext {
     if (method === "read") return board.read(input);
     if (method === "post") return board.append("human", "human", input);
     if (method === "decisions") return runtime.humanDecisions?.(input);
-    if (method === "answer") return board.answer(input);
+    if (method === "answer") return runtime.dispatcher?.answer(input) ?? board.answer(input);
     if (method === "preview") {
       const request = board.preview(input);
       return request ? ((await runtime.decisionPreview?.(request)) ?? null) : null;
@@ -192,12 +276,15 @@ export class WorkspaceContext {
           worktree: string,
           sessionId?: string,
           role?: AgentLaunch["control"],
+          source?: true,
         ): Promise<ControlLaunch> => {
           await this.initializeControl();
           const control = await this.control;
           if (!control) throw new Error("Control service unavailable");
           return role === undefined
-            ? control.prepare(repository, worktree, sessionId)
+            ? source
+              ? control.prepare(repository, worktree, sessionId, "agent", null, source)
+              : control.prepare(repository, worktree, sessionId)
             : "role" in role
               ? control.prepare(repository, worktree, sessionId, "orchestrator")
               : control.prepare(repository, worktree, sessionId, "agent", role.parentId);
@@ -403,7 +490,26 @@ export class WorkspaceContext {
           return entry.id;
         }
         if (entry.machine) {
-          return this.startMachine(null, entry.agent, entry.id, undefined, entry.conversationId);
+          const id = await this.startMachine(
+            null,
+            entry.agent,
+            entry.id,
+            undefined,
+            entry.conversationId,
+          );
+          const runtime = await this.control;
+          if (
+            id &&
+            entry.sourceSession &&
+            runtime?.dispatcher &&
+            canRestoreControl(
+              entry,
+              this.agentReport?.agents.find((agent) => agent.id === entry.agent),
+            )
+          ) {
+            await runtime.dispatcher.revive(id, runtime.setRole.bind(runtime));
+          }
+          return id;
         }
         if (entry.home) {
           await this.startHomeShell(entry.id);
@@ -548,30 +654,35 @@ export class WorkspaceContext {
     this.features.configLaunch,
   );
   snapshot(): WorkspaceSnapshot {
-    return {
-      repositories: this.deps.worktrees.listRepositories(),
-      terminals: [...this.launched.values()].map((entry) => {
-        const view = this.executionOwner.view(entry.id);
-        const exit = this.lifecycle.exit(entry.id);
-        // Dormant restored/failed launches have no host observation in this process.
-        const exitCode = exit && exit.phase !== "host-observed" ? exit.code : view.exitCode;
-        return {
-          ...entry,
-          ...(view.execution ? { execution: view.execution } : {}),
-          ...(exitCode !== undefined ? { exitCode } : {}),
-          foregroundProgram: exitCode === undefined ? (view.foregroundProgram ?? "") : "",
-          state: this.probeState(entry.id, this.executionOwner.currentState(entry.id)),
-          outputRevision: view.outputRevision,
-          inputRevision: view.inputRevision,
-          exited:
-            !this.sessions.isRestoring(entry.id) &&
-            (entry.dormant === true || exitCode !== undefined),
-          ...this.orchestrationView(entry.id),
-          ...(this.sessions.roleNotRestored(entry.id) ? { roleNotRestored: true } : {}),
-          mcpConnection: this.mcpConnections.get(entry.id),
-        };
-      }),
-    };
+    const terminals: WorkspaceTerminal[] = [...this.launched.values()].map((entry) => {
+      const view = this.executionOwner.view(entry.id);
+      const exit = this.lifecycle.exit(entry.id);
+      // Dormant restored/failed launches have no host observation in this process.
+      const exitCode = exit && exit.phase !== "host-observed" ? exit.code : view.exitCode;
+      return {
+        ...entry,
+        ...(view.execution ? { execution: view.execution } : {}),
+        ...(exitCode !== undefined ? { exitCode } : {}),
+        foregroundProgram: exitCode === undefined ? (view.foregroundProgram ?? "") : "",
+        state: this.probeState(entry.id, this.executionOwner.currentState(entry.id)),
+        outputRevision: view.outputRevision,
+        inputRevision: view.inputRevision,
+        exited:
+          !this.sessions.isRestoring(entry.id) &&
+          (entry.dormant === true || exitCode !== undefined),
+        ...this.orchestrationView(entry.id),
+        ...(this.sessions.roleNotRestored(entry.id) ? { roleNotRestored: true } : {}),
+        mcpConnection: this.mcpConnections.get(entry.id),
+      };
+    });
+    if (this.dispatcher) {
+      for (const row of terminals) {
+        if (!row.sourceSession) continue;
+        const dispatcher = this.dispatcher.view(row.id, terminals);
+        if (dispatcher) row.dispatcher = dispatcher;
+      }
+    }
+    return { repositories: this.deps.worktrees.listRepositories(), terminals };
   }
 
   async addRepository(path: string): Promise<Repository> {

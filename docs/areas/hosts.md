@@ -1120,3 +1120,15 @@ defaults at check time. Profiles, launch arguments, project overrides and
 managed policy can change the effective behavior. Config errors produce an
 unknown observation. Launch permissions and bypass validation remain owned by
 the existing launch policy.
+
+## Dispatcher placement (#1300)
+
+A dispatcher can nominate a registered SSH host for a source repository's
+orchestrator. Main reuses approved origin-derived checkout preparation and
+the repository orchestrator slot, including when placement is remote. The
+remote agent prepares the main checkout, validates its configured origin
+and confirms its identity before spawning. The SSH stdio relay exposes only
+the current repository orchestrator's control calls through a per-launch
+private endpoint. `foom call METHOD --params JSON` provides a fallback on
+that host. Remote children retain the phase-2 relay and existing reconnect
+rules.

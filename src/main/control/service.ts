@@ -2,7 +2,7 @@ import { roleGuidance } from "../../shared/control-guidance";
 import { boardPost, boardResolve } from "../../shared/message-board-validation";
 import type { BoardAnswerNotice, MessageBoard } from "./message-board";
 import { launchReasons } from "../../shared/launch-failure";
-import { remoteChildControl } from "./remote-control";
+import { remoteChildControl, remoteOrchestratorControl } from "./remote-control";
 import { removalReasons } from "../workspace/worktree-outcome";
 import { reserveRequest } from "./http-limits";
 import { bundledManual } from "./manual";
@@ -20,6 +20,7 @@ import type { ControlLaunch, Principal, Role } from "./types";
 import type { Operations } from "./operations";
 import { ORCHESTRATION_METHODS } from "./orchestration";
 import type { Orchestration } from "./orchestration";
+import { DISPATCHER_METHODS, type Dispatcher } from "./dispatcher";
 
 /** Allow client startup and managed-policy evaluation before showing attachment failure. */
 export const MCP_CONNECTION_DEADLINE_MS = 30000;
@@ -70,6 +71,7 @@ export class ControlService {
           | "canReadReview"
           | "childRead"
           | "childEvents"
+          | "dispatcherHandoff"
         >
       >,
     private readonly connectionChanged: (
@@ -84,6 +86,7 @@ export class ControlService {
     ) => Promise<void> = () => Promise.resolve(),
     readonly previews?: PreviewBroker,
     readonly board?: MessageBoard,
+    readonly dispatcher?: Dispatcher,
   ) {
     if (board) this.orchestration?.setBoard?.(board);
     this.metadata = new SessionMetadata(
@@ -110,13 +113,15 @@ export class ControlService {
     role: Role = "agent",
     parentId: string | null = null,
     sessionId?: string,
+    source?: true,
   ): ControlLaunch {
     if (this.closed) throw new ControlError("unavailable");
     if (
       ![repository, worktree].every(
         (path) => isAbsolute(path) && path.length <= 4096 && !/\p{Cc}/u.test(path),
       ) ||
-      !["agent", "orchestrator", "cli"].includes(role)
+      !["agent", "orchestrator", "cli"].includes(role) ||
+      (source === true && (role !== "agent" || parentId !== null || repository !== worktree))
     )
       throw new ControlError("invalid_request");
     if (parentId !== null) identifier(parentId);
@@ -125,11 +130,15 @@ export class ControlService {
     const token = randomBytes(32).toString("hex");
     const grant: Grant = { digest: digest(token), principal: null, calls: 0 };
     this.grants.set(generation, grant);
+    const bound = () => {
+      if (!grant.principal) throw new ControlError("unauthorized");
+      return grant.principal;
+    };
     return {
-      remoteCall: remoteChildControl(this, () => {
-        if (!grant.principal) throw new ControlError("unauthorized");
-        return grant.principal;
-      }),
+      remoteCall:
+        role === "orchestrator"
+          ? remoteOrchestratorControl(this, bound)
+          : remoteChildControl(this, bound),
       env: Object.freeze({
         FOOM_CONTROL_TOKEN: token,
         FOOM_CONTROL_INSTANCE: this.instanceId,
@@ -148,6 +157,7 @@ export class ControlService {
           role,
           parentId,
           terminalId,
+          ...(source ? { source } : {}),
         });
         this.orchestration?.bindAutomation?.(grant.principal, this.operations);
         if (mcp) {
@@ -165,6 +175,8 @@ export class ControlService {
         if (grant.principal) {
           this.operations.revoke(grant.principal);
           this.previews?.revoke(grant.principal);
+          if (grant.principal.role === "dispatcher")
+            this.dispatcher?.exited(grant.principal.terminalId);
         }
         clearTimeout(grant.timer);
         clearTimeout(grant.mcpTimer);
@@ -306,7 +318,7 @@ export class ControlService {
    * stays and the next request sees the new principal; the old one stops authenticating, so
    * a revoked orchestrator's in-flight operations end as they do when it exits.
    */
-  setRole(terminalId: string, role: "agent" | "orchestrator"): void {
+  setRole(terminalId: string, role: "agent" | "orchestrator" | "dispatcher"): void {
     if (this.closed) throw new ControlError("unavailable");
     identifier(terminalId);
     const grant = [...this.grants.values()].find(
@@ -319,6 +331,11 @@ export class ControlService {
       throw new ControlError("not_found");
     }
     if (current.role === role) return;
+    if (
+      (role === "dispatcher" && (!current.source || !this.dispatcher)) ||
+      (role === "orchestrator" && current.source)
+    )
+      throw new ControlError("forbidden");
     this.orchestration?.childEvents?.publish();
     grant.principal = Object.freeze({
       ...current,
@@ -327,7 +344,7 @@ export class ControlService {
       grantedAt: new Date().toISOString(),
     });
     this.orchestration?.bindAutomation?.(grant.principal, this.operations);
-    if (current.role === "orchestrator") {
+    if (current.role === "orchestrator" || current.role === "dispatcher") {
       this.operations.revoke(current);
       this.previews?.revoke(current);
     }
@@ -354,6 +371,8 @@ export class ControlService {
 
   /** Granted methods. Orchestration methods need a main-granted orchestrator principal. */
   capabilities(actor: Principal): string[] {
+    if (actor.source)
+      return ["whoami", "manual", ...(actor.role === "dispatcher" ? DISPATCHER_METHODS : [])];
     const views = actor.role === "cli" ? [] : ["manual", ...PREVIEW_METHODS];
     return actor.role === "orchestrator"
       ? [
@@ -361,6 +380,7 @@ export class ControlService {
           ...(this.board ? BOARD_METHODS : []),
           ...views,
           ...(this.orchestration ? ORCHESTRATION_METHODS.filter((name) => name !== "handoff") : []),
+          ...(this.dispatcher?.canReport(actor) ? ["handoff"] : []),
           "operation_status",
         ]
       : [...READ_ONLY, ...views, ...(this.orchestration?.canHandoff?.(actor) ? ["handoff"] : [])];
@@ -368,7 +388,7 @@ export class ControlService {
 
   /** Every method an agent could be granted; listing one grants nothing. */
   listed(actor: Principal): string[] {
-    return actor.role === "cli"
+    return actor.role === "cli" || actor.source
       ? this.capabilities(actor)
       : [
           ...this.capabilities({ ...actor, role: "orchestrator" }),
@@ -386,7 +406,8 @@ export class ControlService {
           : [],
       ),
     );
-    return { ...snapshot, orchestrators };
+    const decisions = { ...snapshot, orchestrators };
+    return this.dispatcher?.decisions(input, decisions) ?? decisions;
   }
 
   /** Adapters' entry point: orchestration actions are asynchronous, the rest delegate to dispatch. */
@@ -394,6 +415,31 @@ export class ControlService {
     this.assertActive(actor);
     const request = object(input);
     const method = request["method"];
+    if (actor.source) {
+      if (method === "whoami" || method === "manual") return this.dispatch(actor, input);
+      exact(request, ["version", "instanceId", "method", "params"]);
+      if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
+        throw new ControlError("invalid_request");
+      if (
+        actor.role !== "dispatcher" ||
+        !this.dispatcher ||
+        typeof method !== "string" ||
+        !DISPATCHER_METHODS.includes(method)
+      )
+        throw new ControlError("forbidden");
+      return this.dispatcher.call(
+        actor,
+        method,
+        object(request["params"]),
+        this.operations,
+        this.metadata,
+        this.board,
+        () => {
+          this.assertActive(actor);
+        },
+        signal,
+      );
+    }
     if (typeof method === "string" && BOARD_METHODS.includes(method)) {
       exact(request, ["version", "instanceId", "method", "params"]);
       if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
@@ -490,6 +536,13 @@ export class ControlService {
       const params = object(request["params"]);
       if (!this.orchestration || (method !== "handoff" && actor.role !== "orchestrator"))
         throw new ControlError(method === "handoff" ? "no_parent" : "forbidden");
+      if (method === "handoff" && this.dispatcher?.canReport(actor)) {
+        if (!this.orchestration.dispatcherHandoff) throw new ControlError("unavailable");
+        return await this.orchestration.dispatcherHandoff(actor, params, () => {
+          this.assertActive(actor);
+          if (!this.dispatcher?.canReport(actor)) throw new ControlError("no_parent");
+        });
+      }
       const result = await this.orchestration.call(
         actor,
         method,

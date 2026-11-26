@@ -2,6 +2,7 @@ import { CHILD_GUIDANCE } from "../../shared/control-guidance";
 import type { Readable } from "node:stream";
 import { negotiateMcpVersion } from "../../shared/mcp-protocol";
 import { mcpTools } from "../../shared/control-tools";
+import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { mkdirSync, readFileSync, rmdirSync, writeFileSync, constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { endpointRequest } from "./agent-endpoint";
@@ -112,6 +113,30 @@ export async function remoteCli(
     const result = await endpointRequest("/call", { method, params: {} });
     return result ? remotePublicResult(result) : { error: "unavailable" };
   }
+  if (method === "call") {
+    const words = args.filter((arg) => arg !== "--json");
+    const target = words[1];
+    const input = words[3];
+    if (
+      words.length !== 4 ||
+      words[2] !== "--params" ||
+      !target ||
+      !input ||
+      Buffer.byteLength(input) > 60000
+    )
+      return { error: "invalid_request" };
+    const identity = await endpointRequest("/call", { method: "whoami", params: {} });
+    if (
+      identity?.type !== "identity" ||
+      identity.role !== "orchestrator" ||
+      !identity.capabilities.includes(target)
+    )
+      return { error: "forbidden" };
+    const params: unknown = JSON.parse(input);
+    if (!record(params)) return { error: "invalid_request" };
+    const result = await endpointRequest("/call", { method: target, params });
+    return result ? remotePublicResult(result) : { error: "unavailable" };
+  }
   if (method !== "handoff" && method !== "manual")
     return { error: "phase_2_restricted", reason: REMOTE_PHASE_2_REASON };
   const params: Record<string, unknown> = {};
@@ -179,6 +204,8 @@ export async function remoteMcp(
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let initialized = false;
   let ready = false;
+  let capabilities: readonly string[] = [];
+  let orchestrator = false;
   const respond = (value: unknown) => output.write(`${JSON.stringify(value)}\n`);
   const dispatch = async (line: string) => {
     let id: unknown;
@@ -228,6 +255,8 @@ export async function remoteMcp(
         // Authenticate before announcing a usable attachment.
         const identity = await endpointRequest("/call", { method: "whoami", params: {} });
         if (identity?.type !== "identity") throw new Error("Remote grant unavailable");
+        orchestrator = identity.role === "orchestrator";
+        capabilities = identity.capabilities;
         initialized = true;
         ready = false;
         respond({
@@ -237,7 +266,9 @@ export async function remoteMcp(
             protocolVersion: negotiateMcpVersion(params["protocolVersion"]),
             capabilities: { tools: {} },
             serverInfo: { name: "foom-remote", version: "1" },
-            instructions: `For questions about using Foom, call manual.\n${CHILD_GUIDANCE} ${REMOTE_PHASE_2_REASON}`,
+            instructions: orchestrator
+              ? "Use the Foom tools for this repository. Read the manual for orchestrator guidance."
+              : `For questions about using Foom, call manual.\n${CHILD_GUIDANCE} ${REMOTE_PHASE_2_REASON}`,
           },
         });
       } else if (
@@ -255,10 +286,13 @@ export async function remoteMcp(
           jsonrpc: "2.0",
           id,
           result: {
-            tools: mcpTools(1, [])
-              .filter((tool) => ["whoami", "manual", "handoff"].includes(tool.name))
+            tools: mcpTools(
+              orchestrator ? 16 : 1,
+              orchestrator ? bundledAgentData.map(({ id }) => id) : [],
+            )
+              .filter((tool) => capabilities.includes(tool.name))
               .map((tool) =>
-                tool.name === "whoami"
+                tool.name === "whoami" && !orchestrator
                   ? {
                       ...tool,
                       description:
@@ -288,7 +322,7 @@ export async function remoteMcp(
           result: {
             content: [{ type: "text", text: JSON.stringify(publicResult) }],
             structuredContent: publicResult,
-            isError: result.type === "error",
+            isError: result.type === "error" || result.type === "orchestrator-error",
           },
         });
       } else

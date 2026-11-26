@@ -286,6 +286,7 @@ export async function initializeWorkspace(
               return worktree ? renderDecisionPreview(worktree.path, preview.path) : null;
             },
           },
+          wiring.workspace.dispatcherHost,
         ).then((runtime) => {
           controlRuntime = runtime;
           runtime.board?.observe();

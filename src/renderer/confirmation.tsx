@@ -401,6 +401,7 @@ export function ConfirmationCard({
     request?.cleanup ||
       request?.worktrees ||
       request?.removals ||
+      request?.dispatcherRepositories ||
       request?.changes ||
       request?.sessions ||
       request?.sections,
@@ -496,7 +497,13 @@ export function ConfirmationCard({
     if (plugin?.phase === "running") return;
     window.confirmation.answer(
       request.id,
-      accepted && request.removals ? request.removals.map((item) => item.id) : accepted,
+      accepted && request.dispatcherRepositories
+        ? request.dispatcherRepositories
+            .filter(({ name }) => selected.includes(name))
+            .map(({ name }) => name)
+        : accepted && request.removals
+          ? request.removals.map((item) => item.id)
+          : accepted,
     );
   };
   const decide = (event: React.MouseEvent<HTMLButtonElement>, accepted: boolean) => {
@@ -845,6 +852,35 @@ export function ConfirmationCard({
                 <p>Exact proposed reply</p>
                 <pre aria-label="Exact proposed reply">{request.reply.text}</pre>
               </>
+            )}
+            {request.dispatcherRepositories && (
+              <Section
+                label="Pre-approved repositories"
+                count={request.dispatcherRepositories.length}
+              >
+                <ul className="well" aria-label="Pre-approved repositories">
+                  {request.dispatcherRepositories.map(({ name, running }) => (
+                    <li key={name}>
+                      <label className="row">
+                        <input
+                          type="checkbox"
+                          disabled={!request.presented}
+                          checked={selected.includes(name)}
+                          onChange={(event) => {
+                            setSelected(
+                              event.target.checked
+                                ? [...selected, name]
+                                : selected.filter((value) => value !== name),
+                            );
+                          }}
+                        />
+                        <span className="name">{name}</span>
+                        {running && <span className="why">Orchestrator running</span>}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
             )}
             {request.removals && (
               <Section label="Worktrees" count={request.removals.length}>

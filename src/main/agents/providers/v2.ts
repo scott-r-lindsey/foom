@@ -217,7 +217,13 @@ export function v2Provider(
         prompts.push(...collected.values);
       }
       if (request.prompt !== undefined)
-        prompts.push(request.humanHome ? request.prompt : `${CHILD_PROMPT}\n\n${request.prompt}`);
+        prompts.push(
+          request.humanHome
+            ? request.prompt
+            : request.automated && request.control && "role" in request.control
+              ? `Task from your Foom dispatcher. Use whoami to confirm your repository authority. Report the outcome with handoff.\n\n${request.prompt}`
+              : `${CHILD_PROMPT}\n\n${request.prompt}`,
+        );
       if (configGreeting && promptSupported) prompts.push(CONFIG_PROMPT);
       else if (guidance) prompts.push(CLI_GUIDANCE);
       const newId =

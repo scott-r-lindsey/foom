@@ -144,6 +144,7 @@ export class AgentService {
       worktree: string,
       sessionId?: string,
       control?: AgentLaunch["control"],
+      source?: true,
     ) => Promise<ControlLaunch>,
     private readonly agyPlugin = new AgyPlugin(),
     private readonly confirmLaunchBypass?: (content: DialogContent) => Promise<boolean>,
@@ -275,7 +276,11 @@ export class AgentService {
     )
       throw new Error("Invalid source directory launch");
     const gitCheckout =
-      config === undefined && !request.remoteCheckout && !request.humanHome && !request.humanSource;
+      config === undefined &&
+      !request.remoteCheckout &&
+      !request.remoteOrchestrator &&
+      !request.humanHome &&
+      !request.humanSource;
     if (gitCheckout) {
       const trees = await this.worktrees.listWorktrees(request.repository);
       if (
@@ -289,16 +294,32 @@ export class AgentService {
       ? (request.checkoutIdentity ??
         (await this.worktrees.launchIdentity(request.repository, request.worktree)))
       : undefined;
+    const remoteParent = request.remoteOrchestrator;
+    if (
+      remoteParent &&
+      (request.localOnly ||
+        request.remoteCheckout ||
+        !request.automated ||
+        !request.control ||
+        !("role" in request.control))
+    )
+      throw new Error("Invalid registered orchestrator launch");
     const remote = request.localOnly
       ? undefined
-      : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
+      : remoteParent
+        ? {
+            target: remoteParent.target,
+            repository: remoteParent.path,
+            worktree: remoteParent.path,
+          }
+        : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
     if (remote) {
       if (request.loop && !request.remoteCheckout)
         throw new ControlError("remote_review_unsupported");
       if (provider.origin !== "bundled") throw new LaunchFailure("remote_agent_unsupported");
       if (hasBypassArgument(request.agent, defaults))
         throw new Error("Unattended child bypass is unavailable");
-      if (!request.control || !("parentId" in request.control))
+      if (!request.control || (!remoteParent && !("parentId" in request.control)))
         throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
       if (!request.beforeSpawn) throw new Error("Remote parent authority is unavailable");
       const control = await this.prepareControl?.(
@@ -323,7 +344,8 @@ export class AgentService {
             if (agentProvider(request.agent) !== provider)
               throw new Error("Worktree or provider changed");
             await request.prepareSpawn?.();
-            if (request.remoteCheckout) await request.remoteCheckout.validate();
+            if (remoteParent) await remoteParent.validate();
+            else if (request.remoteCheckout) await request.remoteCheckout.validate();
             else if (
               (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
               checkoutIdentity
@@ -378,12 +400,13 @@ export class AgentService {
     try {
       // Config sessions get no repository-scoped control grant.
       control =
-        config === undefined && !request.humanHome && !request.humanSource
+        config === undefined && !request.humanHome
           ? await this.prepareControl?.(
               request.repository,
               request.worktree,
               binding?.env["FOOM_SESSION"],
               request.control,
+              ...(request.humanSource ? [true as const] : []),
             )
           : undefined;
       if (config !== undefined && agent.mcp) {
@@ -464,7 +487,7 @@ export class AgentService {
       const argumentBypass = argumentMatches.length > 0;
       const bypass = argumentBypass || environmentMatches.length > 0;
       if (bypass) {
-        if (request.control && "parentId" in request.control)
+        if (request.automated || (request.control && "parentId" in request.control))
           throw new Error("Unattended child bypass is unavailable");
         if (
           (provider.origin !== "bundled" ||

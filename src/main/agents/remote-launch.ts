@@ -26,7 +26,10 @@ export async function launchRemoteChild(
   validate: () => Promise<void>,
   observer?: RemoteHooks,
 ): Promise<{ result: AgentLaunched; dispose(): void }> {
-  if (!request.control || !("parentId" in request.control) || !control.remoteCall)
+  const parentId =
+    request.control && "parentId" in request.control ? request.control.parentId : undefined;
+  const orchestratorOrigin = request.remoteOrchestrator?.origin;
+  if ((!parentId && !orchestratorOrigin) || !control.remoteCall)
     throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
   if (!request.beforeSpawn) throw new Error("Remote parent authority is unavailable");
   const beforeSpawn = request.beforeSpawn;
@@ -70,7 +73,7 @@ export async function launchRemoteChild(
       prompt: request.prompt,
       conversationId: request.conversationId,
     });
-    if ([id, request.control.parentId].some((secret) => serialized.includes(secret)))
+    if (serialized.includes(id) || (parentId && serialized.includes(parentId)))
       throw new Error("Remote launch data contains a hub terminal identity");
     const spec: TerminalSpec = {
       imagePaste: imagePasteRecipient(request.agent),
@@ -87,7 +90,7 @@ export async function launchRemoteChild(
         context: {
           repository: request.repository,
           worktree: request.worktree,
-          branch: request.remoteCheckout?.branch ?? null,
+          branch: orchestratorOrigin ? "Main checkout" : (request.remoteCheckout?.branch ?? null),
           agent: request.agent,
         },
         agent: {
@@ -99,6 +102,7 @@ export async function launchRemoteChild(
             worktree: mapping.worktree,
             defaults: [...defaults],
             hooks,
+            ...(orchestratorOrigin ? { orchestratorOrigin } : {}),
             ...(request.remoteCheckout
               ? {
                   checkoutIdentity: request.remoteCheckout.identity,

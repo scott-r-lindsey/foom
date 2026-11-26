@@ -28,6 +28,7 @@ import {
   rowWorktree,
   sessionIdentity,
   sessionName,
+  sourceDirectoryKey,
   sidebarParent,
   sidebarRepositories,
   worktreeKey,
@@ -342,7 +343,7 @@ export function useSidebar(props: SidebarProps) {
     { subject: PanelSubject; name: string; kind: string; mark: string }
   >();
   if (options?.sourceDirectory)
-    subjects.set("source-directory", {
+    subjects.set(sourceDirectoryKey(options.sourceDirectory), {
       subject: { kind: "source-directory", directory: options.sourceDirectory },
       name: options.sourceDirectory,
       kind: "Source directory",
@@ -582,19 +583,31 @@ export function useSidebar(props: SidebarProps) {
                   run: () => command({ kind: "take-over", id: row.id }),
                 },
               ]
-            : row.kind === "agent" && !row.config && !row.home
+            : row.sourceSession
               ? [
-                  row.orchestration?.role === "orchestrator" && row.orchestration.active
+                  row.dispatcher
                     ? {
-                        label: "Revoke orchestrator",
-                        run: () => command({ kind: "revoke-orchestrator", id: row.id }),
+                        label: "Demote",
+                        run: () => command({ kind: "demote-dispatcher", id: row.id }),
                       }
                     : {
-                        label: "Make orchestrator…",
-                        run: () => command({ kind: "make-orchestrator", id: row.id }),
+                        label: "Elevate to dispatcher…",
+                        run: () => command({ kind: "elevate-dispatcher", id: row.id }),
                       },
                 ]
-              : []),
+              : row.kind === "agent" && !row.config && !row.home
+                ? [
+                    row.orchestration?.role === "orchestrator" && row.orchestration.active
+                      ? {
+                          label: "Revoke orchestrator",
+                          run: () => command({ kind: "revoke-orchestrator", id: row.id }),
+                        }
+                      : {
+                          label: "Make orchestrator…",
+                          run: () => command({ kind: "make-orchestrator", id: row.id }),
+                        },
+                  ]
+                : []),
           {
             glyph: "stop" as const,
             label: `Stop ${row.kind === "shell" ? "shell" : (agentNames.get(row.agent) ?? row.agent)}`,

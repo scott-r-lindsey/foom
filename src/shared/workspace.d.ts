@@ -4,6 +4,7 @@ import type { MessageBoardApi } from "./message-board";
 import type { LaunchSelection } from "./agents";
 import type { ReviewState } from "./review";
 import type { Handoff } from "./handoff";
+import type { DispatcherView } from "./dispatcher";
 import type { PreviewOpenAction } from "./previews";
 import type { ActionLogQuery, ActionLogPage } from "./action-log";
 import type { CleanupProgress } from "./cleanup";
@@ -77,6 +78,7 @@ export interface WorkspaceTerminal {
   machine?: boolean;
   /** Local agent session started in the profile's source directory. */
   sourceSession?: true;
+  dispatcher?: DispatcherView;
   /** Runs in the Foom config folder; `repository` and `worktree` are that folder. */
   config?: boolean;
   /** Transient probe; excluded from saved sessions. */
@@ -271,6 +273,8 @@ export type SidebarCommand =
   | { kind: "copy-session-id"; id: string }
   | { kind: "make-orchestrator"; id: string }
   | { kind: "revoke-orchestrator"; id: string }
+  | { kind: "elevate-dispatcher"; id: string }
+  | { kind: "demote-dispatcher"; id: string }
   | { kind: "take-over"; id: string };
 
 /** Main-owned display facts. An opaque ID grants no filesystem capability. */

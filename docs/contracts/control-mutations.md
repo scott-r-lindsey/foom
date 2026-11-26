@@ -425,3 +425,19 @@ Close cleanup and add `closeState: "closing"`; cleanup failure exposes
 operation cannot report success until worktree and terminal cleanup settle. Its
 existing pending-confirmation, conflict, declined, failed and indeterminate rules
 remain authoritative. A hidden board row is not proof of completed cleanup.
+
+### Dispatcher launches (#1300)
+
+`repos` lists direct Git repositories in the launch's source directory, their
+pre-approval status, their active orchestrators, PR summaries and open decision
+titles. Launch selectors use the returned `repo` directory name.
+
+`launch_orchestrator` requires `repo`, `agent`, `prompt` and `idempotencyKey`, with
+optional `host` and `reason`. The result is an operation receipt. For unapproved
+repositories its initial state is `pending_confirmation`. Use
+`operation_status` under the same grant to read the human's decision and the
+launch result. A retry with the original key and payload returns that receipt.
+
+`prompt`, `stop`, `session_state`, `read_handoff` and bounded `wait_for` accept
+only the dispatcher's adopted or launched orchestrator IDs. Launch grants and
+answers remain human board actions. See [Dispatcher](../areas/dispatcher.md).

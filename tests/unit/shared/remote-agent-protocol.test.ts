@@ -38,6 +38,44 @@ const signal = {
   caseId: "prompt",
   conversationId: "conversation",
 };
+test("remote orchestrator wire fields are bounded and use their own result shape", () => {
+  const launch = {
+    ...spec,
+    worktree: spec.repository,
+    orchestratorOrigin: "https://example.test/repo.git",
+  };
+  expect(remoteAgentSpec(launch)).toBe(true);
+  for (const patch of [
+    { worktree: "/foreign" },
+    { checkoutIdentity: "0".repeat(64) },
+    { orchestratorOrigin: "" },
+    { orchestratorOrigin: "https://example.test /repo.git" },
+  ])
+    expect(remoteAgentSpec({ ...launch, ...patch })).toBe(false);
+  const parent = {
+    ...identity,
+    role: "orchestrator",
+    capabilities: ["whoami", "sessions", "session_state"],
+  };
+  expect(remoteControlResult(parent)).toBe(true);
+  expect(
+    remoteControlResult({ ...parent, capabilities: [...parent.capabilities, "open_preview"] }),
+  ).toBe(false);
+  expect(remoteControlResult({ ...parent, capabilities: ["sessions"] })).toBe(false);
+  expect(remoteControlResult({ ...parent, capabilities: [...parent.capabilities, "whoami"] })).toBe(
+    false,
+  );
+  if (remoteControlResult(parent))
+    expect(remotePublicResult(parent)).toMatchObject({ role: "orchestrator" });
+  const result = { type: "orchestrator-result", payload: '{"sessions":[]}' };
+  expect(remoteControlResult(result)).toBe(true);
+  if (remoteControlResult(result)) expect(remotePublicResult(result)).toEqual({ sessions: [] });
+  for (const payload of ["[1]", "invalid", null])
+    expect(remoteControlResult({ ...result, payload })).toBe(false);
+  const error = { type: "orchestrator-error", error: "not_found" };
+  if (remoteControlResult(error)) expect(remotePublicResult(error)).toEqual({ error: "not_found" });
+  expect(remoteControlResult({ ...error, error: "private exception text" })).toBe(false);
+});
 test("agent launch requests admit bounded literal data and reject unknown capabilities, invalid paths, arguments and prompts", () => {
   expect(remoteAgentSpec(spec)).toBe(true);
   expect(remoteAgentSpec({ ...spec, checkoutIdentity: "a".repeat(64) })).toBe(true);

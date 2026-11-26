@@ -1070,6 +1070,7 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   home: either(absent, boolean),
   machine: either(absent, boolean),
   sourceSession: either(absent, literal(true)),
+  dispatcher: either(absent, shape({ orchestrators: count, repositories: count })),
   config: either(absent, boolean),
   probe: either(absent, boolean),
   recipe: either(absent, boolean),
@@ -1354,6 +1355,7 @@ const validBoardDecision: Validator<BoardDecision> = shape({
   repository: text,
   question: validDecisionQuestion,
   status: literal("open", "checking", "stale", "withdrawn", "answered"),
+  grant: either(absent, literal(true)),
   movedHead: either(absent, validMovedHead),
   checks: either(absent, literal("success", "pending", "failure", "none", "unknown")),
 } satisfies Contract<BoardDecision>);

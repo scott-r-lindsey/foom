@@ -355,6 +355,7 @@ export function createAppSource(): BoardSource {
         home: entry.home === true,
         machine: entry.machine === true,
         sourceSession: entry.sourceSession === true,
+        dispatcher: entry.dispatcher,
         placement: entry.placement,
         config: entry.config === true,
         probe: entry.probe === true,

@@ -290,6 +290,7 @@ const validDialogSummaryLine: Validator<DialogSummaryLine> = shape({
 const geometryRevision: Validator<number> = (value): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const dialogFields = {
+  dispatcherRepositories: either(absent, array(shape({ name: nonempty, running: boolean }))),
   geometryRevision: either(absent, geometryRevision),
   id: nonempty,
   presented: boolean,
@@ -483,7 +484,8 @@ const api: ConfirmationWindowApi = {
     if (boolean(accepted)) ipcRenderer.send("confirmation:answer", id, accepted);
     else if (
       array(nonempty)(accepted) &&
-      accepted.length > 0 &&
+      (accepted.length > 0 ||
+        (id === current?.id && current.dispatcherRepositories !== undefined)) &&
       new Set(accepted).size === accepted.length
     )
       ipcRenderer.send("confirmation:answer", id, Array.from(accepted));

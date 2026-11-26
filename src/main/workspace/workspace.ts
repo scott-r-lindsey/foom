@@ -83,6 +83,18 @@ export class Workspace {
   async initializeControl(): Promise<void> {
     return this.owner.initializeControl();
   }
+  get dispatcherHost() {
+    return this.owner.dispatcherHost;
+  }
+  async elevateDispatcher(
+    id: string,
+    select: Parameters<WorkspaceContext["elevateDispatcher"]>[1],
+  ) {
+    await this.owner.elevateDispatcher(id, select);
+  }
+  async demoteDispatcher(id: string) {
+    await this.owner.demoteDispatcher(id);
+  }
   async messageBoard(method: string, input: unknown): Promise<unknown> {
     return this.owner.messageBoard(method, input);
   }

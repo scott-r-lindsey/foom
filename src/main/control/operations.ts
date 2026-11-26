@@ -39,7 +39,8 @@ export class Operations {
 
   private check(actor: Principal): void {
     this.active(actor);
-    if (actor.role !== "orchestrator") throw new ControlError("forbidden");
+    if (actor.role !== "orchestrator" && actor.role !== "dispatcher")
+      throw new ControlError("forbidden");
   }
 
   lookup(actor: Principal, selector: Record<string, unknown>): Operation {

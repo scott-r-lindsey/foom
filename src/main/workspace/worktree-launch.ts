@@ -87,6 +87,7 @@ export async function launchAgent(
   replacement?: { id: string; conversationId?: string },
   extra: Pick<
     AgentLaunch,
+    | "automated"
     | "control"
     | "prompt"
     | "conversationId"
@@ -97,6 +98,7 @@ export async function launchAgent(
     | "pressure"
     | "selection"
     | "remoteCheckout"
+    | "remoteOrchestrator"
   > = {},
   parentHold?: CheckoutHold,
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
@@ -106,16 +108,22 @@ export async function launchAgent(
     try {
       if (this.enabled[request.agent] !== true) throw new LaunchFailure("agent_disabled");
       // Scan once so launches don't each probe the login shell.
-      if (!extra.remoteCheckout && !remoteAgentTarget(process.argv, request.worktree))
+      if (
+        !extra.remoteCheckout &&
+        !extra.remoteOrchestrator &&
+        !remoteAgentTarget(process.argv, request.worktree)
+      )
         await this.scanAgents(false);
       // Look up the branch before spawning, so nothing can fail between spawn and tracking.
       const tree = extra.remoteCheckout
         ? {
             branch: `${extra.remoteCheckout.branch === "HEAD" ? "Detached HEAD" : extra.remoteCheckout.branch} · ${extra.remoteCheckout.target.host}`,
           }
-        : (await this.deps.worktrees.listWorktrees(request.repository)).find(
-            (entry) => entry.path === request.worktree,
-          );
+        : extra.remoteOrchestrator
+          ? { branch: `Main checkout · ${extra.remoteOrchestrator.target.host}` }
+          : (await this.deps.worktrees.listWorktrees(request.repository)).find(
+              (entry) => entry.path === request.worktree,
+            );
       const checkClosing = () => {
         if (
           checkoutBusy(
@@ -142,7 +150,10 @@ export async function launchAgent(
           checkClosing();
           extra.beforeSpawn?.();
         },
-        ...(replacement && !this.launched.get(replacement.id)?.remote ? { localOnly: true } : {}),
+        ...((extra.automated && !extra.remoteOrchestrator) ||
+        (replacement && !this.launched.get(replacement.id)?.remote)
+          ? { localOnly: true }
+          : {}),
         defaultArguments,
         ...(replacement
           ? {

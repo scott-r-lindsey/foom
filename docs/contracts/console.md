@@ -141,3 +141,14 @@ Model/effort fields use the same bounded tokens, manifest support and enum check
 as [MCP launch](control-mutations.md#per-child-selections-853). The console never
 accepts free-form child arguments. Manifest validation stays in main; `unsupported`
 is a fixed control error. Omission preserves Settings default arguments.
+
+### Dispatcher commands (#1300)
+
+From the dispatcher session, run `foom repos` or
+`foom launch-orchestrator REPO --agent PROVIDER --prompt TEXT --idempotency-key KEY`.
+The launch command accepts `--host HOST` and `--reason TEXT`. A pending receipt
+appears as a launch grant in the dispatcher's decisions pill. Read it with
+`foom operation-status --idempotency-key KEY`. Use `prompt`, `stop`,
+`session-state`, `read-handoff` and bounded `wait-for` with the owned
+orchestrator IDs from `repos`. Elevation, demotion and grant answers use the
+trusted desktop UI.

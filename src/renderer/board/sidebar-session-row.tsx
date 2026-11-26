@@ -142,6 +142,29 @@ export function SidebarSessionRow({
         />
         <span className="session-lines">
           <span className="visually-hidden board-branch">{row.branch}</span>
+          {row.dispatcher && (
+            <>
+              <span className="session-orchestration">
+                <svg
+                  aria-hidden="true"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path d="M8 2 14 6 8 10 2 6Z M2 10l6 4 6-4" />
+                </svg>
+                {" Dispatcher"}
+                {decisionCount > 0 && (
+                  <span className="decision-count"> · {decisionLabel(decisionCount)}</span>
+                )}
+              </span>
+              <span className="session-orchestration">
+                {row.dispatcher.orchestrators} orchestrators · {row.dispatcher.repositories} repos
+              </span>
+            </>
+          )}
           {row.orchestration?.role === "orchestrator" && (
             <span className="session-orchestration">
               {row.orchestration.active

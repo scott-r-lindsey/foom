@@ -8,6 +8,7 @@ import {
   rowRepository,
   rowWorktree,
   sessionName,
+  sourceDirectoryKey,
   worktreeKey,
 } from "./sidebar-model";
 import { SidebarMachineRow } from "./sidebar-machine-row";
@@ -275,10 +276,7 @@ export function Sidebar(props: SidebarProps) {
           )}
           {!compact &&
             [...sourceDirectories].map((directory) => {
-              const id =
-                directory === sourceDirectory
-                  ? "source-directory"
-                  : `source-directory:${directory}`;
+              const id = sourceDirectoryKey(directory);
               const matching = matchingSourceRows.filter((row) => row.repository === directory);
               if (
                 !matching.length &&

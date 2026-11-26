@@ -73,6 +73,7 @@ export interface WorkspaceMethods {
     replacement?: { id: string; conversationId?: string },
     extra?: Pick<
       AgentLaunch,
+      | "automated"
       | "control"
       | "prompt"
       | "conversationId"
@@ -83,6 +84,7 @@ export interface WorkspaceMethods {
       | "pressure"
       | "selection"
       | "remoteCheckout"
+      | "remoteOrchestrator"
     >,
     parentHold?: CheckoutHold,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
@@ -309,7 +311,10 @@ export interface WorkspaceDependencies {
   control?: () => Promise<
     Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
       Partial<
-        Pick<ControlRuntime, "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview">
+        Pick<
+          ControlRuntime,
+          "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview" | "dispatcher"
+        >
       >
   >;
   /** Started on the first launch that attaches hooks, then reused. */
@@ -334,6 +339,7 @@ export interface WorkspaceDependencies {
       worktree: string,
       sessionId?: string,
       role?: AgentLaunch["control"],
+      source?: true,
     ) => Promise<ControlLaunch>,
   ) => Agents;
   /** The trusted app dialog, for confirmations no board click can answer. */
