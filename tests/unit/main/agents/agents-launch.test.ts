@@ -67,6 +67,38 @@ describe("automation spawn authority", () => {
     expect(create).not.toHaveBeenCalled();
     expect(beforeSpawn).not.toHaveBeenCalled();
   });
+  it.each([false, true])(
+    "revalidates the checkout and launch authority after a pause (replaced=%s)",
+    async (replaced) => {
+      const spawn = vi.fn();
+      const beforeSpawn = vi.fn();
+      const service = enabledAgentService(
+        { listWorktrees, launchIdentity },
+        {
+          async create(spec, revalidateAfterPause) {
+            if (replaced) launchIdentity.mockResolvedValueOnce("replacement");
+            await revalidateAfterPause?.();
+            spawn(spec);
+            return "terminal-id";
+          },
+        },
+        prepare,
+      );
+      const launch = service.launch({ ...request, terminalId: "saved", beforeSpawn });
+      if (replaced) {
+        await expect(launch).rejects.toThrow("has changed");
+        expect(beforeSpawn).toHaveBeenCalledOnce();
+        expect(spawn).not.toHaveBeenCalled();
+        expect(cleanup).toHaveBeenCalledOnce();
+      } else {
+        await expect(launch).resolves.toMatchObject({ id: "terminal-id" });
+        expect(beforeSpawn).toHaveBeenCalledTimes(2);
+        expect(spawn).toHaveBeenCalledOnce();
+        service.dispose();
+      }
+    },
+  );
+
   it("rechecks main-owned authority immediately before spawning and cleans up a refused launch", async () => {
     const beforeSpawn = vi.fn(() => {
       throw new Error("Automation stopped");

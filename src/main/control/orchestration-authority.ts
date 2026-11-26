@@ -93,6 +93,7 @@ export class OrchestrationAuthority {
   private readonly resumeConsent = new Set<string>();
   private readonly parentResumes = new Map<string, { exited: boolean }>();
   private readonly slots = new Map<string, Parent>();
+  private readonly pendingWorktreeProofs = new WeakMap<Parent, Map<string, OwnedWorktree>>();
   private readonly parents = new Map<string, Parent>();
   protected readonly early = new Set<string>();
   protected readonly metadata: SessionMetadata;
@@ -462,11 +463,17 @@ export class OrchestrationAuthority {
 
   /** Keep the original identities for the next startup, outside live ownership. */
   savedWorktrees(id: string): OwnedWorktree[] {
-    const saved = new Map<string, OwnedWorktree>();
-    for (const tree of this.parents.get(id)?.unverifiedWorktrees.values() ?? [])
-      saved.set(tree.path, tree);
+    const parent = this.parents.get(id);
+    if (!parent) return [];
+    const saved = this.unprovenWorktrees(parent);
     for (const tree of this.ownedWorktrees(id)) saved.set(tree.path, tree);
     return [...saved.values()];
+  }
+
+  private unprovenWorktrees(parent: Parent): Map<string, OwnedWorktree> {
+    const saved = new Map(this.pendingWorktreeProofs.get(parent));
+    for (const tree of parent.unverifiedWorktrees.values()) saved.set(tree.path, tree);
+    return saved;
   }
 
   /** Saved identity must still match; invalid entries never grant capabilities. */
@@ -478,11 +485,26 @@ export class OrchestrationAuthority {
     const parent = this.parents.get(id);
     if (!parent?.active) return;
     parent.uncertain = uncertain;
+    // A quit snapshot can precede the remaining identity checks. Keep their
+    // original proof in persistence while live authority still requires validation.
+    const pending = new Map<string, OwnedWorktree>();
+    let available = WORKTREE_LIMIT - this.unused(parent) - parent.creating;
+    for (const saved of trees) {
+      if (saved.state === "unused") {
+        if (available <= 0) continue;
+        available--;
+      }
+      pending.set(saved.path, saved);
+    }
+    this.pendingWorktreeProofs.set(parent, pending);
     for (const saved of trees) {
       const tree = await this.host
         .restoreWorktree(parent.repository, saved.path)
         .catch(restoreWorktreeFailure);
       if (this.slots.get(parent.repository) !== parent) return;
+      const reserved = pending.delete(saved.path);
+      const keepUnused = () =>
+        this.unused(parent) + (reserved ? 0 : parent.creating) < WORKTREE_LIMIT;
       const key = locationId(saved.path);
       const owned = parent.worktrees.get(key);
       if (owned && owned.identity !== saved.identity) {
@@ -490,11 +512,7 @@ export class OrchestrationAuthority {
         continue;
       }
       if (tree === "unavailable") {
-        if (
-          !owned &&
-          !parent.refusedWorktrees.has(key) &&
-          (saved.state === "used" || this.unused(parent) < WORKTREE_LIMIT)
-        )
+        if (!owned && !parent.refusedWorktrees.has(key) && (saved.state === "used" || keepUnused()))
           parent.unverifiedWorktrees.set(key, saved);
         continue;
       }
@@ -504,7 +522,7 @@ export class OrchestrationAuthority {
         continue;
       }
       if (owned) continue;
-      if (saved.state === "unused" && this.unused(parent) >= WORKTREE_LIMIT) continue;
+      if (saved.state === "unused" && !keepUnused()) continue;
       parent.worktrees.set(key, { ...tree, ...saved });
       this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
     }
@@ -932,13 +950,14 @@ export class OrchestrationAuthority {
   }
 
   protected unused(parent: Parent): number {
-    return (
-      [...parent.worktrees.values()].filter(
-        (tree) => tree.state === "unused" || tree.state === "starting",
-      ).length +
-      [...parent.unverifiedWorktrees.values()].filter((tree) => tree.state === "unused").length +
-      parent.uncertain
-    );
+    const unproven = this.unprovenWorktrees(parent);
+    let unused = parent.uncertain;
+    for (const tree of parent.worktrees.values()) {
+      unproven.delete(tree.path);
+      if (tree.state === "unused" || tree.state === "starting") unused++;
+    }
+    for (const tree of unproven.values()) if (tree.state === "unused") unused++;
+    return unused;
   }
 
   protected launching(): boolean {

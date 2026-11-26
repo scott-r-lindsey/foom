@@ -60,9 +60,9 @@ export function readSessions(value: unknown): StoredSession[] {
   return parseSessions(value);
 }
 
-class DuplicateWorktree extends Error {}
+class InvalidWorktreeClaims extends Error {}
 
-function parseSessions(value: unknown, recoverDuplicateWorktrees = false): StoredSession[] {
+function parseSessions(value: unknown, recoverWorktreeClaims = false): StoredSession[] {
   if (!Array.isArray(value) || value.length > 1000) throw new Error("Invalid sessions");
   const ids = new Set<string>();
   const refusedParents = new Set<string>();
@@ -184,7 +184,7 @@ function parseSessions(value: unknown, recoverDuplicateWorktrees = false): Store
     try {
       role = readOrchestrator(orchestrator);
     } catch (error) {
-      if (!recoverDuplicateWorktrees || !(error instanceof DuplicateWorktree)) throw error;
+      if (!recoverWorktreeClaims || !(error instanceof InvalidWorktreeClaims)) throw error;
       refusedParents.add(id);
     }
     ids.add(id);
@@ -379,7 +379,7 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
       uncertain < 0 ||
       uncertain > WORKTREE_LIMIT)
   )
-    throw new Error("Invalid worktree budget");
+    throw new InvalidWorktreeClaims("Invalid worktree budget");
   let owned: OwnedWorktree[] | undefined;
   if (worktrees !== undefined) {
     if (!Array.isArray(worktrees) || worktrees.length > 1000) throw new Error("Invalid worktrees");
@@ -408,7 +408,7 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
         (state !== "unused" && state !== "used")
       )
         throw new Error("Invalid worktree");
-      if (paths.has(checkout)) throw new DuplicateWorktree("Invalid worktree");
+      if (paths.has(checkout)) throw new InvalidWorktreeClaims("Invalid worktree");
       paths.add(checkout);
       if (row["reviewer"] !== undefined && typeof row["reviewer"] !== "boolean")
         throw new Error("Invalid reviewer");
@@ -454,7 +454,7 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
         (typeof uncertain === "number" ? uncertain : 0) >
       WORKTREE_LIMIT
     )
-      throw new Error("Invalid worktree budget");
+      throw new InvalidWorktreeClaims("Invalid worktree budget");
   }
   return {
     identity: data["identity"],

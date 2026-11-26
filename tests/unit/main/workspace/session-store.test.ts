@@ -513,50 +513,67 @@ test("stores Foom's applied permission as metadata for reattach", async () => {
   expect(() => readSessions([{ ...record, permissionLevel: "unknown" }])).toThrow("Invalid");
 });
 
-test("retains session rows from disk when duplicate worktrees disqualify one saved orchestrator", async () => {
-  const { directory, store } = await setup();
-  const worktree = { path: join(root, "owned"), identity: "obsolete", state: "used" };
-  const other = { ...record, id: "other-parent", orchestrator: { identity: "other", history: [] } };
-  const entries = [
-    {
+test.each(["duplicate worktrees", "an excessive unused budget"])(
+  "retains session rows from disk when %s disqualifies one saved orchestrator",
+  async (problem) => {
+    const { directory, store } = await setup();
+    const worktree = { path: join(root, "owned"), identity: "obsolete", state: "used" };
+    const other = {
       ...record,
-      agent: "codex",
-      permissionLevel: "full",
-      running: true,
-      orchestrator: {
-        identity: "repo",
-        history: [],
-        worktrees: [worktree, { ...worktree, identity: "replacement" }],
+      id: "other-parent",
+      orchestrator: { identity: "other", history: [] },
+    };
+    const duplicate = problem === "duplicate worktrees";
+    const worktrees = duplicate
+      ? [worktree, { ...worktree, identity: "replacement" }]
+      : Array.from({ length: 5 }, (_, index) => ({
+          path: join(root, `owned-${String(index)}`),
+          identity: "saved",
+          state: "unused",
+        }));
+    const entries = [
+      {
+        ...record,
+        agent: "codex",
+        permissionLevel: "full",
+        running: true,
+        orchestrator: {
+          identity: "repo",
+          history: [],
+          worktrees,
+        },
       },
-    },
-    {
-      ...record,
-      agent: "codex",
-      id: "child",
-      worktree: worktree.path,
-      parentId: record.id,
-      running: true,
+      {
+        ...record,
+        agent: "codex",
+        id: "child",
+        worktree: worktree.path,
+        parentId: record.id,
+        running: true,
+        permissionLevel: "workspace",
+        reviewer: true,
+      },
+      other,
+      { ...record, id: "other-child", parentId: other.id },
+    ];
+    expect(() => readSessions(entries)).toThrow(
+      duplicate ? "Invalid worktree" : "Invalid worktree budget",
+    );
+    await writeFile(join(directory, "sessions.json"), JSON.stringify(entries));
+    const restored = await store.load();
+    expect(restored.map((row) => row.id)).toEqual(entries.map((row) => row.id));
+    expect(restored[0]).not.toHaveProperty("orchestrator");
+    expect(restored[0]?.running).toBe(true);
+    expect(restored[0]).toMatchObject({ permissionLevel: "full", bypass: true });
+    expect(restored[1]).not.toHaveProperty("parentId");
+    expect(restored[1]).toMatchObject({
       permissionLevel: "workspace",
+      bypass: false,
       reviewer: true,
-    },
-    other,
-    { ...record, id: "other-child", parentId: other.id },
-  ];
-  expect(() => readSessions(entries)).toThrow("Invalid worktree");
-  await writeFile(join(directory, "sessions.json"), JSON.stringify(entries));
-  const restored = await store.load();
-  expect(restored.map((row) => row.id)).toEqual(entries.map((row) => row.id));
-  expect(restored[0]).not.toHaveProperty("orchestrator");
-  expect(restored[0]?.running).toBe(true);
-  expect(restored[0]).toMatchObject({ permissionLevel: "full", bypass: true });
-  expect(restored[1]).not.toHaveProperty("parentId");
-  expect(restored[1]).toMatchObject({
-    permissionLevel: "workspace",
-    bypass: false,
-    reviewer: true,
-  });
-  expect(restored[2]?.orchestrator).toEqual(other.orchestrator);
-  expect(restored[3]?.parentId).toBe(other.id);
-  await store.save(restored);
-  expect(await store.load()).toEqual(restored);
-});
+    });
+    expect(restored[2]?.orchestrator).toEqual(other.orchestrator);
+    expect(restored[3]?.parentId).toBe(other.id);
+    await store.save(restored);
+    expect(await store.load()).toEqual(restored);
+  },
+);

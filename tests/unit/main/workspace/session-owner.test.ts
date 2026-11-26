@@ -93,6 +93,7 @@ function fixture(entries: StoredSession[] = []) {
 }
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 it("loads only matching home/config rows and strips stored authority from the live inventory", async () => {
@@ -313,6 +314,9 @@ it("waits for restoration before freezing writes and resumes persistence on canc
   });
   await f.owner.restore();
   const work = f.owner.restartSaved();
+  await vi.waitFor(() => {
+    expect(f.deps.launch).toHaveBeenCalledOnce();
+  });
   const quit = f.owner.prepareQuit();
   expect(f.store.flush).not.toHaveBeenCalled();
   gate.resolve("one");
@@ -327,6 +331,141 @@ it("waits for restoration before freezing writes and resumes persistence on canc
   f.owner.cancelQuit();
   expect(f.store.save).toHaveBeenCalledTimes(count + 1);
   expect(f.store.save.mock.lastCall?.[0]).toMatchObject([{ id: "one", running: false }]);
+});
+
+it("bounds the active launch wait and resumes queued launches after failed shutdown", async () => {
+  vi.useFakeTimers();
+  const f = fixture(["one", "two", "three", "four"].map((id) => row(id)));
+  const stalled = Promise.withResolvers<string>();
+  const settling = Promise.withResolvers<string>();
+  const launch = vi.mocked(f.deps.launch);
+  launch
+    .mockReturnValueOnce(stalled.promise)
+    .mockReturnValueOnce(settling.promise)
+    .mockReturnValueOnce(stalled.promise);
+  await f.owner.restore();
+  const work = f.owner.restartSaved();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(launch).toHaveBeenCalledTimes(3);
+  const quit = f.owner.prepareQuit();
+  f.rows.set("two", row("two", { dormant: false, exited: false }));
+  settling.resolve("two");
+  await vi.advanceTimersByTimeAsync(999);
+  expect(f.store.flush).not.toHaveBeenCalled();
+  expect(launch).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(1);
+  await quit;
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject(
+    ["one", "two", "three", "four"].map((id) => ({ id, running: true })),
+  );
+
+  const paused = f.owner.restoreSpawnPause("one");
+  expect(paused).toBeDefined();
+  expect(f.owner.restoreSpawnPause("four")).toBeUndefined();
+  f.owner.cancelQuit();
+  await paused;
+  await vi.advanceTimersByTimeAsync(0);
+  expect(launch).toHaveBeenLastCalledWith(row("four"), undefined, undefined);
+  stalled.reject(new Error("Original launch failed"));
+  await work;
+  expect(f.deps.failed).toHaveBeenCalledWith("one", expect.any(Error));
+  expect(f.owner.isRestoring("four")).toBe(false);
+});
+
+it.each([false, true])("handles discovery arriving during quit (cancel=%s)", async (cancel) => {
+  const f = fixture([row("saved")]);
+  const discovery = Promise.withResolvers<StoredSession[]>();
+  f.deps.discover = () => discovery.promise;
+  await f.owner.restore();
+  const work = f.owner.restartSaved();
+  await f.owner.prepareQuit();
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([{ id: "saved", running: true }]);
+
+  discovery.resolve([row("discovered")]);
+  await Promise.resolve();
+  expect(f.rows.has("discovered")).toBe(false);
+
+  if (cancel) {
+    f.owner.cancelQuit();
+  } else {
+    vi.mocked(f.deps.closed).mockReturnValue(true);
+    f.owner.finishQuit();
+  }
+  await work;
+  expect(f.rows.has("discovered")).toBe(cancel);
+  expect(f.deps.launch).toHaveBeenCalledTimes(cancel ? 2 : 0);
+});
+
+it("lets a stalled orchestration identity check settle without granting authority after shutdown", async () => {
+  vi.useFakeTimers();
+  const f = fixture([parent()]);
+  const identity = Promise.withResolvers<string>();
+  vi.mocked(f.deps.identity).mockReturnValue(identity.promise);
+  await f.owner.restore();
+  const work = f.owner.restartSaved();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.deps.identity).toHaveBeenCalledOnce();
+
+  const quit = f.owner.prepareQuit();
+  await vi.advanceTimersByTimeAsync(1_000);
+  await quit;
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
+    { id: "parent", running: true, orchestrator: parent().orchestrator },
+  ]);
+  identity.resolve("identity");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.orchestration.reserve).not.toHaveBeenCalled();
+
+  vi.mocked(f.deps.closed).mockReturnValue(true);
+  f.owner.finishQuit();
+  await work;
+  expect(f.orchestration.reserve).not.toHaveBeenCalled();
+  expect(f.deps.launch).not.toHaveBeenCalled();
+});
+
+it("saves only pending child links with intact checkout provenance during parent restore", async () => {
+  vi.useFakeTimers();
+  const children = ["intact", "replaced", "unchecked-legacy"].map((id) =>
+    row(id, { parentId: "parent" }),
+  );
+  const trees = children.slice(0, 2).map((child) => ({
+    path: child.worktree,
+    identity: child.id,
+    state: "used" as const,
+  }));
+  const savedParent = parent({
+    orchestrator: {
+      identity: "identity",
+      worktreeIdentity: "identity",
+      history: [],
+      worktrees: trees,
+    },
+  });
+  const f = fixture([savedParent, ...children]);
+  f.orchestration.savedWorktrees.mockReturnValue(
+    trees.filter((tree) => tree.identity === "intact"),
+  );
+  const proof = Promise.withResolvers<undefined>();
+  f.orchestration.restoreWorktrees.mockReturnValueOnce(proof.promise);
+  await f.owner.restore();
+  const restoring = f.owner.restartSaved();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.orchestration.restoreWorktrees).toHaveBeenCalledOnce();
+  const quit = f.owner.prepareQuit();
+  await vi.advanceTimersByTimeAsync(1_000);
+  await quit;
+  expect(
+    f.store.save.mock.lastCall?.[0].map(({ id, running, parentId }) => [id, running, parentId]),
+  ).toEqual([
+    ["parent", true, undefined],
+    ["intact", true, "parent"],
+    ["replaced", true, undefined],
+    ["unchecked-legacy", true, "parent"],
+  ]);
+  vi.mocked(f.deps.closed).mockReturnValue(true);
+  f.owner.finishQuit();
+  proof.resolve(undefined);
+  await restoring;
 });
 
 it.each(["save", "flush"] as const)(

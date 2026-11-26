@@ -136,9 +136,9 @@ test("Electron and Forge validate fixture cache hits and reject corrupt download
 test("desktop and packaging share exact-version Electron caches without changing Release inputs", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  for (const name of ["desktop", "platform"]) {
+  for (const name of ["desktop-linux", "platform"]) {
     const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
-    assert.doesNotMatch(job.split("    steps:\n")[0], /runner\./);
+    assert.doesNotMatch(job.split("    steps:")[0], /runner\./);
     assert.match(job, /uses: actions\/cache@[a-f0-9]{40} # v5/);
     assert.match(job, /path: \$\{\{ runner.temp \}\}\/electron-cache/);
     assert.match(
@@ -300,18 +300,52 @@ test("desktop jobs use four Linux, six Windows and eight macOS shards", () => {
   ]);
 });
 
-test("draft pull requests run CI and desktop jobs start without waiting for static checks", async () => {
+test("macOS desktop jobs wait for Linux Electron while Linux and Windows packaging still run independently", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.match(
-    workflow,
-    /pull_request:\n {4}types: \[opened, synchronize, reopened, ready_for_review, converted_to_draft\]\n/,
-  );
+  const job = (name) => workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
+  const needs = (name) =>
+    job(name)
+      .match(/^ {4}needs: \[([^\]]+)\]$/m)[1]
+      .split(", ");
   assert.doesNotMatch(workflow, /labeled|full-ci/);
-  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  platform:\n")[0];
-  assert.match(desktop, /\n {4}needs: \[changes\]\n/);
-  const quality = workflow.split("\n  quality:\n")[1];
-  assert.match(quality, /\n {4}needs: \[changes, checks, unit, desktop, platform\]\n/);
+  assert.deepEqual(needs("desktop-linux"), ["changes"]);
+  assert.deepEqual(needs("desktop-windows"), ["changes"]);
+  assert.deepEqual(needs("remote-host"), ["changes"]);
+  assert.deepEqual(needs("desktop-macos"), ["changes", "desktop-linux"]);
+  // All packages still need the complete same-run host catalog.
+  assert.deepEqual(needs("platform"), ["changes", "remote-host"]);
+  assert.deepEqual(needs("platform-macos"), ["changes", "remote-host", "desktop-linux"]);
+  assert.match(job("platform"), /os: \[ubuntu-24.04, windows-2025\]/);
+  assert.match(job("platform-macos"), /os: \[macos-15\]/);
+
+  for (const os of ["linux", "windows", "macos"]) {
+    const output = `desktop_matrix_${os}`;
+    const desktop = job(`desktop-${os}`);
+    assert.ok(job("changes").includes(`${output}: \${{ steps.changes.outputs.${output} }}`));
+    assert.ok(desktop.includes(`include: \${{ fromJSON(needs.changes.outputs.${output}) }}`));
+    assert.match(desktop, /fail-fast: false/);
+    if (os !== "linux") {
+      assert.match(desktop, /^ {4}env: \*electron_env$/m);
+      assert.match(desktop, /^ {4}steps: \*electron_steps$/m);
+    }
+  }
+  assert.match(job("desktop-linux"), /^ {4}env: &electron_env$/m);
+  assert.match(job("desktop-linux"), /^ {4}steps: &electron_steps$/m);
+  assert.match(job("platform"), /^ {4}steps: &platform_steps$/m);
+  assert.match(job("platform-macos"), /^ {4}steps: \*platform_steps$/m);
+  for (const name of [
+    "desktop-linux",
+    "desktop-windows",
+    "desktop-macos",
+    "remote-host",
+    "platform",
+    "platform-macos",
+  ]) {
+    // With no status override, GitHub skips these jobs after any unmet dependency.
+    assert.match(job(name), /^ {4}if: needs\.changes\.outputs\.desktop_required == 'true'$/m);
+    assert.doesNotMatch(job(name), /^ {4}continue-on-error:/m);
+  }
 });
 
 test("nightly runs validate desktop until the current main commit is published", () => {
@@ -388,37 +422,44 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
         },
       );
     };
+    const outputs = () =>
+      Object.fromEntries(
+        readFileSync(outputPath, "utf8")
+          .trimEnd()
+          .split("\n")
+          .map((line) => {
+            const [key, value] = line.split("=");
+            return [key, JSON.parse(value)];
+          }),
+      );
+    const full = {
+      desktop_matrix_linux: desktopMatrix(["ubuntu-24.04"]),
+      desktop_matrix_windows: desktopMatrix(["windows-2025"]),
+      desktop_matrix_macos: desktopMatrix(["macos-15"]),
+      electron_suites: [],
+    };
     assert.equal(run(initial, docs).status, 0);
-    assert.equal(
-      readFileSync(outputPath, "utf8"),
-      `desktop_required=false\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\nelectron_suites=[]\n`,
-    );
+    assert.deepEqual(outputs(), { ...full, desktop_required: false });
     mkdirSync(join(directory, "src/renderer/preview"), { recursive: true });
     writeFileSync(join(directory, "src/renderer/preview/markdown.ts"), "fixture");
     git("add", "src");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "mapped");
     const mapped = git("rev-parse", "HEAD");
     assert.equal(run(docs, mapped, true).status, 0);
-    const draftOutput = readFileSync(outputPath, "utf8");
-    assert.match(draftOutput, /^desktop_required=true\n/);
-    const matrix = JSON.parse(draftOutput.match(/desktop_matrix=(.*)/)[1]);
-    assert.deepEqual(
-      matrix,
-      ["ubuntu-24.04", "windows-2025", "macos-15"].map((os) => ({ os, shard: "1/1" })),
-    );
-    assert.equal(JSON.parse(draftOutput.match(/electron_suites=(.*)/)[1]).length, 7);
+    const { electron_suites, ...draftOutputs } = outputs();
+    assert.deepEqual(draftOutputs, {
+      desktop_required: true,
+      desktop_matrix_linux: [{ os: "ubuntu-24.04", shard: "1/1" }],
+      desktop_matrix_windows: [{ os: "windows-2025", shard: "1/1" }],
+      desktop_matrix_macos: [{ os: "macos-15", shard: "1/1" }],
+    });
+    assert.equal(electron_suites.length, 7);
     assert.equal(run(docs, mapped, false).status, 0);
-    assert.equal(
-      readFileSync(outputPath, "utf8"),
-      `desktop_required=true\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\nelectron_suites=[]\n`,
-    );
+    assert.deepEqual(outputs(), { ...full, desktop_required: true });
     git("mv", "source.ts", "NOTICE");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "rename");
     assert.equal(run(docs, git("rev-parse", "HEAD")).status, 0);
-    assert.equal(
-      readFileSync(outputPath, "utf8"),
-      `desktop_required=true\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\nelectron_suites=[]\n`,
-    );
+    assert.deepEqual(outputs(), { ...full, desktop_required: true });
     assert.notEqual(run("f".repeat(40), docs).status, 0);
     assert.equal(readFileSync(outputPath, "utf8"), "");
   } finally {
@@ -467,10 +508,10 @@ sudo() {
   assert.doesNotMatch(failure.stdout, /install -y|sysctl/);
 });
 
-test("Electron shards start independently while packaging waits for native hosts", async () => {
+test("Electron shards and native packaging keep separate steps and diagnostics", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  remote-host:\n")[0];
+  const desktop = workflow.split("\n  desktop-linux:\n")[1].split("\n  remote-host:\n")[0];
   const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
   const step = (job, name) => job.split(`      - name: ${name}\n`)[1].split("      - name:")[0];
   for (const name of [
@@ -489,7 +530,7 @@ test("Electron shards start independently while packaging waits for native hosts
     assert.ok(platform.includes(`      - name: ${name}\n`), name);
     assert.ok(!desktop.includes(`      - name: ${name}\n`), name);
   }
-  assert.match(platform, /os: \[ubuntu-24.04, windows-2025, macos-15\]/);
+  assert.match(platform, /os: \[ubuntu-24.04, windows-2025\]/);
   assert.doesNotMatch(platform, /matrix\.shard|FOOM_ELECTRON_SHARD/);
   assert.match(
     step(platform, "Test hooks and control storage with native OS tools"),
@@ -517,11 +558,6 @@ test("Electron shards start independently while packaging waits for native hosts
     [desktop, "Upload Electron timing and process diagnostics"],
     [platform, "Upload native and packaged timing and process diagnostics"],
   ]) {
-    assert.match(
-      job,
-      job === desktop ? /\n {4}needs: \[changes\]\n/ : /\n {4}needs: \[changes, remote-host\]\n/,
-    );
-    assert.match(job, /if: needs\.changes\.outputs\.desktop_required == 'true'/);
     assert.match(job, /fail-fast: false/);
     assert.match(step(job, "Prepare Linux display and sandbox"), /if: runner\.os == 'Linux'/);
     assert.match(step(job, diagnostic), /if: always\(\)/);
@@ -563,18 +599,31 @@ test("nightly publication waits for the full gate and reuses companion job packa
   );
 });
 
-test("Quality gate rejects failed, cancelled or skipped required desktop and platform jobs", {
+test("the shared gate rejects any required job that fails, is cancelled or is skipped", {
   skip: process.platform === "win32",
 }, async () => {
   const { readFileSync } = await import("node:fs");
   const { spawnSync } = await import("node:child_process");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const quality = workflow.split("\n  quality:\n")[1].split("\n  mcp-probe:\n")[0];
+  const bindings = {
+    CHANGES: "changes",
+    CHECKS: "checks",
+    UNIT: "unit",
+    DESKTOP_LINUX: "desktop-linux",
+    DESKTOP_WINDOWS: "desktop-windows",
+    DESKTOP_MACOS: "desktop-macos",
+    REMOTE_HOST: "remote-host",
+    PLATFORM: "platform",
+    PLATFORM_MACOS: "platform-macos",
+  };
   assert.match(quality, /if: always\(\)/);
-  assert.match(quality, /PLATFORM: \$\{\{ needs\.platform\.result \}\}/);
-  assert.match(quality, /DESKTOP: \$\{\{ needs\.desktop\.result \}\}/);
+  assert.ok(quality.includes(`needs: [${Object.values(bindings).join(", ")}]`));
+  for (const [variable, job] of Object.entries(bindings))
+    assert.ok(quality.includes(`${variable}: \${{ needs.${job}.result }}`));
   const script = quality.split("        run: |\n")[1].replace(/^ {10}/gm, "");
-  const run = (required, result, platform = required === "true" ? "success" : "skipped") =>
+  const desktopJobs = Object.keys(bindings).slice(3);
+  const run = (required, overrides = {}) =>
     spawnSync("bash", ["-e", "-c", script], {
       env: {
         ...process.env,
@@ -582,28 +631,37 @@ test("Quality gate rejects failed, cancelled or skipped required desktop and pla
         CHECKS: "success",
         UNIT: "success",
         DESKTOP_REQUIRED: required,
-        DESKTOP: result,
-        PLATFORM: platform,
+        ...Object.fromEntries(
+          desktopJobs.map((job) => [job, required === "true" ? "success" : "skipped"]),
+        ),
+        ...overrides,
       },
     }).status;
-  assert.equal(run("true", "success"), 0);
-  assert.equal(run("false", "skipped"), 0);
-  // GitHub aggregates all eighteen matrix jobs into needs.desktop.result.
-  for (const { os, shard } of desktopMatrix()) {
-    for (const result of ["failure", "cancelled", "skipped"]) {
-      assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);
+  assert.equal(run("true"), 0);
+  assert.equal(run("false"), 0);
+  for (const variable of Object.keys(bindings)) {
+    for (const result of ["failure", "cancelled", "skipped", ""]) {
+      assert.equal(run("true", { [variable]: result }), 1, `${variable}: ${result}`);
     }
   }
-  for (const os of ["ubuntu-24.04", "windows-2025", "macos-15"]) {
-    for (const result of ["failure", "cancelled", "skipped"]) {
-      assert.notEqual(run("true", "success", result), 0, `${os}: ${result}`);
+  for (const result of ["failure", "cancelled", "skipped"]) {
+    assert.equal(
+      run("true", {
+        DESKTOP_LINUX: result,
+        DESKTOP_MACOS: "skipped",
+        PLATFORM_MACOS: "skipped",
+      }),
+      1,
+      `Linux Electron: ${result}`,
+    );
+  }
+  for (const variable of desktopJobs) {
+    for (const result of ["success", "failure", "cancelled"]) {
+      assert.equal(run("false", { [variable]: result }), 1, `${variable}: ${result}`);
     }
   }
-  for (const result of ["success", "failure", "cancelled"]) {
-    assert.notEqual(run("false", "skipped", result), 0);
-    assert.notEqual(run("false", result, "skipped"), 0);
-  }
-  assert.notEqual(run("", "success", "success"), 0);
+  assert.equal(run("false", { CHANGES: "failure" }), 1);
+  assert.equal(run(""), 1);
 });
 
 test("dependency jobs enable pinned pnpm before caching and freeze every repository install", async () => {
@@ -613,7 +671,7 @@ test("dependency jobs enable pinned pnpm before caching and freeze every reposit
   assert.match(manifest.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
   assert.equal(manifest.scripts.audit, "node scripts/audit.mjs");
   assert.doesNotMatch(workflow, /\bnpm (?:ci|install|run)|\bnpx\b|cache: npm/);
-  for (const name of ["checks", "unit", "desktop", "remote-host", "platform", "mcp-probe"]) {
+  for (const name of ["checks", "unit", "desktop-linux", "remote-host", "platform", "mcp-probe"]) {
     const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
     const enable = job.indexOf("run: corepack enable");
     const cache = job.indexOf("cache: pnpm");
@@ -850,7 +908,7 @@ test("a partial draft check can never satisfy Quality gate, even before the read
     /types: \[opened, synchronize, reopened, ready_for_review, converted_to_draft\]/,
   );
   assert.match(workflow, /electron_suites: \$\{\{ steps.changes.outputs.electron_suites \}\}/);
-  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  remote-host:\n")[0];
+  const desktop = workflow.split("\n  desktop-linux:\n")[1].split("\n  remote-host:\n")[0];
   assert.match(
     desktop,
     /FOOM_CI_ELECTRON_SUITES: \$\{\{ needs.changes.outputs.electron_suites \}\}/,
