@@ -1,7 +1,7 @@
 name: CI
 
-# Every PR run validates Linux, Windows and macOS. Drafts select affected Electron
-# suites; ready PRs run the full suite. The required check exists only for full runs.
+# Drafts select affected Electron suites. Ready PRs require full validation on
+# every platform. A ready transition can reuse a verified full run.
 # Platform failures surface while the work is in progress. A newer push cancels
 # the branch's previous run. Nightly runs validate main until publication succeeds.
 on:
@@ -52,8 +52,12 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || !inputs.check_macos_credentials
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       desktop_required: ${{ steps.changes.outputs.desktop_required }}
+      reused_run_id: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.run-id || '' }}
       desktop_matrix_linux: ${{ steps.changes.outputs.desktop_matrix_linux }}
       desktop_matrix_windows: ${{ steps.changes.outputs.desktop_matrix_windows }}
       desktop_matrix_macos: ${{ steps.changes.outputs.desktop_matrix_macos }}
@@ -81,6 +85,32 @@ jobs:
         env:
           NIGHTLY_ALREADY_PUBLISHED: ${{ steps.nightly-status.outputs.result }}
         run: node scripts/ci-changes.mjs
+      # Preserve the original base and actual workflow bytes in the job's step records.
+      - name: Record full PR inputs (${{ github.event.pull_request.base.repo.id }}, ${{ github.event.pull_request.base.ref }}, ${{ github.event.pull_request.base.sha }}, ${{ steps.changes.outputs.workflow_fingerprint }})
+        if: >-
+          github.event_name == 'pull_request' && steps.changes.outputs.workflow_fingerprint != '' &&
+          steps.changes.outputs.desktop_required == 'true' && steps.changes.outputs.electron_suites == '[]'
+        run: ':'
+      - name: Look for reusable full PR validation
+        id: reuse
+        if: >-
+          github.event_name == 'pull_request' && github.event.action == 'ready_for_review' &&
+          github.event.pull_request.draft == false && steps.changes.outputs.workflow_fingerprint != ''
+        continue-on-error: true
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          WORKFLOW_FINGERPRINT: ${{ steps.changes.outputs.workflow_fingerprint }}
+        with:
+          script: |
+            try {
+              const { findReusableRun } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/ready-validation.mjs`);
+              const runId = await findReusableRun({
+                github, context, workflowFingerprint: process.env.WORKFLOW_FINGERPRINT, warn: core.warning,
+              });
+              if (runId) core.setOutput('run-id', runId);
+            } catch {
+              core.warning('CI reuse lookup unavailable. Running full desktop validation.');
+            }
 
   checks:
     name: Static checks
@@ -186,7 +216,7 @@ jobs:
   desktop-linux:
     name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
     needs: [changes]
-    if: needs.changes.outputs.desktop_required == 'true'
+    if: needs.changes.outputs.desktop_required == 'true' && needs.changes.outputs.reused_run_id == ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -268,7 +298,7 @@ jobs:
   desktop-windows:
     name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
     needs: [changes]
-    if: needs.changes.outputs.desktop_required == 'true'
+    if: needs.changes.outputs.desktop_required == 'true' && needs.changes.outputs.reused_run_id == ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -281,7 +311,7 @@ jobs:
   desktop-macos:
     name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
     needs: [changes, desktop-linux]
-    if: needs.changes.outputs.desktop_required == 'true'
+    if: needs.changes.outputs.desktop_required == 'true' && needs.changes.outputs.reused_run_id == ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -294,7 +324,7 @@ jobs:
   remote-host:
     name: Remote host (${{ matrix.name }})
     needs: [changes]
-    if: needs.changes.outputs.desktop_required == 'true'
+    if: needs.changes.outputs.desktop_required == 'true' && needs.changes.outputs.reused_run_id == ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -411,7 +441,7 @@ jobs:
     # Keep Linux and Windows packaging eligible as soon as the host catalog is ready.
     name: Native checks and packaging (${{ matrix.os }})
     needs: [changes, remote-host]
-    if: needs.changes.outputs.desktop_required == 'true'
+    if: needs.changes.outputs.desktop_required == 'true' && needs.changes.outputs.reused_run_id == ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -566,7 +596,7 @@ jobs:
   platform-macos:
     name: Native checks and packaging (${{ matrix.os }})
     needs: [changes, remote-host, desktop-linux]
-    if: needs.changes.outputs.desktop_required == 'true'
+    if: needs.changes.outputs.desktop_required == 'true' && needs.changes.outputs.reused_run_id == ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -577,7 +607,7 @@ jobs:
 
   quality:
     # Never create the required check on a draft, even as a skipped job.
-    # Readiness does not change the SHA: only a full run may publish this name.
+    # Only fresh full validation or a verified reusable full run may supply desktop evidence.
     # Credential-only manual runs also keep their skipped aggregate nonrequired.
     name: ${{ github.event_name == 'workflow_dispatch' && inputs.check_macos_credentials && 'Credential-only gate' || github.event_name == 'pull_request' && github.event.pull_request.draft == true && 'Draft quality gate' || 'Quality gate' }}
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.check_macos_credentials)
@@ -597,6 +627,8 @@ jobs:
           PLATFORM: ${{ needs.platform.result }}
           PLATFORM_MACOS: ${{ needs.platform-macos.result }}
           DESKTOP_REQUIRED: ${{ needs.changes.outputs.desktop_required }}
+          REUSED_RUN_ID: ${{ needs.changes.outputs.reused_run_id }}
+          READY_TRANSITION: ${{ github.event_name == 'pull_request' && github.event.action == 'ready_for_review' && github.event.pull_request.draft == false }}
         run: |
           test "$CHANGES" = success
           test "$CHECKS" = success
@@ -606,10 +638,21 @@ jobs:
             false) expected=skipped ;;
             *) exit 1 ;;
           esac
+          if [ -n "$REUSED_RUN_ID" ]; then
+            test "$READY_TRANSITION" = true
+            test "$DESKTOP_REQUIRED" = true
+            [[ "$REUSED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+            expected=skipped
+          fi
           for result in "$DESKTOP_LINUX" "$DESKTOP_WINDOWS" "$DESKTOP_MACOS" \
             "$REMOTE_HOST" "$PLATFORM" "$PLATFORM_MACOS"; do
             test "$result" = "$expected"
           done
+          if [ -n "$REUSED_RUN_ID" ]; then
+            printf 'Reused full CI validation from [run %s](%s/%s/actions/runs/%s).\n' \
+              "$REUSED_RUN_ID" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$REUSED_RUN_ID" |
+              tee -a "$GITHUB_STEP_SUMMARY"
+          fi
 
   mcp-probe:
     name: Real CLI MCP probe
