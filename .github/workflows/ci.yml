@@ -46,7 +46,7 @@ env:
   HUSKY: '0'
 
 jobs:
-  # Desktop jobs need only this fast job, so they start alongside static checks.
+  # Start Linux and Windows Electron alongside static checks.
   changes:
     name: Change detection
     if: github.event_name != 'workflow_dispatch' || !inputs.check_macos_credentials
@@ -54,7 +54,9 @@ jobs:
     timeout-minutes: 5
     outputs:
       desktop_required: ${{ steps.changes.outputs.desktop_required }}
-      desktop_matrix: ${{ steps.changes.outputs.desktop_matrix }}
+      desktop_matrix_linux: ${{ steps.changes.outputs.desktop_matrix_linux }}
+      desktop_matrix_windows: ${{ steps.changes.outputs.desktop_matrix_windows }}
+      desktop_matrix_macos: ${{ steps.changes.outputs.desktop_matrix_macos }}
       electron_suites: ${{ steps.changes.outputs.electron_suites }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -181,7 +183,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  desktop:
+  desktop-linux:
     name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
     needs: [changes]
     if: needs.changes.outputs.desktop_required == 'true'
@@ -190,11 +192,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.changes.outputs.desktop_matrix) }}
-    env:
+        include: ${{ fromJSON(needs.changes.outputs.desktop_matrix_linux) }}
+    env: &electron_env
       FOOM_ELECTRON_SHARD: ${{ matrix.shard }}
       FOOM_CI_ELECTRON_SUITES: ${{ needs.changes.outputs.electron_suites }}
-    steps:
+    steps: &electron_steps
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -263,6 +265,32 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  desktop-windows:
+    name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
+    needs: [changes]
+    if: needs.changes.outputs.desktop_required == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.desktop_matrix_windows) }}
+    env: *electron_env
+    steps: *electron_steps
+
+  desktop-macos:
+    name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
+    needs: [changes, desktop-linux]
+    if: needs.changes.outputs.desktop_required == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.desktop_matrix_macos) }}
+    env: *electron_env
+    steps: *electron_steps
+
   remote-host:
     name: Remote host (${{ matrix.name }})
     needs: [changes]
@@ -275,8 +303,7 @@ jobs:
         include:
           - { os: ubuntu-24.04, target: linux-x64, name: linux-x64 }
           - { os: ubuntu-24.04-arm, target: linux-arm64, name: linux-arm64 }
-          - { os: macos-15, target: darwin-arm64, name: darwin-arm64 + darwin-x64 }
-    steps:
+    steps: &remote_host_steps
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -379,9 +406,23 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  remote-host-macos:
+    name: Remote host (${{ matrix.name }})
+    needs: [changes, desktop-linux]
+    if: needs.changes.outputs.desktop_required == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, target: darwin-arm64, name: darwin-arm64 + darwin-x64 }
+    steps: *remote_host_steps
+
   platform:
+    # All packages embed the complete catalog, including both Darwin hosts.
     name: Native checks and packaging (${{ matrix.os }})
-    needs: [changes, remote-host]
+    needs: [changes, remote-host, remote-host-macos]
     if: needs.changes.outputs.desktop_required == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -540,7 +581,7 @@ jobs:
     # Credential-only manual runs also keep their skipped aggregate nonrequired.
     name: ${{ github.event_name == 'workflow_dispatch' && inputs.check_macos_credentials && 'Credential-only gate' || github.event_name == 'pull_request' && github.event.pull_request.draft == true && 'Draft quality gate' || 'Quality gate' }}
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.check_macos_credentials)
-    needs: [changes, checks, unit, desktop, platform]
+    needs: [changes, checks, unit, desktop-linux, desktop-windows, desktop-macos, remote-host, remote-host-macos, platform]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -549,17 +590,26 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           CHECKS: ${{ needs.checks.result }}
           UNIT: ${{ needs.unit.result }}
-          DESKTOP: ${{ needs.desktop.result }}
+          DESKTOP_LINUX: ${{ needs.desktop-linux.result }}
+          DESKTOP_WINDOWS: ${{ needs.desktop-windows.result }}
+          DESKTOP_MACOS: ${{ needs.desktop-macos.result }}
+          REMOTE_HOST: ${{ needs.remote-host.result }}
+          REMOTE_HOST_MACOS: ${{ needs.remote-host-macos.result }}
           PLATFORM: ${{ needs.platform.result }}
           DESKTOP_REQUIRED: ${{ needs.changes.outputs.desktop_required }}
         run: |
           test "$CHANGES" = success
           test "$CHECKS" = success
           test "$UNIT" = success
-          case "$DESKTOP_REQUIRED:$DESKTOP:$PLATFORM" in
-            true:success:success|false:skipped:skipped) exit 0 ;;
+          case "$DESKTOP_REQUIRED" in
+            true) expected=success ;;
+            false) expected=skipped ;;
             *) exit 1 ;;
           esac
+          for result in "$DESKTOP_LINUX" "$DESKTOP_WINDOWS" "$DESKTOP_MACOS" \
+            "$REMOTE_HOST" "$REMOTE_HOST_MACOS" "$PLATFORM"; do
+            test "$result" = "$expected"
+          done
 
   mcp-probe:
     name: Real CLI MCP probe

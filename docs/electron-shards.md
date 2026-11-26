@@ -7,12 +7,15 @@ the full matrix, including the readiness event without another push. `tests/elec
 stores assignments keyed by shard count and the CI count for each platform; `test-shard.js` hashes new or renamed tests,
 and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
-companion job per platform, alongside the Electron shards and static checks.
-The Quality gate requires all eighteen Electron jobs and all three companion jobs.
-Draft quality gate requires the selected Electron matrix and the same companions;
-it cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
+companion job per platform after all host builds succeed. Linux and Windows
+Electron can start as soon as change detection finishes. macOS Electron and the
+combined Darwin host build wait for all Linux Electron shards to succeed.
+The Quality gate requires all eighteen Electron jobs, host builds and all three
+packaging jobs. Draft quality gate requires the selected Electron jobs and the
+same host build and packaging jobs.
+It cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
-permit skipping both desktop matrices together. Native hook probes stay serial.
+permit skipping all desktop jobs together. Native hook probes stay serial.
 Electron steps allow fourteen minutes on Linux, Windows and macOS. Per-test
 deadlines and the worker watchdog are unchanged.
 
@@ -59,8 +62,8 @@ auditing, sandboxing and shared
 `test-policy.js` deadlines. Cleanup quits every app before removing fixtures.
 
 The wrapper passes `--test-concurrency=1` explicitly: feature files run serially
-within each job, preserving native desktop/focus behavior. CI jobs remain
-independent. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
+within each job, preserving native desktop/focus behavior. Shards within a
+platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
 Suite discovery preserves named registrations independently of file layout.
 Generated loop cases are included in registration audits. Empty files on a shard
