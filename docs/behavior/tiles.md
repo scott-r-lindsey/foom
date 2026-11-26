@@ -101,6 +101,10 @@ Directional Split and Grow, gutters and Tidy arrange the layout.
 Preview title bars show a document glyph, MD, HTML or IMG badge, relative path, tile menu,
 Maximize/Restore, Reload and Close. The tile menu offers Allow network… when off, and Block network when on; its facts show Network Off or On, and the title bar marks enabled network. Allow network asks in the trusted confirmation window: "This page can send files from its preview root to the internet". Permission belongs to that preview, permits HTTPS and secure WebSockets, and resets on restart or when moved to another window. A move resets network to Off because permission was granted in the original window’s trusted dialog context. Plain HTTP stays blocked. External link requests always ask in the trusted window, showing the full URL, even when page script requested them without a click. Only HTTPS, HTTP and mailto links are eligible. Each preview has at most one pending confirmation; requests received while one is pending are dropped. Declining opens nothing.
 
+Narrow preview headers give space to the menu and action buttons before the
+preview identity and network text. The globe remains visible when the network
+text no longer fits and exposes “Network enabled” as its accessible name and tooltip.
+
 Preview headers have a keyboard-reachable **Reload** icon beside Close. It is faint at
 rest and fully opaque when the header is hovered or the icon has keyboard focus, with
 visible focus and pressed states. Its accessible name is Reload; it adds no tooltip

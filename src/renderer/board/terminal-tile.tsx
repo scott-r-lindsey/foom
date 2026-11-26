@@ -485,34 +485,50 @@ export function Tile({
             </div>
           )}
           {preview && (
-            <>
-              {arrived && (
-                <span className="visually-hidden" role="status">
-                  New preview
+            <div className="preview-heading">
+              <div className="tile-identity">
+                {arrived && (
+                  <span className="visually-hidden" role="status">
+                    New preview
+                  </span>
+                )}
+                <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
+                  <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
+                </svg>
+                <AgentBadge
+                  mark={
+                    preview.kind === "markdown" ? "MD" : preview.kind === "image" ? "IMG" : "HTML"
+                  }
+                />
+                <span className="tile-name" title={preview.relativePath}>
+                  {preview.relativePath}
                 </span>
-              )}
-              <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
-                <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
-              </svg>
-              <AgentBadge
-                mark={
-                  preview.kind === "markdown" ? "MD" : preview.kind === "image" ? "IMG" : "HTML"
-                }
-              />
-              <span className="tile-name" title={preview.relativePath}>
-                {preview.relativePath}
-              </span>
-              {preview.openedBy && (
+                {preview.openedBy && (
+                  <span
+                    className="preview-opener"
+                    title={`Opened by ${previewOpener(preview, rows, preferences)}`}
+                  >
+                    <span>opened by</span>
+                    <AgentBadge mark={agentBadges.get(preview.openedBy.agent) ?? "?"} />
+                  </span>
+                )}
+              </div>
+              {preview.network && (
                 <span
-                  className="preview-opener"
-                  title={`Opened by ${previewOpener(preview, rows, preferences)}`}
+                  className="preview-network"
+                  role="img"
+                  aria-label="Network enabled"
+                  title="Network enabled"
                 >
-                  <span>opened by</span>
-                  <AgentBadge mark={agentBadges.get(preview.openedBy.agent) ?? "?"} />
+                  <svg aria-hidden="true" viewBox="0 0 16 16">
+                    <circle cx="8" cy="8" r="6" />
+                    <ellipse cx="8" cy="8" rx="2.5" ry="6" />
+                    <path d="M2 8h12" />
+                  </svg>
+                  <span>network</span>
                 </span>
               )}
-              {preview.network && <span className="session-program">network</span>}
-            </>
+            </div>
           )}
           <button
             ref={menuRef}

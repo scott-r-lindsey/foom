@@ -1,4 +1,4 @@
-const { sizeTileBoard } = require("./tile-fixture.js");
+const { expectTileHeaderHitTargets, sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -104,7 +104,8 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
 }, async (context) => {
   const { app, page, repo, shell, requestPreview } = await agentPreviewFixture(context);
   const filename = "a-long-relative-filename-for-an-agent-opened-network-preview.html";
-  await writeFile(path.join(repo, filename), "<p>Preview</p>");
+  await writeFile(path.join(repo, filename), '<a href="next.html">Next</a>');
+  await writeFile(path.join(repo, "next.html"), "<p>Second page</p>");
   await page.evaluate((session) => {
     localStorage.setItem(
       `foom.tiles.v1.${window.desktop.windows.id}`,
@@ -135,7 +136,7 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
   await expect
     .poll(async () => Math.abs((await tile.evaluate((element) => element.offsetWidth)) - 260))
     .toBeLessThanOrEqual(20);
-  const network = tile.locator(".tile-title").getByText("network", { exact: true });
+  const network = tile.getByRole("img", { name: "Network enabled", exact: true });
   await expect(network).toHaveCount(0);
   await tile.getByRole("button", { name: /^Tile \d+ menu$/ }).click();
   await page.getByRole("menuitem", { name: "Allow network…", exact: true }).click();
@@ -149,9 +150,11 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
         )?.network,
     )
     .toBe(true);
+  await expect(network).toHaveAttribute("title", "Network enabled");
+  const networkLabel = network.getByText("network", { exact: true });
   await expect
     .poll(() =>
-      network.evaluate((element) => {
+      networkLabel.evaluate((element) => {
         const { left, right, width } = element.getBoundingClientRect();
         const header = element.closest(".tile-title").getBoundingClientRect();
         const text = document.createRange();
@@ -164,6 +167,43 @@ test("a narrow agent-opened preview shows its enabled network indicator", {
       }),
     )
     .toBe(true);
+  const tileWidth = () => tile.evaluate((element) => element.offsetWidth);
+  const controls = ["Tile 2 menu", "Maximize tile", "Reload", "Close"];
+  await expectTileHeaderHitTargets(tile, controls);
+  for (let step = 0; step < 4; step++) {
+    const previous = await tileWidth();
+    await divider.press("ArrowRight");
+    await expect.poll(tileWidth).toBeLessThan(previous);
+    await expectTileHeaderHitTargets(tile, controls);
+  }
+  await divider.press("End");
+  await expect.poll(tileWidth).toBeLessThan(120);
+  await expectTileHeaderHitTargets(tile, controls);
+  const networkIcon = network.locator("svg");
+  assert.ok(
+    await networkIcon.evaluate((icon) => {
+      const { left, right, top, bottom } = icon.getBoundingClientRect();
+      return icon.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+    }),
+    "The network globe stays visible at minimum width",
+  );
+
+  await pollPreviewContents(app, previewId, "document.body.textContent").toContain("Next");
+  await previewContents(app, previewId, "document.querySelector('a').click()");
+  await pollPreviewContents(app, previewId, "document.body.textContent").toContain("Second page");
+  await expect(tile.getByRole("button", { name: "Back", exact: true })).toBeEnabled();
+  await expectTileHeaderHitTargets(tile, [
+    "Tile 2 menu",
+    "Maximize tile",
+    "Back",
+    "Forward",
+    "Reload",
+    "Close",
+  ]);
+
+  await tile.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Block network", exact: true }).click();
+  await expect(network).toHaveCount(0);
 });
 
 test("agent previews split a blank window into terminal-width columns", {

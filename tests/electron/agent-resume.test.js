@@ -7,6 +7,7 @@ const { mkdir, mkdtemp, readFile, realpath, rename, writeFile } = require("node:
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, quitAndWait, removeAfterApps } = require("./harness.js");
+const { expectTileHeaderHitTargets } = require("./tile-fixture.js");
 
 for (const agent of ["claude", "codex", "agy"]) {
   test(`resumes exited ${agent} conversations in place after a Foom restart`, {
@@ -246,22 +247,20 @@ if (resumed) {
       shell = await restored.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
       await restored.locator(`[data-drag-session="${shell.terminalId}"]`).click();
       await expect(restored.locator('.terminal-tile[data-kind="shell"] .xterm')).toBeVisible();
-      await restored.getByRole("separator", { name: "Resize tiles" }).press("Home");
-      await expect.poll(() => tile.evaluate((element) => element.offsetWidth)).toBeLessThan(120);
-      // Locator clicks can scroll an overflow-hidden tile. Test the buttons
-      // where the board actually lays them out before Playwright can scroll.
-      const hittable = await tile.evaluate((element) => {
-        const tileBounds = element.getBoundingClientRect();
-        return Array.from(element.querySelectorAll(".tile-title button"), (button) => {
-          const { left, right, top, bottom } = button.getBoundingClientRect();
-          return (
-            left >= tileBounds.left &&
-            right <= tileBounds.right &&
-            button.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2))
-          );
-        });
-      });
-      assert.deepEqual(hittable, [true, true, true, true]);
+      const divider = restored.getByRole("separator", { name: "Resize tiles" });
+      const tileWidth = () => tile.evaluate((element) => element.offsetWidth);
+      const controls = ["Tile 1 menu", "Maximize tile", "Hide", "Close"];
+      await divider.press("Home");
+      await expect.poll(tileWidth).toBeLessThan(120);
+      await expectTileHeaderHitTargets(tile, controls);
+      for (let step = 0; step < 3; step++) {
+        const previous = await tileWidth();
+        await divider.press("ArrowRight");
+        await expect.poll(tileWidth).toBeGreaterThan(previous);
+        await expectTileHeaderHitTargets(tile, controls);
+      }
+      await divider.press("Home");
+      await expect.poll(tileWidth).toBeLessThan(120);
     }
     await close.click();
     await expect(tile).toHaveCount(0);
