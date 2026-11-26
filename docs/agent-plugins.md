@@ -538,4 +538,6 @@ declared bypass matcher. Ask and Workspace must not. These arguments are
 applied at the defaults stage only for a profile-owned choice. A reviewer with a Full access preference requires a
 Workspace declaration. The arguments are never
 read from a repository launch request. Conflicting defaults fail before spawn.
+Config override conflict matchers inspect the root key, so a permission table
+and its subkeys conflict even if nested keys in unrelated tables share its name.
 See [permission selection](areas/agent-launch.md#per-launch-permission-levels-1078).

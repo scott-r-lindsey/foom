@@ -80,8 +80,16 @@ test("re-enrolling a host discards its Full access approval", {
     `host:${host}`,
   );
   const disclosure = await confirmationPage(app, "Allow Full access for Codex?");
+  const checked = await page.evaluate((input) => window.desktop.hosts(input), {
+    action: "preflight",
+    host,
+    codeFolder: original,
+  });
+  assert.ok(checked.preflight);
+  assert.equal(checked.preflightSaveFailed, undefined);
   await disclosure.getByRole("button", { name: "Allow Full access", exact: true }).click();
   const approved = await pending;
+  assert.ok(approved.settings.registeredHosts.find((entry) => entry.host === host)?.observation);
   assert.equal(approved.settings.agentPermissions[`host:${host}`].codex.level, "full");
 
   const removed = await page.evaluate(

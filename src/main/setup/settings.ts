@@ -4,6 +4,7 @@ import type { ThemeApproval, ThemeBitmapApproval } from "../../shared/theme-bitm
 import { parseAgentDefaults as parseStoredAgentDefaults } from "../../shared/providers/arguments";
 import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
 import { hostAlias } from "../../shared/registered-hosts";
+import type { RegisteredHost } from "../../shared/registered-hosts.d";
 import type { AgentPermissionSettings } from "../../shared/agent-permissions";
 import { settingsChanged } from "../data/settings-changes";
 import { registeredHosts } from "../../shared/registered-hosts";
@@ -33,6 +34,16 @@ import type { Settings, SettingsPatch } from "../../shared/setup";
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
 const SUPERSEDED_PROFILE_WRITE = new Error("Superseded profile write");
+const hostRegistrationIdentities = new WeakMap<RegisteredHost, symbol>();
+
+/** Identity of a registered destination across display-only profile updates. */
+export function hostRegistrationIdentity(registration: RegisteredHost): symbol {
+  const current = hostRegistrationIdentities.get(registration);
+  if (current) return current;
+  const identity = Symbol();
+  hostRegistrationIdentities.set(registration, identity);
+  return identity;
+}
 
 type RegisteredHostsPatch = {
   registeredHosts: NonNullable<Settings["registeredHosts"]>;
@@ -555,11 +566,11 @@ export class SettingsStore {
       const next = { ...this.settings, ...profile, agentArguments };
       if (profile.registeredHosts) {
         const current = new Map(this.settings.registeredHosts?.map((host) => [host.host, host]));
-        // Keep unchanged registrations recognizable across unrelated host writes.
-        next.registeredHosts = profile.registeredHosts.map((host) => {
+        for (const host of profile.registeredHosts) {
           const previous = current.get(host.host);
-          return previous && isDeepStrictEqual(previous, host) ? previous : host;
-        });
+          if (previous?.codeFolder === host.codeFolder)
+            hostRegistrationIdentities.set(host, hostRegistrationIdentity(previous));
+        }
       }
       if (profile.agentPermissions || (profile.registeredHosts && this.settings.agentPermissions)) {
         const permissions = { ...this.settings.agentPermissions };

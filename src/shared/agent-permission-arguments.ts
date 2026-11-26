@@ -23,7 +23,7 @@ export function availablePermissionLevels(policy: {
 export function checkPermissionConflicts(model: AgentManifestV2, args: readonly string[]): void {
   if (
     !model.permissionLevels ||
-    matchesArguments(model.permissionLevels.conflicts, args) ||
+    matchesArguments(model.permissionLevels.conflicts, args, "root") ||
     matchesArguments(model.bypassArguments, args) ||
     args.includes("--")
   )
@@ -44,7 +44,7 @@ export function applyPermissionArguments(
   if (
     args.slice(0, index).includes("--") ||
     matchesArguments(model.bypassArguments, args) ||
-    matchesArguments(policy.conflicts, args)
+    matchesArguments(policy.conflicts, args, "root")
   )
     throw new ApplicationError("agent-permission-conflict");
   const permissionArgs = policy[level];

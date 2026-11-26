@@ -1728,6 +1728,7 @@ if (args[0] === '--version') console.log('codex-cli 0.167.0');
 else if (args[0] === '--help') console.log(fs.readFileSync(${JSON.stringify(help)}, 'utf8'));
 else {
   console.log('PERMISSIONS:' + JSON.stringify(args.slice(0, 4)));
+  console.log('MCP_OVERRIDE:' + args.includes('mcp_servers.permissions.command="/fixture/no-op"'));
   setInterval(() => {}, 1000);
 }
 `,
@@ -1737,7 +1738,12 @@ else {
     if (shots)
       await target.screenshot({ path: evidencePath(`1078/${name}`), animations: "disabled" });
   };
-  await page.evaluate(() => window.desktop.saveSetup({ hooks: false }));
+  await page.evaluate(() =>
+    window.desktop.saveSetup({
+      hooks: false,
+      agentArguments: { codex: ["-c", 'mcp_servers.permissions.command="/fixture/no-op"'] },
+    }),
+  );
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents", exact: true }).click();
   const selector = page.getByLabel("Codex permission level", { exact: true });
@@ -1812,6 +1818,9 @@ else {
   await expect
     .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
     .toContain('PERMISSIONS:["--sandbox","danger-full-access","--ask-for-approval","never"]');
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
+    .toContain("MCP_OVERRIDE:true");
   const rows = await page.evaluate(() => window.desktop.workspace());
   assert.equal(rows.terminals.find((entry) => entry.id === id).permissionLevel, "full");
   await page

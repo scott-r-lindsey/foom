@@ -429,8 +429,9 @@ describe("main-owned permission levels", () => {
       agentFixture.service.release("terminal-id");
       agentFixture.service.setPermissionLevels({ local: { codex: { level: "workspace" } } });
       const conversationId = "01944544-60f0-7fab-b4fc-959a5f56da5a";
+      const defaultArguments = ["-c", 'mcp_servers.permissions.command="/fixture/no-op"'];
       await expect(
-        agentFixture.service.launch({ ...child, conversationId }),
+        agentFixture.service.launch({ ...child, conversationId, defaultArguments }),
       ).resolves.toMatchObject({
         permissionLevel: "workspace",
         bypass: false,
@@ -448,6 +449,7 @@ describe("main-owned permission levels", () => {
         "sandbox_workspace_write.network_access=true",
         "-c",
         "sandbox_workspace_write.writable_roots=[]",
+        ...defaultArguments,
       ]);
     } finally {
       versions.codex = previous;
@@ -473,6 +475,8 @@ describe("main-owned permission levels", () => {
       ["-sworkspace-write"],
       ["--ask-for-approval=on-request"],
       ["-c", 'sandbox_mode="danger-full-access"'],
+      ["-c", "permissions.team.workspace_write=true"],
+      ["-c", "profiles.team.approval_policy='never'"],
       ["--add-dir", "/git"],
       ["--dangerously-bypass-approvals-and-sandbox"],
     ])

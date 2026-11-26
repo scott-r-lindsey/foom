@@ -16,7 +16,7 @@ import { agentProviders } from "../agents/providers/registry";
 import { bypassConsentIdentity, hasBypassArgument } from "../agents/default-arguments";
 import type { AgentId } from "../../shared/agents";
 import { isRecent, scanCodeFolder, suggestCodeFolders } from "./code-scan";
-import { parseSettingsPatch } from "./settings";
+import { hostRegistrationIdentity, parseSettingsPatch } from "./settings";
 import type { SettingsStore } from "./settings";
 import type {
   CodeScan,
@@ -301,15 +301,19 @@ export class Setup {
     }
     let machineCurrent: (() => boolean) | undefined;
     for (const [scope, choices] of Object.entries(patch.agentPermissions ?? {})) {
-      const registration = before.registeredHosts?.find(({ host }) => scope === `host:${host}`);
+      const matchesScope = ({ host }: { host: string }) => scope === `host:${host}`;
+      const registration = before.registeredHosts?.find(matchesScope);
       if (scope.startsWith("host:") && !registration)
         throw new Error("Machine is no longer registered.");
-      if (registration)
+      if (registration) {
+        const identity = hostRegistrationIdentity(registration);
         machineCurrent = () => {
-          if (!this.deps.store.get().registeredHosts?.includes(registration))
+          const current = this.deps.store.get().registeredHosts?.find(matchesScope);
+          if (!current || hostRegistrationIdentity(current) !== identity)
             throw new Error("Machine registration changed. Save the permission level again.");
           return true;
         };
+      }
       for (const [agent, choice] of Object.entries(choices)) {
         if (!choice) continue;
         const provider = agentProviders().find(({ id }) => id === agent);

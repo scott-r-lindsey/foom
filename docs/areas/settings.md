@@ -217,9 +217,10 @@ hub Environment settings remain local.
 When a manifest drops a saved permission level, its scope still shows the
 selection as unavailable. Reset it to Agent default in Global or Use Global in
 Machines. Launches that resolve to the unavailable level fail before spawn.
-An unrelated host update leaves a pending machine permission save eligible to
-commit. If the selected registration changes before commit, Settings reports a
-failed save so the choice can be reviewed and saved again.
+Host observation and nickname updates leave a pending machine permission save
+eligible to commit. Removing the selected host or changing its registered code
+folder before commit causes Settings to report a failed save so the choice can
+be reviewed and saved again.
 
 Machines uses one picker, initially This computer, followed by every registered
 host. Hosts Open selects its host in that picker. There are no per-machine tabs.
