@@ -2,8 +2,9 @@
 
 Full CI runs use four named-test shards on Linux, six on Windows and eight on macOS.
 Draft PRs with entirely mapped changes run the affected suites once per platform
-using shard `1/1`; any unmapped path retains the full matrix. Ready PRs always run
-the full matrix, including the readiness event without another push. `tests/electron/shard-plan.json`
+using shard `1/1`; any unmapped path retains the full matrix. The ready transition
+runs the full matrix unless CI verifies a completed full run for the same head SHA,
+base and workflow file. `tests/electron/shard-plan.json`
 stores assignments keyed by shard count and the CI count for each platform; `test-shard.js` hashes new or renamed tests,
 and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
