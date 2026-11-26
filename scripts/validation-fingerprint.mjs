@@ -11,8 +11,10 @@ import {
   statSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { nodeRuntimeLicense } from "./node-runtime.mjs";
+
+const buildDirectories = new Set(["src", "scripts", "node_modules"]);
 
 function readRegularFile(path, stat, followSymlinks) {
   const flags = constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY;
@@ -64,44 +66,62 @@ export function fingerprint(
   return hash.digest("hex");
 }
 
-function compilerConfigInputs() {
+function compilerInputs() {
   const configs = readdirSync(".").filter((name) => /^tsconfig.*\.json$/.test(name));
   if (configs.length === 0) return [];
   const ts = createRequire(import.meta.url)("typescript");
   const files = new Set();
+  const readInput = (path) => {
+    const text = ts.sys.readFile(path);
+    if (text !== undefined) files.add(path);
+    return text;
+  };
   const host = {
     ...ts.sys,
-    // Only config resolution matters here. Source files are already fingerprinted.
-    readDirectory: () => [],
-    readFile(path) {
-      const text = ts.sys.readFile(path);
-      if (text !== undefined) files.add(path);
-      return text;
-    },
+    readFile: readInput,
     onUnRecoverableConfigFileDiagnostic() {},
   };
   for (const config of configs) {
-    const parsed = ts.getParsedCommandLineOfConfigFile(resolve(config), {}, host);
-    // TS18003 is expected because this host does not enumerate source files.
+    // Only the configs passed to tsc by build.mjs need a compiler source graph.
+    const compiled = config === "tsconfig.main.json" || config === "tsconfig.renderer.json";
+    const parsed = ts.getParsedCommandLineOfConfigFile(
+      resolve(config),
+      {},
+      compiled ? host : { ...host, readDirectory: () => [] },
+    );
+    // Configs parsed only for their inheritance can report no input files.
     if (!parsed || parsed.errors.some(({ code }) => code !== 18003)) return undefined;
+    if (!compiled) continue;
+    const compiler = ts.createCompilerHost(parsed.options);
+    compiler.readFile = (path) => {
+      const [directory, entry] = relative(process.cwd(), path).split(sep);
+      if (buildDirectories.has(directory) && entry !== ".vite" && entry !== ".vite-temp")
+        return ts.sys.readFile(path);
+      return readInput(path);
+    };
+    // Resolve the same imports, type roots and references as tsc without checking or emitting.
+    ts.createProgram({
+      rootNames: parsed.fileNames,
+      options: parsed.options,
+      projectReferences: parsed.projectReferences,
+      host: compiler,
+    });
   }
   return files;
 }
 
 export function buildFingerprint() {
-  const configs = compilerConfigInputs();
-  if (!configs) return undefined;
+  const files = compilerInputs();
+  if (!files) return undefined;
   return fingerprint([
     // The SEA builders copy the selected Node executable and notice into the build.
     process.execPath,
     nodeRuntimeLicense(),
-    "src",
-    "scripts",
-    "node_modules",
+    ...buildDirectories,
     "package.json",
     "pnpm-lock.yaml",
     ".npmrc",
-    ...configs,
+    ...files,
   ]);
 }
 
@@ -128,10 +148,11 @@ export function buildOutputFingerprint() {
         throw new Error(`Unsafe fixture asset directory: ${source}`);
       const original = join(source, basename(path));
       const info = darwin ? lstatSync(original) : statSync(original);
+      const mode = path === `${nativeDir}/spawn-helper` ? 0o700 : 0o600;
       if (
         !bytes ||
         stat.uid !== process.getuid() ||
-        (stat.mode & 0o077) !== 0 ||
+        (stat.mode & 0o777) !== mode ||
         !info.isFile() ||
         !bytes.equals(readRegularFile(original, info, !darwin))
       )

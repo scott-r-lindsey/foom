@@ -4,6 +4,8 @@ import { evidencePath } from "../tests/helpers/evidence.js";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  appendFileSync,
+  chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
@@ -249,17 +251,21 @@ test("local runs reuse a matching build and rebuild when its receipt, inputs or 
   }
 });
 
+function linkTypeScript(root) {
+  symlinkSync(
+    dirname(fileURLToPath(import.meta.resolve("typescript/package.json"))),
+    join(root, "node_modules/typescript"),
+    "junction",
+  );
+}
+
 test("local reuse fingerprints transitive relative and package tsconfig bases", (context) => {
   const { root, run } = fixture(context);
   const filter = "--test-name-pattern=^selected case$";
   const shared = join(root, "compiler-config");
   const preset = join(shared, "node_modules/@fixture/tsconfig");
   mkdirSync(preset, { recursive: true });
-  symlinkSync(
-    dirname(fileURLToPath(import.meta.resolve("typescript/package.json"))),
-    join(root, "node_modules/typescript"),
-    "junction",
-  );
+  linkTypeScript(root);
   writeFileSync(join(root, "tsconfig.base.json"), '{"extends":"./compiler-config/base"}');
   writeFileSync(join(shared, "base.json"), '{"extends":["@fixture/tsconfig","./relative"]}');
   writeFileSync(join(preset, "package.json"), '{"tsconfig":"preset.json"}');
@@ -281,6 +287,95 @@ test("local reuse fingerprints transitive relative and package tsconfig bases", 
   assert.notEqual(run(["--reuse-build", filter]).status, 0);
   check(false);
   check(false);
+});
+
+test("local reuse rebuilds when an external declaration consumed by tsc changes", (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  linkTypeScript(root);
+  mkdirSync(join(root, "declarations"));
+  writeFileSync(
+    join(root, "tsconfig.main.json"),
+    JSON.stringify({
+      compilerOptions: { strict: true, noEmit: true, types: [] },
+      include: ["src", "declarations/ambient.d.ts"],
+    }),
+  );
+  writeFileSync(join(root, "src/input.ts"), 'const value: BuildValue = "original";');
+  const ambient = join(root, "declarations/ambient.d.ts");
+  writeFileSync(ambient, "type BuildValue = string;");
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { execFileSync } from 'node:child_process';
+    execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.main.json'], { stdio: 'inherit' });
+  `,
+  );
+  assert.equal(run([filter]).status, 0);
+  assert.match(run([filter]).output, /Reusing verified/);
+  writeFileSync(ambient, "type BuildValue = number;");
+  const rebuilt = run([filter]);
+  assert.notEqual(rebuilt.status, 0, rebuilt.output);
+  assert.match(rebuilt.output, /TS2322/);
+  assert.doesNotMatch(rebuilt.output, /SELECTED_BODY/);
+});
+
+test("fresh runner executes tests when a copied asset symlink prevents reuse", {
+  skip: process.platform === "win32",
+}, (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  symlinkSync("input.ts", join(root, "src/alias.ts"));
+  appendFileSync(
+    join(root, "scripts/build.mjs"),
+    `
+    import { cpSync } from 'node:fs';
+    cpSync('src/alias.ts', 'build/alias.ts');
+  `,
+  );
+  for (let index = 0; index < 2; index++) {
+    const fresh = run([filter]);
+    assert.equal(fresh.status, 0, fresh.output);
+    assert.match(fresh.output, /SELECTED_BODY/);
+    assert.doesNotMatch(fresh.output, /Reusing verified/);
+  }
+  assert.throws(() => readFileSync(join(root, "test-results/electron-build.json")), {
+    code: "ENOENT",
+  });
+  assert.match(run(["--reuse-build", filter]).output, /No current verified build/);
+});
+
+test("Darwin fixture spawn-helper must retain its owner execute bit", {
+  skip: process.platform === "win32",
+}, (context) => {
+  const { root } = fixture(context);
+  const native = join(root, "build/remote-host/native");
+  const source = join(root, "build/remote-sea");
+  mkdirSync(native, { recursive: true, mode: 0o700 });
+  mkdirSync(source, { recursive: true });
+  const helper = join(native, "spawn-helper");
+  writeFileSync(join(source, "spawn-helper"), "fixture helper");
+  writeFileSync(helper, "fixture helper", { mode: 0o700 });
+  const verify = () =>
+    spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+    import { buildOutputFingerprint } from './scripts/validation-fingerprint.mjs';
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    console.log(buildOutputFingerprint());
+  `,
+      ],
+      { cwd: root, encoding: "utf8" },
+    );
+  const valid = verify();
+  assert.equal(valid.status, 0, valid.stderr);
+  chmodSync(helper, 0o600);
+  const invalid = verify();
+  assert.notEqual(invalid.status, 0, invalid.stdout);
+  assert.match(invalid.stderr, /Unsafe fixture asset/);
 });
 
 for (const kind of ["symlink", "FIFO"]) {

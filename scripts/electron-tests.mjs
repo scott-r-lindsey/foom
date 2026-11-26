@@ -50,6 +50,19 @@ if (packaged && requireReuse)
 mkdirSync("test-results", { recursive: true });
 const receipt = "test-results/electron-build.json";
 
+function recordBuild(inputs, catalog, revision, local) {
+  try {
+    const output = buildOutputFingerprint();
+    writeFileSync(receipt, JSON.stringify({ inputs, catalog, revision, output, local }));
+  } catch (error) {
+    // A fresh build can run the tests even when its output cannot be reused.
+    console.warn(
+      "Electron build receipt unavailable.",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 function isCI() {
   const env = process.env;
   return env.CI || env.GITHUB_ACTIONS || env.FOOM_CI_ELECTRON_SUITES !== undefined;
@@ -168,16 +181,7 @@ if (!packaged) {
   )
     throw new Error("Build inputs changed during Electron preparation; run again.");
   if (!reuse && !override && inputs !== undefined && catalog !== undefined) {
-    writeFileSync(
-      receipt,
-      JSON.stringify({
-        inputs,
-        catalog,
-        revision,
-        output: buildOutputFingerprint(),
-        local: allowAutomaticReuse,
-      }),
-    );
+    recordBuild(inputs, catalog, revision, allowAutomaticReuse);
   }
 }
 const summaryPath = `test-results/${packaged ? "packaged" : "electron"}-summary.json`;
