@@ -282,9 +282,13 @@ jobs:
         timeout-minutes: 14
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm run test:electron:affected --ci
-      - name: Test Electron on macOS and Windows
+      - name: Test Electron on Windows
         timeout-minutes: 14
-        if: runner.os != 'Linux'
+        if: runner.os == 'Windows'
+        run: pnpm run test:electron:affected --ci
+      - name: Test Electron on macOS
+        timeout-minutes: 20
+        if: runner.os == 'macOS'
         run: pnpm run test:electron:affected --ci
       - name: Upload Electron timing and process diagnostics
         if: always()
@@ -313,7 +317,7 @@ jobs:
     needs: [changes, desktop-linux]
     if: needs.changes.outputs.desktop_required == 'true' && needs.changes.outputs.reused_run_id == ''
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 26
     strategy:
       fail-fast: false
       matrix:
