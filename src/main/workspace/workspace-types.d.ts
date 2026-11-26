@@ -272,7 +272,7 @@ export interface WorkspaceDependencies {
     | "removeWorktree"
     | "removeRepository"
     | "mergedDefault"
-    | "lastFetchedMergeBase"
+    | "lastFetchedDefault"
     | "mergedFetchTime"
     | "mergedCommit"
     | "deleteMergedBranch"

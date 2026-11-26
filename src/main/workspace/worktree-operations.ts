@@ -416,18 +416,20 @@ export async function forgeProviderFor(
   remote: string,
 ) {
   return provider(remote, async () => {
-    const identity = await service.launchIdentity(repository, path);
-    const branch = (await service.listWorktrees(repository)).find(
-      (row) => row.path === path,
-    )?.branch;
+    const readIdentity = () => service.launchIdentity(repository, path, { skipOwnership: true });
+    const readBranch = async () =>
+      (await service.listWorktrees(repository, { skipOwnership: true })).find(
+        (row) => row.path === path,
+      )?.branch;
+    const identity = await readIdentity();
+    const branch = await readBranch();
     return {
       identity: JSON.stringify([repository, path, identity, branch, remote]),
       validate: async () => {
         repositoryExists(repository);
         if (
-          (await service.launchIdentity(repository, path)) !== identity ||
-          (await service.listWorktrees(repository)).find((row) => row.path === path)?.branch !==
-            branch ||
+          (await readIdentity()) !== identity ||
+          (await readBranch()) !== branch ||
           (await service.forgeRemote(repository)) !== remote
         )
           throw new Error("Forge worktree changed");

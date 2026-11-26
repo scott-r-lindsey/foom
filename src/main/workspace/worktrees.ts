@@ -45,6 +45,7 @@ import { WorktreeFetchState } from "./worktree-fetch-state";
 import { WorktreePanelFacts } from "./worktree-panel-facts";
 import { WorktreeMergePolicy } from "./worktree-merge-policy";
 import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
+import type { FetchedDefault } from "./worktree-features.d";
 
 export { absolutePath as registeredRepositoryPath } from "./worktree-operations";
 
@@ -154,10 +155,11 @@ export class WorktreeService {
   async mergedDefault(repository: string, refresh = false): Promise<string> {
     return this.fetchState.mergedDefault(repository, refresh);
   }
-  lastFetchedMergeBase(repository: string): string {
-    const head = this.fetchState.facts(repository)?.head;
-    if (!head) throw new Error("The remote default branch has not been checked successfully.");
-    return head;
+  lastFetchedDefault(repository: string): FetchedDefault {
+    const facts = this.fetchState.facts(repository);
+    if (!facts?.head || !facts.branch)
+      throw new Error("The remote default branch has not been checked successfully.");
+    return { branch: facts.branch, head: facts.head };
   }
   mergedFetchTime(repository: string): number | undefined {
     return this.fetchState.mergedFetchTime(repository);
@@ -165,7 +167,11 @@ export class WorktreeService {
   async canAutoRemove(repository: string, path: string, identity: string): Promise<boolean> {
     return this.mergePolicy.canAutoRemove(repository, path, identity);
   }
-  async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
+  async mergedCommit(
+    repository: string,
+    tree: Worktree,
+    base: string | FetchedDefault,
+  ): Promise<boolean> {
     return this.mergePolicy.mergedCommit(repository, tree, base);
   }
   async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {
@@ -503,9 +509,18 @@ export class WorktreeService {
   }
 
   /** Validate any selected checkout belonging to an added repository. */
-  async launchIdentity(repositoryPath: string, path: string): Promise<string> {
+  async launchIdentity(
+    repositoryPath: string,
+    path: string,
+    options?: { skipOwnership?: true },
+  ): Promise<string> {
     return checkoutIdentity(
-      { listWorktrees: this.registeredWorktrees.bind(this), git, validatePath, realpath },
+      {
+        listWorktrees: (repository) => this.registeredWorktrees(repository, options),
+        git,
+        validatePath,
+        realpath,
+      },
       repositoryPath,
       path,
       true,

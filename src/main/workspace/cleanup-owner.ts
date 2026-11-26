@@ -13,6 +13,7 @@ import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { Worktree } from "../../shared/worktrees";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { WorktreeService } from "./worktrees";
+import type { FetchedDefault } from "./worktree-features.d";
 
 export interface CleanupOwnerDependencies {
   checkoutHolds: CheckoutHolds;
@@ -27,7 +28,7 @@ export interface CleanupOwnerDependencies {
     | "cleanupBrokenWorktree"
     | "removeRepository"
     | "mergedDefault"
-    | "lastFetchedMergeBase"
+    | "lastFetchedDefault"
     | "mergedFetchTime"
     | "mergedCommit"
     | "deleteMergedBranches"
@@ -548,7 +549,7 @@ export class CleanupOwner {
 
   private async mergedPlan(
     repository: string,
-    resolveBase: () => string | Promise<string>,
+    resolveBase: () => string | FetchedDefault | Promise<string>,
     inventory?: readonly Worktree[],
   ) {
     const trees = inventory ?? (await this.deps.inventory(repository));
@@ -636,7 +637,7 @@ export class CleanupOwner {
           inventory.then((trees) =>
             this.mergedPlan(
               repository,
-              () => this.deps.worktrees.lastFetchedMergeBase(repository),
+              () => this.deps.worktrees.lastFetchedDefault(repository),
               trees,
             ),
           ),

@@ -26,7 +26,7 @@ export function worktreeFake(
     cleanupChanges: vi.fn(() => Promise.resolve("")),
     mergedFetchTime: vi.fn(() => 1000),
     mergedDefault: vi.fn(() => Promise.resolve("base")),
-    lastFetchedMergeBase: vi.fn(() => "base"),
+    lastFetchedDefault: vi.fn(() => ({ branch: "main", head: "base" })),
     mergedCommit: vi.fn(() => Promise.resolve(false)),
     deleteMergedBranches: vi.fn(() => Promise.resolve([])),
     deleteMergedBranch: vi.fn(async () => {}),

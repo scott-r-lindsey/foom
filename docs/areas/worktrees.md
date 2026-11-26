@@ -54,11 +54,12 @@ in-flight scans are shared; superseded scans, removed repositories and disposed
 workspaces cannot publish late results. Git status reads use `--no-optional-locks`
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
 it opens checking before awaiting the fresh plan. The zero-count review runs the
-eligibility checks against current checkout state and the last successfully
-fetched default commit, which is retained after a failed refresh. It reads Git
-membership without reconciling Foom's creation records and presents a static,
-read-only dialog after the checks finish. Only deletion uses a cleanup run, repository reservation and removal
-queue. Deletion approval always fetches afresh. Fetch operations are queued per
+eligibility checks against current checkout state and the branch and commit
+from the same successful default fetch. A failed refresh preserves that snapshot.
+The review, including Forge context validation, reads Git membership without
+reconciling Foom's creation records. It presents a static, read-only dialog after
+the checks finish. Only deletion uses a cleanup run, repository reservation and
+removal queue. Deletion approval always fetches afresh. Fetch operations are queued per
 repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.
 Default discovery runs `ls-remote --symref` alongside `fetch --prune`, then tests
