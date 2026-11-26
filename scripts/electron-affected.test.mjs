@@ -302,11 +302,11 @@ test("workflow Electron env reaches the real CI entry through the package script
   `,
   );
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  remote-host:\n")[0];
+  const desktop = workflow.split("\n  desktop-linux:\n")[1].split("\n  desktop-windows:\n")[0];
   const bindings = [
     ...desktop
-      .split("    env:\n")[1]
-      .split("    steps:\n")[0]
+      .split("    env: &electron_env\n")[1]
+      .split("    steps: &electron_steps\n")[0]
       .matchAll(/ {6}(FOOM_[A-Z_]+): \$\{\{ (.*?) \}\}/g),
   ];
   assert.equal(bindings.length, 2);

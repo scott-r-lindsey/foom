@@ -518,14 +518,20 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       .setContentSize(2200, 1000);
   });
   await page.waitForFunction(() => innerWidth === 2200);
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "eclipse-light" }));
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(243, 240, 250)");
   await tabTo(page, "Launch");
   await page.keyboard.press("Enter");
 
   // Reduced motion holds its still frame until the user continues.
   await page.getByText("Takeoff was faster than expected.").waitFor();
+  await expect(page.locator(".launch")).toHaveCSS("color-scheme", "dark");
+  await expect(page.locator(".launch canvas")).toHaveCSS("--accent-deep", "#7a3cff");
   await expect(page.getByText("Click or press Esc to continue")).toBeVisible();
   await page.locator(".launch canvas").click();
   await expect(page.getByRole("dialog", { name: "Launch", exact: true })).toHaveCount(0);
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(243, 240, 250)");
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "follow" }));
   await expect(page.locator(".tile-title").filter({ hasText: "manual.html" })).toHaveCount(1);
   const firstManual = (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
     (entry) => entry.worktree === "foom:manual",

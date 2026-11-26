@@ -1,4 +1,5 @@
 import { themeBitmapSlots } from "../../shared/theme-bitmaps";
+import type { CSSProperties } from "react";
 import type { InterfaceTheme, InterfaceGradient } from "../../shared/interface-theme";
 import {
   interfaceAreas,
@@ -9,10 +10,19 @@ import type { ThemeCatalog } from "../../shared/theme-file";
 import {
   interfaceColorNames,
   interfaceHighlightNames,
+  interfaceThemes,
   resolveInterfaceTheme,
 } from "../../shared/interface-themes";
 import type { Settings } from "../../shared/setup";
 import type { SetupSource } from "../preflight/setup-source.d";
+
+/** Palette for the fixed About and launch surfaces. */
+export const eclipseDarkArtColors: CSSProperties = Object.fromEntries(
+  Object.entries(interfaceThemes["eclipse-dark"].colors).map(([name, color]) => [
+    `--${name}`,
+    color,
+  ]),
+);
 
 export function interfaceGradientCss(gradient: InterfaceGradient | undefined): string | undefined {
   return gradient

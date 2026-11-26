@@ -133,7 +133,7 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         },
         terminals: {
           get create() {
-            return owner.deps.terminals.create.bind(owner.deps.terminals);
+            return owner.createTerminal.bind(owner);
           },
           get kill() {
             return owner.deps.terminals.kill.bind(owner.deps.terminals);
@@ -436,7 +436,7 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         },
         terminals: {
           get create() {
-            return owner.deps.terminals.create.bind(owner.deps.terminals);
+            return owner.createTerminal.bind(owner);
           },
           get kill() {
             return owner.deps.terminals.kill.bind(owner.deps.terminals);

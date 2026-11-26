@@ -137,7 +137,12 @@ export class AgentService {
 
   constructor(
     private readonly worktrees: Pick<WorktreeService, "listWorktrees" | "launchIdentity">,
-    private readonly terminals: { create(spec: TerminalSpec): string | Promise<string> },
+    private readonly terminals: {
+      create(
+        spec: TerminalSpec,
+        revalidateAfterPause?: () => Promise<void>,
+      ): string | Promise<string>;
+    },
     private readonly prepareHooks?: (agent: AgentId) => Promise<AgentHooks>,
     private readonly prepareControl?: (
       repository: string,
@@ -515,25 +520,31 @@ export class AgentService {
         )
           throw new Error("Bypass launch was cancelled");
       }
-      await provider.validate?.();
-      if (
-        gitCheckout &&
-        (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
-          checkoutIdentity
-      )
-        throw new Error("Worktree has changed. Select it and try again.");
-      if (
-        request.humanSource &&
-        ((await realpath(request.worktree).catch(() => undefined)) !== request.worktree ||
-          !(await stat(request.worktree).catch(() => undefined))?.isDirectory())
-      )
-        throw new Error("Source directory is unavailable.");
+      const validateCheckout = async () => {
+        await provider.validate?.();
+        if (
+          gitCheckout &&
+          (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
+            checkoutIdentity
+        )
+          throw new Error("Worktree has changed. Select it and try again.");
+        if (
+          request.humanSource &&
+          ((await realpath(request.worktree).catch(() => undefined)) !== request.worktree ||
+            !(await stat(request.worktree).catch(() => undefined))?.isDirectory())
+        )
+          throw new Error("Source directory is unavailable.");
+      };
+      const validateSpawn = () => {
+        if (agentProvider(request.agent) !== provider)
+          throw new Error("Agent plugin changed. Review it again.");
+        this.ensureOpen();
+        request.beforeSpawn?.();
+      };
+      await validateCheckout();
       await request.prepareSpawn?.();
-      if (agentProvider(request.agent) !== provider)
-        throw new Error("Agent plugin changed. Review it again.");
-      this.ensureOpen();
-      request.beforeSpawn?.();
-      const id = await this.terminals.create({
+      validateSpawn();
+      const spec: TerminalSpec = {
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         ...(provider.origin === "bundled" && imagePasteRecipient(request.agent)
           ? { imagePaste: true }
@@ -544,7 +555,13 @@ export class AgentService {
         cols: request.cols,
         rows: request.rows,
         env: launchEnvironment,
-      });
+      };
+      const id = await (spec.id === undefined
+        ? this.terminals.create(spec)
+        : this.terminals.create(spec, async () => {
+            await validateCheckout();
+            validateSpawn();
+          }));
       this.ensureOpen();
       if (this.earlyExits.has(id)) {
         if (![...this.launched.values()].includes(request.worktree))
