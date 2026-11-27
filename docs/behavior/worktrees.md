@@ -11,8 +11,9 @@ the last completed result visible until the new scan finishes. At zero, the
 repository facts show **0 eligible to delete**. Select that count
 for a read-only review of current checkouts against the last fetched default
 branch. Each checkout shows its eligibility or the reason it would be kept.
-The review has a **Close** button. The menu updates when a background scan
-finishes, including while the menu is open. Open an active run through
+The review has a **Close** button. If the repository or its checkout inventory
+changes before the review opens, Foom drops that review. The menu updates when a
+background scan finishes, including while the menu is open. Open an active run through
 **Deleting merged worktrees** and its completed checklist through **Cleanup results**.
 
 Foom fetches the remote (`origin`, or the sole remote) and resolves its advertised

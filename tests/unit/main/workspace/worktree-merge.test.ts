@@ -846,7 +846,7 @@ describe("merged worktree containment", () => {
       await expect(service.mergedDefault(repo, true)).rejects.toThrow("fetch failed");
       expect(service.lastFetchedDefault(repo)).toEqual({ branch: "main", head: base });
       expect(service.mergedFetchTime(repo)).toBe(fetchedAt);
-      await expect(workspace.reviewMergedWorktrees(repo)).resolves.toMatchObject([
+      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toMatchObject([
         { branch: "main", reason: "main checkout" },
         { branch: "feature", reason: "not merged" },
       ]);
@@ -876,7 +876,7 @@ describe("merged worktree containment", () => {
     const workspace = createWorkspace();
     await rename(path, moved);
     try {
-      await expect(workspace.reviewMergedWorktrees(repo)).resolves.toContainEqual({
+      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual({
         id: "1",
         branch: "feature",
         reason: "not merged",
@@ -904,7 +904,7 @@ describe("merged worktree containment", () => {
     const reading = Promise.withResolvers<undefined>();
     const status = service.cleanupStatus.bind(service);
     try {
-      await expect(workspace.reviewMergedWorktrees(repo)).resolves.toContainEqual(kept);
+      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual(kept);
       vi.spyOn(service, "cleanupStatus").mockImplementationOnce(async (...args) => {
         reading.resolve(undefined);
         await gate.promise;
@@ -917,9 +917,9 @@ describe("merged worktree containment", () => {
         expect(await service.mergedDefault(repo, true)).not.toBe(tree.head);
       } finally {
         gate.resolve(undefined);
-        await expect(review).resolves.toContainEqual(kept);
+        expect((await review)?.worktrees).toContainEqual(kept);
       }
-      await expect(workspace.reviewMergedWorktrees(repo)).resolves.toContainEqual(kept);
+      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual(kept);
     } finally {
       await workspace.dispose();
     }

@@ -81,8 +81,9 @@ function invoke(channel: string, args: unknown[] = [], event: unknown = trusted)
 
 test("eligibility review presents only its snapshot and ignores the dialog answer", async () => {
   const worktrees = [{ id: "0", branch: "feature", reason: "eligible" }];
-  const read = Promise.withResolvers<typeof worktrees>();
-  const reviewMergedWorktrees = vi.fn(() => Promise.resolve(worktrees));
+  const review = { worktrees, canPresent: vi.fn(() => Promise.resolve(true)) };
+  const read = Promise.withResolvers<typeof review>();
+  const reviewMergedWorktrees = vi.fn(() => Promise.resolve(review));
   reviewMergedWorktrees.mockReturnValueOnce(read.promise);
   const sidebarCommand = vi.fn();
   attached.dispose();
@@ -98,7 +99,7 @@ test("eligibility review presents only its snapshot and ignores the dialog answe
   requestDialog.mockReturnValueOnce(close.promise);
   const first = invoke("workspace:sidebar-command", [command]);
   const whileReading = invoke("workspace:sidebar-command", [command]);
-  read.resolve(worktrees);
+  read.resolve(review);
   await vi.waitFor(() => {
     expect(requestDialog).toHaveBeenCalled();
   });
@@ -110,7 +111,7 @@ test("eligibility review presents only its snapshot and ignores the dialog answe
     undefined,
   ]);
   expect(reviewMergedWorktrees).toHaveBeenCalledExactlyOnceWith("/repo");
-  expect(requestDialog).toHaveBeenCalledWith({
+  expect(requestDialog.mock.calls[0]?.[0]).toMatchObject({
     title: "Worktree eligibility",
     subject: "repo",
     accept: "Close",
@@ -118,14 +119,57 @@ test("eligibility review presents only its snapshot and ignores the dialog answe
     localOnly: true,
     worktreeEligibility: worktrees,
   });
+  const admitted = requestDialog.mock.calls[0]?.[0].canPresent;
+  if (!admitted) throw new Error("Missing presentation guard");
+  expect(contents.send).not.toHaveBeenCalledWith("confirmation:dialog");
+  await expect(admitted()).resolves.toBe(true);
+  expect(contents.send).toHaveBeenCalledWith("confirmation:dialog");
+  contents.send.mockClear();
+  review.canPresent.mockResolvedValueOnce(false);
+  await expect(admitted()).resolves.toBe(false);
+  expect(contents.send).not.toHaveBeenCalled();
+  const validation = Promise.withResolvers<boolean>();
+  review.canPresent.mockReturnValueOnce(validation.promise);
+  const leaving = admitted();
+  frame.url = "about:blank";
+  validation.resolve(true);
+  await expect(leaving).resolves.toBe(false);
+  expect(contents.send).not.toHaveBeenCalled();
+  frame.url = "app://bundle/index.html";
   expect(sidebarCommand).not.toHaveBeenCalled();
   reviewMergedWorktrees.mockImplementationOnce(() => {
     contents.isDestroyed.mockReturnValue(true);
-    return Promise.resolve(worktrees);
+    return Promise.resolve(review);
   });
   await expect(invoke("workspace:sidebar-command", [command])).resolves.toBeUndefined();
   expect(requestDialog).toHaveBeenCalledOnce();
   expect(reviewMergedWorktrees).toHaveBeenCalledTimes(2);
+});
+
+test("merged cleanup only notifies its board when the queued results are current", async () => {
+  const canPresent = vi.fn(() => true);
+  const sidebarCommand = (_request: unknown, confirm: ConfirmWorkspace) =>
+    confirm({ kind: "merged-worktrees", worktrees: [], canPresent });
+  attached.dispose();
+  mock.handle.mockClear();
+  attached = attachWorkspace(
+    window,
+    { ...workspace, sidebarCommand } as unknown as Workspace,
+    owns,
+    requestDialog,
+  );
+  requestDialog.mockResolvedValueOnce(false);
+  await invoke("workspace:sidebar-command", [
+    { kind: "delete-merged-worktrees", repository: "/repo" },
+  ]);
+  const admission = requestDialog.mock.calls[0]?.[0].canPresent;
+  if (!admission) throw new Error("Missing presentation guard");
+  expect(contents.send).not.toHaveBeenCalled();
+  canPresent.mockReturnValueOnce(false);
+  expect(admission()).toBe(false);
+  expect(contents.send).not.toHaveBeenCalled();
+  expect(admission()).toBe(true);
+  expect(contents.send).toHaveBeenCalledWith("confirmation:dialog");
 });
 
 test("rejects untrusted senders on every channel", () => {

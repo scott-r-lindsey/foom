@@ -96,6 +96,8 @@ export interface DialogContent {
   cleanup?: CleanupDialog;
   /** Main-only; stripped before rendering. */
   feed?: CleanupFeed;
+  /** Recheck the request after it has waited for a trusted window. */
+  canPresent?: () => boolean | Promise<boolean>;
   title: string;
   accept: string;
   cancel?: "Not now";
@@ -126,6 +128,7 @@ export interface DialogRequest
   extends Omit<
     DialogContent,
     | "feed"
+    | "canPresent"
     | "removal"
     | "removalFeed"
     | "pluginFeed"
@@ -155,6 +158,7 @@ export type WorkspaceConfirmation =
   | {
       kind: "merged-worktrees";
       feed?: CleanupFeed;
+      canPresent?: () => boolean;
       worktrees: readonly { branch: string; reason?: string }[];
       subject?: string;
     }

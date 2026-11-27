@@ -250,6 +250,31 @@ test("a board renderer crash leaves an already presented trusted decision usable
   dialog.dispose();
 });
 
+test("a queued dialog checks its presentation guard before rendering", async () => {
+  const dialog = setup();
+  try {
+    const front = dialog.request(content);
+    const frontId = await shown();
+    const canPresent = vi.fn(() => Promise.resolve(false));
+    const queued = dialog.request({ ...content, title: "Old cleanup", canPresent });
+    expect(canPresent).not.toHaveBeenCalled();
+    answer(frontId, false);
+    await front;
+    await expect(queued).resolves.toBe(false);
+    expect(canPresent).toHaveBeenCalledOnce();
+    expect(window().webContents.send.mock.calls.map(([, request]) => request)).not.toContainEqual(
+      expect.objectContaining({ title: "Old cleanup" }),
+    );
+    const current = dialog.request({ ...content, canPresent: () => true });
+    const currentId = await shown();
+    expect(window().webContents.send.mock.calls.at(-1)?.[1]).not.toHaveProperty("canPresent");
+    answer(currentId, false);
+    await current;
+  } finally {
+    dialog.dispose();
+  }
+});
+
 test("same-document and subframe navigation do not abandon queued decisions", async () => {
   const slots = new RemovalPresentations();
   let release: (answer: boolean) => void = () => undefined;

@@ -2,6 +2,7 @@ import { LaunchFailure } from "../../shared/launch-failure";
 import { RemovalError } from "./worktree-outcome";
 import { removalStatus } from "./worktree-operations";
 import type { CheckoutHold, CheckoutHolds } from "./worktree-reservations";
+import { lstat } from "node:fs/promises";
 import { basename } from "node:path";
 import { conversationId } from "../agents/conversation";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
@@ -19,6 +20,7 @@ export interface CleanupOwnerDependencies {
   checkoutHolds: CheckoutHolds;
   worktrees: Pick<
     WorktreeService,
+    | "listRepositories"
     | "changes"
     | "cleanupChanges"
     | "cleanupStatus"
@@ -623,33 +625,92 @@ export class CleanupOwner {
   }
 
   async reviewMerged(repository: string) {
-    this.deps.known(repository);
-    // Once approval starts draining readers, new reviews can only read membership.
-    const inventory = this.deps.inventory(repository, { skipOwnership: true });
-    const plan = this.cleanupRuns.get(repository)?.active
-      ? (await inventory).map(
-          (tree): CleanupCandidate => ({
-            tree,
-            reason: tree.path === repository || tree.bare ? "main checkout" : "unavailable",
-          }),
+    const registered = this.registrationGuard(repository);
+    if (!registered()) return;
+    const readInventory = () => this.deps.inventory(repository, { skipOwnership: true });
+    const review = async () => {
+      const trees = await readInventory();
+      if (!registered() || !trees.some((tree) => tree.path !== repository && !tree.bare)) return;
+      const key = await this.reviewInventoryKey(trees);
+      if (!registered()) return;
+      // Once approval starts draining readers, new reviews can only read membership.
+      const plan = this.cleanupRuns.get(repository)?.active
+        ? trees.map(
+            (tree): CleanupCandidate => ({
+              tree,
+              reason: tree.path === repository || tree.bare ? "main checkout" : "unavailable",
+            }),
+          )
+        : await this.mergedPlan(
+            repository,
+            () => this.deps.worktrees.lastFetchedDefault(repository),
+            trees,
+          );
+      const canPresent = async () => {
+        if (!registered()) return false;
+        try {
+          const current = await readInventory();
+          return registered() && (await this.reviewInventoryKey(current)) === key && registered();
+        } catch {
+          return false;
+        }
+      };
+      if (!(await canPresent()) || !registered()) return;
+      return {
+        canPresent,
+        worktrees: plan.map(({ tree, reason }, index) => ({
+          id: String(index),
+          branch:
+            tree.branch ??
+            `${basename(tree.path)} · Detached at ${tree.head?.slice(0, 7) ?? "Unknown"}`,
+          reason: reason ?? "eligible",
+        })),
+      };
+    };
+    try {
+      return await this.trackMergeScan(repository, review());
+    } catch (error) {
+      if (registered()) throw error;
+    }
+  }
+
+  private registrationGuard(repository: string): () => boolean {
+    // WorktreeService returns the registered record until it is replaced or forgotten.
+    const registration = this.deps.worktrees
+      .listRepositories()
+      .find((row) => row.path === repository);
+    return () =>
+      !this.deps.closed() &&
+      registration !== undefined &&
+      this.deps.worktrees.listRepositories().includes(registration);
+  }
+
+  private async reviewInventoryKey(trees: readonly Worktree[]): Promise<string> {
+    const directories = await Promise.all(
+      trees.map(async (tree) => {
+        if (tree.host) return;
+        const stat = await lstat(tree.path, { bigint: true }).catch(() => undefined);
+        return stat && [stat.dev, stat.ino, stat.birthtimeNs].map(String);
+      }),
+    );
+    return JSON.stringify(
+      trees
+        .map((tree, index) =>
+          JSON.stringify([
+            tree.path,
+            tree.host,
+            tree.branch,
+            tree.head,
+            tree.bare,
+            tree.locked,
+            tree.prunable,
+            tree.removalFailed,
+            directories[index],
+            this.sessionSkip(tree.path),
+          ]),
         )
-      : await this.trackMergeScan(
-          repository,
-          inventory.then((trees) =>
-            this.mergedPlan(
-              repository,
-              () => this.deps.worktrees.lastFetchedDefault(repository),
-              trees,
-            ),
-          ),
-        );
-    return plan.map(({ tree, reason }, index) => ({
-      id: String(index),
-      branch:
-        tree.branch ??
-        `${basename(tree.path)} · Detached at ${tree.head?.slice(0, 7) ?? "Unknown"}`,
-      reason: reason ?? "eligible",
-    }));
+        .sort(),
+    );
   }
 
   async openMergedCleanup(
@@ -667,13 +728,23 @@ export class CleanupOwner {
     run: CleanupRun,
     confirm: ConfirmWorkspace,
   ): Promise<void> {
+    const registered = this.registrationGuard(repository);
+    // An already queued pre-approval dialog may still show a cancelled feed.
+    // A request to reopen results belongs to the currently published run.
+    const preApproval = !run.approved && run.pending;
+    const presentation = { stale: false };
     await confirm({
       kind: "merged-worktrees",
       subject: basename(repository),
       worktrees: [],
       feed: run,
+      canPresent: () => {
+        presentation.stale =
+          !registered() || (!preApproval && this.cleanupRuns.get(repository) !== run);
+        return !presentation.stale;
+      },
     });
-    if (!run.pending) {
+    if (!presentation.stale && !run.pending) {
       // Another board may already be preparing a replacement for these results.
       this.dismissedCleanupRuns.add(run);
       if (this.cleanupRuns.get(repository) === run) {
@@ -688,6 +759,7 @@ export class CleanupOwner {
     const existing = this.cleanupRuns.get(repository);
     if (existing?.pending) return this.presentMergedCleanup(repository, existing, confirm);
     return this.deps.withRepository(repository, async () => {
+      const registered = this.registrationGuard(repository);
       const releases = new Set<() => void>();
       const run = new CleanupRun({
         checkingCount: this.mergeEligibility.get(repository)?.count,
@@ -736,10 +808,18 @@ export class CleanupOwner {
             }
             return;
           }
-          const readSnapshot = () =>
-            tree.branch === null || changes
+          const checkSessions = () => {
+            const reason = this.sessionSkip(tree.path);
+            if (reason) throw new KeptWorktree(reason);
+          };
+          const readSnapshot = async () => {
+            const status = await (tree.branch === null || changes
               ? this.deps.worktrees.cleanupChanges(repository, tree.path, identity, tree.head)
-              : this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head);
+              : this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head));
+            // Main-owned session state can change while the last Git command finishes.
+            checkSessions();
+            return status;
+          };
           const revalidate = async () => {
             const current = (await this.deps.inventory(repository)).find(
               (item) => item.path === tree.path,
@@ -751,8 +831,7 @@ export class CleanupOwner {
               (await this.deps.worktrees.removalIdentity(repository, tree.path)) !== identity
             )
               throw new KeptWorktree("worktree changed");
-            const reason = this.sessionSkip(tree.path);
-            if (reason) throw new KeptWorktree(reason);
+            checkSessions();
             // Snapshot comparisons belong to the removal owner, after async proof
             // work and at the final service boundary. Do not duplicate them here.
             // Re-read forge hints and local evidence; the displayed plan alone
@@ -795,13 +874,17 @@ export class CleanupOwner {
           subject: basename(repository),
           worktrees: [],
           feed: run,
+          canPresent: registered,
         });
         try {
-          run.ready(await prepare);
+          const plan = await prepare;
+          if (registered()) run.ready(plan);
+          else run.cancelBeforeApproval();
         } catch {
-          run.failed();
+          if (registered()) run.failed();
+          else run.cancelBeforeApproval();
         }
-        if (await answer) run.act();
+        if ((await answer) && registered()) run.act();
       } finally {
         const reviewed = !run.pending;
         // Queued presentations can still hold this feed. Revoke its approval

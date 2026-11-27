@@ -58,7 +58,10 @@ eligibility checks against current checkout state and the branch and commit
 from the same successful default fetch. A failed refresh preserves that snapshot.
 The review, including Forge context validation, reads Git membership without
 reconciling Foom's creation records. It presents a static, read-only dialog after
-the checks finish. Only deletion uses a cleanup run, repository reservation and
+the checks finish. Main checks that the same registration, checkout inventory and
+session eligibility still apply after the scan and again when the dialog leaves
+the presentation queue. Queued results also require the run ID that was opened.
+Only deletion uses a cleanup run, repository reservation and
 removal queue. Deletion approval always fetches afresh. Fetch operations are queued per
 repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.
@@ -103,6 +106,8 @@ hashes. Same-project, exact-head, stable-refresh, clean and identity guards rema
 Every removal rechecks this evidence. Automatic removal uses this verified PR path
 alongside its existing ancestry/no-unpushed-commits path, preserving clean status,
 identity, session and authority guards. A failed post-confirmation fetch prevents every removal.
+Merged cleanup rechecks session eligibility after the final asynchronous status
+read and before invoking Git removal.
 Main owns one `CleanupRun` per repository. While it is pending, inventory does not
 start background eligibility scans. Before deletion begins, cleanup drains all
 existing scans, including superseded scans and read-only eligibility reviews, so

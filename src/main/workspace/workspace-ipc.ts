@@ -287,7 +287,7 @@ export function attachWorkspace(
 } {
   const contents = window.webContents;
   const launches = new Map<string, AbortController>();
-  const eligibilityReviews = new Set<string>();
+  const eligibilityReviews = new Map<string, AbortController>();
   // Display associations only. Preview opens and worktree actions still validate
   // fresh membership; a failed Git read cannot prove an owned preview was removed.
   const previewRepositories = new Map<string, string>();
@@ -328,13 +328,24 @@ export function attachWorkspace(
       if (request.kind === "merged-worktrees") {
         if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
           return Promise.resolve(false);
-        contents.send("confirmation:dialog");
+        const guard = request.canPresent;
+        if (!guard) contents.send("confirmation:dialog");
         return requestDialog({
           title: "Delete merged worktrees?",
           accept: "Delete",
           ...(request.subject !== undefined ? { subject: request.subject } : {}),
           worktrees: request.worktrees,
           ...(request.feed ? { feed: request.feed } : {}),
+          ...(guard
+            ? {
+                canPresent: () => {
+                  if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL || !guard())
+                    return false;
+                  contents.send("confirmation:dialog");
+                  return true;
+                },
+              }
+            : {}),
         });
       }
       if (request.kind === "orchestrator") {
@@ -387,6 +398,8 @@ export function attachWorkspace(
   };
   const cancelLaunches = () => {
     for (const launch of launches.values()) launch.abort();
+    for (const review of eligibilityReviews.values()) review.abort();
+    eligibilityReviews.clear();
     disarm();
   };
   contents.on("did-start-navigation", cancelLaunches);
@@ -543,23 +556,34 @@ export function attachWorkspace(
         if (command.kind === "review-merged-worktrees") {
           const { repository } = command;
           if (eligibilityReviews.has(repository)) return;
-          eligibilityReviews.add(repository);
+          const controller = new AbortController();
+          eligibilityReviews.set(repository, controller);
+          const boardCurrent = () =>
+            !controller.signal.aborted &&
+            !contents.isDestroyed() &&
+            contents.mainFrame.url === APP_URL;
           return workspace
             .reviewMergedWorktrees(repository)
-            .then(async (worktrees) => {
-              if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL) return;
-              contents.send("confirmation:dialog");
+            .then(async (review) => {
+              if (!review || !boardCurrent()) return;
               await requestDialog({
                 title: "Worktree eligibility",
                 subject: basename(repository),
                 accept: "Close",
                 glyph: "branch",
                 localOnly: true,
-                worktreeEligibility: worktrees,
+                worktreeEligibility: review.worktrees,
+                canPresent: async () => {
+                  if (!boardCurrent() || !(await review.canPresent()) || !boardCurrent())
+                    return false;
+                  contents.send("confirmation:dialog");
+                  return true;
+                },
               });
             })
             .finally(() => {
-              eligibilityReviews.delete(repository);
+              if (eligibilityReviews.get(repository) === controller)
+                eligibilityReviews.delete(repository);
             });
         }
         const controller = launch === undefined ? undefined : new AbortController();

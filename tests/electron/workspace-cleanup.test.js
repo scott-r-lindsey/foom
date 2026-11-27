@@ -1091,7 +1091,10 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
   await assert.rejects(realpath(merged.path), { code: "ENOENT" });
 });
 
-async function lockedMergedWorktree(context, withEligibleCheckout = false) {
+async function zeroEligibilityFixture(
+  context,
+  { withEligibleCheckout = false, dirty = false } = {},
+) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-zero-eligible-")));
   removeAfterApps(context, root);
   const repo = path.join(root, "repo");
@@ -1105,10 +1108,13 @@ async function lockedMergedWorktree(context, withEligibleCheckout = false) {
       cwd: repo,
     });
   git("init", "-q", "-b", "main");
-  git("commit", "-q", "--allow-empty", "-m", "init");
+  await writeFile(path.join(repo, "tracked.txt"), "original\n");
+  git("add", "tracked.txt");
+  git("commit", "-q", "-m", "init");
   git("clone", "--bare", repo, remote);
   git("remote", "add", "origin", remote);
-  git("worktree", "add", "--lock", "-b", "merged", checkout);
+  git("worktree", "add", ...(dirty ? [] : ["--lock"]), "-b", "merged", checkout);
+  if (dirty) await writeFile(path.join(checkout, "tracked.txt"), "modified\n");
   if (withEligibleCheckout) git("worktree", "add", "-b", "eligible", path.join(root, "eligible"));
   const app = await launchApp(context, { fixture: "empty-board", home });
   const page = await boardPage(app);
@@ -1131,7 +1137,9 @@ async function lockedMergedWorktree(context, withEligibleCheckout = false) {
 }
 
 test("zero eligibility reviews current worktrees and preserves hidden cleanup results", async (context) => {
-  const { app, page, unlock, addLocked } = await lockedMergedWorktree(context, true);
+  const { app, page, unlock, addLocked } = await zeroEligibilityFixture(context, {
+    withEligibleCheckout: true,
+  });
   fixtureCleanup(context).apps.unshift(async () => {
     await app.evaluate(() => globalThis.releaseCleanupBranches?.()).catch(() => {});
   });
@@ -1236,7 +1244,7 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
 });
 
 test("double-clicking zero eligible opens one merged cleanup review", async (context) => {
-  const { app, page } = await lockedMergedWorktree(context);
+  const { app, page } = await zeroEligibilityFixture(context);
   fixtureCleanup(context).apps.unshift(async () => {
     await app.evaluate(() => globalThis.releaseEligibilityRead?.()).catch(() => {});
   });
@@ -1249,10 +1257,14 @@ test("double-clicking zero eligible opens one merged cleanup review", async (con
     const request = TrustedDialog.prototype.request;
     const list = WorktreeService.prototype.listWorktrees;
     const hold = Promise.withResolvers();
-    globalThis.releaseEligibilityRead = () => hold.resolve();
+    let holding = true;
+    globalThis.releaseEligibilityRead = () => {
+      holding = false;
+      hold.resolve();
+    };
     globalThis.mergedReview = { requests: 0, reads: 0, finished: false };
     WorktreeService.prototype.listWorktrees = async function (repository, options) {
-      if (options?.skipOwnership) {
+      if (options?.skipOwnership && holding) {
         globalThis.mergedReview.reads++;
         await hold.promise;
       }
@@ -1287,6 +1299,63 @@ test("double-clicking zero eligible opens one merged cleanup review", async (con
       reads: 1,
       finished: true,
     });
+});
+
+test("removing a repository drops its in-flight worktree eligibility review", async (context) => {
+  const { app, page } = await zeroEligibilityFixture(context, { dirty: true });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.releaseEligibilityRead?.()).catch(() => {});
+  });
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+    const status = WorktreeService.prototype.cleanupStatus;
+    const review = Workspace.prototype.reviewMergedWorktrees;
+    const request = TrustedDialog.prototype.request;
+    const hold = Promise.withResolvers();
+    globalThis.releaseEligibilityRead = () => hold.resolve();
+    globalThis.eligibilityRead = { started: false, finished: false, dialogs: [] };
+    WorktreeService.prototype.cleanupStatus = async function (...args) {
+      const result = await status.apply(this, args);
+      globalThis.eligibilityRead.started = true;
+      await hold.promise;
+      return result;
+    };
+    Workspace.prototype.reviewMergedWorktrees = async function (...args) {
+      try {
+        return await review.apply(this, args);
+      } finally {
+        globalThis.eligibilityRead.finished = true;
+      }
+    };
+    TrustedDialog.prototype.request = function (content, ...args) {
+      if (content.worktreeEligibility)
+        globalThis.eligibilityRead.dialogs.push(content.worktreeEligibility);
+      return request.call(this, content, ...args);
+    };
+  });
+  const actions = page.getByRole("button", { name: "Actions for repo", exact: true });
+  await actions.click();
+  await page.getByRole("button", { name: "0 eligible to delete" }).click();
+  await expect.poll(() => app.evaluate(() => globalThis.eligibilityRead.started)).toBe(true);
+  const remove = page.getByRole("menuitem", { name: /Remove from Foom…/ });
+  if (!(await remove.isVisible())) await actions.click();
+  await remove.click();
+  const armed = page.getByRole("menuitem", { name: "Click again to remove" });
+  await expect(armed).toBeVisible();
+  // The click-again guard rejects a second click within 300 ms.
+  await page.waitForTimeout(310);
+  await armed.click();
+  await expect
+    .poll(() => page.evaluate(async () => (await window.desktop.sidebarInventory()).repositories))
+    .toEqual([]);
+  await app.evaluate(() => globalThis.releaseEligibilityRead());
+  await expect.poll(() => app.evaluate(() => globalThis.eligibilityRead.finished)).toBe(true);
+  assert.deepEqual(await app.evaluate(() => globalThis.eligibilityRead.dialogs), []);
 });
 
 async function openRepositoryPanelAtScale(app, page, interfaceScale) {
@@ -1331,7 +1400,7 @@ async function expectReviewWithinPanelWidth(review) {
 }
 
 test("the repository panel keeps the zero-eligibility review within its width at 200%", async (context) => {
-  const { app, page } = await lockedMergedWorktree(context);
+  const { app, page } = await zeroEligibilityFixture(context);
   const panel = await openRepositoryPanelAtScale(app, page, 200);
   const review = panel.getByRole("button", { name: "0 eligible to delete" });
   await expectReviewWithinPanelWidth(review);
@@ -1344,7 +1413,7 @@ test("the repository panel keeps the zero-eligibility review within its width at
 });
 
 test("eligibility refresh scrolls the focused command into the repository panel", async (context) => {
-  const { app, page, unlock } = await lockedMergedWorktree(context);
+  const { app, page, unlock } = await zeroEligibilityFixture(context);
   const panel = await openRepositoryPanelAtScale(app, page, 300);
   const review = panel.getByRole("button", { name: "0 eligible to delete" });
   await expectReviewWithinPanelWidth(review);

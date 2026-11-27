@@ -31,7 +31,7 @@ test("eligibility review checks current checkout state without reserving the rep
     expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
   } finally {
     read.resolve("");
-    await expect(review).resolves.toMatchObject([
+    expect((await review)?.worktrees).toMatchObject([
       { branch: tree.branch, reason: "eligible" },
       {
         branch: `detached · Detached at ${tree.head.slice(0, 7)}`,

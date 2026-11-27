@@ -445,20 +445,32 @@ export class TrustedDialog {
   ): Promise<boolean> {
     const present = async () => {
       if (this.parent.isDestroyed() || this.isCancelled(signal)) return false;
+      const {
+        feed,
+        removalFeed,
+        pluginFeed,
+        approvalFeed,
+        localOnly,
+        canPresent,
+        ...renderContent
+      } = content;
       this.prepare();
       try {
         const ready = await declineOnAbort(
           (this.ready ?? Promise.resolve()).then(() => true),
           signal,
         );
-        if (!ready) return false;
+        if (!ready || this.isCancelled(signal)) return false;
+        const current = canPresent?.();
+        const allowed =
+          current instanceof Promise ? await declineOnAbort(current, signal) : current;
+        if (allowed === false) return false;
       } catch {
         return false;
       }
       const window = this.window;
       if (!window || this.isCancelled(signal)) return false;
       const id = randomUUID();
-      const { feed, removalFeed, pluginFeed, approvalFeed, localOnly, ...renderContent } = content;
       delete renderContent.removal;
       delete renderContent.approval;
       delete renderContent.userAction;
