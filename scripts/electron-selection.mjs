@@ -3,8 +3,8 @@ import { createRequire, isBuiltin } from "node:module";
 import { runInNewContext } from "node:vm";
 import { hashBucket, parseShard, shardAssignments } from "../tests/electron/shard-assignment.js";
 
-// Suites register synchronously through test-shard.js. Collect generated cases
-// too, without entering test bodies or installing their hooks in this process.
+// Inventory for the shard planner. This can collect generated cases, but
+// running outside a worker cannot prove that the inventory is complete.
 export function discoverRegistrations(files) {
   const registrations = new Map();
   for (const file of files) {
@@ -55,7 +55,66 @@ export function discoverRegistrations(files) {
   return registrations;
 }
 
-export function selectSuiteFiles(files, { shard, patterns, discover = discoverRegistrations }) {
+function discoverStaticRegistrations(files) {
+  const ts = createRequire(import.meta.url)("typescript");
+  const registrations = new Map();
+  for (const file of files) {
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      false,
+      ts.ScriptKind.JS,
+    );
+    const [binding, ...statements] = source.statements;
+    if (
+      source.parseDiagnostics.length > 0 ||
+      !binding ||
+      !ts.isVariableStatement(binding) ||
+      !(binding.declarationList.flags & ts.NodeFlags.Const) ||
+      binding.declarationList.declarations.length !== 1
+    )
+      return undefined;
+    const [{ name, initializer }] = binding.declarationList.declarations;
+    if (
+      !ts.isObjectBindingPattern(name) ||
+      name.elements.length !== 1 ||
+      name.elements[0].getText(source) !== "test" ||
+      !initializer ||
+      !ts.isCallExpression(initializer) ||
+      initializer.expression.getText(source) !== "require" ||
+      initializer.arguments.length !== 1 ||
+      !ts.isStringLiteral(initializer.arguments[0]) ||
+      initializer.arguments[0].text !== "./test-shard.js" ||
+      statements.length === 0
+    )
+      return undefined;
+
+    // Only straight-line registrations through the shard helper are proven.
+    // Executable setup, imported helpers, and describe callbacks can add tests
+    // or change their ancestry in the worker. Leave those suites to Node.
+    for (const statement of statements) {
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression))
+        return undefined;
+      const { expression, arguments: args, questionDotToken } = statement.expression;
+      if (!ts.isIdentifier(expression) || expression.text !== "test" || questionDotToken)
+        return undefined;
+      const [name, body] = args;
+      if (
+        args.length !== 2 ||
+        !ts.isStringLiteral(name) ||
+        !name.text ||
+        registrations.has(name.text) ||
+        (!ts.isArrowFunction(body) && !ts.isFunctionExpression(body))
+      )
+        return undefined;
+      registrations.set(name.text, file);
+    }
+  }
+  return registrations;
+}
+
+export function selectSuiteFiles(files, { shard, patterns }) {
   if (shard === undefined && patterns.length === 0) return files;
   try {
     const { count, index } = parseShard(shard);
@@ -75,7 +134,8 @@ export function selectSuiteFiles(files, { shard, patterns, discover = discoverRe
     )
       return files;
 
-    const registrations = discover(files);
+    const registrations = discoverStaticRegistrations(files);
+    if (!registrations) return files;
     if (count > 1 && [...assignments.keys()].some((name) => !registrations.has(name))) return files;
     const selected = new Set();
     for (const [name, file] of registrations) {

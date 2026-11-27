@@ -61,6 +61,11 @@ function fixture(context, { timeout } = {}) {
   writeFileSync(join(root, "src/input.ts"), "original");
   writeFileSync(join(root, "node_modules/types.d.ts"), "original declaration");
   writeFileSync(join(root, "node_modules/.modules.yaml"), "fixture install state");
+  mkdirSync(join(root, "node_modules/typescript"));
+  writeFileSync(
+    join(root, "node_modules/typescript/index.js"),
+    `module.exports = require(${JSON.stringify(fileURLToPath(import.meta.resolve("typescript")))});`,
+  );
   mkdirSync(join(root, "node_modules/electron"));
   writeFileSync(
     join(root, "node_modules/electron/index.js"),
@@ -315,7 +320,7 @@ test("local runs reuse a matching build and rebuild when its receipt, inputs or 
 
 function installFixtureCompiler(root, { compile = true } = {}) {
   const compiler = fileURLToPath(import.meta.resolve("typescript"));
-  mkdirSync(join(root, "node_modules/typescript"));
+  mkdirSync(join(root, "node_modules/typescript"), { recursive: true });
   cpSync(dirname(compiler), join(root, "node_modules/typescript/lib"), { recursive: true });
   cpSync(
     join(dirname(compiler), "../package.json"),

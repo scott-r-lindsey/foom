@@ -68,15 +68,17 @@ The wrapper passes `--test-concurrency=1` explicitly: feature files run serially
 within each job, preserving native desktop/focus behavior. Shards within a
 platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
-Suite discovery preserves named registrations independently of file layout.
-Registration discovery includes generated loop cases without invoking test
-bodies. Full CI shards use the files containing their planned test names. A
-shard keeps the full inventory if it can receive a hash-assigned test, the plan
-cannot be reconciled with registrations, or discovery cannot resolve a suite.
-Local pattern filters use the same discovery to pass only matching files to
-Node. Unknown matches and ambiguous filters keep the full inventory. An
-explicit `--suite` keeps the requested file list. Empty files may appear as
-Node runner placeholders and do not count toward the focused pass total.
+The shard planner inventories named registrations, including generated cases,
+without invoking test bodies. The runner narrows files only when it can prove
+every suite's registrations statically. It recognizes direct top-level calls
+to the shard helper with a string literal name and an inline callback. Generated
+names, imported setup, and nested suites keep the full inventory, so Node can
+register tests with worker state and apply ancestor-qualified name patterns.
+A measured shard also keeps the full inventory if it can receive a hash-assigned
+test or the plan cannot be reconciled with the statically proven names. Unknown
+matches and ambiguous patterns keep the full inventory. An explicit `--suite`
+keeps the requested file list. Empty files may appear as Node runner placeholders
+and do not count toward the focused pass total.
 
 ```sh
 # Full suite, no sharding (Linux)

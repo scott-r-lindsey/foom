@@ -4,16 +4,20 @@ import { suiteFiles } from "../tests/electron/test-suites.js";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 test("Electron shards register every test exactly once, preserve filtering and reject invalid shards", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-#-"));
   try {
     const helper = fileURLToPath(new URL("../tests/electron/test-shard.js", import.meta.url));
+    writeFileSync(
+      path.join(directory, "test-shard.js"),
+      `module.exports = require(${JSON.stringify(helper)});`,
+    );
     // Collect actual registrations in every discovered suite, including generated
     // cases, without invoking a test body or launching Electron/agent fixtures.
     const inventory = suiteFiles();
@@ -70,7 +74,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
       const file = path.join(directory, `${index}.test.cjs`);
       writeFileSync(
         file,
-        `const { test } = require(${JSON.stringify(helper)});\n` +
+        'const { test } = require("./test-shard.js");\n' +
           cases.map((name) => `test(${JSON.stringify(name)}, () => {});`).join("\n"),
       );
       return file;
@@ -103,7 +107,6 @@ test("Electron shards register every test exactly once, preserve filtering and r
         const files = selectSuiteFiles(input, {
           shard,
           patterns: [],
-          discover: () => fileByName,
         });
         const expected = shardNames.filter((name) => {
           const planned = measured?.findIndex((tests) => Object.hasOwn(tests, name)) ?? -1;
@@ -174,4 +177,98 @@ test("Electron shards register every test exactly once, preserve filtering and r
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("uncertain Electron registration preserves worker-only and ancestor-qualified tests", async (context) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-worker-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const suiteDirectory = path.join(directory, "tests/electron");
+  const scripts = path.join(directory, "scripts");
+  const compiler = path.join(directory, "node_modules/typescript");
+  for (const folder of [suiteDirectory, scripts, compiler]) mkdirSync(folder, { recursive: true });
+  writeFileSync(
+    path.join(compiler, "index.js"),
+    `module.exports = require(${JSON.stringify(fileURLToPath(import.meta.resolve("typescript")))});`,
+  );
+  for (const name of ["shard-assignment.js", "test-shard.js"])
+    cpSync(new URL(`../tests/electron/${name}`, import.meta.url), path.join(suiteDirectory, name));
+  const selector = path.join(scripts, "electron-selection.mjs");
+  cpSync(new URL("./electron-selection.mjs", import.meta.url), selector);
+  writeFileSync(
+    path.join(suiteDirectory, "shard-plan.json"),
+    JSON.stringify({ shards: { 2: [{ first: [] }, { second: [] }] } }),
+  );
+  const { selectSuiteFiles: select } = await import(pathToFileURL(selector).href);
+  const first = path.join(suiteDirectory, "first.test.cjs");
+  const second = path.join(suiteDirectory, "second.test.cjs");
+  const files = [first, second];
+  const binding = 'const { test } = require("./test-shard.js");\n';
+  writeFileSync(first, binding + 'test("first", () => {});');
+  writeFileSync(second, binding + 'test("second", () => {});');
+  assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), [first]);
+
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  function runWorker(shard, patterns) {
+    const selected = select(files, { shard, patterns });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--test",
+        "--test-concurrency=1",
+        "--test-reporter=tap",
+        ...patterns.map((pattern) => `--test-name-pattern=${pattern}`),
+        ...selected,
+      ],
+      { encoding: "utf8", env: { ...env, FOOM_ELECTRON_SHARD: shard } },
+    );
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return { selected, output: result.stdout };
+  }
+
+  await context.test("generated worker names are assigned exactly once", () => {
+    const workerOnlyName = "worker-only case";
+    const bucket = createHash("sha256").update(workerOnlyName).digest().readUInt32BE(0) % 2;
+    const otherFile = files[1 - bucket];
+    const otherName = bucket === 0 ? "second" : "first";
+    writeFileSync(
+      path.join(suiteDirectory, "cases.cjs"),
+      `const { basename } = require("node:path");
+      module.exports = process.env.NODE_TEST_CONTEXT && basename(process.argv[1] ?? "") === ${JSON.stringify(path.basename(otherFile))}
+        ? [${JSON.stringify(workerOnlyName)}] : [];`,
+    );
+    writeFileSync(
+      otherFile,
+      binding +
+        `test(${JSON.stringify(otherName)}, () => {});
+        for (const name of require("./cases.cjs")) test(name, () => {});`,
+    );
+    const passed = [];
+    const selections = [];
+    for (const shard of ["1/2", "2/2"]) {
+      const { selected, output } = runWorker(shard, []);
+      selections.push(selected);
+      passed.push(
+        ...Array.from(output.matchAll(/^ok \d+ - (first|second|worker-only case)$/gm), (m) => m[1]),
+      );
+    }
+    assert.deepEqual(passed.sort(), ["first", "second", workerOnlyName]);
+    assert.deepEqual(selections, [files, files]);
+  });
+
+  await context.test("focused filters match a child through an imported describe", () => {
+    writeFileSync(path.join(suiteDirectory, "group.cjs"), 'module.exports = require("node:test");');
+    writeFileSync(
+      first,
+      binding +
+        'const { describe } = require("./group.cjs");\n' +
+        'describe("group", () => test("child", () => {}));',
+    );
+    // The flat match would let bare-name discovery narrow away the nested match.
+    writeFileSync(second, binding + 'test("group child", () => {});');
+    const focused = runWorker("1/1", ["^group child$"]);
+    assert.match(focused.output, /^\s+ok \d+ - child$/m);
+    assert.match(focused.output, /^ok \d+ - group child$/m);
+    assert.deepEqual(focused.selected, files);
+  });
 });
