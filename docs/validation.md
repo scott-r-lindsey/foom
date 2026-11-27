@@ -35,6 +35,40 @@ six Windows and eight macOS shards. See [explicit Electron fixtures](electron-fi
 for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
 
+Local development Electron runs automatically reuse the app and its fixture when
+the receipt matches the checkout revision, build inputs and output. A missing
+receipt, changed recorded input, or modified output triggers a rebuild.
+The receipt records a content hash for each esbuild metafile input, including
+CSS imports outside the source tree, and for files opened by the TypeScript
+compiler, including transitive configs. It also covers files read or copied by
+the build scripts and SEA assembly, including native inputs. The runner verifies
+the selected Node executable and license, and on macOS, the system signer at
+`/usr/bin/codesign` as part of the build environment.
+Recorded inputs outside the checkout, such as files loaded from a sibling
+package, require a fresh build on every run. Resolution checks cover directory
+entries, TypeScript path lookups, esbuild package manifests, ancestor configs,
+unresolved relative file imports, and earlier executable candidates on `PATH`.
+esbuild configs with path
+aliases or a custom base URL require a fresh build. Missing, unreadable, symlinked
+or special-file inputs, receipts or outputs prevent reuse. The fixture SEA's
+runtime-extracted native files are checked for matching bytes and required
+permissions, so valid copies can appear between runs without invalidating the
+receipt.
+`pnpm-lock.yaml` and the installed pnpm metadata (`node_modules/.modules.yaml` and
+`node_modules/.pnpm/lock.yaml` when present) identify the dependency tree. Reuse
+requires at least one of the installed metadata files. The runner also hashes
+recorded dependency files and checks for additions, removals and changed immediate
+entries in the `node_modules` directories along each recorded file's lookup path.
+Hand edits inside `node_modules` can go undetected. Run
+`pnpm run test:electron --fresh` after editing installed dependencies by hand.
+`--reuse-build` requires a matching receipt and fails if verification fails.
+CI rebuilds by default. Custom or strict remote-host catalog settings require a
+fresh build. A complete default remote-host catalog is fingerprinted alongside the
+other inputs. An incomplete default catalog is omitted and allows reuse.
+`ESBUILD_BINARY_PATH`, `NODE_OPTIONS` and `NODE_PATH` each require a fresh build.
+On macOS, `CODESIGN_ALLOCATE` also requires a fresh build.
+Packaged smoke tests use the existing package.
+
 Unit coverage includes every executable TypeScript file under `src/`, including
 files no test imports; only declarations are excluded. Thresholds are defined in
 [contributor standards](../AGENTS.md#tests-and-coverage). Successful
