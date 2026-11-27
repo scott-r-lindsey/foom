@@ -5,6 +5,7 @@ import { launchRemoteChild } from "../../../../src/main/agents/remote-launch";
 import type { RemoteHooks } from "../../../../src/main/agents/remote-launch";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 import type { RemoteAgentBinding } from "../../../../src/shared/remote-agent";
+import { remoteRequest } from "../../../../src/shared/remote-host-protocol";
 import type { ControlLaunch } from "../../../../src/main/control/types";
 import {
   replaceConfigProviders,
@@ -66,6 +67,54 @@ function fixture(hooks = true) {
     },
   };
 }
+
+test("dispatcher launch sends the remote checkout context through the wire validator from a Windows hub", async () => {
+  const f = fixture(false);
+  const hub = "C:\\source\\project";
+  const origin = "https://example.test/project.git";
+  const checkout = { ...mapping, worktree: mapping.repository };
+  const launched = await launchRemoteChild(
+    {
+      ...request,
+      repository: hub,
+      worktree: hub,
+      control: { role: "orchestrator" },
+      remoteOrchestrator: {
+        target: checkout.target,
+        path: checkout.worktree,
+        origin,
+        validate: f.validate,
+      },
+    },
+    checkout,
+    [],
+    false,
+    { create: f.create },
+    f.control,
+    f.validate,
+  );
+  try {
+    const spec = f.create.mock.calls[0]?.[0];
+    expect(
+      remoteRequest({
+        type: "agent-open",
+        profile: "f".repeat(32),
+        id: request.terminalId,
+        request: 1,
+        cols: 80,
+        rows: 24,
+        context: spec?.remote?.context,
+        spec: f.remote().spec,
+      }),
+    ).toBe(true);
+    expect(spec?.remote?.context).toMatchObject({
+      repository: checkout.repository,
+      worktree: checkout.worktree,
+    });
+  } finally {
+    launched.dispose();
+  }
+});
 test("remote Antigravity launch grants image paste to the hub terminal", async () => {
   const f = fixture(false);
   const launched = await launchRemoteChild(

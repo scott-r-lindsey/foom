@@ -1,6 +1,8 @@
 import { agentPermissionLevel } from "./agent-permission-arguments";
 import { CHILD_GUIDANCE } from "./control-guidance";
+import { isChildInput } from "./child-input";
 import { ControlError, object as controlObject, exact as controlExact } from "./control-validation";
+import { MCP_RESPONSE_LIMIT } from "./mcp-protocol";
 import { handoffRequest } from "./handoff-validation";
 import type {
   RemoteAgentReady,
@@ -14,6 +16,32 @@ import { conversationId } from "./conversation";
 export const REMOTE_PHASE_2_REASON =
   "Remote phase 2 permits only handoff, manual and sanitized identity; filesystem preview and fleet/repository tools are unavailable to remote children.";
 export const REMOTE_AGENT_BYTES = 65536;
+// The relay carries the same escaped JSON text as MCP, without the structured copy.
+export const REMOTE_ORCHESTRATOR_RESPONSE_LIMIT = MCP_RESPONSE_LIMIT;
+
+export const REMOTE_ORCHESTRATOR_METHODS = [
+  "manual",
+  "whoami",
+  "sessions",
+  "session_state",
+  "operation_status",
+  "create_worktree",
+  "launch",
+  "review",
+  "stop",
+  "close",
+  "remove_worktree",
+  "prompt",
+  "send_keys",
+  "read_handoff",
+  "handoff",
+  "tail",
+  "wait_for",
+  "board_threads",
+  "board_read",
+  "board_post",
+  "board_resolve",
+];
 export function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -56,9 +84,17 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
       "checkoutIdentity",
       "reviewSnapshot",
       "childPressure",
+      "orchestratorOrigin",
       "permissionLevel",
       "reviewer",
     ]) &&
+    (value["orchestratorOrigin"] === undefined ||
+      (text(value["orchestratorOrigin"], 2048) &&
+        value["orchestratorOrigin"].length > 0 &&
+        !/\s/u.test(value["orchestratorOrigin"]) &&
+        value["repository"] === value["worktree"] &&
+        value["checkoutIdentity"] === undefined &&
+        value["reviewSnapshot"] === undefined)) &&
     (value["permissionLevel"] === undefined || agentPermissionLevel(value["permissionLevel"])) &&
     (value["reviewer"] === undefined || value["reviewer"] === true) &&
     (value["childPressure"] === undefined || value["childPressure"] === true) &&
@@ -75,9 +111,11 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
     value["defaults"].length <= 256 &&
     value["defaults"].every((arg: unknown) => text(arg, 20480)) &&
     (value["prompt"] === undefined ||
-      (text(value["prompt"], 16384) &&
-        value["prompt"].length > 0 &&
-        !value["prompt"].trimStart().startsWith("-"))) &&
+      (value["orchestratorOrigin"] !== undefined
+        ? isChildInput({ kind: "prompt", text: value["prompt"] })
+        : text(value["prompt"], 16384) &&
+          value["prompt"].length > 0 &&
+          !value["prompt"].trimStart().startsWith("-"))) &&
     (value["conversationId"] === undefined || conversationId(value["conversationId"])) &&
     typeof value["hooks"] === "boolean" &&
     new TextEncoder().encode(JSON.stringify(value)).length <= REMOTE_AGENT_BYTES
@@ -163,22 +201,48 @@ function manual(value: unknown): boolean {
   );
 }
 export function remoteControlResult(value: unknown): value is RemoteControlResult {
-  if (!record(value) || new TextEncoder().encode(JSON.stringify(value)).length > REMOTE_AGENT_BYTES)
-    return false;
+  if (!record(value)) return false;
+  const limit =
+    value["type"] === "orchestrator-result"
+      ? REMOTE_ORCHESTRATOR_RESPONSE_LIMIT
+      : REMOTE_AGENT_BYTES;
+  if (new TextEncoder().encode(JSON.stringify(value)).length > limit) return false;
   switch (value["type"]) {
     case "identity":
       return (
         keys(value, ["type", "alias", "role", "capabilities"]) &&
         typeof value["alias"] === "string" &&
         /^[a-f0-9-]{36}$/u.test(value["alias"]) &&
-        value["role"] === "child" &&
         Array.isArray(value["capabilities"]) &&
-        value["capabilities"].length === 3 &&
-        value["capabilities"].every(
-          (method: unknown) =>
-            typeof method === "string" && ["whoami", "manual", "handoff"].includes(method),
-        ) &&
-        new Set(value["capabilities"]).size === 3
+        (value["role"] === "child"
+          ? value["capabilities"].length === 3 &&
+            value["capabilities"].every(
+              (method: unknown) =>
+                typeof method === "string" && ["whoami", "manual", "handoff"].includes(method),
+            )
+          : value["role"] === "orchestrator" &&
+            value["capabilities"].length <= REMOTE_ORCHESTRATOR_METHODS.length &&
+            value["capabilities"].includes("whoami") &&
+            value["capabilities"].includes("sessions") &&
+            value["capabilities"].includes("session_state") &&
+            value["capabilities"].every(
+              (method: unknown) =>
+                typeof method === "string" && REMOTE_ORCHESTRATOR_METHODS.includes(method),
+            )) &&
+        new Set(value["capabilities"]).size === value["capabilities"].length
+      );
+    case "orchestrator-result":
+      if (!keys(value, ["type", "payload"]) || !text(value["payload"], limit)) return false;
+      try {
+        return record(JSON.parse(value["payload"]));
+      } catch {
+        return false;
+      }
+    case "orchestrator-error":
+      return (
+        keys(value, ["type", "error"]) &&
+        typeof value["error"] === "string" &&
+        /^[a-z_]{1,64}$/u.test(value["error"])
       );
     case "handoff":
       return (
@@ -210,18 +274,24 @@ export function remoteControlResult(value: unknown): value is RemoteControlResul
 /** Result projections are finite and contain no transport/session metadata. */
 export function remotePublicResult(result: RemoteControlResult): unknown {
   if (result.type === "manual") return result.value;
+  if (result.type === "orchestrator-result") return JSON.parse(result.payload) as unknown;
   if (result.type === "identity")
     return {
       alias: result.alias,
       role: result.role,
       capabilities: result.capabilities,
-      guidance: CHILD_GUIDANCE,
+      guidance:
+        result.role === "child"
+          ? CHILD_GUIDANCE
+          : "Use the advertised tools for your repository. For CLI access use foom call METHOD --params JSON.",
     };
   if (result.type === "handoff")
     return { seq: result.seq, status: result.status, timestamp: result.timestamp };
   return {
     error: result.error,
-    ...(result.error === "phase_2_restricted" ? { reason: REMOTE_PHASE_2_REASON } : {}),
+    ...(result.type === "error" && result.error === "phase_2_restricted"
+      ? { reason: REMOTE_PHASE_2_REASON }
+      : {}),
   };
 }
 

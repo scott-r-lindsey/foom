@@ -3460,7 +3460,7 @@ test("a second recipe exit during a row refresh retains its newly queued targets
   ]);
 });
 
-test.each(["folder", "host", "repository"] as const)(
+test.each(["folder", "host", "repository", "authority"] as const)(
   "clone dispatch rechecks %s after origin reads and provider preparation",
   async (change) => {
     const origin = "git@forge.test:me/repo.git";
@@ -3506,7 +3506,14 @@ test.each(["folder", "host", "repository"] as const)(
         ),
       );
       try {
-        const pending = hosts.repositoryTarget("worker", "/local/repo").catch(() => undefined);
+        let authorized = true;
+        const authorize = async () => {
+          await Promise.resolve();
+          if (!authorized) throw new Error("Checkout proof changed");
+        };
+        const pending = hosts
+          .repositoryTarget("worker", "/local/repo", change === "authority" ? authorize : undefined)
+          .catch(() => undefined);
         await vi.waitFor(() => {
           expect(phase === "providers" ? validations : reads).toBe(
             phase === "third-origin" ? 3 : phase === "fourth-origin" ? 4 : 2,
@@ -3516,6 +3523,7 @@ test.each(["folder", "host", "repository"] as const)(
           settings.registeredHosts = [{ host: "worker", codeFolder: "/approved-new" }];
         if (change === "host") settings.registeredHosts = [];
         if (change === "repository") repositories = [];
+        if (change === "authority") authorized = false;
         reading.resolve({ stdout: origin });
         preparing.resolve(undefined);
         expect(await pending).toBeUndefined();

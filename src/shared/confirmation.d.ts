@@ -1,5 +1,6 @@
 import type { CleanupDialog, CleanupFeed } from "./cleanup";
 import type { InterfaceTheme } from "./interface-theme";
+import type { DispatcherRepository } from "./dispatcher";
 export interface ArmedConfirmation {
   nonce: string;
   target: string;
@@ -92,6 +93,9 @@ export interface DialogContent {
   /** Main-only live review. */
   removalFeed?: RemovalFeed;
   removals?: readonly RemovalItem[];
+  dispatcherRepositories?: readonly DispatcherRepository[];
+  /** Main-only callback. The trusted dialog validates the selected names. */
+  selectDispatcherRepositories?: (names: readonly string[]) => void;
   reply?: { context: string; text: string };
   cleanup?: CleanupDialog;
   /** Main-only; stripped before rendering. */
@@ -102,7 +106,7 @@ export interface DialogContent {
   detail?: string;
   quiet?: string;
   subject?: string;
-  glyph?: "trash" | "branch" | "power" | "orbit" | "link" | "shield" | "bell";
+  glyph?: "trash" | "branch" | "power" | "orbit" | "dispatcher" | "link" | "shield" | "bell";
   note?: string;
   sections?: readonly {
     label: string;
@@ -132,6 +136,7 @@ export interface DialogRequest
     | "approval"
     | "userAction"
     | "localOnly"
+    | "selectDispatcherRepositories"
   > {
   id: string;
   /** Main-owned revision of the queue window’s native bounds. */

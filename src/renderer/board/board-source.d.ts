@@ -23,6 +23,7 @@ import type { BranchInventory, CreateOutcome, Repository, Worktree } from "../..
 export interface LaunchOptions {
   registeredHosts?: readonly RegisteredHost[];
   codeFolder?: string | null;
+  sourceDirectory?: string | null;
   showNestedRepositoryNames?: boolean;
   repositories: readonly Repository[];
   agents: readonly AgentInstallation[];

@@ -176,6 +176,7 @@ export async function call(connection: Connection, command: Command): Promise<un
     "review",
     "create_worktree",
     "launch",
+    "launch_orchestrator",
     "stop",
     "close",
     "remove_worktree",

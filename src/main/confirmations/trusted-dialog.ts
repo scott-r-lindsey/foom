@@ -45,6 +45,7 @@ export class TrustedDialog {
         resolve: (answer: boolean, outcome: DialogOutcome) => void;
         activate: boolean;
         localOnly: boolean;
+        selectDispatcherRepositories?: NonNullable<DialogContent["selectDispatcherRepositories"]>;
       }
     | undefined;
   private approvalFeed: DialogContent["approvalFeed"];
@@ -149,6 +150,23 @@ export class TrustedDialog {
         this.pluginFeed.accept();
         return;
       }
+    }
+    if (this.pending.selectDispatcherRepositories) {
+      if (accepted === false) {
+        this.finish(false, true, "declined");
+        return;
+      }
+      const names = new Set(this.pending.request.dispatcherRepositories?.map((row) => row.name));
+      if (
+        !Array.isArray(accepted) ||
+        accepted.length > names.size ||
+        new Set(accepted).size !== accepted.length ||
+        accepted.some((name: unknown) => typeof name !== "string" || !names.has(name))
+      )
+        return;
+      this.pending.selectDispatcherRepositories(accepted);
+      this.finish(true, true);
+      return;
     }
     if (this.removalFeed) {
       if (accepted === false) {
@@ -458,7 +476,15 @@ export class TrustedDialog {
       const window = this.window;
       if (!window || this.isCancelled(signal)) return false;
       const id = randomUUID();
-      const { feed, removalFeed, pluginFeed, approvalFeed, localOnly, ...renderContent } = content;
+      const {
+        feed,
+        removalFeed,
+        pluginFeed,
+        approvalFeed,
+        localOnly,
+        selectDispatcherRepositories,
+        ...renderContent
+      } = content;
       delete renderContent.removal;
       delete renderContent.approval;
       delete renderContent.userAction;
@@ -492,6 +518,7 @@ export class TrustedDialog {
           },
           activate,
           localOnly: localOnly === true,
+          ...(selectDispatcherRepositories ? { selectDispatcherRepositories } : {}),
         };
       });
       this.unsubscribe = feed?.subscribe(() => {

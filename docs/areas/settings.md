@@ -65,8 +65,12 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 | `setupComplete` | Records human setup progress |
 | `terminalClipboardWrites` | Allows untrusted terminal output to replace the clipboard; Settings only |
 | `registeredHosts` | Main-owned Settings → Hosts authorizations; never agent-editable |
-| `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
+| `codeFolder`, `sourceDirectory`, `worktreeLocation` | Select filesystem paths or placement |
 | `environment` | Variables reach every agent launch, like `agentArguments`, and may hold secrets; set only through Settings (#215) |
+
+General → Source directory accepts a local absolute path or `~/` path. Main
+resolves it to an existing directory under the profile settings lock and
+rejects other paths. An empty value clears the setting.
 
 Excluded keys report `unknown-key` at their fixed `$.<key>` path. Arbitrary unknown
 property names are never echoed. The allowlist applies even when an excluded value

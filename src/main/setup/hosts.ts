@@ -927,15 +927,25 @@ export class Hosts {
       }
     this.sidebarLocations = { at: oldest, repositories, read: Promise.resolve(state) };
   }
-  async repositoryTarget(host: string, repository: string): Promise<RemoteTarget> {
+  async repositoryTarget(
+    host: string,
+    repository: string,
+    authorize?: () => void | Promise<void>,
+  ): Promise<RemoteTarget> {
     const registration = this.registered(host);
     if (!this.repositories().some((repo) => repo.path === repository))
       throw new ControlError("not_found");
-    const result = await this.ensureRepository(host, registration.codeFolder, repository);
+    const result = await this.ensureRepository(
+      host,
+      registration.codeFolder,
+      repository,
+      authorize,
+    );
     if (!result.ok || !result.checkout || result.checkout.state === "absent")
       throw new LaunchFailure("remote_worktree_unavailable");
     const origin = await this.origin(repository);
     this.registered(host, registration.codeFolder);
+    await authorize?.();
     return {
       ...this.shellTarget(host),
       machine: {
@@ -2175,7 +2185,7 @@ export class Hosts {
     request: HostManagement,
     options: {
       currentObservation?: () => boolean;
-      beforeDispatch?: () => boolean;
+      beforeDispatch?: () => boolean | Promise<boolean>;
       connection?: RemoteCheckConnection | undefined;
     } = {},
   ): Promise<HostResult> {
@@ -2219,7 +2229,11 @@ export class Hosts {
       }));
       let result: unknown;
       // Provider preparation can await. Revoke stale mutation authority before dispatch.
-      if (options.beforeDispatch?.() === false) return failed("checkout-refused", "configuration");
+      if (options.beforeDispatch) {
+        if (!(await options.beforeDispatch())) return failed("checkout-refused", "configuration");
+        if (cancelled()) return failed("cancelled", "cancellation");
+        if (changed()) return failed("configuration-changed", "configuration");
+      }
       const connection = options.connection;
       try {
         const requestWithAgents = { ...request, agents: probes };
@@ -2421,9 +2435,11 @@ export class Hosts {
     host: string,
     folder: string,
     repository: string,
+    authorize?: () => void | Promise<void>,
   ): Promise<HostResult> {
     const origin = await this.origin(repository);
     this.registered(host, folder);
+    await authorize?.();
     const key = JSON.stringify([host, folder, origin]);
     let pending = this.preparingRepositories.get(key);
     if (!pending) {
@@ -2437,7 +2453,15 @@ export class Hosts {
             currentOrigin !== origin
           )
             throw new LaunchFailure("remote_worktree_unavailable");
-          const cloned = await this.repository(host, folder, repository, true, origin);
+          const cloned = await this.repository(
+            host,
+            folder,
+            repository,
+            true,
+            origin,
+            undefined,
+            authorize,
+          );
           console.info(`Host clone attempt: reason=${cloned.ok ? "completed" : cloned.reason}`);
           return cloned;
         })
@@ -2452,6 +2476,7 @@ export class Hosts {
     this.registered(host, folder);
     if (!this.repositories().some((entry) => entry.path === repository) || currentOrigin !== origin)
       throw new LaunchFailure("remote_worktree_unavailable");
+    await authorize?.();
     if (!result.ok)
       throw new LaunchFailure(
         isLaunchReason(result.reason) ? result.reason : "remote_worktree_unavailable",
@@ -2465,6 +2490,7 @@ export class Hosts {
     clone: boolean,
     expectedOrigin?: string,
     connection?: RemoteCheckConnection,
+    authorize?: () => void | Promise<void>,
   ): Promise<HostResult> {
     let origin: string;
     try {
@@ -2472,16 +2498,20 @@ export class Hosts {
     } catch {
       return { ok: false, reason: "origin-unavailable" };
     }
-    const authorized = () =>
-      this.store
-        .get()
-        .registeredHosts?.some(
-          (entry) => entry.host === host && entry.codeFolder === codeFolder,
-        ) === true &&
-      this.repositories().some((entry) => entry.path === repository) &&
-      this.repositoryOrigins.get(repository) === origin &&
-      (expectedOrigin === undefined || origin === expectedOrigin);
-    if (clone && !authorized()) return { ok: false, reason: "checkout-refused" };
+    const authorized = async () => {
+      await authorize?.();
+      return (
+        this.store
+          .get()
+          .registeredHosts?.some(
+            (entry) => entry.host === host && entry.codeFolder === codeFolder,
+          ) === true &&
+        this.repositories().some((entry) => entry.path === repository) &&
+        this.repositoryOrigins.get(repository) === origin &&
+        (expectedOrigin === undefined || origin === expectedOrigin)
+      );
+    };
+    if (clone && !(await authorized())) return { ok: false, reason: "checkout-refused" };
     const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
     const result = await this.run(
       host,

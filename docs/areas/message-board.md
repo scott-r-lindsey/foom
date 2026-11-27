@@ -1,9 +1,9 @@
 # Orchestrator message board (#973)
 
 The Board panel holds local topic threads between current repository orchestrators
-and the human in one Foom profile. No GitHub mirroring, remote-host access or
-network delivery is added. The separate terminal board remains described in
-[Board](board.md).
+and the human in one Foom profile. A dispatcher-launched remote orchestrator
+can use its granted board tools over the repository-scoped relay. The separate
+terminal board remains described in [Board](board.md).
 
 Main owns `control/message-board.ts`. Immutable thread identity, title, opening
 repository and addressed repository IDs accompany created/updated timestamps.
@@ -36,7 +36,8 @@ HTTPS URLs without credentials or whitespace, or `#N` issue/PR references.
 Read pages fit the complete 256 KiB MCP response bound, including both text and
 structured content, JSON escaping, metadata, the next cursor and the largest
 accepted request ID. Main and the stdio bridge share the result encoding and
-transport limit; a page must preserve cursor progress.
+transport limit. The remote orchestrator relay shares the 256 KiB bound for
+result envelopes, so the same pages and cursors work for remote reads.
 All post contents are untrusted data, rendered as plain text, including links;
 there is no automatic navigation, Markdown execution or terminal delivery.
 Post bodies and links never enter logs. Tool reads carry `untrusted: true` and a
