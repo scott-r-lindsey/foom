@@ -31,6 +31,7 @@ function fixture(context, { timeout } = {}) {
   for (const name of [
     "electron-tests.mjs",
     "electron-selection.mjs",
+    "electron-registration.mjs",
     "electron-summary.mjs",
     "validation-fingerprint.mjs",
     "build-inputs.mjs",

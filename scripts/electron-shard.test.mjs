@@ -1,3 +1,4 @@
+import { discoverStaticRegistrations } from "./electron-registration.mjs";
 import { selectAffected } from "./electron-affected.mjs";
 import { discoverRegistrations, selectSuiteFiles } from "./electron-selection.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
@@ -13,15 +14,29 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 test("Electron shards register every test exactly once, preserve filtering and reject invalid shards", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-#-"));
   try {
-    const helper = fileURLToPath(new URL("../tests/electron/test-shard.js", import.meta.url));
-    writeFileSync(
-      path.join(directory, "test-shard.js"),
-      `module.exports = require(${JSON.stringify(helper)});`,
-    );
+    for (const name of ["test-shard.js", "shard-assignment.js", "shard-plan.json"])
+      cpSync(new URL(`../tests/electron/${name}`, import.meta.url), path.join(directory, name));
     // Collect actual registrations in every discovered suite, including generated
     // cases, without invoking a test body or launching Electron/agent fixtures.
     const inventory = suiteFiles();
     const registrations = discoverRegistrations(inventory);
+    assert.deepEqual(
+      new Map(discoverStaticRegistrations(inventory).map(({ name, file }) => [name, file])),
+      registrations,
+    );
+    for (const [name, file] of [
+      ["agent discovery uses the fixture login shell and controlled PATH", "harness.test.js"],
+      [
+        "shared board startup restores a native-hidden CDP-visible board and delivers frames",
+        "application.test.js",
+      ],
+      ["owned child review loop: clean", "review-loop.test.js"],
+    ]) {
+      assert.deepEqual(
+        selectSuiteFiles(inventory, { patterns: [`^${name}$`] }).map((file) => path.basename(file)),
+        [file],
+      );
+    }
     const suiteNames = [...registrations.keys()];
     assert.ok(suiteNames.length > 0);
     const plan = JSON.parse(
@@ -194,6 +209,10 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     cpSync(new URL(`../tests/electron/${name}`, import.meta.url), path.join(suiteDirectory, name));
   const selector = path.join(scripts, "electron-selection.mjs");
   cpSync(new URL("./electron-selection.mjs", import.meta.url), selector);
+  cpSync(
+    new URL("./electron-registration.mjs", import.meta.url),
+    path.join(scripts, "electron-registration.mjs"),
+  );
   writeFileSync(
     path.join(suiteDirectory, "shard-plan.json"),
     JSON.stringify({ shards: { 2: [{ first: [] }, { second: [] }] } }),
@@ -209,8 +228,8 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
 
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
-  function runWorker(shard, patterns) {
-    const selected = select(files, { shard, patterns });
+  function runWorker(shard, patterns, inventory = files, expectedStatus = 0) {
+    const selected = select(inventory, { shard, patterns });
     const result = spawnSync(
       process.execPath,
       [
@@ -222,8 +241,9 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
       ],
       { encoding: "utf8", env: { ...env, FOOM_ELECTRON_SHARD: shard } },
     );
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    return { selected, output: result.stdout };
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, expectedStatus, output);
+    return { selected, output };
   }
 
   await context.test("generated worker names are assigned exactly once", () => {
@@ -270,5 +290,23 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     assert.match(focused.output, /^\s+ok \d+ - child$/m);
     assert.match(focused.output, /^ok \d+ - group child$/m);
     assert.deepEqual(focused.selected, files);
+    const third = path.join(suiteDirectory, "third.test.cjs");
+    writeFileSync(third, binding + 'test("unrelated", () => {});');
+    for (const [pattern, expected] of [
+      ["^group child$", files],
+      ["^group$", [first]],
+    ]) {
+      const matching = runWorker("1/1", [pattern], [...files, third]);
+      assert.deepEqual(matching.selected, expected);
+      assert.match(matching.output, /^\s+ok \d+ - child$/m);
+    }
+  });
+
+  await context.test("a syntax error in a nonmatching suite reaches the worker", () => {
+    writeFileSync(first, binding + 'test("keep me", () => {});');
+    writeFileSync(second, binding + 'test("other", () => { break; });');
+    const focused = runWorker("1/1", ["^keep me$"], files, 1);
+    assert.deepEqual(focused.selected, files);
+    assert.match(focused.output, /SyntaxError: Illegal break statement/);
   });
 });

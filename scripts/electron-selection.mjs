@@ -1,3 +1,4 @@
+import { discoverStaticRegistrations } from "./electron-registration.mjs";
 import { readFileSync } from "node:fs";
 import { createRequire, isBuiltin } from "node:module";
 import { runInNewContext } from "node:vm";
@@ -55,65 +56,6 @@ export function discoverRegistrations(files) {
   return registrations;
 }
 
-function discoverStaticRegistrations(files) {
-  const ts = createRequire(import.meta.url)("typescript");
-  const registrations = new Map();
-  for (const file of files) {
-    const source = ts.createSourceFile(
-      file,
-      readFileSync(file, "utf8"),
-      ts.ScriptTarget.Latest,
-      false,
-      ts.ScriptKind.JS,
-    );
-    const [binding, ...statements] = source.statements;
-    if (
-      source.parseDiagnostics.length > 0 ||
-      !binding ||
-      !ts.isVariableStatement(binding) ||
-      !(binding.declarationList.flags & ts.NodeFlags.Const) ||
-      binding.declarationList.declarations.length !== 1
-    )
-      return undefined;
-    const [{ name, initializer }] = binding.declarationList.declarations;
-    if (
-      !ts.isObjectBindingPattern(name) ||
-      name.elements.length !== 1 ||
-      name.elements[0].getText(source) !== "test" ||
-      !initializer ||
-      !ts.isCallExpression(initializer) ||
-      initializer.expression.getText(source) !== "require" ||
-      initializer.arguments.length !== 1 ||
-      !ts.isStringLiteral(initializer.arguments[0]) ||
-      initializer.arguments[0].text !== "./test-shard.js" ||
-      statements.length === 0
-    )
-      return undefined;
-
-    // Only straight-line registrations through the shard helper are proven.
-    // Executable setup, imported helpers, and describe callbacks can add tests
-    // or change their ancestry in the worker. Leave those suites to Node.
-    for (const statement of statements) {
-      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression))
-        return undefined;
-      const { expression, arguments: args, questionDotToken } = statement.expression;
-      if (!ts.isIdentifier(expression) || expression.text !== "test" || questionDotToken)
-        return undefined;
-      const [name, body] = args;
-      if (
-        args.length !== 2 ||
-        !ts.isStringLiteral(name) ||
-        !name.text ||
-        registrations.has(name.text) ||
-        (!ts.isArrowFunction(body) && !ts.isFunctionExpression(body))
-      )
-        return undefined;
-      registrations.set(name.text, file);
-    }
-  }
-  return registrations;
-}
-
 export function selectSuiteFiles(files, { shard, patterns }) {
   if (shard === undefined && patterns.length === 0) return files;
   try {
@@ -135,10 +77,13 @@ export function selectSuiteFiles(files, { shard, patterns }) {
       return files;
 
     const registrations = discoverStaticRegistrations(files);
-    if (!registrations) return files;
-    if (count > 1 && [...assignments.keys()].some((name) => !registrations.has(name))) return files;
+    if (count > 1) {
+      if (registrations.some(({ ancestors, group }) => group || ancestors.length > 0)) return files;
+      const names = new Set(registrations.map(({ name }) => name));
+      if ([...assignments.keys()].some((name) => !names.has(name))) return files;
+    }
     const selected = new Set();
-    for (const [name, file] of registrations) {
+    for (const { name, file, ancestors } of registrations) {
       if (count > 1) {
         const bucket = assignments.get(name);
         if (bucket === undefined) {
@@ -149,7 +94,11 @@ export function selectSuiteFiles(files, { shard, patterns }) {
       }
       if (
         matchers.length === 0 ||
-        matchers.some((matcher) => matcher.test(name) || matcher.test(name.trim()))
+        matchers.some(
+          (matcher) =>
+            [name, ...ancestors].some((part) => matcher.test(part)) ||
+            matcher.test([...ancestors, name].join(" ").trim()),
+        )
       )
         selected.add(file);
     }

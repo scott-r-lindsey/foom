@@ -69,16 +69,21 @@ within each job, preserving native desktop/focus behavior. Shards within a
 platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
 The shard planner inventories named registrations, including generated cases,
-without invoking test bodies. The runner narrows files only when it can prove
-every suite's registrations statically. It recognizes direct top-level calls
-to the shard helper with a string literal name and an inline callback. Generated
-names, imported setup, and nested suites keep the full inventory, so Node can
-register tests with worker state and apply ancestor-qualified name patterns.
-A measured shard also keeps the full inventory if it can receive a hash-assigned
-test or the plan cannot be reconciled with the statically proven names. Unknown
-matches and ambiguous patterns keep the full inventory. An explicit `--suite`
-keeps the requested file list. Empty files may appear as Node runner placeholders
-and do not count toward the focused pass total.
+without invoking test bodies. The runner checks CommonJS syntax with Node and
+derives registrations from the shard helper, literal data and synchronous
+`describe` callbacks. It can follow a helper that re-exports `describe` and match
+the test name together with its ancestors. Literal arrays and their pure
+`map` and `flatMap` transformations can generate case names. Discovery reads
+fixture helper sources and checks their module-scope initialization before
+using their exports. Test bodies and fixture modules do not execute in
+selection.
+Unsupported initialization, worker-dependent registrations, syntax errors, and
+ambiguous patterns defer selection to the full inventory. A measured shard
+also keeps the full inventory when it can receive a hash-assigned case, when
+a suite has nested registrations, or when the plan cannot be reconciled with
+the proven names. An explicit `--suite` keeps the requested file list. Empty
+files can appear as Node runner placeholders and do not count toward the
+focused pass total.
 
 ```sh
 # Full suite, no sharding (Linux)
