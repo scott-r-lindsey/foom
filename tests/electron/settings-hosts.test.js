@@ -2347,6 +2347,68 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   await captureHosts(app, page, "1062/install-failed");
 });
 
+test("Hosts can reload Git after its post-install snapshot fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const installed = {
+    facts: {
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-out" },
+      ],
+    },
+  };
+  await updateScenario({ ...installed, hold: "inspect", recipeExit: 0 });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await waitForHeldGitInspection(calls);
+  const reload = card.getByRole("button", { name: "Reload git", exact: true });
+  const gitRow = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  await expect(gitRow).toContainText("Checking…");
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Hosts } = load("./build/main/setup/hosts.js");
+    const prepareView = Hosts.prototype.prepareView;
+    globalThis.restoreFixtureHostsView = () => {
+      Hosts.prototype.prepareView = prepareView;
+    };
+    Hosts.prototype.prepareView = async () => {
+      throw new Error("Fixture Hosts snapshot failure");
+    };
+  });
+  const loadError = page.getByText("Unable to load hosts", { exact: true });
+  try {
+    await updateScenario(installed);
+    const git = await page.evaluate(async () => {
+      const reply = await window.desktop.hosts({ action: "list" });
+      return reply.hosts[0].observation.preflight.result.facts.tools.find(({ id }) => id === "git")
+        .state;
+    });
+    assert.equal(git, "ready");
+    await expect(loadError).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.restoreFixtureHostsView());
+  }
+  await card.getByRole("button", { name: "Collapse fixture-cloud", exact: true }).click();
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(loadError).toBeVisible();
+  await expect(reload).toBeEnabled();
+  await expect(gitRow).not.toContainText("Checking…");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
+  await reload.click();
+  await expect(loadError).toHaveCount(0);
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(card.getByRole("button", { name: "Install git", exact: true })).toHaveCount(0);
+});
+
 test("Hosts shows Add progress and fixed failures without a check output panel", {
   skip: process.platform === "win32",
   timeout: deadline(60000),

@@ -94,6 +94,7 @@ const ReloadContext = createContext<
       failed: ReadonlySet<string>;
       saveFailed: ReadonlySet<string>;
       needsFullCheck: boolean;
+      snapshotFailed: boolean;
     }
   | undefined
 >(undefined);
@@ -456,7 +457,8 @@ function Checklist({
       type="button"
       disabled={
         disabled ||
-        (operation === "install" && reload?.pending.has(rowKey({ kind: "tool", tool: id }))) ||
+        (operation === "install" &&
+          (reload?.snapshotFailed || reload?.pending.has(rowKey({ kind: "tool", tool: id })))) ||
         (id === "gh" && ghRunning) ||
         (signInTerminal?.tool === id && signInTerminal.running)
       }
@@ -821,6 +823,7 @@ export function HostsSettings({
     source,
     () => source.hosts?.({ action: "list" }) ?? Promise.resolve(EMPTY_HOSTS),
   );
+  const snapshotFailed = hostsQuery.isError;
   const [state, setState] = useViewState(hostsQuery, EMPTY_HOSTS);
   const [setupHost, setSetupHost] = useState<string>();
   const setupEntry = state.hosts.find((entry) => entry.host === setupHost);
@@ -894,7 +897,7 @@ export function HostsSettings({
   );
   if (pendingInstallViews.size) {
     const waiting = new Map(
-      [...pendingInstallViews].filter(([, required]) => required > viewRevision),
+      [...pendingInstallViews].filter(([, required]) => !snapshotFailed && required > viewRevision),
     );
     if (waiting.size !== pendingInstallViews.size) setPendingInstallViews(waiting);
   }
@@ -1237,6 +1240,8 @@ export function HostsSettings({
     } catch {
       setRowFailed((previous) => new Map(previous).set(key, sshRevision));
     } finally {
+      // An unchanged row may publish no update. Retry the failed subscription explicitly.
+      if (snapshotFailed) void hostsQuery.refetch();
       setRowPending((previous) => {
         const next = new Set(previous);
         next.delete(key);
@@ -1267,7 +1272,7 @@ export function HostsSettings({
         )}
       </header>
       {state.remoteHostsAvailable === false && <p>This build has no remote host support</p>}
-      {!!(hostError || hostsQuery.isError) && (
+      {!!(hostError || snapshotFailed) && (
         <p role="alert" className={typeof hostError === "string" ? "hosts-failure" : undefined}>
           {hostError || "Unable to load hosts"}
         </p>
@@ -1568,6 +1573,7 @@ export function HostsSettings({
                   },
                   needsFullCheck:
                     (preflight?.result ?? entry.result)?.ok !== true || summary === "Not checked",
+                  snapshotFailed,
                   saveFailed: new Set(
                     (entry.rowFailures ?? [])
                       .filter((row) => row.reason === "save-failed")
@@ -1587,7 +1593,7 @@ export function HostsSettings({
                     ...[...rowPending, ...pendingInstallViews.keys()]
                       .filter((key) => key.startsWith(`${entry.host}:`))
                       .map((key) => key.slice(entry.host.length + 1)),
-                    ...(recipe?.phase === "checking" && recipe.installTool
+                    ...(!snapshotFailed && recipe?.phase === "checking" && recipe.installTool
                       ? [rowKey({ kind: "tool", tool: recipe.installTool })]
                       : []),
                   ]),

@@ -1973,7 +1973,14 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test.each(["refreshed", "read failed", "live installed", "live still missing"] as const)(
+const recipeExitOutcomes = [
+  "refreshed",
+  "read failed",
+  "live installed",
+  "live still missing",
+  "live snapshot failed",
+] as const;
+test.each(recipeExitOutcomes)(
   "embedded recipe exit waits for its observed tool result (%s)",
   async (outcome) => {
     let exit = (_state: { exited: boolean; code?: number }) => {};
@@ -2006,7 +2013,8 @@ test.each(["refreshed", "read failed", "live installed", "live still missing"] a
     };
     const stream = viewStream();
     stream.data.hosts = { ...saved(missing), viewRevision: 1 };
-    const live = outcome === "live installed" || outcome === "live still missing";
+    const live = outcome.startsWith("live");
+    const installed = outcome === "live installed" || outcome === "live snapshot failed";
     const api = vi
       .fn<(action: HostsAction) => Promise<HostsState>>()
       .mockResolvedValue(saved(missing));
@@ -2052,7 +2060,7 @@ test.each(["refreshed", "read failed", "live installed", "live still missing"] a
     expect(screen.getByText("Checking…")).toBeTruthy();
     expect(install.disabled).toBe(true);
     const observed = {
-      ...saved(outcome === "live installed" ? { ...missing, preflight } : missing),
+      ...saved(installed ? { ...missing, preflight } : missing),
       viewRevision: 3,
     };
     await act(async () => {
@@ -2060,7 +2068,23 @@ test.each(["refreshed", "read failed", "live installed", "live still missing"] a
       else refresh.resolve(observed);
       await refresh.promise.catch(() => undefined);
     });
-    if (live) {
+    if (outcome === "live snapshot failed") {
+      act(() => {
+        stream.errors.add("hosts");
+        stream.push("hosts");
+      });
+      await screen.findByText("Unable to load hosts");
+      const reload = screen.getByRole<HTMLButtonElement>("button", { name: "Reload git" });
+      expect(screen.queryByText("Checking…")).toBeNull();
+      expect(reload.disabled).toBe(false);
+      expect(install.disabled).toBe(true);
+      stream.errors.delete("hosts");
+      stream.data.hosts = observed;
+      fireEvent.click(reload);
+      await waitFor(() => {
+        expect(screen.queryByText("Unable to load hosts")).toBeNull();
+      });
+    } else if (live) {
       expect(screen.getByText("Checking…")).toBeTruthy();
       expect(install.disabled).toBe(true);
       act(() => {
@@ -2084,7 +2108,7 @@ test.each(["refreshed", "read failed", "live installed", "live still missing"] a
     await waitFor(() => {
       expect(screen.queryByText("Checking…")).toBeNull();
     });
-    if (outcome === "live installed") {
+    if (installed) {
       expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
       expect(
         screen.getByRole("button", { name: "Reload git" }).closest(".host-check-row")?.textContent,

@@ -425,7 +425,9 @@ installer and agent sign-in collapse their output on exit. For origin trust, the
 Git access row shows the scoped check result. Tool installs retain
 output until dismissed or replaced. The Git row shows **Checking…** with
 **Install** disabled until the refreshed result reaches the checklist. The row
-offers **Install** again if Git is still **Not found**.
+offers **Install** again if Git is still **Not found**. If the Hosts snapshot
+fails, **Checking…** ends and **Reload git** is available. Install actions wait
+for a successful snapshot, which Reload can request.
 Add host shows progress and enrollment errors
 in the form. The host card shows check progress in its header and fixed failures
 on the affected rows. **Last checked** records full checks only.
