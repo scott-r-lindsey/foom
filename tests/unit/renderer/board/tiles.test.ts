@@ -2,7 +2,7 @@ import { boardRows } from "../../../fixtures/board";
 import { arrangedLayout } from "../../../fixtures/tile-layout";
 import { expect, test } from "vitest";
 import {
-  tileRemovalAction,
+  tileRemovalControls,
   placeAgentPreview,
   blankColumns,
   evenSplitRun,
@@ -960,12 +960,18 @@ test.each(["left", "up", "right", "down"] as const)(
   },
 );
 
-test("tile removal chooses Hide for live sessions and exited resumable agents only", () => {
+test("tile removal offers Hide and Close together only for exited resumable agents", () => {
   const row = boardRows(100)[0];
   if (!row) throw new Error("Missing fixture row");
-  expect(tileRemovalAction(undefined)).toBe("hide");
+  const actions = (session: typeof row | undefined, preview = false) =>
+    tileRemovalControls(session, preview).map(({ action }) => action);
+  expect(actions(undefined)).toEqual(["hide"]);
+  expect(actions(undefined, true)).toEqual(["close"]);
+  expect(actions({ ...row, startup: { label: "Starting", remote: false, since: 0 } })).toEqual([
+    "close",
+  ]);
   expect(
-    tileRemovalAction({
+    tileRemovalControls({
       ...row,
       kind: "agent",
       exited: true,
@@ -973,19 +979,14 @@ test("tile removal chooses Hide for live sessions and exited resumable agents on
       unavailable: true,
       conversationId: "saved",
     }),
-  ).toBe("close");
+  ).toEqual([{ action: "close", label: "Close", glyph: "×", menuLabel: "Forget…" }]);
   for (const kind of ["agent", "shell"] as const) {
-    expect(tileRemovalAction({ ...row, kind, exited: false })).toBe("hide");
-    expect(tileRemovalAction({ ...row, kind, exited: true, conversationId: undefined })).toBe(
-      "close",
+    expect(actions({ ...row, kind, exited: false, conversationId: "saved" })).toEqual(["hide"]);
+    expect(actions({ ...row, kind, exited: true, conversationId: undefined })).toEqual(["close"]);
+    expect(actions({ ...row, kind, exited: true, conversationId: "saved" })).toEqual(
+      kind === "agent" ? ["hide", "close"] : ["close"],
     );
-    expect(tileRemovalAction({ ...row, kind, exited: true, conversationId: "saved" })).toBe(
-      kind === "agent" ? "hide" : "close",
-    );
-    expect(tileRemovalAction({ ...row, kind, exited: true, conversationId: "--unsafe" })).toBe(
-      "close",
-    );
-    expect(tileRemovalAction({ ...row, kind, exited: false }, true)).toBe("close");
+    expect(actions({ ...row, kind, exited: true, conversationId: "--unsafe" })).toEqual(["close"]);
   }
 });
 
@@ -994,8 +995,12 @@ test("config tiles close after exit even with a saved conversation for every age
   if (!row) throw new Error("Missing fixture row");
   for (const agent of ["claude", "codex", "agy", "copilot", "opencode", "pi"]) {
     const config = { ...row, kind: "agent" as const, agent, config: true, conversationId: "saved" };
-    expect(tileRemovalAction({ ...config, exited: false })).toBe("hide");
-    expect(tileRemovalAction({ ...config, exited: true })).toBe("close");
+    expect(tileRemovalControls({ ...config, exited: false })).toEqual([
+      { action: "hide", label: "Hide", glyph: "−" },
+    ]);
+    expect(tileRemovalControls({ ...config, exited: true })).toEqual([
+      { action: "close", label: "Close", glyph: "×" },
+    ]);
   }
 });
 

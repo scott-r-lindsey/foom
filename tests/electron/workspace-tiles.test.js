@@ -1397,6 +1397,44 @@ test("startup preserves usable landing space while loading a saved small termina
   assert.equal(saved.tree.kind, "split");
   assert.equal(saved.tree.ratio, 0.5);
   assert.equal(saved.landing, "font-space");
+
+  // A short tile in a narrow column must still fit three terminal rows.
+  await sizeTileBoard(app, page, 900, 640);
+  await page.evaluate(async () => {
+    const [first] = (await window.desktop.workspace()).terminals;
+    const second = await window.desktop.sidebarCommand({ kind: "home-shell" });
+    const third = await window.desktop.sidebarCommand({ kind: "home-shell" });
+    const tile = (id, session) => ({ kind: "tile", id, content: { kind: "terminal", session } });
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        focused: "short-terminal",
+        tree: {
+          kind: "split",
+          id: "narrow-column",
+          direction: "horizontal",
+          ratio: 0.1,
+          first: {
+            kind: "split",
+            id: "short-row",
+            direction: "vertical",
+            ratio: 0.135,
+            first: tile("short-terminal", first.id),
+            second: tile("lower-terminal", second.terminalId),
+          },
+          second: tile("wide-terminal", third.terminalId),
+        },
+      }),
+    );
+  });
+  await page.reload();
+  const short = page.locator('[data-tile="short-terminal"]');
+  const screen = short.locator(".xterm-rows");
+  await expect(screen).toHaveCSS("font-size", "10px");
+  const bounds = await short.boundingBox();
+  assert.ok(bounds && bounds.width < 100 && bounds.height < 90, JSON.stringify(bounds));
+  await expect.poll(() => screen.locator(":scope > div").count()).toBeGreaterThanOrEqual(3);
 });
 
 test("small tile splits refuse visibly in both menus and keyboard commands", async (context) => {
