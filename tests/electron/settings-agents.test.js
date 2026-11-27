@@ -1,3 +1,4 @@
+const { codexFixture } = require("./agent-fixture.js");
 const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
@@ -1711,5 +1712,138 @@ test("native and Foom zoom entry points survive agent Settings saves without rel
         "programmatic native changes must not become saved zoom intent",
       );
     assert.ok(!events.includes("navigation") && !events.includes("renderer-gone"));
+  }
+});
+
+test("Codex permission Settings require trusted confirmation and label the launched tile", {
+  timeout: deadline(60_000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { app, page, repository } = await codexFixture(context, {
+    helpText: "--sandbox --ask-for-approval -c",
+    source: ({ help }) => `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('codex-cli 0.167.0');
+else if (args[0] === '--help') console.log(fs.readFileSync(${JSON.stringify(help)}, 'utf8'));
+else {
+  console.log('PERMISSIONS:' + JSON.stringify(args.slice(0, 4)));
+  console.log('MCP_OVERRIDE:' + args.includes('mcp_servers.permissions.command="/fixture/no-op"'));
+  setInterval(() => {}, 1000);
+}
+`,
+  });
+  const shots = process.env.FOOM_SCREENSHOTS === "1";
+  const capture = async (target, name) => {
+    if (shots)
+      await target.screenshot({ path: evidencePath(`1078/${name}`), animations: "disabled" });
+  };
+  const defaults = await page.evaluate(() =>
+    window.desktop.saveSetup({ agentArguments: { codex: ["-c", 'profile="team"'] } }),
+  );
+  assert.deepEqual(defaults.settings.agentArguments.codex, ["-c", 'profile="team"']);
+  await assert.rejects(
+    page.evaluate(() =>
+      window.desktop.saveSetup({ agentPermissions: { global: { codex: { level: "ask" } } } }),
+    ),
+    /foom-error:agent-permission-conflict/u,
+  );
+  await page.evaluate(() =>
+    window.desktop.saveSetup({
+      hooks: false,
+      agentArguments: { codex: ["-c", 'mcp_servers.permissions.command="/fixture/no-op"'] },
+    }),
+  );
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  const selector = page.getByLabel("Codex permission level", { exact: true });
+  await expect(selector).toHaveValue("");
+  assert.deepEqual(await selector.locator("option").allTextContents(), [
+    "Agent default",
+    "Ask",
+    "Workspace",
+    "Full access",
+  ]);
+  await assert.rejects(
+    page.evaluate(() =>
+      window.desktop.saveSetup({
+        agentPermissions: { global: { codex: { level: "full", identity: "a".repeat(64) } } },
+      }),
+    ),
+  );
+  const selectTheme = (theme) =>
+    page.evaluate(
+      (theme) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${theme}` }),
+      theme,
+    );
+  for (const theme of ["dark", "light"]) {
+    await selectTheme(theme);
+    await expect(selector).toBeEnabled();
+    await selector.selectOption("workspace");
+    await expect(selector).toHaveValue("workspace");
+    await capture(page.locator(".agents-scoped"), `settings-${theme}.png`);
+    await page.getByRole("tab", { name: "Machines", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Machine", exact: true })).toHaveValue("local");
+    await expect(selector).toHaveValue("");
+    await selector.selectOption("ask");
+    await expect(selector).toHaveValue("ask");
+    assert.equal(
+      (await page.evaluate(() => window.desktop.setupState())).settings.agentPermissions.global
+        .codex.level,
+      "workspace",
+    );
+    await selector.scrollIntoViewIfNeeded();
+    await capture(page.locator(".agents-scoped"), `machine-override-${theme}.png`);
+    await selector.selectOption("");
+    await expect(selector).toHaveValue("");
+    await page.getByRole("tab", { name: "Global", exact: true }).click();
+    await expect(selector).toHaveValue("workspace");
+    await selector.selectOption("full");
+    const disclosure = await confirmationPage(app, "Allow Full access for Codex?");
+    await expect(disclosure.getByRole("alertdialog")).toContainText("including children");
+    await expect(disclosure.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    await capture(disclosure.getByRole("alertdialog"), `acknowledgement-${theme}.png`);
+    if (theme === "dark") {
+      await disclosure.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(selector).toBeEnabled();
+      await expect(selector).toHaveValue("workspace");
+    } else {
+      await disclosure.getByRole("button", { name: "Allow Full access", exact: true }).click();
+      await expect(selector).toHaveValue("full");
+    }
+  }
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  const id = await page.evaluate(async (repo) => {
+    const tree = await window.desktop.createWorktree(repo, "permission-fixture", "adjacent");
+    return (
+      await window.desktop.launchAgent({
+        agent: "codex",
+        repository: repo,
+        worktree: tree.path,
+        cols: 80,
+        rows: 24,
+      })
+    ).id;
+  }, repository.path);
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
+    .toContain('PERMISSIONS:["--sandbox","danger-full-access","--ask-for-approval","never"]');
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
+    .toContain("MCP_OVERRIDE:true");
+  const rows = await page.evaluate(() => window.desktop.workspace());
+  assert.equal(rows.terminals.find((entry) => entry.id === id).permissionLevel, "full");
+  await page
+    .locator(".board-row[data-kind=agent]")
+    .filter({ hasText: "permission-fixture" })
+    .click();
+  const tile = page.locator(".tile-title").filter({ hasText: "Full access" });
+  await expect(tile).toBeVisible();
+  for (const theme of ["dark", "light"]) {
+    await selectTheme(theme);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
+      .toBe(theme === "dark" ? "#05040a" : "#f3f0fa");
+    await capture(tile, `tile-${theme}.png`);
   }
 });

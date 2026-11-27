@@ -637,6 +637,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "AGENTS.md": GUIDE_HISTORY,
   "CLAUDE.md": GUIDE_HISTORY,
   "schemas/agent.schema.json": [
+    "740e2ad498a29fc6f1190db9425e21327d27f9e4a0f108f42121967fe0cc346a",
     "4ffa1f311e575688b914608124cb224a326051c4a3b58e92e851b49416bc716b",
     "7749f9139b291ecaeb0897e7f76acdcc1b66246d0caad7317cd3169f5e9ab4e9",
     "33589cf5cebb4f3729bc03ca24e40b665238f16a1fad56ee6fe86c5d6ef11311",

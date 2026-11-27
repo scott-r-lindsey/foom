@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "./agent-permissions";
 import type { HostPressure } from "./host-pressure.d";
 import type { ImagePut, ImagePutResult } from "./image-paste.d";
 import type { HostManagement, HostResult, HostRecipeLaunch } from "./registered-hosts.d";
@@ -13,6 +14,7 @@ import type { TerminalTheme } from "./terminal-theme";
 import type { HostRequest, HostResponse } from "./terminal-host";
 /** Main/daemon metadata only; never supplied to the PTY or remote launch files. */
 export interface RemoteSessionContext {
+  reviewer?: true;
   machine?: true;
   repository: string;
   worktree: string;
@@ -23,6 +25,8 @@ export interface RemoteSessionInfo {
   id: string;
   context?: RemoteSessionContext;
   checkout?: { repository: string; path: string; identity: string };
+  /** Applied by the daemon at launch and reported only to the owning profile. */
+  permissionLevel?: AgentPermissionLevel;
 }
 export interface ForeignRemoteSession {
   /** Legacy daemon aggregate; ending it ends all its untagged sessions. */
@@ -43,6 +47,8 @@ export interface RemoteInventoryResult {
   foreign: ForeignRemoteSession[];
 }
 export interface MachineLaunch {
+  reviewer?: true;
+  permissionLevel?: AgentPermissionLevel;
   codeFolder: string;
   agent?: string;
   defaults?: string[];
@@ -71,7 +77,7 @@ export type RemoteRequest =
   | RemoteInventory
   | ImagePut
   | HostManagement
-  | { type: "hello"; build: string }
+  | { type: "hello"; build: string; inventoryPermissions?: 1 }
   | {
       type: "open";
       machine?: MachineLaunch;
@@ -134,6 +140,8 @@ export type RemoteResponse =
       type: "hello";
       build: string;
       compatible?: 2;
+      /** This daemon accepts launch permission and reviewer fields. */
+      inventoryPermissions?: 1;
       childPressure?: 1;
       hostFacts?: 1;
       hostPreflight?: 1;

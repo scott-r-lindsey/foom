@@ -59,6 +59,9 @@ export let agents: {
   setBypassIdentities: ReturnType<
     typeof vi.fn<(identities?: Readonly<Record<string, string>>) => void>
   >;
+  setPermissionLevels: ReturnType<typeof vi.fn<() => void>>;
+  forgetHostPermissions: ReturnType<typeof vi.fn<() => void>>;
+  permissionForLaunch: ReturnType<typeof vi.fn<() => { level: undefined; validate(): void }>>;
 };
 
 export let deps: WorkspaceDependencies;
@@ -124,6 +127,9 @@ beforeEach(async () => {
     setEnabled: vi.fn(),
     setHooksEnabled: vi.fn<(enabled: boolean) => void>(),
     setBypassIdentities: vi.fn(),
+    setPermissionLevels: vi.fn(),
+    forgetHostPermissions: vi.fn(),
+    permissionForLaunch: vi.fn(() => ({ level: undefined, validate: () => {} })),
   };
   deps = {
     agentPluginDirectory: await mkdtemp(join(tmpdir(), "foom-health-")),

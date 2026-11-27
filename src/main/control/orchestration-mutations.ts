@@ -455,6 +455,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           selection,
           ...(review ? { loop: review } : {}),
           ...(authorId === undefined ? {} : { authorId }),
+          ...(standalone || tree.reviewer ? { reviewer: true } : {}),
           ...(snapshot
             ? {
                 snapshot,
@@ -816,6 +817,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                       "prune-unsafe": "git_failed",
                       "session-has-children": "git_failed",
                       "theme-selection-changed": "git_failed",
+                      "agent-permission-conflict": "git_failed",
+                      "agent-permission-acknowledgement": "git_failed",
+                      "agent-permission-unavailable": "git_failed",
                       "settings-busy": "git_failed",
                       "settings-lock-corrupt": "git_failed",
                       "settings-lock-unsupported": "git_failed",

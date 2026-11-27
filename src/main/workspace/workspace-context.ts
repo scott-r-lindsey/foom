@@ -386,6 +386,7 @@ export class WorkspaceContext {
           const row = {
             ...entry,
             ...result,
+            ...(entry.permissionLevel === "full" ? { bypass: true } : {}),
             ...this.replacementVersion(entry.id),
             dormant: false,
             exited: false,
@@ -426,9 +427,6 @@ export class WorkspaceContext {
       },
       onChange: (localOnly) => deps.onChange?.(localOnly),
     });
-    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) =>
-      this.sessions.pruneHosts(host),
-    );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
       : new AgentService(
@@ -455,6 +453,10 @@ export class WorkspaceContext {
             },
           },
         );
+    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) => {
+      this.agents.forgetHostPermissions(host);
+      return this.sessions.pruneHosts(host);
+    });
   }
 
   /** Setup's choices apply to later launches; running agents keep theirs. */
@@ -466,6 +468,7 @@ export class WorkspaceContext {
           | "worktreeLocation"
           | "agentArguments"
           | "agentBypassIdentities"
+          | "agentPermissions"
           | "agentHooks"
           | "showNewChildren"
           | "closeFinishedAgents"
@@ -497,6 +500,7 @@ export class WorkspaceContext {
     this.cleanup.configure(settings.autoRemoveMergedWorktrees ?? false);
     this.agents.setEnabled(settings.agents);
     this.agents.setBypassIdentities(settings.agentBypassIdentities);
+    this.agents.setPermissionLevels(settings.agentPermissions);
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);
     this.agentHooks = settings.agentHooks ?? {};
@@ -665,6 +669,7 @@ export class WorkspaceContext {
           .filter(
             (row) =>
               row.repository === repository &&
+              !row.reattachOnly &&
               row.placement?.kind === "remote" &&
               row.worktree.startsWith("/foom-remote/"),
           )

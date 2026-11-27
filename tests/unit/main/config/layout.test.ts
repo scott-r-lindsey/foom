@@ -164,6 +164,7 @@ test("the previous agent schema remains refreshable after adding bundled-only in
   const definitions = themeRecord(previous["$defs"], "$.$defs");
   delete themeRecord(themeRecord(definitions["v2"], "$")["properties"], "$")["wake"];
   delete definitions["wake"];
+  removePermissionSchema(definitions);
   const setup = themeRecord(definitions["hostSetup"], "$.$defs.hostSetup");
   delete themeRecord(setup["properties"], "$.$defs.hostSetup.properties")["script"];
   delete definitions["vendorScript"];
@@ -197,6 +198,7 @@ test("the previous agent schema remains refreshable after adding installer envir
   const previous = structuredClone(generated);
   Reflect.deleteProperty(previous.$defs.v2.properties, "wake");
   Reflect.deleteProperty(previous.$defs, "wake");
+  removePermissionSchema(previous.$defs);
   const properties = themeRecord(
     themeRecord(themeRecord(previous.$defs, "$.$defs")["vendorScript"], "$.$defs.vendorScript")[
       "properties"
@@ -209,6 +211,25 @@ test("the previous agent schema remains refreshable after adding installer envir
     refreshable(
       "schemas/agent.schema.json",
       new TextEncoder().encode(`${JSON.stringify(previous, null, 2)}\n`),
+    ),
+  ).toBe(true);
+});
+
+function removePermissionSchema(definitions: Record<string, unknown>) {
+  delete themeRecord(themeRecord(definitions["v2"], "$")["properties"], "$")["permissionLevels"];
+  delete definitions["permissionLevels"];
+  delete definitions["permissionArgv"];
+}
+
+test("the agent schema preceding permission declarations remains refreshable", () => {
+  const file = "schemas/agent.schema.json";
+  const previous = themeRecord(JSON.parse(OWNED_FILES[file] ?? ""), "$");
+  removePermissionSchema(themeRecord(previous["$defs"], "$.$defs"));
+  expect(
+    refreshable(
+      file,
+      new TextEncoder().encode(`${JSON.stringify(previous, null, 2)}
+`),
     ),
   ).toBe(true);
 });

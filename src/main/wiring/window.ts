@@ -505,7 +505,24 @@ export async function buildWindow(
         .filter((entry) => !entry.reason)
         .map((entry) => entry.id),
     store: wiring.settings,
-    confirmBypass: async (agent, args) => {
+    confirmBypass: async (agent, args, permissionScope) => {
+      if (permissionScope) {
+        const subject =
+          permissionScope === "global"
+            ? "All machines"
+            : permissionScope === "local"
+              ? "This computer"
+              : permissionScope.slice(5);
+        return confirmations.request({
+          title: `Allow Full access for ${builtinAgent(agent)?.name ?? agent}?`,
+          glyph: "shield",
+          subject,
+          arguments: args,
+          detail:
+            "Future launches, including children, can act as you anywhere with no sandbox or permission prompts. A worktree is not a sandbox.",
+          accept: "Allow Full access",
+        });
+      }
       return confirmations.request({
         title: `Save bypass defaults for ${builtinAgent(agent)?.name ?? agent}?`,
         glyph: "shield",

@@ -603,3 +603,80 @@ test.skipIf(process.platform === "win32").each([false, true])(
     });
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "remote Codex uses the same managed permission argv on a fresh host",
+  async () => {
+    const prompt = "-Check the README";
+    const cases = [
+      ["ask", "workspace-write", "on-request"],
+      ["workspace", "workspace-write", "never"],
+      ["full", "danger-full-access", "never"],
+    ] as const;
+    for (const [level, sandbox, approval] of cases) {
+      vi.mocked(hostDiscovery).mockResolvedValueOnce({
+        command: "/fixture/codex",
+        env: { PATH: "/fixture" },
+        version: "codex-cli 0.167.0",
+        help: "-c --sandbox --ask-for-approval",
+      });
+      const prepared = await prepareRemoteAgent(
+        {
+          ...spec,
+          agent: "codex",
+          permissionLevel: level,
+          ...(level === "workspace" ? { reviewer: true } : {}),
+          hooks: false,
+          conversationId: "existing",
+          prompt,
+        },
+        "/fixture/shell",
+        home,
+        () => {},
+        call,
+      );
+      endpoints.push(prepared.endpoint);
+      expect(prepared.spec.args.slice(0, 6)).toEqual([
+        "resume",
+        "existing",
+        "--sandbox",
+        sandbox,
+        "--ask-for-approval",
+        approval,
+      ]);
+      expect(prepared.ready.permissionLevel).toBe(level);
+      expect(prepared.spec.args.slice(-2)).toEqual(["--", expect.stringContaining(prompt)]);
+      if (level !== "full")
+        expect(prepared.spec.args).toContain("sandbox_workspace_write.writable_roots=[]");
+    }
+    await expect(
+      prepareRemoteAgent(
+        {
+          ...spec,
+          agent: "codex",
+          permissionLevel: "full",
+          defaults: ["--dangerously-bypass-approvals-and-sandbox"],
+        },
+        "/fixture/shell",
+        home,
+        () => {},
+        call,
+      ),
+    ).rejects.toThrow(/agent-permission-conflict/);
+    await expect(
+      prepareRemoteAgent(
+        {
+          ...spec,
+          agent: "codex",
+          permissionLevel: "full",
+          reviewer: true,
+          reviewSnapshot: { head: "a".repeat(40), digest: "a".repeat(64) },
+        },
+        "/fixture/shell",
+        home,
+        () => {},
+        call,
+      ),
+    ).rejects.toThrow(/reviewer bypass/);
+  },
+);

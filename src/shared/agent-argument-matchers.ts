@@ -1,11 +1,19 @@
 import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 type Matcher = AgentManifestV2["reservedArguments"][number];
-export function matchesArguments(matchers: readonly Matcher[], args: readonly string[]): boolean {
-  return argumentMatchIndex(matchers, args) >= 0;
+export function matchesArguments(
+  matchers: readonly Matcher[],
+  args: readonly string[],
+  overrideKeys: "any" | "root" = "any",
+): boolean {
+  return argumentMatchIndex(matchers, args, overrideKeys) >= 0;
 }
 
-export function argumentMatchIndex(matchers: readonly Matcher[], args: readonly string[]): number {
+export function argumentMatchIndex(
+  matchers: readonly Matcher[],
+  args: readonly string[],
+  overrideKeys: "any" | "root" = "any",
+): number {
   return args.findIndex((arg, index) =>
     matchers.some((matcher) => {
       if ("word" in matcher) return arg === matcher.word;
@@ -30,6 +38,11 @@ export function argumentMatchIndex(matchers: readonly Matcher[], args: readonly 
                 .slice(equals + 1)
                 .trim()
                 .replace(/^(?:"(.*)"|'(.*)')$/u, "$1$2");
+        if (overrideKeys === "root")
+          return (
+            rule.keys.includes(segments[0] ?? "") &&
+            (rule.value === undefined || (segments.length === 1 && value === rule.value))
+          );
         return rule.value === undefined
           ? segments.some((key) => rule.keys.includes(key))
           : rule.keys.includes(segments.at(-1) ?? "") && value === rule.value;

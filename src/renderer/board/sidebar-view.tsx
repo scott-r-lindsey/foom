@@ -543,6 +543,9 @@ export function Sidebar(props: SidebarProps) {
                               actions={
                                 !worktree.removed &&
                                 !worktree.unavailable &&
+                                !rows.some(
+                                  (row) => row.reattachOnly && rowWorktree(row) === worktree.path,
+                                ) &&
                                 actions(
                                   wid,
                                   name,

@@ -721,6 +721,8 @@ async function remoteAgent(
   palette: Pick<typeof create, "dark" | "theme"> = {},
   pressure = false,
   capable = false,
+  reviewer?: "legacy" | "current",
+  permissionLevel?: "workspace",
 ) {
   transport.kill();
   child = new Child();
@@ -730,6 +732,8 @@ async function remoteAgent(
     spec: {
       ...(pressure ? { childPressure: true as const } : {}),
       agent: "claude",
+      ...(reviewer ? { reviewer: true as const } : {}),
+      ...(permissionLevel ? { permissionLevel } : {}),
       repository: "/remote/repo",
       worktree: "/remote/tree",
       defaults: [],
@@ -743,13 +747,35 @@ async function remoteAgent(
       Promise.resolve({ type: "error" as const, error: "phase_2_restricted" as const }),
     ),
   };
-  const target: RemoteTarget = { host: "fixture", artifact: "/artifact", agent };
+  const target: RemoteTarget = {
+    host: "fixture",
+    artifact: "/artifact",
+    agent,
+    ...(reviewer
+      ? {
+          context: {
+            agent: "claude",
+            reviewer: true,
+            repository: "/hub/repo",
+            worktree: "/hub/tree",
+            branch: "topic",
+          },
+        }
+      : {}),
+  };
   transport = new RemoteTransport(target, "0.1.0");
   transport.on("message", (message) => events.push(message));
   transport.postMessage({ ...create, ...palette });
   await Promise.resolve();
   child.header();
-  child.message({ type: "hello", build: "a".repeat(64), ...(capable ? { childPressure: 1 } : {}) });
+  child.message({
+    type: "hello",
+    build: (reviewer === "legacy" ? "b" : "a").repeat(64),
+    compatible: 2,
+    startupTheme: 1,
+    ...(capable ? { childPressure: 1 } : {}),
+    ...(reviewer === "current" ? { inventoryPermissions: 1 } : {}),
+  });
   return {
     ...agent,
     activate: () => {
@@ -757,6 +783,34 @@ async function remoteAgent(
     },
   };
 }
+
+test.each(["legacy", "current"] as const)(
+  "default-permission reviewer launch sends reviewer metadata only to a capable daemon (%s)",
+  async (reviewer) => {
+    const agent = await remoteAgent({}, false, false, reviewer);
+    await vi.advanceTimersByTimeAsync(0);
+    const spec = { ...agent.spec };
+    const context = {
+      agent: "claude",
+      repository: "/hub/repo",
+      worktree: "/hub/tree",
+      branch: "topic",
+      ...(reviewer === "current" ? { reviewer: true } : {}),
+    };
+    if (reviewer === "legacy") delete spec.reviewer;
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({ type: "agent-open", spec, context }),
+    );
+  },
+);
+
+test("a legacy daemon cannot launch a child with a managed permission level", async () => {
+  await remoteAgent({}, false, false, "legacy", "workspace");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "agent-open" }));
+  expect(transport.launchFailure?.reason).toBe("remote_prepare_refused");
+});
+
 async function remoteStarted() {
   const agent = await remoteAgent();
   child.message({ type: "agent-prepared", id: "one" });

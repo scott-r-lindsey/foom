@@ -24,6 +24,7 @@ export function parseSettingsFile(text: string): ConfigSettings {
   for (const key of [
     "agentBypassAcknowledged",
     "agentBypassIdentities",
+    "agentPermissions",
     "codexNotifierAcknowledged",
     "setupComplete",
     "codeFolder",

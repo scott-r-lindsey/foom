@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "../../../shared/agent-permissions";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { McpAttachment } from "../../control/types";
 import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../../shared/agents";
@@ -25,6 +26,7 @@ export interface AgentProvider {
     config: boolean,
     hooksEnabled: boolean,
     binding?: AgentHooks,
+    permissionLevel?: AgentPermissionLevel,
   ): Promise<PreparedLaunch>;
   readonly id: AgentId;
   readonly name: string;
