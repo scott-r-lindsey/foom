@@ -4,6 +4,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const { once } = require("node:events");
 const { createHash } = require("node:crypto");
 const {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -1286,6 +1287,20 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   assert.ok(
     !Object.values(JSON.parse(await readFile(gitState, "utf8"))).includes("unused-after-restart"),
   );
+  await expect
+    .poll(
+      async () => {
+        try {
+          await lstat(expectedCheckout);
+          return true;
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          return false;
+        }
+      },
+      { message: "Recovered checkout path should be absent after removal" },
+    )
+    .toBe(false);
   assert.ok((await stat(foreignTree)).isDirectory());
   assert.ok((await stat(untaggedTree)).isDirectory());
 }
