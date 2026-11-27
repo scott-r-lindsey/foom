@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { Principal } from "./types";
 import type { ControlService } from "./service";
 import { ControlError } from "../../shared/control-validation";
-import { remoteControlResult } from "../../shared/remote-agent-protocol";
+import {
+  remoteControlResult,
+  REMOTE_ORCHESTRATOR_METHODS,
+} from "../../shared/remote-agent-protocol";
 import type { RemoteControlResult } from "../../shared/remote-agent";
 
 /** Captured by the hub's launch capability, never looked up from a remote-selected ID. */
@@ -59,6 +62,46 @@ export function remoteChildControl(service: ControlService, actor: () => Princip
           code === "unauthorized" || code === "no_parent" || code === "invalid_request"
             ? code
             : "unavailable",
+      };
+    } finally {
+      release?.();
+    }
+  };
+}
+
+/** A dispatcher-launched remote parent retains the same repository-scoped hub checks. */
+export function remoteOrchestratorControl(service: ControlService, actor: () => Principal) {
+  const alias = randomUUID();
+  return async (method: string, params: unknown): Promise<RemoteControlResult> => {
+    let release: (() => void) | undefined;
+    try {
+      const principal = actor();
+      service.assertActive(principal);
+      if (principal.role !== "orchestrator" || principal.parentId !== null)
+        throw new ControlError("forbidden");
+      const capabilities = service
+        .capabilities(principal)
+        .filter((name) => REMOTE_ORCHESTRATOR_METHODS.includes(name));
+      const connecting = method === "mcp_connected";
+      if (!connecting && !capabilities.includes(method)) throw new ControlError("forbidden");
+      release = service.reserve(principal);
+      const value = await service.call(principal, {
+        version: 1,
+        instanceId: service.instanceId,
+        method: connecting ? "whoami" : method,
+        params,
+      });
+      service.assertActive(principal);
+      if (connecting) service.mcpConnected(principal);
+      if (connecting || method === "whoami")
+        return { type: "identity", alias, role: "orchestrator", capabilities };
+      const result = { type: "orchestrator-result", payload: JSON.stringify(value) };
+      if (!remoteControlResult(result)) throw new ControlError("capacity");
+      return result;
+    } catch (error) {
+      return {
+        type: "orchestrator-error",
+        error: error instanceof ControlError ? error.code : "unavailable",
       };
     } finally {
       release?.();

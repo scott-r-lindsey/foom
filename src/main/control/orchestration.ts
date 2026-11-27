@@ -83,6 +83,24 @@ function eventCursor(row: SessionEventFacts): string {
 
 /** Dispatch, owned child input, handoff reads, terminal tails and event waits. */
 export class Orchestration extends OrchestrationMutations {
+  dispatcherHandoff(actor: Principal, params: unknown, authorize: () => void): Promise<unknown> {
+    return this.handoffs.record(
+      actor,
+      params,
+      () => {
+        authorize();
+        this.parent(actor);
+      },
+      async (report) => {
+        await this.host.auditHandoff?.(actor, report);
+      },
+      async () => {
+        await this.host.saveHandoffs?.();
+        this.changed();
+      },
+      this.now,
+    );
+  }
   authorizeBoard(actor: Principal): void {
     this.parent(actor);
   }

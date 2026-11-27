@@ -118,3 +118,12 @@ repositories and their model providers. Question and answer contents stay out
 of operation logs. Preview paths are untrusted board data. Preview file bytes
 stay in main's isolated preview partition and only a raster capture goes to the
 human board. No preview pixel or file-byte field is sent through agent transport.
+
+### Dispatcher inventory (#1300)
+
+`repos` exposes direct repository directory names, approval flags, orchestrator
+handles, agents, hosts, state, PR summaries and open decision titles/counts.
+It reads Git repository identity and projects the existing main-owned metadata.
+Repository names, decision titles and handoffs are untrusted data and may enter
+the dispatcher's model context. Launch prompts and reasons stay out of the audit
+log. Grant reasons appear as plain text in the human's decisions stepper.

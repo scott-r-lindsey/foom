@@ -11,6 +11,7 @@ import { Operations } from "./operations";
 import { ControlStore } from "./store";
 import { atomicPrivate, privateDirectory } from "../../node-common/private-files";
 import type { Orchestration } from "./orchestration";
+import { Dispatcher, type DispatcherHost } from "./dispatcher";
 import type { ControlLaunch, PairingOptions, Role } from "./types";
 
 /** Lazy app-owned endpoint. Startup failure never leaves published credentials or a listener. */
@@ -39,6 +40,7 @@ export class ControlRuntime {
       subjectsChanged?: (subjects: ReturnType<MessageBoard["pendingSubjects"]>) => void;
       preview: NonNullable<ControlRuntime["decisionPreview"]>;
     },
+    dispatcherHost?: DispatcherHost,
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory, auditChanged);
@@ -61,6 +63,14 @@ export class ControlRuntime {
       decisions?.forge,
       decisions?.forgeRevision,
     );
+    const dispatcher =
+      dispatcherHost &&
+      (await Dispatcher.open(
+        directory,
+        dispatcherHost,
+        source ?? (() => []),
+        auditChanged ?? (() => {}),
+      ));
     const service = new ControlService(
       operations,
       source,
@@ -80,6 +90,7 @@ export class ControlRuntime {
           )
         : undefined,
       board,
+      dispatcher,
     );
     const http = await ControlHttp.listen(service, pairing);
     try {
@@ -100,6 +111,9 @@ export class ControlRuntime {
   get board(): MessageBoard | undefined {
     return this.service.board;
   }
+  get dispatcher(): Dispatcher | undefined {
+    return this.service.dispatcher;
+  }
   /** Roles come from main only: a restored orchestrator, or a child naming its parent. */
   prepare(
     repository: string,
@@ -107,8 +121,9 @@ export class ControlRuntime {
     sessionId?: string,
     role: Exclude<Role, "cli"> = "agent",
     parentId: string | null = null,
+    source?: true,
   ): ControlLaunch {
-    const launch = this.service.prepare(repository, worktree, role, parentId, sessionId);
+    const launch = this.service.prepare(repository, worktree, role, parentId, sessionId, source);
     return {
       ...launch,
       env: {
@@ -122,7 +137,7 @@ export class ControlRuntime {
     };
   }
   /** The human's elevate or revoke for a running session; see ControlService.setRole. */
-  setRole(terminalId: string, role: "agent" | "orchestrator"): void {
+  setRole(terminalId: string, role: "agent" | "orchestrator" | "dispatcher"): void {
     this.service.setRole(terminalId, role);
   }
   takeOver(id: string): void {

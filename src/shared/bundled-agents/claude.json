@@ -86,7 +86,9 @@
         "board_post",
         "board_resolve",
         "wait_for",
-        "operation_status"
+        "operation_status",
+        "repos",
+        "launch_orchestrator"
       ],
       "format": "mcp-double-underscore",
       "arguments": ["--allowedTools", "{tool}"],

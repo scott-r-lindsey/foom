@@ -158,9 +158,25 @@ test("the previous settings schema remains refreshable after adding close finish
   ).toBe(true);
 });
 
+function priorAgentSchema() {
+  const previous = structuredClone(generated);
+  const names = previous.$defs.tools.properties.names;
+  names.items.enum = names.items.enum.filter(
+    (name) => name !== "repos" && name !== "launch_orchestrator",
+  );
+  names.maxItems = names.items.enum.length;
+  return previous;
+}
+
+test("the previous agent schema remains refreshable after adding dispatcher tools", () => {
+  const file = "schemas/agent.schema.json";
+  const bytes = `${JSON.stringify(priorAgentSchema(), null, 2)}\n`;
+  expect(refreshable(file, new TextEncoder().encode(bytes))).toBe(true);
+});
+
 test("the previous agent schema remains refreshable after adding bundled-only installers", () => {
   const file = "schemas/agent.schema.json";
-  const previous = themeRecord(JSON.parse(OWNED_FILES[file] ?? ""), "$");
+  const previous = priorAgentSchema();
   const definitions = themeRecord(previous["$defs"], "$.$defs");
   delete themeRecord(themeRecord(definitions["v2"], "$")["properties"], "$")["wake"];
   delete definitions["wake"];
@@ -195,7 +211,7 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
 );
 
 test("the previous agent schema remains refreshable after adding installer environment", () => {
-  const previous = structuredClone(generated);
+  const previous = priorAgentSchema();
   Reflect.deleteProperty(previous.$defs.v2.properties, "wake");
   Reflect.deleteProperty(previous.$defs, "wake");
   removePermissionSchema(previous.$defs);
