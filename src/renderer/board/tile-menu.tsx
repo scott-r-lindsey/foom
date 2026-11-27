@@ -6,7 +6,7 @@ import { useEffect, useState, useId, useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
 import type { TileMetrics, TileAction, TileLayout } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
-import { tileRemovalAction, splitReason } from "./tiles";
+import { tileRemovalControls, splitReason } from "./tiles";
 import { DirectionPad } from "./direction-pad";
 import { light } from "./board";
 import { RowMenu } from "./row-menu";
@@ -155,13 +155,8 @@ export function TileMenu({
             ]
           : []),
         null,
-        item(
-          tileRemovalAction(row, Boolean(preview)),
-          row?.unavailable && row.exited
-            ? "Forget…"
-            : tileRemovalAction(row, Boolean(preview)) === "close"
-              ? "Close"
-              : "Hide",
+        ...tileRemovalControls(row, Boolean(preview)).map((control) =>
+          item(control.action, "menuLabel" in control ? control.menuLabel : control.label),
         ),
       ]}
       onAction={(selected) => {

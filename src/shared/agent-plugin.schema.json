@@ -99,6 +99,9 @@
           "maxItems": 16,
           "minItems": 0
         },
+        "permissionLevels": {
+          "$ref": "#/$defs/permissionLevels"
+        },
         "conversation": {
           "$ref": "#/$defs/conversation"
         },
@@ -1158,6 +1161,55 @@
           "type": "boolean"
         }
       }
+    },
+    "permissionLevels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ask", "full", "conflicts"],
+      "properties": {
+        "ask": {
+          "$ref": "#/$defs/permissionArgv"
+        },
+        "workspace": {
+          "$ref": "#/$defs/permissionArgv"
+        },
+        "full": {
+          "$ref": "#/$defs/permissionArgv"
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/argumentMatcher"
+          },
+          "maxItems": 32,
+          "minItems": 0
+        },
+        "minimum": {
+          "$ref": "#/$defs/minimum"
+        },
+        "helpTokens": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
+    "permissionArgv": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+      },
+      "maxItems": 32,
+      "minItems": 1
     },
     "conversation": {
       "type": "object",

@@ -79,7 +79,9 @@ test("guarded writes reject mixed patches before applying any settings", async (
   const guard = vi.fn(() => false);
   // @ts-expect-error Mixed patches cannot use a commit guard.
   const rejected = store.update(patch, guard);
-  await expect(rejected).rejects.toThrow("A commit guard requires a registeredHosts-only patch");
+  await expect(rejected).rejects.toThrow(
+    "A commit guard requires a registeredHosts-only or agentPermissions-only patch",
+  );
   expect(guard).not.toHaveBeenCalled();
   expect((await SettingsStore.open(root)).get()).toEqual(DEFAULT_SETTINGS);
   await store.update(patch);
@@ -190,7 +192,7 @@ test.each(["hidden host property", "mutating getter"] as const)(
 
     const guard = vi.fn(() => false);
     await expect(store.update(patch, guard)).rejects.toThrow(
-      "A commit guard requires a registeredHosts-only patch",
+      "A commit guard requires a registeredHosts-only or agentPermissions-only patch",
     );
     expect(getter).not.toHaveBeenCalled();
     expect(guard).not.toHaveBeenCalled();
@@ -1330,4 +1332,70 @@ test("wake is off by default and its profile-only interval is bounded", () => {
   expect(parseSettingsPatch({ wakeIntervalMinutes: 1440 })).toEqual({ wakeIntervalMinutes: 1440 });
   for (const bad of [0, 1441, 1.5, "3", NaN])
     expect(() => parseSettingsPatch({ wakeIntervalMinutes: bad })).toThrow("Invalid settings");
+});
+
+test("permission preferences merge by scope and are purged when a host is removed", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  const worker = { host: "worker", codeFolder: "/code" };
+  const other = { host: "other", codeFolder: "/code" };
+  await store.update({ registeredHosts: [worker, other] });
+  const global = { codex: { level: "workspace" as const } };
+  const permission = {
+    "host:worker": { codex: { level: "full" as const, identity: "a".repeat(64) } },
+  };
+  await store.update({ agentPermissions: { global } });
+  await expect(store.update({ agentPermissions: permission }, () => false)).resolves.toMatchObject({
+    agentPermissions: { global },
+  });
+  expect(store.get().agentPermissions).toEqual({ global });
+  await store.update({ agentPermissions: permission }, () => true);
+  expect((await SettingsStore.open(root)).get().agentPermissions).toEqual({
+    global,
+    ...permission,
+  });
+  await store.update({ registeredHosts: [other] });
+  await expect(store.update({ agentPermissions: permission })).rejects.toThrow(
+    "no longer registered",
+  );
+  await store.update({ registeredHosts: [worker, other] });
+  expect(store.get().agentPermissions).toEqual({ global });
+  await store.update({ agentPermissions: { global: { codex: null } } });
+  expect(store.get().agentPermissions).toEqual({});
+  for (const invalid of [
+    null,
+    [],
+    { global: [] },
+    { invalid: {} },
+    {
+      global: { codex: { level: "ask", identity: "a".repeat(64) } },
+    },
+  ])
+    expect(() => parseSettingsPatch({ agentPermissions: invalid })).toThrow("Invalid settings");
+});
+
+test("concurrent permission edits cannot commit a scope the profile parser rejects", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  const level = { level: "ask" as const };
+  const global = Object.fromEntries(
+    Array.from({ length: 99 }, (_, index) => [`fixture-${index.toString()}`, level]),
+  );
+  await store.update({ setupComplete: true, agentPermissions: { global } });
+
+  const first = store.update({ agentPermissions: { global: { "fixture-first": level } } });
+  const overflow = store.update({ agentPermissions: { global: { "fixture-overflow": level } } });
+  await expect(overflow).rejects.toThrow("Too many agent permission choices");
+  const saved = await first;
+  expect((await SettingsStore.open(root)).get()).toMatchObject({
+    setupComplete: true,
+    agentPermissions: saved.agentPermissions,
+  });
+  expect(Object.keys(saved.agentPermissions?.["global"] ?? {})).toHaveLength(100);
+  await store.update({ agentPermissions: { global: { "fixture-first": null } } });
+  await store.update({ agentPermissions: { global: { "fixture-overflow": level } } });
+  expect((await SettingsStore.open(root)).get().agentPermissions?.["global"]).toHaveProperty(
+    "fixture-overflow",
+    level,
+  );
 });

@@ -15,14 +15,24 @@ import type {
   TileRect,
   TileSplit,
 } from "./tiles.d";
-/** Tile removal preserves resumable conversations outside the config environment. */
-export function tileRemovalAction(row: BoardRow | undefined, preview = false): "hide" | "close" {
-  return preview ||
-    (row?.unavailable && row.exited) ||
-    row?.startup ||
-    (row?.exited && (row.config || !(row.kind === "agent" && conversationId(row.conversationId))))
-    ? "close"
-    : "hide";
+const hideTileControl = { action: "hide", label: "Hide", glyph: "−" } as const;
+const closeTileControl = { action: "close", label: "Close", glyph: "×" } as const;
+const forgetTileControl = { ...closeTileControl, menuLabel: "Forget…" } as const;
+type TileRemovalControl =
+  | typeof hideTileControl
+  | typeof closeTileControl
+  | typeof forgetTileControl;
+
+export function tileRemovalControls(
+  row: BoardRow | undefined,
+  preview = false,
+): readonly TileRemovalControl[] {
+  if (row?.unavailable && row.exited) return [forgetTileControl];
+  if (preview || row?.startup) return [closeTileControl];
+  if (!row?.exited) return [hideTileControl];
+  if (!row.config && row.kind === "agent" && conversationId(row.conversationId))
+    return [hideTileControl, closeTileControl];
+  return [closeTileControl];
 }
 export const MIN_TILE_COLUMNS = 12;
 const id = () => crypto.randomUUID();

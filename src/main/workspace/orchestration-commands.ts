@@ -321,6 +321,7 @@ export async function launchChild(
     loop?: AgentLaunch["loop"];
     snapshot?: ReviewSnapshot;
     authorId?: string;
+    reviewer?: true;
     validateSnapshot?: () => Promise<void>;
     validate(): void;
   },
@@ -394,6 +395,7 @@ export async function launchChild(
             replacement,
             {
               ...(step?.selection ? { selection: step.selection } : {}),
+              ...(step?.reviewer ? { reviewer: true } : {}),
               ...(step?.validateSnapshot ? { prepareSpawn: step.validateSnapshot } : {}),
               ...(remote ? { remoteCheckout: remote } : {}),
               pressure: step?.pressure ?? (() => {}),

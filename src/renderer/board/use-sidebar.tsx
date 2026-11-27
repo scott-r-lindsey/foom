@@ -503,6 +503,7 @@ export function useSidebar(props: SidebarProps) {
     const exited =
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
     const forget = Boolean(row.unavailable && row.exited);
+    const canRelaunch = !row.worktreeRemoved && !row.reattachOnly && !forget;
     const items: (RowAction | null)[] = exited
       ? [
           ...(row.orchestration?.role === "orchestrator" && row.orchestration.restoreOnResume
@@ -523,7 +524,7 @@ export function useSidebar(props: SidebarProps) {
               ]
             : []),
           ...(row.kind === "shell"
-            ? row.worktreeRemoved || forget
+            ? !canRelaunch
               ? []
               : [
                   {
@@ -536,7 +537,7 @@ export function useSidebar(props: SidebarProps) {
                   null,
                 ]
             : [
-                ...(!row.worktreeRemoved && !forget && row.conversationId && row.kind === "agent"
+                ...(canRelaunch && row.conversationId && row.kind === "agent"
                   ? [
                       {
                         label: "Resume conversation",
@@ -546,7 +547,7 @@ export function useSidebar(props: SidebarProps) {
                       },
                     ]
                   : []),
-                ...(!row.worktreeRemoved && !forget
+                ...(canRelaunch
                   ? [
                       {
                         label: "New conversation here",
@@ -595,7 +596,11 @@ export function useSidebar(props: SidebarProps) {
                         run: () => command({ kind: "elevate-dispatcher", id: row.id }),
                       },
                 ]
-              : row.kind === "agent" && !row.config && !row.home
+              : row.kind === "agent" &&
+                  !row.config &&
+                  !row.home &&
+                  (row.placement?.kind !== "remote" ||
+                    (row.orchestration?.role === "orchestrator" && row.orchestration.active))
                 ? [
                     row.orchestration?.role === "orchestrator" && row.orchestration.active
                       ? {

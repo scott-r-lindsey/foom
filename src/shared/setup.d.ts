@@ -6,6 +6,7 @@ import type { ThemeCatalog, ThemeKind } from "./theme-file";
 import type { InterfaceThemeChoice } from "./interface-theme";
 import type { SoundSettings } from "./sound";
 import type { TerminalThemeChoice } from "./terminal-theme";
+import type { AgentPermissionSettings } from "./agent-permissions";
 import type { AgentValues } from "./agents";
 import type { Repository } from "./worktrees";
 /** Everything first-run setup decides. Stored in main; the renderer holds only a copy. */
@@ -49,6 +50,8 @@ export interface Settings {
   forgeHosts: Readonly<Record<string, string>>;
   agents: AgentValues<boolean>;
   agentArguments: AgentValues<readonly string[]>;
+  /** Profile-only launch preferences. Full access carries main-owned consent. */
+  agentPermissions?: AgentPermissionSettings;
   /** Main-owned acknowledgement; renderer save requests may not set this. */
   agentBypassAcknowledged: AgentValues<boolean>;
   /** Profile-only main-owned provider/disclosure identities; old ID-only consent grants no trust. */

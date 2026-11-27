@@ -21,7 +21,7 @@ export interface WorktreeLaunchContext {
   readonly closed: boolean;
   readonly control: Promise<Partial<Pick<ControlRuntime, "setRole">>> | undefined;
   readonly addWorktree: WorkspaceMethods["addWorktree"];
-  readonly agents: Pick<Agents, "launch">;
+  readonly agents: Pick<Agents, "launch" | "permissionForLaunch">;
   readonly busyWorktrees: Set<string>;
   readonly checkoutHolds: CheckoutHolds;
   readonly confirmAgentLaunch: WorkspaceMethods["confirmAgentLaunch"];

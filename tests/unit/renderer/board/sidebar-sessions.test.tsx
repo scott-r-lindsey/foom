@@ -462,6 +462,36 @@ test("shell kind keeps the generic glyph and detected name even with another pro
   expect(row.getAttribute("aria-label")).toContain(" · Shell · ");
 });
 
+test.each([false, true])(
+  "remote main clone actions respect its active role (active=%s)",
+  async (active) => {
+    const row = sampleRows(0)[0];
+    if (!row) throw Error("fixture");
+    const view = await emptySections([
+      {
+        ...row,
+        repositoryPath: "/remote/clone",
+        worktree: "/foom-remote/clone",
+        branch: "Main checkout",
+        kind: "agent",
+        agent: "claude",
+        managed: true,
+        exited: false,
+        placement: { kind: "remote", host: "worker" },
+        ...(active
+          ? { orchestration: { role: "orchestrator", active: true, children: 0, history: [] } }
+          : {}),
+      },
+    ]);
+    fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in Main checkout" }));
+    expect(view.getByRole("menuitem", { name: "Stop Claude Code" })).toBeTruthy();
+    expect(view.queryByRole("menuitem", { name: "Make orchestrator…" })).toBeNull();
+    expect(view.queryAllByRole("menuitem", { name: "Revoke orchestrator" })).toHaveLength(
+      active ? 1 : 0,
+    );
+  },
+);
+
 test("sessions offer Make and Revoke orchestrator; children offer Take over and panels show actions", async () => {
   const original = sampleRows(0)[0];
   if (!original) throw Error("fixture");

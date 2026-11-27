@@ -73,5 +73,6 @@ it launched while their session rows and repository identities are retained.
 After restart, a revived dispatcher can read retained exited sessions and their
 bounded handoffs and include those sessions in waits. Main verifies the saved
 adoption and current repository identity for each read. Prompt and stop still
-require a live orchestrator. Foom's authorization governs Foom tools. Provider
-file and command permissions follow the provider's own configuration.
+require a live orchestrator. Orchestrator launches use the destination's saved
+[permission level](agent-launch.md#per-launch-permission-levels-1078). The
+provider applies its own configuration and policy to file and command access.

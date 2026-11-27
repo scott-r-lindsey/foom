@@ -57,6 +57,7 @@ export function PreflightSections({
   changePlugin,
   save,
   saveArguments,
+  savePermission,
   code,
   repositories,
   codeScanning,
@@ -76,6 +77,7 @@ export function PreflightSections({
           selectScope={setAgentScope}
           source={source}
           saveArguments={saveArguments}
+          savePermission={savePermission}
           headingRef={headingRef}
           state={state}
           report={report}

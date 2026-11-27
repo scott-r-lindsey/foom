@@ -79,6 +79,10 @@ export async function launch(
   });
 }
 
+function reviewerSession(row: WorkspaceTerminal | undefined): boolean {
+  return Boolean(row?.reviewer || (row?.review && row.review.authorId !== row.id));
+}
+
 export async function launchAgent(
   this: WorktreeLaunchContext,
   request: LaunchRequest,
@@ -96,6 +100,7 @@ export async function launchAgent(
     | "beforeSpawn"
     | "prepareSpawn"
     | "loop"
+    | "reviewer"
     | "pressure"
     | "selection"
     | "remoteCheckout"
@@ -139,15 +144,27 @@ export async function launchAgent(
           throw new Error("This worktree is busy");
       };
       checkClosing();
-      // Children use the user's defaults as written, but never bypass: an orchestrator
-      // cannot pass on the user's acknowledgement for manual launches.
+      // Default arguments can never authorize a child's bypass.
       const child = extra.control !== undefined && "parentId" in extra.control;
       const defaultArguments = this.defaultArguments[request.agent] ?? [];
-      if (child && hasBypassArgument(request.agent, defaultArguments))
+      const reviewer =
+        extra.reviewer ||
+        (replacement
+          ? reviewerSession(this.launched.get(replacement.id)) ||
+            Boolean(this.checkoutHolds.review(replacement.id))
+          : extra.conversationId !== undefined &&
+            [...this.launched.values()].some(
+              (row) =>
+                row.agent === request.agent &&
+                row.conversationId === extra.conversationId &&
+                (reviewerSession(row) || this.checkoutHolds.review(row.id)),
+            ));
+      if ((child || reviewer) && hasBypassArgument(request.agent, defaultArguments))
         throw new ControlError("forbidden");
       const result = await this.agents.launch({
         ...request,
         ...extra,
+        ...(reviewer ? { reviewer: true } : {}),
         beforeSpawn: () => {
           checkClosing();
           extra.beforeSpawn?.();
@@ -202,6 +219,8 @@ export async function launchAgent(
           : { conversationId: replacement?.conversationId ?? extra.conversationId }),
         ...(result.conversationId ? { conversationId: result.conversationId } : {}),
         bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
+        ...(result.permissionLevel ? { permissionLevel: result.permissionLevel } : {}),
+        ...(reviewer ? { reviewer: true } : {}),
         state: null,
       });
       if (extra.remoteCheckout)
@@ -470,6 +489,14 @@ export async function startMachine(
           ? ["-NoLogo"]
           : ["-l"]
         : [...(this.defaultArguments[run] ?? [])];
+    const reviewer =
+      restoreId !== undefined &&
+      (reviewerSession(this.launched.get(restoreId)) ||
+        Boolean(this.checkoutHolds.review(restoreId)));
+    const permission =
+      host !== null && run !== "shell"
+        ? this.agents.permissionForLaunch(run, host, args, reviewer)
+        : undefined;
     if (host !== null) {
       if (conversation && run !== "shell") args.push(...resumeArguments(run, conversation));
       const registered = hosts?.registered(host);
@@ -502,6 +529,7 @@ export async function startMachine(
           worktree: location?.worktree ?? homeDirectory,
           branch: location?.branch ?? null,
           agent: run,
+          ...(reviewer ? { reviewer: true } : {}),
           ...(!location ? { machine: true } : {}),
         },
         ...(!location
@@ -515,6 +543,8 @@ export async function startMachine(
           ...repositoryTarget?.machine,
           codeFolder: registered.codeFolder,
           ...(run === "shell" ? {} : { agent: run, defaults: args }),
+          ...(permission?.level ? { permissionLevel: permission.level } : {}),
+          ...(reviewer ? { reviewer: true } : {}),
         },
       };
       if (repositoryTarget?.machine?.repository && location) {
@@ -529,6 +559,7 @@ export async function startMachine(
           worktree: trackedLocation.worktree,
           branch: trackedLocation.branch,
           agent: run,
+          ...(reviewer ? { reviewer: true } : {}),
         };
       }
       command = `ssh ${host}`;
@@ -618,6 +649,7 @@ export async function startMachine(
       if (host === null && run !== "shell" && !location) {
         agentResult = await this.agents.launch({
           agent: run,
+          ...(reviewer ? { reviewer: true } : {}),
           repository: launchHome,
           worktree: launchHome,
           ...(source ? { humanSource: true } : { humanHome: true }),
@@ -641,7 +673,11 @@ export async function startMachine(
           ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
         });
       }
-      if (remote) remote.beforeOpen = ensureOpen;
+      if (remote)
+        remote.beforeOpen = () => {
+          ensureOpen();
+          permission?.validate();
+        };
       id =
         agentResult?.id ??
         (await this.deps.terminals.create({
@@ -658,6 +694,7 @@ export async function startMachine(
           ...(run === "shell" ? { shellIntegration: true } : {}),
         }));
       const conversationId = agentResult?.conversationId ?? conversation;
+      const permissionLevel = agentResult?.permissionLevel ?? permission?.level;
       this.launched.set(id, {
         ...this.replacementVersion(restoreId),
         id,
@@ -678,7 +715,11 @@ export async function startMachine(
         ...((agentResult?.environment ?? environment.names).length
           ? { environment: agentResult?.environment ?? environment.names }
           : {}),
-        bypass: agentResult?.bypass ?? (run !== "shell" && hasBypassArgument(run, args)),
+        bypass:
+          agentResult?.bypass ??
+          (permissionLevel === "full" || (run !== "shell" && hasBypassArgument(run, args))),
+        ...(permissionLevel ? { permissionLevel } : {}),
+        ...(reviewer ? { reviewer: true } : {}),
         startedAt: this.now(),
       });
       this.executionOwner.launched(id);
@@ -872,7 +913,7 @@ export async function startExisting(
             run,
             replacement?.id,
             location,
-            undefined,
+            replacement?.conversationId,
             undefined,
             validateLaunch,
             signal,

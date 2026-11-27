@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../shared/application-errors";
 import { imagePasteRecipient } from "../../shared/image-paste";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { ControlError } from "../../shared/control-validation";
@@ -18,6 +19,11 @@ import { AgyPlugin } from "./agy-plugin";
 import { ManualMcp } from "../control/manual-mcp";
 import type { ControlLaunch } from "../control/types";
 import { hasBypassArgument, parseAgentArguments } from "./default-arguments";
+import {
+  availablePermissionLevels,
+  checkPermissionConflicts,
+} from "../../shared/agent-permission-arguments";
+import type { AgentPermissionSettings } from "../../shared/agent-permissions";
 import { bypassConsentIdentity } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { randomUUID } from "node:crypto";
@@ -91,10 +97,17 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
     executable = await findExecutable(name, path);
     if (executable) break;
   }
-  if (!executable)
-    return { id, path: null, version: null, hooks: false, reason: "Not found on PATH." };
-  if (!probeEnabled)
-    return { id, path: executable, version: null, hooks: false, reason: "Turned off" };
+  if (!executable || !probeEnabled)
+    return {
+      id,
+      ...(provider.model.permissionLevels
+        ? { permissionLevels: availablePermissionLevels(provider.model.permissionLevels) }
+        : {}),
+      path: executable,
+      version: null,
+      hooks: false,
+      reason: executable ? "Turned off" : "Not found on PATH.",
+    };
   const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
   const probe = async (flag: "--version" | "--help"): Promise<string> => {
     await provider.validate?.();
@@ -125,6 +138,7 @@ export class AgentService {
   private hooksEnabled = true;
   private agentHooks: Readonly<Record<string, boolean>> = {};
   private bypassIdentities: Readonly<Record<string, string>> = {};
+  private permissions: AgentPermissionSettings = {};
   private closed = false;
   private readonly occupied = new Set<string>();
   private readonly launched = new Map<string, string>();
@@ -167,6 +181,57 @@ export class AgentService {
 
   setBypassIdentities(identities: Readonly<Record<string, string>> = {}): void {
     this.bypassIdentities = { ...identities };
+  }
+
+  setPermissionLevels(settings: AgentPermissionSettings = {}): void {
+    this.permissions = settings;
+  }
+
+  forgetHostPermissions(host: string): void {
+    const permissions = { ...this.permissions };
+    delete permissions[`host:${host}`];
+    this.permissions = permissions;
+  }
+
+  /** Resolve in main, once for this placement. A later check prevents stale consent at dispatch. */
+  permissionForLaunch(
+    agent: AgentId,
+    host: string | undefined,
+    defaults: readonly string[],
+    reviewer = false,
+  ) {
+    const provider = agentProvider(agent);
+    const resolve = () => {
+      const machine = host === undefined ? "local" : `host:${host}`;
+      const scope = this.permissions[machine]?.[agent] ? machine : "global";
+      return { scope, choice: this.permissions[scope]?.[agent] ?? undefined };
+    };
+    const { scope, choice } = resolve();
+    const level = reviewer && choice?.level === "full" ? "workspace" : choice?.level;
+    if (reviewer && matchesArguments(provider.model.bypassArguments, defaults))
+      throw new ControlError("forbidden");
+    if (choice) {
+      checkPermissionConflicts(provider.model, defaults);
+      if (level === "workspace" && !provider.model.permissionLevels?.workspace)
+        throw new ControlError("forbidden");
+      if (level === "full") {
+        if (!choice.identity || choice.identity !== bypassConsentIdentity(provider, true))
+          throw new ApplicationError("agent-permission-acknowledgement");
+      }
+    }
+    return {
+      level,
+      validate: () => {
+        const current = resolve();
+        if (
+          agentProvider(agent) !== provider ||
+          current.choice?.level !== choice?.level ||
+          (level === "full" && current.choice?.identity !== choice?.identity) ||
+          (choice !== undefined && current.scope !== scope)
+        )
+          throw new Error("Agent permission settings changed. Try again.");
+      },
+    };
   }
 
   setEnabled(enabled: Readonly<Record<string, boolean>>): void {
@@ -318,6 +383,14 @@ export class AgentService {
             worktree: remoteParent.path,
           }
         : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
+    const permission = request.reattach
+      ? undefined
+      : this.permissionForLaunch(
+          request.agent,
+          remote?.target.host,
+          request.defaultArguments ?? [],
+          request.reviewer,
+        );
     if (remote) {
       if (request.loop && !request.remoteCheckout)
         throw new ControlError("remote_review_unsupported");
@@ -358,6 +431,7 @@ export class AgentService {
               throw new Error("Worktree or provider changed");
           },
           this.remoteHooks,
+          permission,
         );
         if (this.earlyExits.has(launched.result.id)) {
           launched.dispose();
@@ -441,6 +515,7 @@ export class AgentService {
         config !== undefined,
         this.hooksEnabled && this.agentHooks[agent.id] !== false,
         binding,
+        permission?.level,
       );
       const replacement = [...(binding?.v2?.channels.values() ?? [])].find(
         (channel) => channel.disclosure,
@@ -491,8 +566,14 @@ export class AgentService {
         .map((matcher) => JSON.stringify(matcher));
       const argumentBypass = argumentMatches.length > 0;
       const bypass = argumentBypass || environmentMatches.length > 0;
-      if (bypass) {
-        if (request.automated || (request.control && "parentId" in request.control))
+      if (permission?.level && environmentMatches.length)
+        throw new Error("A bypass environment conflicts with the selected permission level.");
+      if (bypass && permission?.level !== "full") {
+        if (
+          request.automated ||
+          request.reviewer ||
+          (request.control && "parentId" in request.control)
+        )
           throw new Error("Unattended child bypass is unavailable");
         if (
           (provider.origin !== "bundled" ||
@@ -539,6 +620,7 @@ export class AgentService {
         if (agentProvider(request.agent) !== provider)
           throw new Error("Agent plugin changed. Review it again.");
         this.ensureOpen();
+        permission?.validate();
         request.beforeSpawn?.();
       };
       await validateCheckout();
@@ -577,6 +659,7 @@ export class AgentService {
           attention: binding ? "hooks" : "evaluator",
           ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
           bypass,
+          ...(permission?.level ? { permissionLevel: permission.level } : {}),
           ...(environment.names.length ? { environment: environment.names } : {}),
         };
       }
@@ -598,6 +681,7 @@ export class AgentService {
         attention: binding ? "hooks" : "evaluator",
         ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
         bypass,
+        ...(permission?.level ? { permissionLevel: permission.level } : {}),
         ...(environment.names.length ? { environment: environment.names } : {}),
       };
     } catch (error) {

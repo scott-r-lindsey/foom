@@ -67,13 +67,14 @@ and shortage exception in [tile behavior](../behavior/tiles.md). Each attached t
 its own PTY size. The controller publishes fitted columns/rows with its view
 snapshot for tile panel facts; terminal output and activity stay outside React.
 Tile panels reuse the sidebar panel's portal, keyboard navigation and styling.
-Hide clears the leaf in place (subject to minimum-size repair) and records it as the
-landing spot without stopping
-its session, including exited agents with saved conversations outside the config environment.
-Exited config sessions always offer Close, even with a saved conversation; other
-exited sessions without saved conversations also offer Close. Close uses the
-existing validated sidebar command; refused closes retain the view, while accepted
-closes release it before cleanup and restore a sidebar row if cleanup fails.
+Hide clears the leaf in place (subject to minimum-size repair) and records it as
+the landing spot without stopping its session. Exited agents with saved
+conversations outside the config environment offer both Hide and Close in the
+tile menu and in headers with enough room. Terminal headers use one row to
+preserve the screen's height. Exited config agents, exited shells, exited agents without
+saved conversations, and previews offer Close only. Close uses the existing
+validated sidebar command. Refused closes retain the view. Accepted closes
+release it before cleanup and restore a sidebar row if cleanup fails.
 Placement fills space, then grows a rightmost column with proportional existing
 column widths, or selects the least recently focused non-attention tile when
 columns would fall below 12 terminal cells. The board measures the available area

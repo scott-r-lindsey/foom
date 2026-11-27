@@ -1,3 +1,9 @@
+import { matchesArguments } from "../../shared/agent-argument-matchers";
+import {
+  applyPermissionArguments,
+  checkPermissionConflicts,
+} from "../../shared/agent-permission-arguments";
+import { bypassEnvironment, discoveryFacts } from "../../shared/agent-launch-values";
 import { HostAdmission } from "../../shared/host-pressure";
 import type { HostPressure } from "../../shared/host-pressure.d";
 import { launchResources } from "./resources";
@@ -31,7 +37,12 @@ import { createServer, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute } from "node:path";
 import type { HostResponse } from "../../shared/terminal-host";
-import type { RemoteRequest, RemoteResponse, RemoteSessionContext } from "../../shared/remote-host";
+import type {
+  RemoteRequest,
+  RemoteResponse,
+  RemoteSessionContext,
+  RemoteSessionInfo,
+} from "../../shared/remote-host";
 import {
   RemoteFrames,
   MAX_REMOTE_MESSAGE,
@@ -79,6 +90,7 @@ type Session = {
   connection?: Socket;
   profile?: string;
   context?: RemoteSessionContext;
+  machinePermissionLevel?: RemoteSessionInfo["permissionLevel"];
   human?: boolean;
   checkout?: { repository: string; path: string; identity: string };
   imageOwner?: string;
@@ -353,6 +365,7 @@ export function serveHost(
     pendingConnections.add(socket);
     const frames = new RemoteFrames();
     let negotiated = false;
+    let permissionMetadata = false;
     let id: string | undefined;
     let prepared:
       | {
@@ -374,13 +387,16 @@ export function serveHost(
       }
       pendingConnections.delete(socket);
       clearTimeout(deadline);
-      if (session.agent && !session.human)
+      if (session.agent && !session.human) {
+        const ready = { ...session.agent.ready };
+        if (!permissionMetadata) delete ready.permissionLevel;
         await send(socket, {
           type: "agent-ready",
           id,
-          ready: session.agent.ready,
+          ready,
           ...(session.imageOwner ? { imageOwner: session.imageOwner } : {}),
         });
+      }
       await send(socket, {
         type: "open-result",
         id,
@@ -424,10 +440,12 @@ export function serveHost(
           return;
         }
         negotiated = true;
+        permissionMetadata = message.inventoryPermissions === 1;
         await send(socket, {
           type: "hello",
           build,
           compatible: 2,
+          inventoryPermissions: 1,
           childPressure: 1,
           hostFacts: 1,
           hostPreflight: 1,
@@ -513,11 +531,18 @@ export function serveHost(
             type: "inventory-result",
             own: live
               .filter(([, session]) => session.profile === message.profile)
-              .map(([id, session]) => ({
-                id,
-                ...(session.context ? { context: session.context } : {}),
-                ...(session.checkout ? { checkout: session.checkout } : {}),
-              })),
+              .map(([id, session]) => {
+                const permissionLevel =
+                  session.agent?.ready.permissionLevel ?? session.machinePermissionLevel;
+                const context = session.context && { ...session.context };
+                if (context?.reviewer && !permissionMetadata) delete context.reviewer;
+                return {
+                  id,
+                  ...(context ? { context } : {}),
+                  ...(session.checkout ? { checkout: session.checkout } : {}),
+                  ...(permissionMetadata && permissionLevel ? { permissionLevel } : {}),
+                };
+              }),
             foreign: [
               ...live
                 .filter(([, session]) => session.profile !== message.profile)
@@ -950,6 +975,33 @@ export function serveHost(
                   )
                     throw new LaunchFailure("remote_worktree_unavailable");
                 }
+                const defaults = machine.defaults ?? [];
+                let args = [...defaults];
+                if (
+                  model &&
+                  found &&
+                  machine.reviewer &&
+                  (machine.permissionLevel === "full" ||
+                    matchesArguments(model.bypassArguments, defaults) ||
+                    bypassEnvironment(model, found.env, false).length)
+                )
+                  throw new Error("Remote reviewer bypass is unavailable");
+                if (model && found && machine.permissionLevel) {
+                  checkPermissionConflicts(model, defaults);
+                  if (bypassEnvironment(model, found.env, false).length)
+                    throw new Error(
+                      "A bypass environment conflicts with the selected permission level.",
+                    );
+                  const facts = discoveryFacts(
+                    model,
+                    found.version,
+                    found.help,
+                    {},
+                    machine.permissionLevel,
+                  );
+                  args = applyPermissionArguments(model, machine.permissionLevel, args, 0, facts);
+                  owned.machinePermissionLevel = machine.permissionLevel;
+                }
                 cancellation.signal.throwIfAborted();
                 if (!machine.repository && !checkout) {
                   if (model && found) owned.imagePaste = imagePasteRecipient(model.id);
@@ -958,7 +1010,7 @@ export function serveHost(
                 }
                 return {
                   command: found?.command ?? remoteShell(),
-                  args: model && found ? [...(machine.defaults ?? [])] : ["-i", "-l"],
+                  args: model && found ? args : ["-i", "-l"],
                   cwd,
                   ...(found
                     ? {

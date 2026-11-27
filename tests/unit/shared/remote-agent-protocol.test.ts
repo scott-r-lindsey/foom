@@ -69,8 +69,10 @@ test("registered-host dispatcher launch accepts a Markdown bullet through agent-
 test("remote orchestrator wire fields are bounded and use their own result shape", () => {
   const launch = {
     ...spec,
+    agent: "codex",
     worktree: spec.repository,
     orchestratorOrigin: "https://example.test/repo.git",
+    permissionLevel: "workspace",
   };
   expect(remoteAgentSpec(launch)).toBe(true);
   for (const patch of [
@@ -78,6 +80,7 @@ test("remote orchestrator wire fields are bounded and use their own result shape
     { checkoutIdentity: "0".repeat(64) },
     { orchestratorOrigin: "" },
     { orchestratorOrigin: "https://example.test /repo.git" },
+    { permissionLevel: "unknown" },
   ])
     expect(remoteAgentSpec({ ...launch, ...patch })).toBe(false);
   const parent = {

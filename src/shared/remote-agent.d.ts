@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "./agent-permissions";
 import type { HostPressure } from "./host-pressure.d";
 /** Bounded host evidence; contains no file content or process authority. */
 export interface RemoteReviewSnapshot {
@@ -11,6 +12,7 @@ import type { HookSignal } from "./hooks";
 export interface RemoteAgentSpec {
   /** Registered main checkout with this exact credential-free origin. */
   orchestratorOrigin?: string;
+  reviewer?: true;
   childPressure?: true;
   agent: string;
   repository: string;
@@ -19,6 +21,7 @@ export interface RemoteAgentSpec {
   prompt?: string;
   conversationId?: string;
   hooks: boolean;
+  permissionLevel?: AgentPermissionLevel;
   checkoutIdentity?: string;
   reviewSnapshot?: RemoteReviewSnapshot;
 }
@@ -45,6 +48,7 @@ export type RemoteControlResult =
 export interface RemoteAgentReady {
   channels?: string[];
   hooks: boolean;
+  permissionLevel?: AgentPermissionLevel;
   mcp: boolean;
   conversationId?: string;
 }

@@ -514,6 +514,13 @@ export async function sidebarCommand(
     }
     if (this.executionOwner.view(entry.id).exitCode === undefined)
       throw new Error("Session is still running");
+    if (
+      entry.reattachOnly ||
+      (entry.remote &&
+        entry.branch === "Main checkout" &&
+        !this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
+    )
+      throw new LaunchFailure("remote_worktree_unavailable");
     if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
     const launch = () => {
       const replacement = {
@@ -610,6 +617,7 @@ export async function sidebarCommand(
     const identity =
       command.kind === "close" &&
       entry &&
+      !entry.remote &&
       !entry.home &&
       !entry.config &&
       (!entry.dormant ||
@@ -791,6 +799,7 @@ export async function sidebarCommand(
         row.placement?.kind === "remote" &&
         !this.orchestration.view(row.id),
     );
+    if (human?.reattachOnly) throw new LaunchFailure("remote_worktree_unavailable");
     if (human?.placement?.kind === "remote" && human.branch === "Main checkout") {
       const id = await this.startMachine(
         human.placement.host,
@@ -1028,6 +1037,7 @@ export async function startConfig(
       : { conversationId: replacement.conversationId }),
     ...(result.conversationId ? { conversationId: result.conversationId } : {}),
     bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
+    ...(result.permissionLevel ? { permissionLevel: result.permissionLevel } : {}),
     state: null,
   });
   this.executionOwner.launched(result.id);

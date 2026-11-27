@@ -417,6 +417,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
         type: "hello",
         build,
         compatible: 2,
+        inventoryPermissions: 1,
         childPressure: 1,
         hostFacts: 1,
         hostPreflight: 1,
@@ -1557,6 +1558,7 @@ test.skipIf(process.platform === "win32")(
       type: "hello",
       build,
       compatible: 2,
+      inventoryPermissions: 1,
       childPressure: 1,
       hostFacts: 1,
       hostPreflight: 1,
@@ -1940,6 +1942,7 @@ test.skipIf(process.platform === "win32")(
         type: "hello",
         build,
         compatible: 2,
+        inventoryPermissions: 1,
         childPressure: 1,
         hostFacts: 1,
         hostPreflight: 1,
@@ -3340,5 +3343,152 @@ test.skipIf(process.platform === "win32")(
       pressure: { reservations: 0 },
     });
     expect(mock.create).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "remote child reattachment sends the applied permission only to capable hubs",
+  async () => {
+    await start();
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: "/fixture/codex",
+      env: { PATH: "/fixture" },
+      version: "codex-cli 0.167.0",
+      help: "--sandbox --ask-for-approval -c",
+    });
+    const c = await client();
+    const id = "managed-child";
+    const profile = "f".repeat(32);
+    c.send({ type: "hello", build, inventoryPermissions: 1 });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      id,
+      profile,
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        agent: "codex",
+        repository: "/remote/repo",
+        worktree: "/remote/tree",
+        defaults: [],
+        hooks: false,
+        permissionLevel: "ask",
+      },
+    });
+    await c.wait(2);
+    expect(c.messages[1]).toMatchObject({ type: "agent-prepared", id });
+    c.send({ type: "agent-start", id });
+    await c.wait(4);
+    expect(c.messages[2]).toMatchObject({ type: "agent-ready", ready: { permissionLevel: "ask" } });
+    await disconnect(c);
+
+    for (const capable of [false, true]) {
+      const attached = await client();
+      attached.send({
+        type: "hello",
+        build: (capable ? "a" : "b").repeat(64),
+        ...(capable ? { inventoryPermissions: 1 } : {}),
+      });
+      await attached.wait(1);
+      attached.send({ type: "open", id, profile, request: 1, cols: 80, rows: 24, reattach: true });
+      await attached.wait(3);
+      expect(attached.messages[1]).toMatchObject({ type: "agent-ready", id });
+      if (capable) expect(attached.messages[1]).toHaveProperty("ready.permissionLevel", "ask");
+      else expect(attached.messages[1]).not.toHaveProperty("ready.permissionLevel");
+      expect(attached.messages[2]).toMatchObject({ type: "open-result", id, state: "live" });
+      await disconnect(attached);
+    }
+    expect(mock.create).toHaveBeenCalledOnce();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "the remote machine launcher expands the installed agent's managed permission arguments",
+  async () => {
+    await start();
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: "/fixture/codex",
+      env: { PATH: "/fixture" },
+      version: "codex-cli 0.167.0",
+      help: "--sandbox --ask-for-approval -c",
+    });
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      id: "workspace-machine",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      reattach: false,
+      human: true,
+      profile: "a".repeat(32),
+      context: {
+        repository: "/local-home",
+        worktree: "/local-home",
+        branch: null,
+        agent: "codex",
+        machine: true,
+        reviewer: true,
+      },
+      machine: {
+        codeFolder: "/code",
+        agent: "codex",
+        permissionLevel: "workspace",
+        reviewer: true,
+      },
+    });
+    await c.wait(2);
+    expect(c.messages[1]).toMatchObject({ type: "open-result", state: "live" });
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: terminalArgs("/fixture/codex", [
+          "--sandbox",
+          "workspace-write",
+          "--ask-for-approval",
+          "never",
+          "-c",
+          'approvals_reviewer="user"',
+          "-c",
+          "sandbox_workspace_write.network_access=true",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+        ]),
+      }),
+      "workspace-machine",
+      false,
+    );
+    for (const inventoryPermissions of [false, true]) {
+      const inventory = await client();
+      inventory.send({
+        type: "hello",
+        build,
+        ...(inventoryPermissions ? { inventoryPermissions: 1 } : {}),
+      });
+      await inventory.wait(1);
+      inventory.send({ type: "inventory", profile: "a".repeat(32) });
+      await inventory.wait(2);
+      expect(inventory.messages[1]).toEqual({
+        type: "inventory-result",
+        own: [
+          {
+            id: "workspace-machine",
+            context: {
+              repository: root,
+              worktree: root,
+              branch: null,
+              agent: "codex",
+              machine: true,
+              ...(inventoryPermissions ? { reviewer: true } : {}),
+            },
+            ...(inventoryPermissions ? { permissionLevel: "workspace" } : {}),
+          },
+        ],
+        foreign: [],
+      });
+    }
   },
 );

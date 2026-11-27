@@ -81,6 +81,7 @@ export interface WorkspaceMethods {
       | "beforeSpawn"
       | "prepareSpawn"
       | "loop"
+      | "reviewer"
       | "pressure"
       | "selection"
       | "remoteCheckout"
@@ -237,6 +238,9 @@ export type Agents = Pick<
   | "setEnabled"
   | "setHooksEnabled"
   | "setBypassIdentities"
+  | "setPermissionLevels"
+  | "forgetHostPermissions"
+  | "permissionForLaunch"
 >;
 export interface WorkspaceDependencies {
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &

@@ -1,3 +1,7 @@
+import {
+  applyPermissionArguments,
+  availablePermissionLevels,
+} from "../../../shared/agent-permission-arguments";
 import { mcpTools } from "../../../shared/control-tools";
 import { extensionAsset } from "./extension-assets";
 import { writeOwnedFile } from "./v2-files";
@@ -84,6 +88,9 @@ export function v2Provider(
       );
       return {
         id: model.id,
+        ...(model.permissionLevels
+          ? { permissionLevels: availablePermissionLevels(model.permissionLevels) }
+          : {}),
         path,
         version: version || null,
         hooks: hookCapability(model, version, help),
@@ -168,6 +175,7 @@ export function v2Provider(
       configSession,
       hooksEnabled,
       binding,
+      permissionLevel,
     ): Promise<PreparedLaunch> {
       await validate();
       const probe = probes.get(installation.path ?? "");
@@ -180,15 +188,21 @@ export function v2Provider(
               provider.setupFacts?.(installation.path, { healthTrusted: false }) ?? {},
             )
           : undefined;
-      const facts = discoveryFacts(model, probe?.version ?? "", probe?.help ?? "", {
-        control: Boolean(control),
-        hooksEnabled,
-        configGreeting,
-        hasPrompt: request.prompt !== undefined,
-        resume: request.conversationId !== undefined,
-        healthTrusted: binding?.v2?.runtime?.health.get() === "trusted",
-        setupState: setupStatus?.state ?? "unavailable",
-      });
+      const facts = discoveryFacts(
+        model,
+        probe?.version ?? "",
+        probe?.help ?? "",
+        {
+          control: Boolean(control),
+          hooksEnabled,
+          configGreeting,
+          hasPrompt: request.prompt !== undefined,
+          resume: request.conversationId !== undefined,
+          healthTrusted: binding?.v2?.runtime?.health.get() === "trusted",
+          setupState: setupStatus?.state ?? "unavailable",
+        },
+        permissionLevel,
+      );
       if (
         request.prompt !== undefined &&
         (!request.prompt.length ||
@@ -391,6 +405,7 @@ export function v2Provider(
         let mcpArguments: string[] = [];
         let grants: string[] = [];
         let toolIndex = 0;
+        let permissionIndex = 0;
         const tools = model.launch.toolPermissions;
         if (mcp && tools)
           grants = (
@@ -411,8 +426,10 @@ export function v2Provider(
         const expand = (templates: readonly string[]) =>
           templates.map((arg) => expandV2(arg, values));
         for (const stage of model.launch.order) {
-          if (stage === "defaults") args.push(...userDefaults);
-          else if (stage === "arguments") {
+          if (stage === "defaults") {
+            permissionIndex = args.length;
+            args.push(...userDefaults);
+          } else if (stage === "arguments") {
             if (newId && model.conversation.newId)
               args.push(...expand(model.conversation.newId.arguments));
             if (model.launch.arguments && selected(model.launch.arguments.when, facts))
@@ -458,16 +475,23 @@ export function v2Provider(
           const insertion = collectMerge(args.slice(0, toolIndex), tools.merge, model.launch).args
             .length;
           finalArgs = [...merged.args];
+          const toolsFirst = toolIndex < permissionIndex;
+          permissionIndex = collectMerge(args.slice(0, permissionIndex), tools.merge, model.launch)
+            .args.length;
           const permissions = [...new Set(merged.values)];
-          if (permissions.length)
+          if (permissions.length) {
             finalArgs.splice(insertion, 0, tools.merge.output, ...permissions);
+            if (toolsFirst) permissionIndex += permissions.length + 1;
+          }
         }
         return {
           environment: environment.map(({ name, value }) => ({
             name,
             value: expandV2(value, values),
           })),
-          args: boundedArguments(finalArgs),
+          args: boundedArguments(
+            applyPermissionArguments(model, permissionLevel, finalArgs, permissionIndex, facts),
+          ),
           mcp,
           mcpArguments,
           ...(newId ? { conversationId: newId } : {}),

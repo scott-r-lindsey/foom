@@ -11,6 +11,9 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 The main settings store copies incoming values and exposes immutable snapshots
 of committed settings and legacy migration values.
+Each agent permission scope holds up to 100 choices. Main checks the merged
+choices inside the serialized write, so adding a choice beyond the limit leaves
+the profile intact. Clearing a choice frees a slot.
 
 ### Agent-editable settings format (#206)
 
@@ -214,6 +217,14 @@ status columns or reload controls. Enablement is independent of installation.
 Disabled agents disappear from machine cards and launch menus and do not run probes.
 Default arguments reach both human remote launches and remote children;
 hub Environment settings remain local.
+
+When a manifest drops a saved permission level, its scope still shows the
+selection as unavailable. Reset it to Agent default in Global or Use Global in
+Machines. Launches that resolve to the unavailable level fail before spawn.
+Host observation and nickname updates leave a pending machine permission save
+eligible to commit. Removing the selected host or changing its registered code
+folder before commit causes Settings to report a failed save so the choice can
+be reviewed and saved again.
 
 Machines uses one picker, initially This computer, followed by every registered
 host. Hosts Open selects its host in that picker. There are no per-machine tabs.

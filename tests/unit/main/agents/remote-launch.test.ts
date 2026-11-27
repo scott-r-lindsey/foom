@@ -414,3 +414,39 @@ test("only main's automated pressure capability asks the daemon for admission an
   expect(pressure).toHaveBeenCalledWith({ measured: false });
   launched.dispose();
 });
+
+test("a remote launch reports only the permission level acknowledged by the host", async () => {
+  const f = fixture(false);
+  const permission = { level: "full" as const, validate: vi.fn() };
+  for (const acknowledged of [false, true]) {
+    const create = async (spec: TerminalSpec) => {
+      const remote = spec.remote?.agent;
+      expect(remote?.spec.permissionLevel).toBe("full");
+      await remote?.authorize();
+      remote?.start();
+      remote?.ready({
+        hooks: false,
+        mcp: true,
+        ...(acknowledged ? { permissionLevel: "full" } : {}),
+      });
+      return spec.id ?? "unknown";
+    };
+    const launching = launchRemoteChild(
+      { ...request, agent: "codex" },
+      mapping,
+      [],
+      false,
+      { create },
+      f.control,
+      f.validate,
+      f.observer,
+      permission,
+    );
+    if (acknowledged) {
+      const result = await launching;
+      expect(result.result).toMatchObject({ permissionLevel: "full", bypass: true });
+      result.dispose();
+    } else await expect(launching).rejects.toThrow("did not acknowledge");
+  }
+  expect(permission.validate).toHaveBeenCalledTimes(2);
+});

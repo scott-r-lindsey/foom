@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "../../shared/agent-permissions";
 import { useEffect, useRef } from "react";
 import { useBackgroundErrors } from "../board/error-presentation";
 import type { SoundSettings } from "../../shared/sound";
@@ -85,5 +86,14 @@ export function useSetupSaves(
     argumentSaveRef.current = saving;
     return saving;
   };
-  return { save, saveArguments };
+  const savePermission = async (
+    scope: string,
+    agent: string,
+    level: AgentPermissionLevel | null,
+  ) => {
+    receiveState(
+      await source.save({ agentPermissions: { [scope]: { [agent]: level ? { level } : null } } }),
+    );
+  };
+  return { save, saveArguments, savePermission };
 }

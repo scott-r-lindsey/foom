@@ -165,6 +165,36 @@ test("inventory refresh marks missing checkout sessions without losing state or 
   disconnect?.();
 });
 
+test.each([false, true])(
+  "recovered remote rows without a local repository stay live (linked: %s)",
+  async (linked) => {
+    const entry = {
+      ...agent("recovered-clone"),
+      repository: "/remote/code/repository",
+      worktree: "/foom-remote/clone",
+      branch: linked ? "topic" : "Main checkout",
+      ...(linked ? { reattachOnly: true as const } : {}),
+      placement: { kind: "remote" as const, host: "worker" },
+    };
+    vi.spyOn(window.desktop, "sidebarInventory").mockResolvedValue({
+      repositories: [],
+      shell: "bash",
+      machines: [{ host: "worker", name: "worker", available: true, agents: [] }],
+    });
+    mock.workspace.mockResolvedValue({ repositories: [], terminals: [entry] });
+    const source = createAppSource();
+    const disconnect = source.connect?.();
+    await settle();
+    expect(source.getSnapshot()[0]).toMatchObject({
+      id: entry.id,
+      reattachOnly: true,
+      worktreeRemoved: false,
+      unavailable: false,
+    });
+    disconnect?.();
+  },
+);
+
 test.each(["snapshot", "state", "exit"] as const)(
   "resume drops old snapshot verdicts while preserving new %s evidence",
   async (evidence) => {

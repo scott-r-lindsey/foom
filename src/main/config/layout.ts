@@ -637,6 +637,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "AGENTS.md": GUIDE_HISTORY,
   "CLAUDE.md": GUIDE_HISTORY,
   "schemas/agent.schema.json": [
+    "740e2ad498a29fc6f1190db9425e21327d27f9e4a0f108f42121967fe0cc346a",
     "4ffa1f311e575688b914608124cb224a326051c4a3b58e92e851b49416bc716b",
     "7749f9139b291ecaeb0897e7f76acdcc1b66246d0caad7317cd3169f5e9ab4e9",
     "33589cf5cebb4f3729bc03ca24e40b665238f16a1fad56ee6fe86c5d6ef11311",
@@ -644,7 +645,8 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "a75143842a1b3c12f56c68550f7b0b083246b20e60d9de1f8062b98c55131f5c",
     "a093e326009c7ef7dc48f8517b8b814667bce6101fde9e1b8639a37b38a24949",
     "648cead2a9d760fb80a48889b240441220d06f99b65d0f9213ec47045e2050a0",
-    "740e2ad498a29fc6f1190db9425e21327d27f9e4a0f108f42121967fe0cc346a",
+    "0c127976afae5f6730ac01c23ea186b4f98b848729b952b5886943d0db7652e6",
+    "ccd9c41eabb527f0e5af47b733915af14374571749f052b406d616cf417fbc5c",
   ],
   "schemas/theme.schema.json": [
     "add57d054e68d788be3f6e64351b0785954fe4a9014cf1b73050fa2c10180beb",

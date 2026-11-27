@@ -59,6 +59,7 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
     dormant: true,
     exited: true,
     conversationId: "saved-123",
+    reviewer: true as const,
   };
   const save = vi.fn(() => Promise.resolve());
   const flush = vi.fn(() => Promise.resolve());
@@ -76,6 +77,12 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
   expect(agents.launch).not.toHaveBeenCalled();
   await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
   expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      conversationId: "saved-123",
+      reviewer: true,
+    }),
+  );
   expect(save).toHaveBeenLastCalledWith([
     expect.objectContaining({ id: "t1", conversationId: "saved-123" }),
     expect.objectContaining({ id: "foreign", exited: true }),

@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "./agent-permissions";
 import type { CopyableErrorId } from "./application-error";
 
 import type { MessageBoardApi } from "./message-board";
@@ -44,6 +45,8 @@ export interface WorkspaceTerminal {
   recipe?: boolean;
   /** Phase-2 remote child; never silently relaunched as a local process. */
   remote?: true;
+  /** A recovered remote checkout without a registered repository launch target. */
+  reattachOnly?: true;
   remoteCleanup?: "unreachable";
   /** Main retains cleanup ownership while the board hides a closing session. */
   closeState?: "closing" | "failed";
@@ -74,6 +77,10 @@ export interface WorkspaceTerminal {
   launchVersion?: number;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
+  /** Arguments Foom applied to this invocation. */
+  permissionLevel?: AgentPermissionLevel;
+  /** Main-owned reviewer launch provenance retained on resume. */
+  reviewer?: true;
   home?: boolean;
   machine?: boolean;
   /** Local agent session started in the profile's source directory. */

@@ -113,6 +113,7 @@ export class Workspace {
           | "worktreeLocation"
           | "agentArguments"
           | "agentBypassIdentities"
+          | "agentPermissions"
           | "agentHooks"
           | "showNewChildren"
           | "closeFinishedAgents"
