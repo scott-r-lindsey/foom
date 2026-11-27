@@ -133,7 +133,9 @@ validated boolean answer approves only a ready plan, stops only an active run,
 or closes the presentation. Checking cannot approve. Main publishes current state
 on the existing render channel; stale IDs and non-boolean payloads are ignored.
 Hide/close/Escape unsubscribe without stopping; reopening subscribes to the same
-run. The repository reservation lasts until workers settle, including while hidden.
+run. The sidebar opens a checklist by repository and run ID. Main ignores an ID
+that no longer matches the current run. The repository reservation lasts until
+workers settle, including while hidden.
 Shutdown stops scheduling new removals and waits for in-flight work.
 As with ordinary removal, this does not isolate concurrent filesystem mutations
 by external local processes. Fetches disable interactive credential prompts and

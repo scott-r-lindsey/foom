@@ -555,7 +555,9 @@ it("reuses a fresh plan, fetches on approval, retains locks through branch delet
   await work;
   expect(f.locks.size).toBe(0);
   const fetches = f.worktrees.mergedDefault.mock.calls.length;
-  await f.owner.deleteMerged(repository, (request) => {
+  const runId = f.inventory().cleanup?.id;
+  if (!runId) throw new Error("Missing run ID");
+  await f.owner.openMergedCleanup(repository, runId, (request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
     expect(request.feed.current().progress.phase).toBe("finished");
     return Promise.resolve(true);

@@ -1213,6 +1213,11 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
 
   await panel.click();
   await expect(results).toBeVisible();
+  const saved = await page.evaluate(async () => {
+    const [repository] = (await window.desktop.sidebarInventory()).repositories;
+    return { repository: repository?.path, runId: repository?.cleanup?.id };
+  });
+  assert.ok(saved.repository && saved.runId);
   await results.click();
   await expect
     .poll(
@@ -1220,6 +1225,14 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
         (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]?.cleanup,
     )
     .toBeUndefined();
+  await page.evaluate(
+    (savedChecklist) =>
+      window.desktop.sidebarCommand({
+        kind: "open-merged-cleanup",
+        ...savedChecklist,
+      }),
+    saved,
+  );
 });
 
 test("double-clicking zero eligible opens one merged cleanup review", async (context) => {

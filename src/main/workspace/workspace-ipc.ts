@@ -172,12 +172,20 @@ function sidebarCommand(value: unknown): SidebarCommand {
       Object.keys(value).some((key) => !["kind", "repository", "worktree"].includes(key)))
   )
     throw new Error("Invalid prune request");
-  if (kind === "delete-merged-worktrees") {
-    const startNew = value["startNew"];
-    if (startNew !== undefined && startNew !== true) throw new Error("Invalid cleanup request");
-    return { kind, repository, ...(startNew ? { startNew } : {}) };
+  if (kind === "open-merged-cleanup") {
+    const runId = value["runId"];
+    if (
+      !text(runId, 36) ||
+      !/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/u.test(runId)
+    )
+      throw new Error("Invalid cleanup run ID");
+    return { kind, repository, runId };
   }
-  if (kind === "remove-repository" || kind === "review-merged-worktrees")
+  if (
+    kind === "remove-repository" ||
+    kind === "delete-merged-worktrees" ||
+    kind === "review-merged-worktrees"
+  )
     return { kind, repository };
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];

@@ -652,30 +652,41 @@ export class CleanupOwner {
     }));
   }
 
-  async deleteMerged(
+  async openMergedCleanup(
     repository: string,
+    runId: string,
     confirm: ConfirmWorkspace,
-    startNew = false,
   ): Promise<void> {
+    const run = this.cleanupRuns.get(repository);
+    if (run?.id !== runId || (!run.approved && run.pending)) return;
+    await this.presentMergedCleanup(repository, run, confirm);
+  }
+
+  private async presentMergedCleanup(
+    repository: string,
+    run: CleanupRun,
+    confirm: ConfirmWorkspace,
+  ): Promise<void> {
+    await confirm({
+      kind: "merged-worktrees",
+      subject: basename(repository),
+      worktrees: [],
+      feed: run,
+    });
+    if (!run.pending) {
+      // Another board may already be preparing a replacement for these results.
+      this.dismissedCleanupRuns.add(run);
+      if (this.cleanupRuns.get(repository) === run) {
+        this.cleanupRuns.delete(repository);
+        this.deps.refresh();
+      }
+    }
+  }
+
+  async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
     this.deps.known(repository);
     const existing = this.cleanupRuns.get(repository);
-    if (existing && (existing.pending || !startNew)) {
-      await confirm({
-        kind: "merged-worktrees",
-        subject: basename(repository),
-        worktrees: [],
-        feed: existing,
-      });
-      if (!existing.pending) {
-        // Another board may already be preparing a replacement for these results.
-        this.dismissedCleanupRuns.add(existing);
-        if (this.cleanupRuns.get(repository) === existing) {
-          this.cleanupRuns.delete(repository);
-          this.deps.refresh();
-        }
-      }
-      return;
-    }
+    if (existing?.pending) return this.presentMergedCleanup(repository, existing, confirm);
     return this.deps.withRepository(repository, async () => {
       const releases = new Set<() => void>();
       const run = new CleanupRun({

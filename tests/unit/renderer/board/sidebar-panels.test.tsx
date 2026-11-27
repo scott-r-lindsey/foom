@@ -261,6 +261,7 @@ test.each([
   });
   act(() => {
     progress = {
+      id: "first",
       total: 1,
       done: 0,
       phase: "remove",
@@ -274,6 +275,7 @@ test.each([
   act(() => {
     scan = { canDeleteMerged: false, mergedCount: 0 };
     progress = {
+      id: "first",
       total: 1,
       done: 1,
       phase: "finished",
@@ -302,7 +304,6 @@ test.each([
   expect(view.command).toHaveBeenLastCalledWith({
     kind: "delete-merged-worktrees",
     repository: "/foom",
-    startNew: true,
   });
 });
 
@@ -441,6 +442,7 @@ test("removed subjects release pinned intent; Escape works outside and the opene
 test("cleanup progress and finished results remain reachable without folding recreated live rows", async () => {
   const view = setup();
   let progress: NonNullable<SidebarRepository["cleanup"]> = {
+    id: "first",
     total: 1,
     done: 0,
     phase: "remove",
@@ -456,8 +458,9 @@ test("cleanup progress and finished results remain reachable without folding rec
     await Promise.resolve();
   });
   expect(view.command).toHaveBeenLastCalledWith({
-    kind: "delete-merged-worktrees",
+    kind: "open-merged-cleanup",
     repository: "/foom",
+    runId: "first",
   });
   progress = {
     ...progress,
@@ -468,7 +471,15 @@ test("cleanup progress and finished results remain reachable without folding rec
   view.rerender(<Board source={view.source} />);
   expect(view.getByRole("treeitem", { name: /^feature$/ }).getAttribute("data-cleanup")).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-  expect(view.getByRole("menuitem", { name: /Cleanup results/ })).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: /Cleanup results/ }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenLastCalledWith({
+    kind: "open-merged-cleanup",
+    repository: "/foom",
+    runId: "first",
+  });
   progress = {
     ...progress,
     id: "first",

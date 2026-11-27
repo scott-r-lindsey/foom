@@ -315,8 +315,8 @@ export function Sidebar(props: SidebarProps) {
                 const rid = repositoryKey(repo.repository.path);
                 const machines = repositoryMachines(source.getMachines?.() ?? []);
                 const cleanup = repo.repository.cleanup;
+                const cleanupId = cleanup?.id;
                 const deleting = cleanup && cleanup.phase !== "finished";
-                const cleanupResults = cleanup?.phase === "finished";
                 const mergedCount = repo.repository.mergedCount;
                 const canStartCleanup =
                   !deleting &&
@@ -326,11 +326,6 @@ export function Sidebar(props: SidebarProps) {
                         (tree) => tree.path !== repo.repository.path && !tree.bare,
                       )
                     : mergedCount > 0);
-                const openCleanup = () =>
-                  command({
-                    kind: "delete-merged-worktrees",
-                    repository: repo.repository.path,
-                  });
                 return (
                   <SidebarRepositorySection
                     key={rid}
@@ -429,7 +424,7 @@ export function Sidebar(props: SidebarProps) {
                           });
                         },
                       },
-                      ...(cleanup || canStartCleanup ? [null] : []),
+                      ...(cleanupId || canStartCleanup ? [null] : []),
                       ...(canStartCleanup
                         ? [
                             {
@@ -440,12 +435,11 @@ export function Sidebar(props: SidebarProps) {
                                 command({
                                   kind: "delete-merged-worktrees",
                                   repository: repo.repository.path,
-                                  ...(cleanupResults ? { startNew: true } : {}),
                                 }),
                             },
                           ]
                         : []),
-                      ...(cleanup
+                      ...(cleanup && cleanupId
                         ? [
                             {
                               label: deleting ? "Deleting merged worktrees" : "Cleanup results",
@@ -453,7 +447,12 @@ export function Sidebar(props: SidebarProps) {
                               hint: deleting
                                 ? `${String(cleanup.done)}/${String(cleanup.total)}`
                                 : "",
-                              run: openCleanup,
+                              run: () =>
+                                command({
+                                  kind: "open-merged-cleanup",
+                                  repository: repo.repository.path,
+                                  runId: cleanupId,
+                                }),
                             },
                           ]
                         : []),
