@@ -29,6 +29,7 @@ export class CleanupRun implements CleanupFeed {
   private total = 0;
   private done = 0;
   private error: "fetch failed" | undefined;
+  private deletionApproved = false;
   private operation: Promise<void> | undefined;
   constructor(
     private readonly deps: {
@@ -42,6 +43,9 @@ export class CleanupRun implements CleanupFeed {
   ) {}
   get pending(): boolean {
     return this.phase !== "finished";
+  }
+  get approved(): boolean {
+    return this.deletionApproved;
   }
   get removedTrees(): readonly (Worktree & { removed: true })[] {
     return this.plan.flatMap((candidate, index) =>
@@ -124,15 +128,22 @@ export class CleanupRun implements CleanupFeed {
   }
   failed(): void {
     this.error = "fetch failed";
+    this.finishWithoutRemoval("fetch failed");
+  }
+  cancelBeforeApproval(): void {
+    if (this.pending && !this.approved) this.finishWithoutRemoval("not started");
+  }
+  private finishWithoutRemoval(reason: "fetch failed" | "not started"): void {
     this.stage = "run";
     this.phase = "finished";
     this.items = this.items.map((item) =>
-      item.state === "queued" ? { ...item, state: "kept", reason: "fetch failed" } : item,
+      item.state === "queued" ? { ...item, state: "kept", reason } : item,
     );
     this.publish();
   }
   act(): void {
     if (this.stage === "ready" && this.total > 0 && !this.stopped) {
+      this.deletionApproved = true;
       this.stage = "run";
       this.publish();
       this.operation = this.run();

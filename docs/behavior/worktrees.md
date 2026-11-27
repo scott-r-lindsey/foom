@@ -48,6 +48,8 @@ reasons, and offers **Delete** and **Cancel**. During cleanup it becomes a live
 checklist with a count, progress bar, **Stop** and **Hide**. Stop finishes the
 in-flight removals and starts no more; Hide and Escape close only the window.
 There is one run per repository, and the repository panel reopens its checklist.
+If a replacement ends before Delete is approved, the previous undismissed checklist
+returns. A queued dialog for a cancelled run opens with Done and cannot approve deletion.
 Finished runs offer **Done**. The sidebar shows the same count and queued, removing,
 removed, kept or error tags; a completion status reports the result when hidden.
 Removing uses the highlight, errors use failure ink, and reduced motion disables

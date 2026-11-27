@@ -777,28 +777,33 @@ export class CleanupOwner {
           ? Promise.resolve(cached.plan)
           : this.mergedPlan(repository, () => this.deps.worktrees.mergedDefault(repository, true));
       if (cached?.plan && this.deps.now() < cached.expires) run.ready(cached.plan);
-      // Request presentation before awaiting network or filesystem checks.
-      const answer = confirm({
-        kind: "merged-worktrees",
-        subject: basename(repository),
-        worktrees: [],
-        feed: run,
-      });
       try {
-        run.ready(await prepare);
-      } catch {
-        run.failed();
-      }
-      if (await answer) run.act();
-      const reviewed = run.current().stage === "run" && !run.pending;
-      // Hide resolves presentation, but the repository reservation lasts through the run.
-      await run.settled();
-      const canceled = run.current().stage !== "run";
-      if (this.cleanupRuns.get(repository) === run && (reviewed || canceled)) {
-        if (canceled && existing && !this.dismissedCleanupRuns.has(existing))
-          this.cleanupRuns.set(repository, existing);
-        else this.cleanupRuns.delete(repository);
-        this.deps.refresh();
+        // Request presentation before awaiting network or filesystem checks.
+        const answer = confirm({
+          kind: "merged-worktrees",
+          subject: basename(repository),
+          worktrees: [],
+          feed: run,
+        });
+        try {
+          run.ready(await prepare);
+        } catch {
+          run.failed();
+        }
+        if (await answer) run.act();
+      } finally {
+        const reviewed = !run.pending;
+        // Queued presentations can still hold this feed. Revoke its approval
+        // action before releasing the repository reservation.
+        run.cancelBeforeApproval();
+        // Hide resolves presentation while approved removal may still be running.
+        await run.settled();
+        if (this.cleanupRuns.get(repository) === run && (reviewed || !run.approved)) {
+          if (!run.approved && existing && !this.dismissedCleanupRuns.has(existing))
+            this.cleanupRuns.set(repository, existing);
+          else this.cleanupRuns.delete(repository);
+          this.deps.refresh();
+        }
       }
     });
   }

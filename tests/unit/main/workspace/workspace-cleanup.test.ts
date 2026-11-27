@@ -4,8 +4,10 @@ import { replaceConfigProviders } from "../../../../src/main/agents/providers/re
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import type { CleanupFeed } from "../../../../src/shared/cleanup";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
+import { cleanupReady } from "../../../helpers/cleanup-feed";
 import { bound, cleanupCommand, deps, launched, repo, tree } from "./workspace-fixture";
 
 test("eligibility review checks current checkout state without reserving the repository or fetching", async () => {
@@ -516,6 +518,78 @@ test("canceling a new cleanup does not restore results dismissed on another boar
   });
   expect((await workspace.sidebarInventory()).repositories[0]?.cleanup).toBeUndefined();
   await workspace.dispose();
+});
+
+test("a queued cleanup results action cannot approve a replacement after cancellation", async () => {
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+  await cleanupCommand(workspace, command, () => Promise.resolve(true));
+  const finished = (await workspace.sidebarInventory()).repositories[0]?.cleanup;
+  const replacement = Promise.withResolvers<CleanupFeed>();
+  const cancel = Promise.withResolvers<boolean>();
+  const next = workspace.sidebarCommand({ ...command, startNew: true }, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    replacement.resolve(request.feed);
+    return cancel.promise;
+  });
+  const feed = await replacement.promise;
+  await cleanupReady(feed);
+  const queued = Promise.withResolvers<CleanupFeed>();
+  const close = Promise.withResolvers<boolean>();
+  const results = workspace.sidebarCommand(command, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    queued.resolve(request.feed);
+    return close.promise;
+  });
+  try {
+    const staleFeed = await queued.promise;
+    expect(staleFeed).toBe(feed);
+    cancel.resolve(false);
+    await next;
+    expect((await workspace.sidebarInventory()).repositories[0]?.cleanup?.id).toBe(finished?.id);
+    await workspace.removeRepository(repo.path, () => Promise.resolve(false));
+    vi.mocked(deps.worktrees.mergedDefault).mockClear();
+    vi.mocked(deps.worktrees.removeWorktree).mockClear();
+    staleFeed.act();
+    await Promise.resolve();
+    expect(deps.worktrees.mergedDefault).not.toHaveBeenCalled();
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    expect(staleFeed.current().progress.phase).toBe("finished");
+  } finally {
+    cancel.resolve(false);
+    close.resolve(false);
+    await Promise.all([next, results]);
+    await workspace.dispose();
+  }
+});
+
+test("a replacement fetch failure before approval preserves the completed checklist", async () => {
+  let now = 0;
+  deps.now = () => now;
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+  try {
+    await expect
+      .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged)
+      .toBe(true);
+    await cleanupCommand(workspace, command, () => Promise.resolve(true));
+    const finished = (await workspace.sidebarInventory()).repositories[0]?.cleanup;
+    expect(finished?.phase).toBe("finished");
+    now = 60_001;
+    vi.mocked(deps.worktrees.mergedDefault).mockRejectedValue(new Error("Offline"));
+    await workspace.sidebarCommand({ ...command, startNew: true }, async (request) => {
+      if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+      const feed = request.feed;
+      expect(feed.current().stage).toBe("checking");
+      await expect.poll(() => feed.current().error).toBe("fetch failed");
+      return false;
+    });
+    expect((await workspace.sidebarInventory()).repositories[0]?.cleanup?.id).toBe(finished?.id);
+  } finally {
+    await workspace.dispose();
+  }
 });
 
 test("cleanup retains branch reservations until the checked-ref transaction settles", async () => {

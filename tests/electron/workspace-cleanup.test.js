@@ -1146,6 +1146,7 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
     const mergedDefault = WorktreeService.prototype.mergedDefault;
     WorktreeService.prototype.mergedDefault = async function (repository, fresh) {
       if (!fresh && globalThis.failEligibilityScan) throw new Error("Fixture fetch failed");
+      if (fresh && globalThis.failCleanupPreparation) throw new Error("Fixture remote offline");
       return mergedDefault.call(this, repository, fresh);
     };
     WorktreeService.prototype.deleteMergedBranches = async function (...args) {
@@ -1200,6 +1201,15 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
   await deleteAction.click();
   await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
   await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await app.evaluate(() => {
+    globalThis.failCleanupPreparation = true;
+  });
+  await panel.click();
+  await expect(results).toBeVisible();
+  await deleteAction.click();
+  await expect(confirmation.getByText("fetch failed", { exact: true })).toBeVisible();
+  await confirmation.getByRole("button", { name: "Done", exact: true }).click();
 
   await panel.click();
   await expect(results).toBeVisible();
