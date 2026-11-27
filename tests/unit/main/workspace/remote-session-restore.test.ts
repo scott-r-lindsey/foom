@@ -1,13 +1,19 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import {
   discoverRemoteSessions,
   reattachRemoteSession,
 } from "../../../../src/main/workspace/remote-session-restore";
 import { homeDirectory } from "../../../../src/main/workspace/home-shell";
+import { SessionStore } from "../../../../src/main/workspace/session-store";
+import { locationId } from "../../../../src/main/control/metadata";
 import type { Hosts } from "../../../../src/main/setup/hosts";
 import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import type { AgentLaunch, AgentLaunched } from "../../../../src/shared/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
+import { remoteResponse } from "../../../../src/shared/remote-host-protocol";
 const entry: StoredSession = {
   id: "one",
   agent: "claude",
@@ -46,6 +52,7 @@ test("profile discovery creates ordinary human rows without inheriting any paren
           worktree: entry.worktree,
           branch: "topic",
           agent: "claude",
+          reviewer: true,
         },
       },
     },
@@ -56,6 +63,7 @@ test("profile discovery creates ordinary human rows without inheriting any paren
     id: "one",
     agent: "claude",
     running: true,
+    reviewer: true,
     exited: true,
     dormant: true,
     remote: true,
@@ -75,6 +83,40 @@ test("profile discovery creates ordinary human rows without inheriting any paren
     },
   ]);
   expect((await discoverRemoteSessions(hosts))[0]?.agent).toBe("shell");
+});
+
+test("inconsistent reviewer permission metadata cannot erase unrelated saved sessions", async ({
+  onTestFinished,
+}) => {
+  const root = await mkdtemp(join(tmpdir(), "foom-remote-recovery-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const context = {
+    repository: "/remote",
+    worktree: "/remote",
+    branch: null,
+    agent: "codex",
+    machine: true,
+    reviewer: true,
+  } as const;
+  const inventory: unknown = {
+    type: "inventory-result",
+    own: [
+      { id: "invalid", context, permissionLevel: "full" },
+      { id: "valid", context, permissionLevel: "workspace" },
+    ],
+    foreign: [],
+  };
+  if (!remoteResponse(inventory) || inventory.type !== "inventory-result")
+    throw new Error("Expected a structurally valid inventory reply");
+  const recovered = await discoverRemoteSessions({
+    registered: hosts.registered,
+    sessions: () => Promise.resolve(inventory.own.map((session) => ({ host: "worker", session }))),
+  });
+  const store = new SessionStore(root);
+  await store.save([entry, ...recovered]);
+  const rows = await new SessionStore(root).load();
+  expect(rows.map(({ id }) => id)).toEqual(["one", "valid"]);
+  expect(rows[1]).toMatchObject({ reviewer: true, permissionLevel: "workspace", bypass: false });
 });
 test("saved owned children reconnect without new agent-open or transcript access, and retain a live-parent guard", async () => {
   const create = vi.fn<(spec: TerminalSpec) => Promise<string>>();
@@ -265,3 +307,115 @@ test.each(["/home/remote-user", "/home/remote-user/foom"])(
     );
   },
 );
+
+test.each(["full", "workspace"] as const)(
+  "discovery retains the daemon's %s permission for an unsaved machine session",
+  async (permissionLevel) => {
+    const rows = await discoverRemoteSessions({
+      registered: hosts.registered,
+      sessions: () =>
+        Promise.resolve([
+          {
+            host: "worker",
+            session: {
+              id: "machine",
+              permissionLevel,
+              context: {
+                machine: true,
+                agent: "codex",
+                repository: "/fixture",
+                worktree: "/fixture",
+                branch: null,
+              },
+            },
+          },
+        ]),
+    });
+    expect(rows[0]).toMatchObject({
+      agent: "codex",
+      permissionLevel,
+      bypass: permissionLevel === "full",
+    });
+  },
+);
+
+test("a daemon-owned linked checkout retains the agent and Full access warning without a hub mapping", async () => {
+  const worktree = `/foom-remote/${locationId(JSON.stringify(["worker", checkout.path]))}`;
+  const context = {
+    repository: checkout.localRepository,
+    worktree,
+    branch: "topic",
+    agent: "codex",
+  };
+  const session = { id: "child", context, checkout, permissionLevel: "full" as const };
+  const registry = {
+    registered: hosts.registered,
+    sessions: () =>
+      Promise.resolve([
+        { host: "worker", session },
+        { host: "other", session: { ...session, id: "wrong-host" } },
+      ]),
+  };
+  const [row, mismatched] = await discoverRemoteSessions(registry);
+  expect(mismatched).toMatchObject({ kind: "shell" });
+  expect(row).toMatchObject({
+    agent: "codex",
+    kind: "agent",
+    repository: checkout.repository,
+    worktree,
+    branch: "topic",
+    reattachOnly: true,
+    permissionLevel: "full",
+    bypass: true,
+  });
+  if (!row) throw new Error("Missing recovered child");
+  expect(row).not.toHaveProperty("remoteCheckout");
+  expect(row).not.toHaveProperty("parentId");
+  const create = vi.fn<(spec: TerminalSpec) => Promise<string>>().mockResolvedValue(row.id);
+  const launch = vi.fn<(request: AgentLaunch) => Promise<AgentLaunched>>();
+  await reattachRemoteSession(
+    row,
+    { ...registry, placement: hosts.placement },
+    { create },
+    launch,
+    {
+      parentId: "stale-parent",
+    },
+  );
+  expect(create.mock.calls[0]?.[0].remote).toMatchObject({
+    host: "worker",
+    reattach: true,
+    human: true,
+  });
+  expect(launch).not.toHaveBeenCalled();
+});
+
+test("recovers a managed main clone as an agent without inventing a local checkout or grant", async () => {
+  const repository = `/code/repository-${"a".repeat(24)}`;
+  const worktree = `/foom-remote/${locationId(JSON.stringify(["worker", repository]))}`;
+  const context = { repository, worktree, branch: "Main checkout", agent: "codex" };
+  const rows = await discoverRemoteSessions({
+    registered: hosts.registered,
+    sessions: () =>
+      Promise.resolve([
+        { host: "worker", session: { id: "clone", permissionLevel: "full", context } },
+        { host: "other", session: { id: "wrong-host", permissionLevel: "full", context } },
+        { host: "worker", session: { id: "default-clone", context } },
+      ]),
+  });
+  expect(rows[0]).toMatchObject({
+    ...context,
+    kind: "agent",
+    permissionLevel: "full",
+    bypass: true,
+    reattachOnly: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+  expect(rows[0]).not.toHaveProperty("remoteCheckout");
+  expect(rows[0]).not.toHaveProperty("orchestrator");
+  expect(rows[1]).toMatchObject({ kind: "shell", home: true });
+  expect(rows[2]).toMatchObject({ ...context, kind: "agent", running: true, reattachOnly: true });
+  expect(rows[2]).not.toHaveProperty("permissionLevel");
+  expect(rows[2]).not.toHaveProperty("home");
+  expect(rows[2]).not.toHaveProperty("remoteCheckout");
+});

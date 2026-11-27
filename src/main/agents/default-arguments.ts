@@ -10,12 +10,23 @@ import type { AgentProvider } from "./providers/provider";
 import { createHash } from "node:crypto";
 export { EMPTY_AGENT_ARGUMENTS } from "../../shared/providers/arguments";
 /** Main-owned consent binds origin, executable declarations and the complete disclosure policy. */
-export function bypassConsentIdentity(agent: string | AgentProvider): string | undefined {
+export function bypassConsentIdentity(
+  agent: string | AgentProvider,
+  permissionLevel = false,
+): string | undefined {
   const provider =
     typeof agent === "string" ? agentProviders().find((provider) => provider.id === agent) : agent;
   return provider
     ? createHash("sha256")
-        .update(JSON.stringify({ origin: provider.origin, model: provider.model }))
+        .update(
+          JSON.stringify({
+            origin: provider.origin,
+            // Existing consent covers legacy argv. A managed choice also attests its declaration.
+            model: permissionLevel
+              ? provider.model
+              : { ...provider.model, permissionLevels: undefined },
+          }),
+        )
         .digest("hex")
     : undefined;
 }

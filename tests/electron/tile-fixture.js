@@ -20,4 +20,23 @@ async function sizeTileBoard(app, page, width = 1500, height = 900) {
     .toBeLessThanOrEqual(1);
 }
 
-module.exports = { sizeTileBoard };
+async function expectTileHeaderHitTargets(tile, labels) {
+  // Locator clicks can scroll an overflow-hidden tile. Check where the board
+  // lays out the buttons before Playwright can move them into view.
+  const hitTargets = await tile.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return Array.from(element.querySelectorAll(".tile-title button"))
+      .filter((button) => {
+        const { left, right, top, bottom } = button.getBoundingClientRect();
+        return (
+          left >= bounds.left &&
+          right <= bounds.right &&
+          button.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2))
+        );
+      })
+      .map((button) => button.getAttribute("aria-label"));
+  });
+  expect(hitTargets).toEqual(labels);
+}
+
+module.exports = { expectTileHeaderHitTargets, sizeTileBoard };

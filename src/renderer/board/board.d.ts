@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "../../shared/agent-permissions";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { ReviewState } from "../../shared/review";
 import type { Handoff } from "../../shared/handoff";
@@ -46,8 +47,10 @@ export interface BoardRow {
   /** Changes when an exited terminal is relaunched under the same ID. */
   launchVersion?: number;
   worktreeRemoved?: boolean;
+  reattachOnly?: boolean;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
+  permissionLevel?: AgentPermissionLevel;
   /** Main's orchestrator role and action history, or a child's parent and takeover. */
   mcpConnection?: McpConnection | undefined;
   orchestration?: OrchestrationView | undefined;

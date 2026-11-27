@@ -327,16 +327,21 @@ test("a new shell has a rendered blinking cursor after reusing an exited termina
       page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), previous.id),
     )
     .toMatch(prompt);
+  const tile = page.locator(".terminal-tile");
+  await tile.getByRole("button", { name: "Maximize tile", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(tile.getByRole("button", { name: "Hide", exact: true })).toBeFocused();
   await page.evaluate((id) => {
     window.cursorReuseElement = document.querySelector(".tile-terminal .xterm");
-    window.desktop.input(id, "exit\r");
+    return window.desktop.input(id, "exit\r");
   }, previous.id);
   await expect(page.locator(".board-row[data-kind='shell']")).toHaveAttribute(
     "data-exited",
     "true",
   );
   await expect(page.locator(".xterm-cursor")).toHaveCount(0);
-  await page.locator(".terminal-tile").getByRole("button", { name: "Close", exact: true }).click();
+  await expect(tile.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(0);
   await page
     .getByRole("treeitem", { name: "Home shell", exact: true })

@@ -1,3 +1,4 @@
+import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
 import { viewChanges } from "../data/view-changes";
 import { record, keys, remotePath } from "../../shared/remote-agent-protocol";
 import { hostBranch } from "../../shared/registered-hosts";
@@ -82,7 +83,10 @@ function parseSessions(value: unknown, recoverWorktreeClaims = false): StoredSes
       orchestrator,
       parentId,
       providerOrigin,
+      permissionLevel,
+      reviewer,
       remote,
+      reattachOnly,
       placement,
       remoteCheckout,
       closeState,
@@ -91,11 +95,24 @@ function parseSessions(value: unknown, recoverWorktreeClaims = false): StoredSes
       sharedReview,
     } = data;
     if (
+      (reviewer !== undefined &&
+        (reviewer !== true || agent === "shell" || permissionLevel === "full")) ||
+      (permissionLevel !== undefined &&
+        (agent === "shell" || !agentPermissionLevel(permissionLevel))) ||
       (closeState !== undefined && closeState !== "closing" && closeState !== "failed") ||
       (remoteCheckout !== undefined && (remote !== true || !savedRemote(remoteCheckout))) ||
       (placement !== undefined &&
         (!objectPlacement(placement) || (placement.kind === "remote") !== (remote === true))) ||
       (remote !== undefined && (remote !== true || config)) ||
+      (reattachOnly !== undefined &&
+        (reattachOnly !== true ||
+          remote !== true ||
+          placement === undefined ||
+          agent === "shell" ||
+          home !== undefined ||
+          remoteCheckout !== undefined ||
+          parentId !== undefined ||
+          orchestrator !== undefined)) ||
       (providerOrigin !== undefined &&
         (providerOrigin === "bundled"
           ? typeof agent !== "string" || !builtinAgent(agent)
@@ -188,7 +205,10 @@ function parseSessions(value: unknown, recoverWorktreeClaims = false): StoredSes
         : {}),
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
+      ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
+      ...(reviewer === true ? { reviewer: true as const } : {}),
       ...(remote === true ? { remote: true } : {}),
+      ...(reattachOnly === true ? { reattachOnly: true } : {}),
       ...(savedRemote(remoteCheckout) ? { remoteCheckout: { ...remoteCheckout } } : {}),
       ...(objectPlacement(placement) ? { placement } : {}),
       ...(running === undefined ? {} : { running }),
@@ -238,7 +258,10 @@ export class SessionStore {
           branch,
           conversationId,
           providerOrigin,
+          permissionLevel,
+          reviewer,
           remote,
+          reattachOnly,
           placement,
           remoteCheckout,
           closeState,
@@ -271,7 +294,10 @@ export class SessionStore {
           branch,
           conversationId,
           ...(providerOrigin ? { providerOrigin } : {}),
+          ...(permissionLevel ? { permissionLevel } : {}),
+          ...(reviewer ? { reviewer } : {}),
           ...(remote ? { remote: true } : {}),
+          ...(reattachOnly ? { reattachOnly: true } : {}),
           ...(placement ? { placement } : {}),
           ...(remoteCheckout ? { remoteCheckout } : {}),
         }),

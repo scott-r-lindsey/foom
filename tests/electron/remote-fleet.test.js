@@ -237,8 +237,8 @@ else process.exit(2);
       `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path'), {spawnSync} = require('node:child_process');
 const agent = ${JSON.stringify(agent)}, args=process.argv.slice(2);
-if (args[0]==='--version') {console.log({codex:'codex-cli 0.161.0',copilot:'GitHub Copilot CLI 1.0.103.',agy:'1.4.2',pi:'1.4.0',opencode:'opencode v2.0.32'}[agent]); process.exit(0);}
-if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --additional-mcp-config --allow-tool --session-id --resume --interactive --prompt-interactive --conversation --extension --session --standalone --prompt'); process.exit(0);}
+if (args[0]==='--version') {console.log({codex:'codex-cli 0.167.0',copilot:'GitHub Copilot CLI 1.0.103.',agy:'1.4.2',pi:'1.4.0',opencode:'opencode v2.0.32'}[agent]); process.exit(0);}
+if (args[0]==='--help') {console.log('-c --sandbox --ask-for-approval --no-alt-screen --plugin-dir --additional-mcp-config --allow-tool --session-id --resume --interactive --prompt-interactive --conversation --extension --session --standalone --prompt'); process.exit(0);}
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
 if (agent==='codex' && args[0]==='login' && args[1]==='status') process.exit(0);
 const env=process.env;
@@ -295,16 +295,18 @@ process.stdin.on('data', bytes=>{
  if(!key.includes('1')) return;
  const cli=(words,input)=>{const result=spawnSync(env.FOOM_REMOTE_HELPER,['--cli',...words,'--json'],{env,input,encoding:'utf8'}); return {code:result.status,output:result.stdout};};
  const identity=cli(['whoami']), forbidden=cli(['sessions']);
+ const verdict=reviewer ? (reviewLoop==='clean' ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
+ const mcpReport = reviewer && reviewLoop==='clean';
  let mcp;
  if(agent!=='agy') {
   const messages=[{jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'fixture',version:'1'}}},{jsonrpc:'2.0',method:'notifications/initialized'},{jsonrpc:'2.0',id:2,method:'tools/list'},{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'whoami',arguments:{}}}];
+  if(mcpReport) messages.push({jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'handoff',arguments:{status:'done',summary:agent+' fixture complete',idempotencyKey:'fixture-'+agent,review:verdict}}});
   const command=agent==='pi'?attachment.command:agent==='opencode'?attachment.command[0]:env.FOOM_REMOTE_HELPER;
   const argv=agent==='pi'?attachment.args:agent==='opencode'?attachment.command.slice(1):['--mcp'];
   const result=spawnSync(command,argv,{env,input:messages.map(value=>JSON.stringify(value)).join('\\n')+'\\n',encoding:'utf8'}); mcp={code:result.status,output:result.stdout};
  }
 
- const verdict=reviewer ? (reviewLoop==='clean' ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
- const handoff=cli(['handoff','--status',resumed && reviewLoop==='findings' ? 'blocked' : 'done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
+ const handoff=mcpReport ? undefined : cli(['handoff','--status',resumed && reviewLoop==='findings' ? 'blocked' : 'done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
  publishJson(${JSON.stringify(path.join(root, `${agent}-report.json`))},{identity,forbidden,handoff,mcp});
 });
 process.on('exit',()=>cleanup?.());
@@ -701,6 +703,16 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     }
     const initialSnapshots = reviewLoop ? await snapshots() : 0;
     reviewTiming("author ready with green checks");
+    if (reviewLoop) {
+      const saving = page.evaluate(() =>
+        window.desktop.saveSetup({
+          agentPermissions: { global: { codex: { level: "full" } } },
+        }),
+      );
+      const disclosure = await confirmationPage(app, "Allow Full access for Codex?");
+      await disclosure.getByRole("button", { name: "Allow Full access", exact: true }).click();
+      await saving;
+    }
     await call("send_keys", {
       id: launched.resultId,
       keys: ["1"],
@@ -877,6 +889,15 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         assert.ok(!JSON.stringify(current).includes(parentId));
         assert.ok(!JSON.stringify(current).includes(parent.controlToken));
         assert.equal(current.cwd, record.cwd);
+        const applied = stage === "fix" ? "full" : "workspace";
+        assert.equal((await call("session_state", { id: participant })).permissionLevel, applied);
+        assert.ok(
+          current.args.includes(stage === "fix" ? "danger-full-access" : "workspace-write"),
+        );
+        if (stage !== "fix") {
+          assert.ok(current.args.includes("sandbox_workspace_write.writable_roots=[]"));
+          assert.ok(!current.args.includes("danger-full-access"));
+        }
         if (stage === "fix") {
           assert.ok(current.args.at(-1).includes("Quoted review notes"));
           assert.ok(current.args.includes("author-conversation"));
@@ -913,7 +934,15 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         assert.ok(!aliases.has(identity.alias));
         aliases.add(identity.alias);
         assert.equal(JSON.parse(next.forbidden.output).error, "phase_2_restricted");
-        assert.equal(next.handoff.code, 0, JSON.stringify(next.handoff));
+        if (stage !== "fix" && reviewLoop === "clean") {
+          assert.equal(next.mcp.code, 0);
+          const response = next.mcp.output
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+            .find((row) => row.id === 4);
+          assert.equal(response?.result?.isError, false, JSON.stringify(response));
+        } else assert.equal(next.handoff.code, 0, JSON.stringify(next.handoff));
         if (stage !== "fix") {
           await verifiedCompletion(completedSnapshots);
           await expect

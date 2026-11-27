@@ -1369,6 +1369,15 @@ process.stdout.write("FOOM_AGENT_READY`,
             )?.exited,
         )
         .toBe(true);
+      if (phase === "resume") {
+        await parentRow.locator(":scope > .board-row").click();
+        const parentTile = page.locator('.terminal-tile[data-exited="true"][data-focused="true"]');
+        await expect(parentTile.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
+        await parentTile.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("Close its 1 child first.");
+        await expect(parentTile).toBeVisible();
+        await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+      }
       const openParentMenu = () =>
         parentRow
           .locator(":scope > .board-row")

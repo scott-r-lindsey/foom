@@ -1,3 +1,4 @@
+import { agentPermissionLevel } from "./agent-permission-arguments";
 import { CHILD_GUIDANCE } from "./control-guidance";
 import { ControlError, object as controlObject, exact as controlExact } from "./control-validation";
 import { handoffRequest } from "./handoff-validation";
@@ -55,7 +56,11 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
       "checkoutIdentity",
       "reviewSnapshot",
       "childPressure",
+      "permissionLevel",
+      "reviewer",
     ]) &&
+    (value["permissionLevel"] === undefined || agentPermissionLevel(value["permissionLevel"])) &&
+    (value["reviewer"] === undefined || value["reviewer"] === true) &&
     (value["childPressure"] === undefined || value["childPressure"] === true) &&
     (value["checkoutIdentity"] === undefined ||
       (typeof value["checkoutIdentity"] === "string" &&
@@ -81,7 +86,8 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
 export function remoteAgentReady(value: unknown): value is RemoteAgentReady {
   return (
     record(value) &&
-    keys(value, ["hooks", "mcp", "conversationId", "channels"]) &&
+    keys(value, ["hooks", "mcp", "conversationId", "channels", "permissionLevel"]) &&
+    (value["permissionLevel"] === undefined || agentPermissionLevel(value["permissionLevel"])) &&
     typeof value["hooks"] === "boolean" &&
     typeof value["mcp"] === "boolean" &&
     (value["channels"] === undefined ||

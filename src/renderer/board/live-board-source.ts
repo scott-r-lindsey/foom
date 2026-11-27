@@ -303,6 +303,8 @@ export function createAppSource(): BoardSource {
         known.delete(entry.id);
       }
       if (previous && version > (previous.launchVersion ?? 0)) known.delete(entry.id);
+      const repository = next.repositories.find((repo) => repo.path === entry.repository);
+      const remoteMain = entry.placement?.kind === "remote" && entry.branch === "Main checkout";
       const checkout = sidebar
         .find((repo) => repo.path === entry.repository)
         ?.worktrees.find((tree) => tree.path === entry.worktree);
@@ -318,9 +320,7 @@ export function createAppSource(): BoardSource {
         managed: true,
         repositoryPath: entry.repository,
         worktree: entry.worktree,
-        repository:
-          next.repositories.find((repo) => repo.path === entry.repository)?.name ??
-          entry.repository,
+        repository: repository?.name ?? entry.repository,
         agent: entry.agent,
         state: entry.dormant || entry.kind === "agent" ? "quiet_ok" : "working",
         reason: entry.dormant
@@ -367,10 +367,13 @@ export function createAppSource(): BoardSource {
         review: entry.review,
         roleNotRestored: entry.roleNotRestored,
         mcpConnection: entry.mcpConnection,
+        reattachOnly: entry.reattachOnly === true || (remoteMain && !repository),
         worktreeRemoved:
           inventoryLoaded &&
           !entry.home &&
           !entry.config &&
+          !entry.reattachOnly &&
+          !remoteMain &&
           !sidebar.find((repo) => repo.path === entry.repository)?.unavailable &&
           (!checkout || checkout.prunable) &&
           !(
@@ -384,6 +387,7 @@ export function createAppSource(): BoardSource {
           ),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
+        ...(entry.permissionLevel ? { permissionLevel: entry.permissionLevel } : {}),
         conversationId: entry.conversationId,
         unavailable:
           entry.placement?.kind === "remote" &&

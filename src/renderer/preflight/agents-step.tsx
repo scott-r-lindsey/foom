@@ -94,6 +94,7 @@ export function AgentsStep({
   changePlugin,
   source,
   saveArguments,
+  permissionControl,
 }: StepHeading &
   StepActions & {
     machine?: boolean;
@@ -105,6 +106,7 @@ export function AgentsStep({
     scanning: boolean;
     scan: (refresh: boolean, agent?: string) => Promise<void>;
     source?: SetupSource | undefined;
+    permissionControl?: (id: string, name: string) => React.ReactNode;
     saveArguments: (id: string, args: readonly string[]) => Promise<void>;
   }) {
   const { report: reportFailure, clear } = useBackgroundErrors();
@@ -315,6 +317,7 @@ export function AgentsStep({
                       disabled={actionsDisabled || scanning}
                     />
                   )}
+                {machine && !blocked && permissionControl?.(id, name)}
                 {machine && installed && (
                   <div className="agent-setting">
                     <span className="agent-label">Sign-in</span>

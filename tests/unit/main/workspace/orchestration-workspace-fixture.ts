@@ -91,6 +91,9 @@ beforeEach(() => {
       setEnabled: vi.fn(),
       setHooksEnabled: vi.fn(),
       setBypassIdentities: vi.fn(),
+      setPermissionLevels: vi.fn(),
+      forgetHostPermissions: vi.fn(),
+      permissionForLaunch: vi.fn(() => ({ level: undefined, validate: () => {} })),
     }),
     now: () => 1000,
   };

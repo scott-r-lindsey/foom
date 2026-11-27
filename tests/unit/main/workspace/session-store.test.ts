@@ -327,6 +327,33 @@ test("persists actual placement independently of startup mappings and rejects ma
   ).toThrow();
 });
 
+test("persists reattach-only recovery without granting checkout or parent authority", async () => {
+  const { store } = await setup();
+  const entry = {
+    ...record,
+    remote: true,
+    reattachOnly: true,
+    placement: { kind: "remote", host: "fixture" },
+    permissionLevel: "full",
+  };
+  const [row] = readSessions([entry]);
+  expect(row).toMatchObject({ reattachOnly: true, permissionLevel: "full", bypass: true });
+  if (!row) throw new Error("Missing recovered session");
+  await store.save([row]);
+  expect(await store.load()).toEqual([row]);
+  for (const invalid of [
+    { placement: undefined },
+    { remote: undefined },
+    { agent: "shell" },
+    { home: true },
+    { remoteCheckout: {} },
+    { parentId: "parent" },
+    { orchestrator: {} },
+    { reattachOnly: false },
+  ])
+    expect(() => readSessions([{ ...entry, ...invalid }])).toThrow("Invalid session");
+});
+
 test("persists private remote checkout locators and rejects forged path, identity or fields", async () => {
   const { store } = await setup();
   const remoteCheckout = {
@@ -467,6 +494,25 @@ test("persists and validates shared-review baselines without restoring process a
     expect(() => readSessions([{ ...record, sharedReview: bad }])).toThrow();
 });
 
+test("stores Foom's applied permission as metadata for reattach", async () => {
+  const { store } = await setup();
+  const rows = readSessions([{ ...record, agent: "codex", permissionLevel: "full" }]);
+  await store.save(rows);
+  expect(await store.load()).toMatchObject([{ permissionLevel: "full", bypass: true }]);
+  const reviewers = readSessions([
+    { ...record, agent: "codex", permissionLevel: "workspace", reviewer: true },
+  ]);
+  await store.save(reviewers);
+  expect(await store.load()).toMatchObject([
+    { permissionLevel: "workspace", bypass: false, reviewer: true },
+  ]);
+  expect(() => readSessions([{ ...record, permissionLevel: "full", reviewer: true }])).toThrow(
+    "Invalid",
+  );
+
+  expect(() => readSessions([{ ...record, permissionLevel: "unknown" }])).toThrow("Invalid");
+});
+
 test.each(["duplicate worktrees", "an excessive unused budget"])(
   "retains session rows from disk when %s disqualifies one saved orchestrator",
   async (problem) => {
@@ -488,6 +534,8 @@ test.each(["duplicate worktrees", "an excessive unused budget"])(
     const entries = [
       {
         ...record,
+        agent: "codex",
+        permissionLevel: "full",
         running: true,
         orchestrator: {
           identity: "repo",
@@ -495,7 +543,16 @@ test.each(["duplicate worktrees", "an excessive unused budget"])(
           worktrees,
         },
       },
-      { ...record, id: "child", worktree: worktree.path, parentId: record.id, running: true },
+      {
+        ...record,
+        agent: "codex",
+        id: "child",
+        worktree: worktree.path,
+        parentId: record.id,
+        running: true,
+        permissionLevel: "workspace",
+        reviewer: true,
+      },
       other,
       { ...record, id: "other-child", parentId: other.id },
     ];
@@ -507,7 +564,13 @@ test.each(["duplicate worktrees", "an excessive unused budget"])(
     expect(restored.map((row) => row.id)).toEqual(entries.map((row) => row.id));
     expect(restored[0]).not.toHaveProperty("orchestrator");
     expect(restored[0]?.running).toBe(true);
+    expect(restored[0]).toMatchObject({ permissionLevel: "full", bypass: true });
     expect(restored[1]).not.toHaveProperty("parentId");
+    expect(restored[1]).toMatchObject({
+      permissionLevel: "workspace",
+      bypass: false,
+      reviewer: true,
+    });
     expect(restored[2]?.orchestrator).toEqual(other.orchestrator);
     expect(restored[3]?.parentId).toBe(other.id);
     await store.save(restored);

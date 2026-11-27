@@ -200,8 +200,23 @@ Saved live rows reattach their existing terminal IDs, with complete screen repla
 reattachment never spawns a replacement. Already exited rows remain sidebar-only
 under #732. With session restore disabled, rows remain dormant.
 
-This profile's sessions absent from saved records become human-owned tiles. Their
-inventory cannot restore a parent, grant or orchestrator role. Other-profile and
+This profile's sessions absent from saved records become human-owned tiles. The
+`inventoryPermissions: 1` hello capability allows the daemon to return permission
+levels in inventory and agent-ready responses, and reviewer metadata in inventory.
+The daemon advertises the same capability to accept those fields on new launches.
+A compatible older daemon supports Agent default launches, including reviewers,
+using its existing launch fields. New launches requesting a managed level require
+the capability.
+
+Recovered tiles show the applied level and retain the Full access bypass warning.
+Recovery skips an inventory row that reports both reviewer mode and Full access,
+while keeping other sessions eligible for recovery.
+A live agent in a remote main clone keeps its agent identity, Main checkout
+label and remote clone path even when the level is unspecified. A live linked
+checkout without a hub mapping keeps the agent and remote checkout identity too.
+Those rows support reattaching and closing the original session. Start a fresh
+launch from a registered repository selection. Inventory
+cannot restore a parent, grant or orchestrator role. Other-profile and
 untagged sessions remain untouched. Settings → Hosts reports their live count and
 **End…** opens a trusted confirmation. Main retains the confirmed IDs and random
 session incarnation tags; the daemon refuses a changed incarnation or a session
@@ -210,7 +225,7 @@ object again; replacements arriving while an earlier stop settles are skipped an
 reported in the returned inventory for a new confirmation. Sessions arriving during
 confirmation are not ended. Legacy End likewise retains its confirmed daemon
 incarnation and never clears a replacement observed while its stop settles.
-Removing a host also prunes its saved rows under the
+Removing a host clears its cached permission overrides and prunes its saved rows under the
 [forgotten-host rule](sessions.md#forgotten-hosts-1152), retaining cleanup recovery
 and live connections. After re-enrollment and restart, this profile's daemon-live
 sessions missing from saved records are recovered as human-owned tiles with no
