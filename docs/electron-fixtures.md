@@ -175,18 +175,18 @@ No scroll position is assigned by the test and native animation remains enabled.
 
 ## Remote host SEA fixture (#905)
 
-On Linux and macOS, the development Electron runner builds one native remote-host
-SEA after the app build and before starting test workers. It verifies the host's
+On Linux and macOS, a fresh development Electron build includes one native
+remote-host SEA built after the app and before test workers start. The runner verifies the host's
 platform, architecture, app version, protocol, checkout revision, compressed and
 expanded hashes, and executable hash, then prepares the production gzip catalog.
 Both remote suites reuse that executable; each case still creates its own remote
 HOME, daemon, app profile and cleanup audit. Windows skips these remote cases and
 does not build a host. Packaged smoke uses its packaged catalog.
 
-The build receipt covers the host and catalog alongside the app. Explicit
-`--reuse-build` requires unchanged inputs and outputs and rechecks the host against
-the current checkout revision. A failed host build or verification stops before
-test bodies run. No case deadline includes SEA assembly.
+The build receipt covers the host and catalog alongside the app. On both fresh
+and reused builds the runner checks the host against the current checkout
+revision. A failed host build or verification stops before test bodies run.
+No case deadline includes SEA assembly.
 
 ## Shared scenario setup
 

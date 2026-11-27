@@ -20,7 +20,7 @@ const excluded = new Set([
 const inputs = () =>
   fingerprint(
     readdirSync(".").filter((name) => !excluded.has(name)),
-    new Set(["docs/mockups", ".husky/_"]),
+    { ignored: new Set(["docs/mockups", ".husky/_"]) },
   );
 if (process.argv.length > 2)
   throw new Error("lint:local does not accept arguments; use lint or lint:fix");
