@@ -166,19 +166,26 @@ notify.end(JSON.stringify({session_id:'fleet-parent-conversation',hook_event_nam
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), cwd = process.cwd();
 const state = JSON.parse(fs.readFileSync(${JSON.stringify(gitState)}, 'utf8'));
+const worktreeMetadata = directory => path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))}, path.basename(directory));
 if (args.includes('--version')) console.log('git version 2.0.0');
 else if (args.includes('config')) console.log(${JSON.stringify(origin)});
 else if (args.includes('--show-toplevel')) console.log(cwd);
 else if (args.includes('--git-common-dir')) console.log(${JSON.stringify(path.join(remoteRepo, ".git"))});
-else if (args.includes('--absolute-git-dir')) console.log(path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(cwd)));
+else if (args.includes('--absolute-git-dir')) console.log(worktreeMetadata(cwd));
 else if (args.includes('ls-remote') && state.originFailure) {process.stderr.write('Permission denied (publickey). private fixture Git output'); process.exit(128);}
 else if (args.includes('ls-remote')) process.stdout.write('ref: refs/heads/main\\tHEAD\\n');
 else if (args.includes('symbolic-ref')) console.log(state[cwd]);
 else if (args.includes('worktree') && args.includes('add')) {
- const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700,recursive:true}); const metadata=path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(destination)); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(path.join(metadata,'fixture-branch'),state[destination]+'\\n'); fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
+ const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700,recursive:true}); const metadata=worktreeMetadata(destination); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(path.join(metadata,'fixture-branch'),state[destination]+'\\n'); fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
 } else if (args.includes('worktree') && args.includes('list')) {
  for (const [directory,branch] of Object.entries(state)) process.stdout.write('worktree '+directory+'\\0HEAD '+ 'a'.repeat(40)+'\\0branch refs/heads/'+branch+'\\0\\0');
-} else if (args.includes('worktree') && args.includes('remove')) {const directory=args.at(-1); fs.rmSync(directory,{recursive:true}); delete state[directory]; fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));}
+} else if (args.includes('worktree') && args.includes('remove')) {
+ const directory = args.at(-1);
+ fs.rmSync(directory, { recursive: true });
+ fs.rmSync(worktreeMetadata(directory), { recursive: true, force: true });
+ delete state[directory];
+ fs.writeFileSync(${JSON.stringify(gitState)}, JSON.stringify(state));
+}
 else if (args.includes('status') || args.includes('check-ref-format') || args.includes('fetch') || args.includes('for-each-ref')) {}
 else if (args.includes('--git-path')) console.log(path.join(cwd, '.snapshot-missing'));
 else if (args.includes('--symbolic-full-name')) console.log('refs/heads/'+state[cwd]);
@@ -205,7 +212,12 @@ else process.exit(2);
         "  *' --git-path '*) printf '%s/.snapshot-missing\\n' \"$PWD\";;",
         "  *' --symbolic-full-name '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf 'refs/heads/%s\\n' \"$branch\";;",
         "  *' symbolic-ref '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf '%s\\n' \"$branch\";;",
-        '  *\' worktree list \'*) for record in "$FIXTURE_REMOTE_GIT_ROOT"/.git/worktrees/.foom-worktree-*/fixture-branch; do [ -f "$record" ] || continue; IFS= read -r branch < "$record"; metadata="${record%/fixture-branch}"; printf \'worktree %s/%s\\000HEAD %s\\000branch refs/heads/%s\\000\\000\' "${FIXTURE_REMOTE_GIT_ROOT%/*}" "${metadata##*/}" "$FIXTURE_REMOTE_HEAD" "$branch"; done;;',
+        "  *' worktree list '*)",
+        '    for record in "$FIXTURE_REMOTE_GIT_ROOT"/.git/worktrees/.foom-worktree-*/fixture-branch; do',
+        '      IFS= read -r branch 2>/dev/null < "$record" || continue',
+        '      metadata="${record%/fixture-branch}"',
+        '      printf \'worktree %s/%s\\000HEAD %s\\000branch refs/heads/%s\\000\\000\' "${FIXTURE_REMOTE_GIT_ROOT%/*}" "${metadata##*/}" "$FIXTURE_REMOTE_HEAD" "$branch"',
+        "    done;;",
         ...(reviewLoop ? ["  *' ls-remote '*) printf 'ref: refs/heads/main\\tHEAD\\n';;"] : []),
         "  *' rev-parse '*) printf '%s\\n' \"$FIXTURE_REMOTE_HEAD\";;",
         "  *' status '*|*' check-ref-format '*|*' fetch '*|*' for-each-ref '*|*' ls-files '*) exit 0;;",
@@ -345,15 +357,16 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   const cleanup = fixtureCleanup(context);
   cleanup.audit ??= await auditProcesses(context);
   const artifact = path.resolve("build/remote-host/foom-host");
+  const remoteEnvironment = {
+    HOME: remoteHome,
+    PATH: remoteBin,
+    SHELL: shell,
+    FIXTURE_REMOTE_GIT_ROOT: remoteRepo,
+    FIXTURE_REMOTE_ORIGIN: origin,
+    FIXTURE_REMOTE_HEAD: "a".repeat(40),
+  };
   const daemon = spawn(artifact, ["--daemon"], {
-    env: {
-      HOME: remoteHome,
-      PATH: remoteBin,
-      SHELL: shell,
-      FIXTURE_REMOTE_GIT_ROOT: remoteRepo,
-      FIXTURE_REMOTE_ORIGIN: origin,
-      FIXTURE_REMOTE_HEAD: "a".repeat(40),
-    },
+    env: remoteEnvironment,
     stdio: ["ignore", "pipe", "pipe"],
   });
   cleanup.audit.add(daemon.pid);
@@ -1175,6 +1188,17 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       (tree) => tree.path === recovered.path,
     ),
   );
+  const listedWorktrees = () =>
+    gitSync(["worktree", "list", "--porcelain", "-z"], {
+      cwd: remoteRepo,
+      env: remoteEnvironment,
+      encoding: "utf8",
+    })
+      .split("\0")
+      .filter((entry) => entry.startsWith("worktree "));
+  const removedWorktree = `worktree ${expectedCheckout}`;
+  const beforeRemoval = listedWorktrees();
+  assert.ok(beforeRemoval.includes(removedWorktree));
   const deleting = restored.evaluate(
     ({ repository, worktree }) =>
       window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
@@ -1190,6 +1214,10 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   ).toBeVisible();
   await review.getByRole("button", { name: "Remove worktree", exact: true }).click();
   await deleting;
+  assert.deepEqual(
+    listedWorktrees(),
+    beforeRemoval.filter((entry) => entry !== removedWorktree),
+  );
   assert.ok(
     !(await restored.evaluate((repository) => window.desktop.worktrees(repository), repo)).some(
       (tree) => tree.path === recovered.path,
