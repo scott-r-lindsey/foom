@@ -1002,6 +1002,7 @@ export class Hosts {
     const repositoryPaths = new Set(this.repositories().map(({ path }) => path));
     const gitOrigins = this.gitOrigins.filter(({ repository }) => repositoryPaths.has(repository));
     return {
+      ...(savedOnly ? { viewRevision: viewChanges.current("hosts") } : {}),
       ...(registeredHosts.length && gitOrigins.length ? { gitOrigins } : {}),
       ...(this.remoteHostsAvailable === undefined
         ? {}

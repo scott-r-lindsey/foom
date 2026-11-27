@@ -1308,22 +1308,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   await expect(refresh).toBeEnabled();
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
-  await app.evaluate(({ app }) => {
-    const load = process
-      .getBuiltinModule("node:module")
-      .createRequire(app.getAppPath() + "/package.json");
-    const { Hosts } = load("./build/main/setup/hosts.js");
-    const gate = Promise.withResolvers();
-    const prepareView = Hosts.prototype.prepareView;
-    globalThis.releaseFixtureHostsView = () => {
-      Hosts.prototype.prepareView = prepareView;
-      gate.resolve();
-    };
-    Hosts.prototype.prepareView = async function (...args) {
-      await gate.promise;
-      return prepareView.apply(this, args);
-    };
-  });
+  const releaseHostsView = await holdHostsView(app);
   const save = card.getByRole("button", { name: "Save", exact: true });
   try {
     await save.click();
@@ -1334,7 +1319,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
     await expect(check).toBeDisabled();
     await expect(refresh).toBeDisabled();
   } finally {
-    await app.evaluate(() => globalThis.releaseFixtureHostsView());
+    await releaseHostsView();
   }
   // Save can finish before the subscribed card receives the new registered folder.
   await expect(
@@ -1494,6 +1479,26 @@ test("Recorded host requirements are inert, editable and clearable in Settings",
     ),
   ).resolves.toBeNull();
 });
+
+async function holdHostsView(app) {
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Hosts } = load("./build/main/setup/hosts.js");
+    const gate = Promise.withResolvers();
+    const prepareView = Hosts.prototype.prepareView;
+    globalThis.releaseFixtureHostsView = () => {
+      Hosts.prototype.prepareView = prepareView;
+      gate.resolve();
+    };
+    Hosts.prototype.prepareView = async function (...args) {
+      await gate.promise;
+      return prepareView.apply(this, args);
+    };
+  });
+  return () => app.evaluate(() => globalThis.releaseFixtureHostsView());
+}
 
 async function waitForHeldGitInspection(calls) {
   await expect
@@ -2286,13 +2291,30 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   );
   await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
   await captureHosts(app, page, "1062/install-narrow");
-  await terminal.locator(".xterm-helper-textarea").focus();
-  await page.keyboard.type("fixture-password");
-  await page.keyboard.press("Enter");
-  await expect(terminal.getByRole("status")).toHaveText("Done");
   const gitRow = card
     .locator(".host-check-row")
     .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await terminal.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("fixture-password");
+    await page.keyboard.press("Enter");
+    await expect(terminal.getByRole("status")).toHaveText("Done");
+    // This list queues behind the terminal's refresh. The live view is still held.
+    const git = await page.evaluate(async () => {
+      const reply = await window.desktop.hosts({ action: "list" });
+      await new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+      return reply.hosts[0].observation.preflight.result.facts.tools.find(({ id }) => id === "git")
+        .state;
+    });
+    assert.equal(git, "ready");
+    await expect(gitRow).toContainText("Checking…");
+    await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
+  } finally {
+    await releaseHostsView();
+  }
   await expect(gitRow).toContainText("Pass · Installed");
   await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
   await captureHosts(app, page, "1062/install-done");

@@ -506,7 +506,9 @@ test("Hosts projects current registered origin endpoints without probing a host"
 });
 
 test("test does not authorize, add records enrollment, refresh replaces stale facts, removal never kills", async () => {
-  expect(await hosts.action({ action: "list" })).toEqual({ hosts: [], locations: [] });
+  const { viewRevision, ...state } = await hosts.action({ action: "list" });
+  expect(typeof viewRevision).toBe("number");
+  expect(state).toEqual({ hosts: [], locations: [] });
   expect(
     (await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" })).hosts,
   ).toEqual([]);

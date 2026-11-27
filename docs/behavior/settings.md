@@ -423,9 +423,9 @@ Install and Sign in refresh only their affected tool and sign-in rows. The
 terminal header shows Done or Failed with its exit code. Origin trust, the plugin
 installer and agent sign-in collapse their output on exit. For origin trust, the
 Git access row shows the scoped check result. Tool installs retain
-output until dismissed or replaced. While the post-install Git check runs, the
-Git row shows **Checking…** and **Install** is disabled. The row then shows the
-observed result and offers **Install** again if Git is still **Not found**.
+output until dismissed or replaced. The Git row shows **Checking…** with
+**Install** disabled until the refreshed result reaches the checklist. The row
+offers **Install** again if Git is still **Not found**.
 Add host shows progress and enrollment errors
 in the form. The host card shows check progress in its header and fixed failures
 on the affected rows. **Last checked** records full checks only.

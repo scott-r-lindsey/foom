@@ -863,18 +863,24 @@ export function HostsSettings({
   const [addError, setAddError] = useState<ReactNode>();
   const [error, setError] = useState<ReactNode>("");
   const api = source.hosts;
-  const [resuming, setResuming] = useState(!!source.views);
+  const [resuming, setResuming] = useState<boolean | number>(!!source.views);
+  const viewRevision = state.viewRevision ?? 0;
+  const resumingRows =
+    resuming === true || (typeof resuming === "number" && resuming > viewRevision);
   useEffect(() => {
     if (!source.views) return;
     let active = true;
     // Opening Hosts has always resumed owner-held row/save retries. A command
-    // still owns that work; its unversioned reply never replaces the live view.
+    // still owns that work; its reply identifies when the live view is current.
     void Promise.resolve(api?.({ action: "list" }))
-      .catch(() => {
-        if (active) setError("Unable to refresh hosts");
+      .then((next) => {
+        if (active) setResuming(next?.viewRevision ?? false);
       })
-      .finally(() => {
-        if (active) setResuming(false);
+      .catch(() => {
+        if (active) {
+          setError("Unable to refresh hosts");
+          setResuming(false);
+        }
       });
     return () => {
       active = false;
@@ -883,6 +889,15 @@ export function HostsSettings({
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
+  const [pendingInstallViews, setPendingInstallViews] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  if (pendingInstallViews.size) {
+    const waiting = new Map(
+      [...pendingInstallViews].filter(([, required]) => required > viewRevision),
+    );
+    if (waiting.size !== pendingInstallViews.size) setPendingInstallViews(waiting);
+  }
   const [recipes, setRecipes] = useState<ReadonlyMap<string, RecipeView>>(() => {
     const saved = new Map<string, RecipeView>(
       [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
@@ -926,6 +941,7 @@ export function HostsSettings({
   };
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
+      const action = source.views && source.installs?.hostActions?.().get(id);
       setRecipes((previous) => {
         for (const [key, recipe] of previous)
           if (recipe.id === id && recipe.installTool)
@@ -934,6 +950,16 @@ export function HostsSettings({
       });
       await api?.({ action: "list" })
         .then((next) => {
+          if (
+            action?.action === "recipe" &&
+            action.operation === "install" &&
+            next.viewRevision !== undefined
+          ) {
+            // A list reply acknowledges the refresh before a delayed view can show it.
+            const key = `${action.host}:${rowKey({ kind: "tool", tool: action.tool })}`;
+            const revision = next.viewRevision;
+            setPendingInstallViews((previous) => new Map(previous).set(key, revision));
+          }
           setState(next);
           setChecks(new Map());
         })
@@ -948,7 +974,7 @@ export function HostsSettings({
       if (succeeded)
         setRecipes((previous) => new Map([...previous].filter(([, recipe]) => recipe.id !== id)));
     },
-    [api, setState],
+    [api, setState, source.installs, source.views],
   );
   const originPanel = (id: string, reveal = false) =>
     source.hostTerminal && (
@@ -1382,7 +1408,7 @@ export function HostsSettings({
         const awaitingTrust = ssh?.state === "fail" && ssh.reason === "host-key-unknown";
         const untrusted = hostKeyUntrusted(ssh);
         const controlsDisabled =
-          resuming || busy.has(entry.host) || pendingFolderViews.has(entry.host);
+          resumingRows || busy.has(entry.host) || pendingFolderViews.has(entry.host);
         if (source.hostTerminal) {
           for (const origin of recipes.values()) {
             if (
@@ -1558,7 +1584,7 @@ export function HostsSettings({
                     ...(entry.rowFailures ?? []).map((row) => rowKey(row.target)),
                   ]),
                   pending: new Set([
-                    ...[...rowPending]
+                    ...[...rowPending, ...pendingInstallViews.keys()]
                       .filter((key) => key.startsWith(`${entry.host}:`))
                       .map((key) => key.slice(entry.host.length + 1)),
                     ...(recipe?.phase === "checking" && recipe.installTool

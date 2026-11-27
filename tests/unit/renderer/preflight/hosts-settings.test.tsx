@@ -236,7 +236,7 @@ test.each([false, true])(
   "live saved host controls wait for owner-held row retries (failed=%s)",
   async (failed) => {
     const stream = viewStream();
-    stream.data.hosts = saved(initial);
+    stream.data.hosts = { ...saved(initial), viewRevision: 1 };
     const resumed = Promise.withResolvers<HostsState>();
     const api = vi
       .fn<(action: HostsAction) => Promise<HostsState>>()
@@ -251,13 +251,21 @@ test.each([false, true])(
     expect(api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
     await act(async () => {
       if (failed) resumed.reject(new Error("Cannot resume"));
-      else resumed.resolve(saved(initial));
+      else resumed.resolve({ ...saved(initial), viewRevision: 2 });
       await resumed.promise.catch(() => undefined);
     });
-    expect(screen.getByRole("button", { name: "Check capabilities" }).matches(":disabled")).toBe(
-      false,
-    );
+    const check = screen.getByRole("button", { name: "Check capabilities" });
     if (failed) expect(screen.getByText("Unable to refresh hosts")).toBeTruthy();
+    else {
+      expect(check.matches(":disabled")).toBe(true);
+      act(() => {
+        stream.data.hosts = { ...saved(initial), viewRevision: 2 };
+        stream.push("hosts");
+      });
+    }
+    await waitFor(() => {
+      expect(check.matches(":disabled")).toBe(false);
+    });
     view.unmount();
   },
 );
@@ -1965,9 +1973,9 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test.each([false, true])(
-  "embedded recipe exit reloads its saved rows (read fails: %s)",
-  async (fails) => {
+test.each(["refreshed", "read failed", "live installed", "live still missing"] as const)(
+  "embedded recipe exit waits for its observed tool result (%s)",
+  async (outcome) => {
     let exit = (_state: { exited: boolean; code?: number }) => {};
     const view: TerminalViewSource = {
       mount: () => () => {},
@@ -1996,7 +2004,27 @@ test.each([false, true])(
       },
       hosts: [{ ...host, recipes: [{ tool: "git", install: true, signIn: false }] }],
     };
-    const { api } = await mount(missing, {
+    const stream = viewStream();
+    stream.data.hosts = { ...saved(missing), viewRevision: 1 };
+    const live = outcome === "live installed" || outcome === "live still missing";
+    const api = vi
+      .fn<(action: HostsAction) => Promise<HostsState>>()
+      .mockResolvedValue(saved(missing));
+    const installs: SetupSource["installs"] = {
+      sessions: () => new Map(),
+      hostActions: () =>
+        new Map([
+          ["recipe", { action: "recipe", host: host.host, tool: "git", operation: "install" }],
+        ]),
+      hasSessions: () => false,
+      running: () => Promise.resolve(false),
+      close: async () => {},
+      dispose: () => {},
+    };
+    const source = {
+      hosts: api,
+      ...(live ? { views: stream.api } : {}),
+      installs,
       hostTerminal: {
         createView: () => view,
         observe: (_id, listener) => {
@@ -2004,6 +2032,10 @@ test.each([false, true])(
           return () => {};
         },
       },
+    } satisfies Pick<SetupSource, "hosts" | "views" | "installs" | "hostTerminal">;
+    render(<HostsSettings source={source} headingRef={createRef()} />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Install git" }).matches(":disabled")).toBe(false);
     });
     api.mockResolvedValue({ ...missing, recipeSession: "recipe" });
     fireEvent.click(screen.getByRole("button", { name: "Install git" }));
@@ -2019,16 +2051,49 @@ test.each([false, true])(
     const install = screen.getByRole<HTMLButtonElement>("button", { name: "Install git" });
     expect(screen.getByText("Checking…")).toBeTruthy();
     expect(install.disabled).toBe(true);
+    const observed = {
+      ...saved(outcome === "live installed" ? { ...missing, preflight } : missing),
+      viewRevision: 3,
+    };
     await act(async () => {
-      if (fails) refresh.reject(new Error("read failed"));
-      else refresh.resolve(saved(missing));
+      if (outcome === "read failed") refresh.reject(new Error("read failed"));
+      else refresh.resolve(observed);
       await refresh.promise.catch(() => undefined);
     });
-    expect(screen.queryByText("Checking…")).toBeNull();
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Install git" }).disabled).toBe(
-      false,
-    );
-    if (fails) expect(screen.getByText("Unable to refresh tool")).toBeTruthy();
+    if (live) {
+      expect(screen.getByText("Checking…")).toBeTruthy();
+      expect(install.disabled).toBe(true);
+      act(() => {
+        stream.data.hosts = {
+          ...stream.data.hosts,
+          hosts: stream.data.hosts.hosts.map((entry) => ({ ...entry, nickname: "Older update" })),
+          viewRevision: 2,
+        };
+        stream.push("hosts");
+      });
+      await screen.findByRole("button", { name: "Rename Older update" });
+      expect(install.disabled).toBe(true);
+      act(() => {
+        stream.data.hosts = {
+          ...observed,
+          viewRevision: outcome === "live installed" ? 4 : observed.viewRevision,
+        };
+        stream.push("hosts");
+      });
+    }
+    await waitFor(() => {
+      expect(screen.queryByText("Checking…")).toBeNull();
+    });
+    if (outcome === "live installed") {
+      expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Reload git" }).closest(".host-check-row")?.textContent,
+      ).toContain("Pass · Installed");
+    } else
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Install git" }).disabled).toBe(
+        false,
+      );
+    if (outcome === "read failed") expect(screen.getByText("Unable to refresh tool")).toBeTruthy();
     else
       expect(api.mock.calls.filter(([action]) => action.action === "list")).toHaveLength(
         listReads + 1,

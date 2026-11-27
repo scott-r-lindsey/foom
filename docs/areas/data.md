@@ -198,8 +198,11 @@ Background board connection failures do not replace those observations.
 Legacy saved-only Hosts lists retain their saved inventory counts; the subscribed
 Settings projection explicitly opts into current counts.
 Entering Hosts retains its explicit list command to resume owner-held row/save
-retries; saved row controls wait for that command to settle, and command replies
-cannot replace ordered snapshots.
+retries. The list reply carries the Hosts publication revision at which it read
+the results. Saved row controls wait for the resumed list, and post-install
+controls wait for their refreshed row. Both stay disabled until the subscribed
+snapshot reaches that revision or a newer one. The subscription owns the
+displayed results.
 
 The host view primes sealed-build and local SSH-client display capabilities
 without retrying failed rows or connecting to a host. This preserves the opening

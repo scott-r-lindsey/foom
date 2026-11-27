@@ -1447,6 +1447,7 @@ test("host bridge validates every nested fact and strips undeclared host data", 
   };
   const result = { ok: true, facts, checkout: { path: "/home/worker/foom/repo", state: "clean" } };
   const value = {
+    viewRevision: 3,
     hosts: [
       {
         host: "worker",
@@ -1467,6 +1468,7 @@ test("host bridge validates every nested fact and strips undeclared host data", 
   expect(mock.invoke).toHaveBeenCalledWith("setup:hosts", { action: "list" });
   for (const bad of [
     {},
+    ...[-1, 0.5, "3"].map((viewRevision) => ({ ...value, viewRevision })),
     { ...value, result: { ok: false, reason: "secret" } },
     { ...value, remoteHostsAvailable: "false" },
     ...["", "x".repeat(201)].map((id) => ({
