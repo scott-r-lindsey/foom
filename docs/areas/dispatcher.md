@@ -19,10 +19,13 @@ Main verifies the canonical source and Git checkout identities before elevation,
 on launch admission and before spawn. Repository selectors are direct directory
 names. Hidden folders, nested paths, absolute paths, links and non-repositories
 fail validation. The private control profile stores approval and adoption
-identities. A verified same-session restart restores that scope using the provider
-capabilities selected for the source launch. A concurrent refresh of the agent
-report does not affect that check. Pending launches need a new request after
-restart.
+identities. After an orderly shutdown, main can restore the scope for the same
+conversation if the session was an active dispatcher when shutdown began. Main
+consumes that recovery record when opening the control service and checks the
+provider capabilities selected for the source launch. A concurrent refresh of
+the agent report does not affect that check. After an ordinary exit, Resume or
+New conversation starts a plain source session that requires a new elevation.
+Pending launches need a new request after restart.
 
 The dispatcher's role allows repository inventory and control of its adopted or
 launched orchestrators. The UI keeps an ordinary terminal tile and displays the

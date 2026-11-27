@@ -330,15 +330,20 @@ test("dispatcher launch replay returns the original receipt after the repository
   expect(host.launch).toHaveBeenCalledOnce();
 });
 
-test("dispatcher restores a verified scope and rejects a replaced source directory", async () => {
-  const { dispatcher, host, elevate, service, rows } = harness();
+test("an exited source cannot recover an old scope through the same terminal ID", async () => {
+  const { dispatcher, elevate, service, rows, save, source } = harness();
   await elevate();
-  dispatcher.exited("dispatcher");
-  host.directoryIdentity.mockResolvedValueOnce("moved");
-  await expect(dispatcher.revive("dispatcher", service.setRole.bind(service))).resolves.toBe(false);
-  await expect(dispatcher.revive("missing", service.setRole.bind(service))).resolves.toBe(false);
-  await expect(dispatcher.revive("dispatcher", service.setRole.bind(service))).resolves.toBe(true);
-  expect(dispatcher.view("dispatcher", rows)).toEqual({ orchestrators: 1, repositories: 1 });
+  const row = rows.find(({ id }) => id === "dispatcher");
+  if (!row) throw new Error("Missing source");
+  row.conversationId = "same-conversation";
+  source.dispose();
+  const resumed = service.prepare(directory, directory, "agent", null, undefined, true);
+  resumed.bind(row.id);
+  dispatcher.prepareQuit();
+  await dispatcher.finishQuit();
+  expect(save).toHaveBeenCalledOnce();
+  expect(dispatcher.view(row.id, rows)).toBeUndefined();
+  expect(service.authenticate(resumed.env["FOOM_CONTROL_TOKEN"] ?? "").role).toBe("agent");
 });
 
 test("dispatcher persists only validated scope data and reopens it from the private profile", async () => {
@@ -359,14 +364,41 @@ test("dispatcher persists only validated scope data and reopens it from the priv
       dispatcher.elevate("dispatcher", () => Promise.resolve(["absent"]), setRole),
     ).rejects.toThrow("invalid_request");
     await dispatcher.elevate("dispatcher", () => Promise.resolve(["primary"]), setRole);
+    const row = rows.find(({ id }) => id === "dispatcher");
+    if (!row) throw new Error("Missing source");
+    row.conversationId = "same-conversation";
+    dispatcher.prepareQuit();
+    await expect(dispatcher.elevate("second", () => Promise.resolve([]), setRole)).rejects.toThrow(
+      "unavailable",
+    );
+    dispatcher.cancelQuit();
+    await dispatcher.finishQuit();
+    const interrupted = await Dispatcher.open(
+      privatePath,
+      host,
+      () => rows,
+      () => {},
+    );
+    await expect(interrupted.revive(row.id, row.conversationId, setRole)).resolves.toBe(false);
+    dispatcher.prepareQuit();
+    dispatcher.exited(row.id);
+    await dispatcher.finishQuit();
     const reopened = await Dispatcher.open(
       privatePath,
       host,
       () => rows,
       () => {},
     );
+    const next = await Dispatcher.open(
+      privatePath,
+      host,
+      () => rows,
+      () => {},
+    );
+    await expect(next.revive(row.id, row.conversationId, setRole)).resolves.toBe(false);
     expect(reopened.view("dispatcher", rows)).toBeUndefined();
-    await expect(reopened.revive("dispatcher", setRole)).resolves.toBe(true);
+    await expect(reopened.revive(row.id, row.conversationId, setRole)).resolves.toBe(true);
+    await expect(reopened.revive(row.id, row.conversationId, setRole)).resolves.toBe(false);
     expect(reopened.view("dispatcher", rows)).toEqual({ orchestrators: 1, repositories: 1 });
     await reopened.demote("dispatcher", setRole);
     await expect(reopened.demote("dispatcher", setRole)).rejects.toThrow("not_found");
@@ -383,6 +415,47 @@ test("dispatcher persists only validated scope data and reopens it from the priv
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test.each(["conversation", "directory", "launch"] as const)(
+  "dispatcher recovery refuses a changed %s",
+  async (change) => {
+    const { host, rows, save } = harness();
+    const source = rows.find(({ id }) => id === "dispatcher");
+    if (!source) throw new Error("Missing source");
+    source.conversationId = "saved-conversation";
+    if (change === "directory") host.directoryIdentity.mockResolvedValueOnce("moved");
+    if (change === "launch")
+      host.directoryIdentity.mockImplementationOnce(() => {
+        rows[0] = { ...source, launchVersion: 2 };
+        return Promise.resolve("source-proof");
+      });
+    const dispatcher = new Dispatcher(
+      host,
+      () => rows,
+      save,
+      () => {},
+      [
+        {
+          id: source.id,
+          directory,
+          identity: "source-proof",
+          restoreConversation: source.conversationId,
+          approved: [],
+          adopted: [],
+        },
+      ],
+    );
+    const setRole = vi.fn();
+    await expect(
+      dispatcher.revive(
+        source.id,
+        change === "conversation" ? "new-conversation" : source.conversationId,
+        setRole,
+      ),
+    ).resolves.toBe(false);
+    expect(setRole).not.toHaveBeenCalled();
+  },
+);
 
 test("dispatcher validates launch, state, wait and input arguments before effects", async () => {
   const { host, call, elevate, rows, dispatcher, service } = harness();
@@ -681,8 +754,12 @@ test("a replacement preserves dispatcher read access to the retained previous la
 });
 
 test("a failed demotion does not restore an exited dispatcher", async () => {
-  const { dispatcher, elevate, save, service, source } = harness();
+  const { dispatcher, elevate, rows, save, service, source } = harness();
   await elevate();
+  const row = rows.find(({ id }) => id === "dispatcher");
+  if (!row) throw new Error("Missing source");
+  row.conversationId = "same-conversation";
+  dispatcher.prepareQuit();
   const entered = Promise.withResolvers<undefined>();
   const saved = Promise.withResolvers<undefined>();
   save.mockImplementationOnce(() => {
@@ -695,6 +772,9 @@ test("a failed demotion does not restore an exited dispatcher", async () => {
   source.dispose();
   saved.reject(new Error("Disk unavailable"));
   await rejected;
+  await dispatcher.finishQuit();
+  expect(save).toHaveBeenCalledTimes(2);
+  dispatcher.cancelQuit();
   await expect(
     dispatcher.elevate("second", () => Promise.resolve([]), service.setRole.bind(service)),
   ).resolves.toBeUndefined();

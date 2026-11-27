@@ -515,7 +515,11 @@ export class WorkspaceContext {
                   onRestore: async (id, installation) => {
                     if (!canRestoreControl(entry, installation)) return;
                     const runtime = await this.control;
-                    await runtime?.dispatcher?.revive(id, runtime.setRole.bind(runtime));
+                    await runtime?.dispatcher?.revive(
+                      id,
+                      entry.conversationId,
+                      runtime.setRole.bind(runtime),
+                    );
                   },
                 }
               : entry.id,
@@ -661,9 +665,11 @@ export class WorkspaceContext {
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
   async prepareQuit(): Promise<void> {
     await this.sessions.prepareQuit();
+    this.dispatcher?.prepareQuit();
   }
 
   cancelQuit(): void {
+    this.dispatcher?.cancelQuit();
     this.sessions.cancelQuit();
   }
 
@@ -1187,6 +1193,9 @@ export class WorkspaceContext {
     this.unsubscribeHostRemoval?.();
     this.closed = true;
     this.sessions.finishQuit();
+    await this.dispatcher?.finishQuit().catch(() => {
+      console.error("Unable to save dispatcher restart authority");
+    });
     this.launchAbort.abort();
     await (await this.probeHttp?.catch(() => undefined))?.close();
     await this.cleanup.dispose();

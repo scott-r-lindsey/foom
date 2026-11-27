@@ -5,6 +5,7 @@ import { isAbsolute, join } from "node:path";
 import { fitsMcpToolResponse } from "../../node-common/mcp-response";
 import { atomicPrivate, verifyPrivate } from "../../node-common/private-files";
 import { ControlError, exact, identifier, object } from "../../shared/control-validation";
+import { conversationId } from "../../shared/conversation";
 import type {
   DispatcherLaunch,
   DispatcherLaunchLifecycle,
@@ -43,6 +44,7 @@ interface Scope {
   id: string;
   directory: string;
   identity: string;
+  restoreConversation?: string;
   approved: { name: string; identity: string }[];
   adopted: Adopted[];
 }
@@ -106,23 +108,26 @@ function proof(value: unknown): string {
 
 function savedScope(value: unknown): Scope {
   const row = object(value);
-  exact(row, ["id", "directory", "identity", "approved", "adopted"]);
+  exact(row, ["id", "directory", "identity", "approved", "adopted", "restoreConversation"]);
   const directory = proof(row["directory"]);
   if (!isAbsolute(directory) || /\p{Cc}/u.test(directory))
     throw new ControlError("invalid_request");
   const approved = row["approved"];
   const adopted = row["adopted"];
+  const restoreConversation = row["restoreConversation"];
   if (
     !Array.isArray(approved) ||
     approved.length > REPOSITORY_LIMIT ||
     !Array.isArray(adopted) ||
-    adopted.length > REPOSITORY_LIMIT
+    adopted.length > REPOSITORY_LIMIT ||
+    (restoreConversation !== undefined && !conversationId(restoreConversation))
   )
     throw new ControlError("invalid_request");
   const scope: Scope = {
     id: identifier(row["id"]),
     directory,
     identity: proof(row["identity"]),
+    ...(restoreConversation === undefined ? {} : { restoreConversation }),
     approved: approved.map((entry: unknown) => {
       const data = object(entry);
       exact(data, ["name", "identity"]);
@@ -151,6 +156,9 @@ function savedScope(value: unknown): Scope {
 
 export class Dispatcher {
   private readonly live = new Set<string>();
+  private readonly recovery = new Map<string, string>();
+  private quitRecovery: Map<string, string> | undefined;
+  private scopes: Scope[];
   private readonly demoting = new Map<string, { exited: boolean }>();
   private readonly launching = new Set<string>();
   private readonly bindingReports = new Map<
@@ -165,8 +173,13 @@ export class Dispatcher {
     private readonly rows: () => readonly WorkspaceTerminal[],
     private readonly save: (state: unknown, validate: () => void) => Promise<void>,
     private readonly changed: () => void,
-    private scopes: Scope[] = [],
-  ) {}
+    scopes: Scope[] = [],
+  ) {
+    this.scopes = scopes.map(({ restoreConversation, ...scope }) => {
+      if (restoreConversation !== undefined) this.recovery.set(scope.id, restoreConversation);
+      return scope;
+    });
+  }
 
   static async open(
     directory: string,
@@ -218,13 +231,20 @@ export class Dispatcher {
       )
         throw new ControlError("unavailable");
     }
-    return new Dispatcher(
+    const dispatcher = new Dispatcher(
       host,
       rows,
       (state, validate) => atomicPrivate(directory, FILE_NAME, state, validate),
       changed,
       scopes,
     );
+    // Consume recovery before the hub can spawn any source invocations.
+    if (dispatcher.recovery.size)
+      await dispatcher.write(
+        (current) => current,
+        () => {},
+      );
+    return dispatcher;
   }
 
   private async write(
@@ -252,10 +272,16 @@ export class Dispatcher {
     await task;
   }
 
-  private row(id: string): WorkspaceTerminal {
+  private runningSource(id: string): WorkspaceTerminal | undefined {
     const row = this.rows().find((row) => row.id === id);
     if (row?.sourceSession !== true || row.exited || row.dormant || row.kind !== "agent")
-      throw new ControlError("not_found");
+      return undefined;
+    return row;
+  }
+
+  private row(id: string): WorkspaceTerminal {
+    const row = this.runningSource(id);
+    if (!row) throw new ControlError("not_found");
     return row;
   }
 
@@ -323,6 +349,7 @@ export class Dispatcher {
     const elevation = { directory, exited: false };
     const validate = () => {
       if (elevation.exited) throw new ControlError("not_found");
+      if (this.quitRecovery) throw new ControlError("unavailable");
       if (
         this.row(id).worktree !== directory ||
         this.scopes.some(
@@ -398,13 +425,55 @@ export class Dispatcher {
     }
   }
 
-  async revive(id: string, setRole: (id: string, role: "dispatcher") => void): Promise<boolean> {
+  prepareQuit(): void {
+    this.quitRecovery = new Map();
+    for (const row of this.rows())
+      if (this.live.has(row.id) && !row.exited && !row.dormant && row.conversationId)
+        this.quitRecovery.set(row.id, row.conversationId);
+  }
+
+  cancelQuit(): void {
+    this.quitRecovery = undefined;
+  }
+
+  async finishQuit(): Promise<void> {
+    const recovery = this.quitRecovery;
+    if (!recovery?.size) return;
+    await this.write(
+      (scopes) =>
+        scopes.map((scope) => {
+          const restoreConversation = recovery.get(scope.id);
+          return restoreConversation ? { ...scope, restoreConversation } : scope;
+        }),
+      () => {},
+    );
+  }
+
+  async revive(
+    id: string,
+    conversation: string | undefined,
+    setRole: (id: string, role: "dispatcher") => void,
+  ): Promise<boolean> {
+    const saved = this.recovery.get(id);
+    this.recovery.delete(id);
+    if (!saved || saved !== conversation) return false;
     const scope = this.scopes.find((scope) => scope.id === id);
     if (!scope) return false;
-    const row = this.row(id);
+    const row = this.runningSource(id);
     if (
+      !row ||
       row.worktree !== scope.directory ||
-      (await this.host.directoryIdentity(scope.directory)) !== scope.identity ||
+      row.conversationId !== saved ||
+      (await this.host.directoryIdentity(scope.directory).catch(() => undefined)) !== scope.identity
+    )
+      return false;
+    const current = this.runningSource(id);
+    if (
+      !current ||
+      current.worktree !== row.worktree ||
+      current.conversationId !== saved ||
+      current.launchVersion !== row.launchVersion ||
+      this.live.has(id) ||
       this.demoting.has(id) ||
       this.scopes.find((candidate) => candidate.id === id) !== scope
     )
@@ -418,6 +487,7 @@ export class Dispatcher {
   async demote(id: string, setRole: (id: string, role: "agent") => void): Promise<void> {
     if (!this.live.has(id)) throw new ControlError("not_found");
     this.live.delete(id);
+    this.quitRecovery?.delete(id);
     const demotion = { exited: false };
     this.demoting.set(id, demotion);
     try {
@@ -437,6 +507,7 @@ export class Dispatcher {
   }
 
   exited(id: string) {
+    this.recovery.delete(id);
     const elevation = this.elevating.get(id);
     if (elevation) elevation.exited = true;
     const demotion = this.demoting.get(id);

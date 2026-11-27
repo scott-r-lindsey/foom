@@ -426,7 +426,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
   }
 });
 
-test("dispatcher restart survives a background scan clearing the report after adoption restores", async () => {
+test.each([false, true])("source restart checks recovery (%s)", async (authorized) => {
   const directory = resolve("fixture-source");
   const project = join(directory, "project");
   const dispatcherId = "saved-dispatcher";
@@ -500,6 +500,7 @@ test("dispatcher restart survives a background scan clearing the report after ad
         id: dispatcherId,
         directory,
         identity: "source-proof",
+        ...(authorized ? { restoreConversation: "dispatcher-conversation" } : {}),
         approved: [{ name: "project", identity: "project-proof" }],
         adopted: [
           { id: orchestratorId, name: "project", identity: "project-proof", launched: true },
@@ -535,11 +536,14 @@ test("dispatcher restart survives a background scan clearing the report after ad
     dispatcherId,
   ]);
   expect(scan).toHaveBeenCalledTimes(2);
-  expect(setDispatcherRole).toHaveBeenCalledExactlyOnceWith(dispatcherId, "dispatcher");
-  expect(workspace.snapshot().terminals.find(({ id }) => id === dispatcherId)?.dispatcher).toEqual({
-    orchestrators: 1,
-    repositories: 1,
-  });
+  const view = workspace.snapshot().terminals.find(({ id }) => id === dispatcherId)?.dispatcher;
+  if (authorized) {
+    expect(setDispatcherRole).toHaveBeenCalledExactlyOnceWith(dispatcherId, "dispatcher");
+    expect(view).toEqual({ orchestrators: 1, repositories: 1 });
+  } else {
+    expect(setDispatcherRole).not.toHaveBeenCalled();
+    expect(view).toBeUndefined();
+  }
 });
 
 test("dispatcher refuses unavailable placements and providers before spawning", async () => {
