@@ -50,7 +50,7 @@ export default function (pi) {
           const identity = await post("/call", {method: "whoami", params: {}});
           if (identity?.type !== "identity" || !Array.isArray(identity.capabilities) || identity.capabilities.length > 64 ||
               identity.capabilities.some(value => typeof value !== "string")) throw new Error("Unavailable");
-          const tools = ["whoami", "manual", "handoff"].filter(tool => identity.capabilities.includes(tool));
+          const tools = identity.capabilities;
           const fingerprint = JSON.stringify(tools);
           if (previous === fingerprint) return;
           pi.registerMcpServer(name, {command: env.FOOM_REMOTE_HELPER, args: ["--mcp"],
@@ -88,7 +88,7 @@ export default function (pi) {
 }
 `;
 
-const SHA256 = "65b4c42b9985b8796dd11ba70c7ed6e36ca92141031e579a5f5a5b665bfd32c0";
+const SHA256 = "9f2296a4802f7043197342caf9d5caf6f2ae47f6c352ec886fab3c7e09ddb5d5";
 export function assertRemotePiIntegrity(source: string): void {
   if (createHash("sha256").update(source).digest("hex") !== SHA256)
     throw new Error("Remote extension integrity mismatch");

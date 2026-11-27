@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import { Board } from "../../../../src/renderer/board/board-view";
@@ -11,7 +11,7 @@ import { Sidebar, launcherActions } from "../../../../src/renderer/board/sidebar
 import type { SidebarPreferences } from "../../../../src/renderer/board/sidebar.d";
 import { boardRows as sampleRows } from "../../../fixtures/board";
 import { installation } from "../../../fixtures/setup";
-import { emptySections, repository, setup } from "./sidebar-view-fixtures";
+import { emptySections, load, repository, setup } from "./sidebar-view-fixtures";
 beforeEach(() => {
   localStorage.clear();
   HTMLDialogElement.prototype.showModal = function () {
@@ -19,6 +19,73 @@ beforeEach(() => {
   };
 });
 afterEach(cleanup);
+
+test("the source directory groups both ranks and opens the matching session actions", async () => {
+  const row = sampleRows(0)[0];
+  if (!row) throw new Error("Missing fixture");
+  const directory = "/work/src";
+  const sourceRow: BoardRow = {
+    ...row,
+    id: "plain",
+    kind: "agent",
+    agent: "claude",
+    branch: "Source directory",
+    repository: directory,
+    repositoryPath: directory,
+    worktree: directory,
+    sourceSession: true,
+    home: true,
+    machine: true,
+  };
+  const rows = [
+    sourceRow,
+    { ...sourceRow, id: "dispatcher", dispatcher: { orchestrators: 2, repositories: 3 } },
+    { ...sourceRow, id: "old", repository: "/work/old", repositoryPath: "/work/old" },
+  ];
+  const command = vi.fn(() => Promise.resolve());
+  const source: BoardSource = {
+    ...createSampleSource(rows),
+    getSidebar: () => [repository],
+    sidebarCommand: command,
+    worktrees: {
+      load: async () => ({ ...(await load()), sourceDirectory: directory }),
+      addRepository: () => Promise.resolve(null),
+      branches: () =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      create: () => Promise.reject(new Error("Unexpected worktree creation")),
+      remove: () => Promise.resolve(false),
+    },
+  };
+  const view = render(<Board source={source} />);
+  const current = await view.findByRole("treeitem", { name: "Source directory /work/src" });
+  expect(within(current).getByText("2 orchestrators · 3 repos")).toBeTruthy();
+  expect(view.getByRole("treeitem", { name: "Source directory /work/old" })).toBeTruthy();
+  fireEvent.click(within(current).getByRole("button", { name: "Toggle source sessions" }));
+  expect(within(current).queryByText("2 orchestrators · 3 repos")).toBeNull();
+  fireEvent.click(within(current).getByRole("button", { name: "Toggle source sessions" }));
+  const actions = within(current).getAllByRole("button", { name: /Actions for/ });
+  for (const [index, label] of [
+    [1, "Elevate to dispatcher…"],
+    [2, "Demote"],
+  ] as const) {
+    const action = actions[index];
+    if (!action) throw new Error("Missing session action");
+    fireEvent.click(action);
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: label }));
+      await Promise.resolve();
+    });
+  }
+  expect(command).toHaveBeenCalledWith({ kind: "elevate-dispatcher", id: "plain" });
+  expect(command).toHaveBeenCalledWith({ kind: "demote-dispatcher", id: "dispatcher" });
+  fireEvent.click(within(current).getByRole("button", { name: directory }));
+  const filter = view.getByLabelText("Filter repositories and sessions");
+  fireEvent.change(filter, { target: { value: "old" } });
+  expect(view.queryByRole("treeitem", { name: "Source directory /work/src" })).toBeNull();
+  expect(view.getByRole("treeitem", { name: "Source directory /work/old" })).toBeTruthy();
+  fireEvent.change(filter, { target: { value: "unknown directory" } });
+  expect(view.getByText("No matches")).toBeTruthy();
+});
 
 test.each(["empty", "home", "config"] as const)(
   "unmatched filters show one tree-wide message with %s sessions",
@@ -395,26 +462,35 @@ test("shell kind keeps the generic glyph and detected name even with another pro
   expect(row.getAttribute("aria-label")).toContain(" · Shell · ");
 });
 
-test("a recovered remote main clone offers Stop without Make orchestrator", async () => {
-  const row = sampleRows(0)[0];
-  if (!row) throw Error("fixture");
-  const view = await emptySections([
-    {
-      ...row,
-      repositoryPath: "/remote/clone",
-      worktree: "/foom-remote/clone",
-      branch: "Main checkout",
-      kind: "agent",
-      agent: "claude",
-      managed: true,
-      exited: false,
-      placement: { kind: "remote", host: "worker" },
-    },
-  ]);
-  fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in Main checkout" }));
-  expect(view.getByRole("menuitem", { name: "Stop Claude Code" })).toBeTruthy();
-  expect(view.queryByRole("menuitem", { name: "Make orchestrator…" })).toBeNull();
-});
+test.each([false, true])(
+  "remote main clone actions respect its active role (active=%s)",
+  async (active) => {
+    const row = sampleRows(0)[0];
+    if (!row) throw Error("fixture");
+    const view = await emptySections([
+      {
+        ...row,
+        repositoryPath: "/remote/clone",
+        worktree: "/foom-remote/clone",
+        branch: "Main checkout",
+        kind: "agent",
+        agent: "claude",
+        managed: true,
+        exited: false,
+        placement: { kind: "remote", host: "worker" },
+        ...(active
+          ? { orchestration: { role: "orchestrator", active: true, children: 0, history: [] } }
+          : {}),
+      },
+    ]);
+    fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in Main checkout" }));
+    expect(view.getByRole("menuitem", { name: "Stop Claude Code" })).toBeTruthy();
+    expect(view.queryByRole("menuitem", { name: "Make orchestrator…" })).toBeNull();
+    expect(view.queryAllByRole("menuitem", { name: "Revoke orchestrator" })).toHaveLength(
+      active ? 1 : 0,
+    );
+  },
+);
 
 test("sessions offer Make and Revoke orchestrator; children offer Take over and panels show actions", async () => {
   const original = sampleRows(0)[0];

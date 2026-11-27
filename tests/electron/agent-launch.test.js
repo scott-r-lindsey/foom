@@ -1,5 +1,5 @@
 const { evidencePath } = require("../helpers/evidence.js");
-const { codexFixture } = require("./agent-fixture.js");
+const { agentFixture, codexFixture } = require("./agent-fixture.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -13,8 +13,51 @@ const {
   boardCommand,
   boardPage,
   launchApp,
+  openSettingsScreen,
   removeAfterApps,
 } = require("./harness.js");
+
+test("source directory settings place new local agents above repositories", {
+  timeout: deadline(60_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { root, page } = await agentFixture(context, {
+    agent: "claude",
+    prefix: "foom-source-directory-",
+    source: () => `#!/usr/bin/env node
+if (process.argv.includes("--version")) { console.log("2.1.300 (Claude Code)"); process.exit(0); }
+if (process.argv.includes("--help")) { console.log("--settings <file-or-json>"); process.exit(0); }
+console.log("SOURCE_CWD", require("node:path").basename(process.cwd()));
+process.stdin.resume();
+`,
+  });
+  const directory = await realpath(root);
+  await openSettingsScreen(page);
+  await page.getByRole("textbox", { name: "Source directory" }).fill(directory);
+  await page.getByRole("button", { name: "Save source directory" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sourceDirectory),
+    )
+    .toBe(directory);
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  const section = page.getByRole("treeitem", {
+    name: `Source directory ${directory}`,
+    exact: true,
+  });
+  await section.getByRole("button", { name: "Actions for source directory" }).click();
+  await page.getByRole("menuitem", { name: "New Claude Code" }).click();
+  await expect(section.locator(".board-row")).toHaveCount(1);
+  const agent = await page.evaluate(async () =>
+    (await window.desktop.workspace()).terminals.find((row) => row.sourceSession),
+  );
+  assert.equal(agent.worktree, directory);
+  assert.equal(agent.repository, directory);
+  assert.equal(agent.orchestration, undefined);
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), agent.id))
+    .toContain(`SOURCE_CWD ${path.basename(directory)}`);
+});
 
 test("launches an agent in a managed worktree and routes its attention signals", {
   timeout: deadline(60_000),

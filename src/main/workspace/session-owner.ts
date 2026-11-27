@@ -279,7 +279,8 @@ export class SessionOwner {
           ? entry.worktree !== this.deps.configRoot || entry.repository !== entry.worktree
           : entry.home
             ? (entry.kind !== "shell" && !entry.machine) ||
-              (!(entry.machine && entry.remote && entry.placement?.kind === "remote") &&
+              (!entry.sourceSession &&
+                !(entry.machine && entry.remote && entry.placement?.kind === "remote") &&
                 (entry.worktree !== homeDirectory || entry.repository !== homeDirectory))
             : false
       )

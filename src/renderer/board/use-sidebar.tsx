@@ -28,6 +28,7 @@ import {
   rowWorktree,
   sessionIdentity,
   sessionName,
+  sourceDirectoryKey,
   sidebarParent,
   sidebarRepositories,
   worktreeKey,
@@ -209,9 +210,12 @@ export function useSidebar(props: SidebarProps) {
     ),
   }));
   const machines = source.getMachines?.() ?? [];
+  const sourceRows = rows.filter((row) => row.sourceSession);
   const homeRows = rows.filter(
     (row) =>
-      row.home && (!row.machine || (machines.length === 0 && row.placement?.kind !== "remote")),
+      row.home &&
+      !row.sourceSession &&
+      (!row.machine || (machines.length === 0 && row.placement?.kind !== "remote")),
   );
   const visibleHomeRows = homeRows.filter((row) =>
     `${sessionName(row, preferences)} ${row.reason} ~`
@@ -317,6 +321,14 @@ export function useSidebar(props: SidebarProps) {
       },
     }));
   };
+  const sourceActions: RowAction[] = launcherActions(options, undefined)
+    .filter((action) => action.run !== "shell")
+    .map((action) => ({
+      label: `New ${action.label}`,
+      badge: action.badge,
+      dismissBeforeRun: true,
+      run: () => command({ kind: "machine-launch", host: null, run: action.run }),
+    }));
   const homeActions: RowAction[] = [
     {
       label: "New shell",
@@ -324,21 +336,19 @@ export function useSidebar(props: SidebarProps) {
       dismissBeforeRun: true,
       run: () => command({ kind: "home-shell" }),
     },
-    ...(machines.length === 0
-      ? launcherActions(options, undefined)
-          .filter((action) => action.run !== "shell")
-          .map((action) => ({
-            label: `New ${action.label}`,
-            badge: action.badge,
-            dismissBeforeRun: true,
-            run: () => command({ kind: "machine-launch", host: null, run: action.run }),
-          }))
-      : []),
+    ...(machines.length === 0 && !options?.sourceDirectory ? sourceActions : []),
   ];
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }
   >();
+  if (options?.sourceDirectory)
+    subjects.set(sourceDirectoryKey(options.sourceDirectory), {
+      subject: { kind: "source-directory", directory: options.sourceDirectory },
+      name: options.sourceDirectory,
+      kind: "Source directory",
+      mark: "repository",
+    });
   subjects.set("home", {
     subject: { kind: "home", home: source.homeShell?.(), rows: homeRows },
     name: `${source.shellName?.() ?? "Shell"} ~`,
@@ -574,19 +584,35 @@ export function useSidebar(props: SidebarProps) {
                   run: () => command({ kind: "take-over", id: row.id }),
                 },
               ]
-            : row.kind === "agent" && !row.config && !row.home && row.placement?.kind !== "remote"
+            : row.sourceSession
               ? [
-                  row.orchestration?.role === "orchestrator" && row.orchestration.active
+                  row.dispatcher
                     ? {
-                        label: "Revoke orchestrator",
-                        run: () => command({ kind: "revoke-orchestrator", id: row.id }),
+                        label: "Demote",
+                        run: () => command({ kind: "demote-dispatcher", id: row.id }),
                       }
                     : {
-                        label: "Make orchestrator…",
-                        run: () => command({ kind: "make-orchestrator", id: row.id }),
+                        label: "Elevate to dispatcher…",
+                        run: () => command({ kind: "elevate-dispatcher", id: row.id }),
                       },
                 ]
-              : []),
+              : row.kind === "agent" &&
+                  !row.config &&
+                  !row.home &&
+                  (row.placement?.kind !== "remote" ||
+                    (row.orchestration?.role === "orchestrator" && row.orchestration.active))
+                ? [
+                    row.orchestration?.role === "orchestrator" && row.orchestration.active
+                      ? {
+                          label: "Revoke orchestrator",
+                          run: () => command({ kind: "revoke-orchestrator", id: row.id }),
+                        }
+                      : {
+                          label: "Make orchestrator…",
+                          run: () => command({ kind: "make-orchestrator", id: row.id }),
+                        },
+                  ]
+                : []),
           {
             glyph: "stop" as const,
             label: `Stop ${row.kind === "shell" ? "shell" : (agentNames.get(row.agent) ?? row.agent)}`,
@@ -668,6 +694,8 @@ export function useSidebar(props: SidebarProps) {
     homeRows,
     homeActions,
     visibleHomeRows,
+    sourceRows,
+    sourceActions,
     configRows,
     shellRef,
     toggleButtonRef,

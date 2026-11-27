@@ -245,3 +245,9 @@ tools. No network request or agent input carries theme artwork.
 The board adds only `foom-theme://bitmap` to `img-src`. Its dedicated handler
 serves active approved image IDs in the board session. The confirmation partition
 keeps its existing CSP.
+
+## Dispatcher inventory (#1300)
+
+The dispatcher can read direct repository names and their orchestrator and
+decision metadata. The data returned to the agent is described in the
+[dispatcher privacy contract](../contracts/control-privacy.md#dispatcher-inventory-1300).

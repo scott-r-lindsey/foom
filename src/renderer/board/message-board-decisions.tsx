@@ -207,24 +207,26 @@ function QuestionPage({
             </span>
           </label>
         ))}
-        <label className="decision-option decision-other">
-          <span
-            className="decision-other-radio"
-            aria-hidden="true"
-            data-selected={!locked && choice?.other !== undefined}
-          />
-          <input
-            type="text"
-            aria-label="Other answer"
-            aria-disabled={locked}
-            placeholder="Other…"
-            maxLength={8192}
-            value={locked ? "" : (choice?.other ?? "")}
-            onChange={(event) => {
-              choose({ other: event.target.value });
-            }}
-          />
-        </label>
+        {!row.grant && (
+          <label className="decision-option decision-other">
+            <span
+              className="decision-other-radio"
+              aria-hidden="true"
+              data-selected={!locked && choice?.other !== undefined}
+            />
+            <input
+              type="text"
+              aria-label="Other answer"
+              aria-disabled={locked}
+              placeholder="Other…"
+              maxLength={8192}
+              value={locked ? "" : (choice?.other ?? "")}
+              onChange={(event) => {
+                choose({ other: event.target.value });
+              }}
+            />
+          </label>
+        )}
       </fieldset>
     </>
   );

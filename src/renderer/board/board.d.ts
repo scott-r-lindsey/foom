@@ -25,6 +25,8 @@ export interface BoardRow {
   managed?: boolean;
   home?: boolean;
   machine?: boolean;
+  sourceSession?: boolean;
+  dispatcher?: WorkspaceTerminal["dispatcher"];
   placement?: WorkspaceTerminal["placement"];
   /** Runs in the Foom config folder and nests under the Foom config row. */
   config?: boolean;

@@ -292,3 +292,45 @@ it("parses an explicit owned author for shared review and rejects malformed IDs"
     command(["review", "--pull-request", "7", "--author", "../foreign", ...key]),
   ).toThrow("invalid_request");
 });
+
+it("parses dispatcher inventory and launch arguments without accepting external checkouts", () => {
+  expect(command(["repos"])).toEqual({ method: "repos", params: {} });
+  expect(command(["repos", "--after", "project A", "--limit", "4"])).toEqual({
+    method: "repos",
+    params: { after: "project A", limit: 4 },
+  });
+  expect(
+    command([
+      "launch-orchestrator",
+      "project A",
+      "--agent",
+      "codex",
+      "--host",
+      "desk",
+      "--prompt",
+      "Check status",
+      "--reason",
+      "Prepare a report",
+      ...key,
+    ]),
+  ).toEqual({
+    method: "launch_orchestrator",
+    params: {
+      repo: "project A",
+      agent: "codex",
+      host: "desk",
+      prompt: "Check status",
+      reason: "Prepare a report",
+      idempotencyKey: "retry-1",
+    },
+  });
+  for (const args of [
+    ["repos", "--after", "../outside"],
+    ["repos", "--limit", "17"],
+    ["repos", "--limit", "2", "--limit", "3"],
+    ["launch-orchestrator", "/outside", "--agent", "codex", "--prompt", "Check", ...key],
+    ["elevate-dispatcher"],
+  ]) {
+    expect(() => command(args)).toThrow("invalid_request");
+  }
+});

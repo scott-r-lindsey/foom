@@ -1,5 +1,7 @@
 import { AgentBadge } from "./agent-badge";
 
+export const dispatcherGlyphPath = "M8 2 14 6 8 10 2 6Z M2 10l6 4 6-4";
+
 /** Command glyphs say what a command does; paths match docs/mockups/sidebar-panels.html. */
 const commandPaths = {
   right: <path d="M2 2h12v12H2zM8 2v12M10 8h3M11 6l2 2-2 2" />,

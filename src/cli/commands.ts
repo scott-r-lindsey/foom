@@ -1,4 +1,5 @@
 import { hostAlias } from "../shared/registered-hosts";
+import { dispatcherLaunch, sourceRepositoryName } from "../shared/dispatcher-validation";
 import { selectionInput } from "../node-common/launch-selection";
 import { reviewInput } from "../shared/review-validation";
 import { isChildInput } from "../shared/child-input";
@@ -11,6 +12,19 @@ export function command(args: readonly string[]): Command {
   if (args.length > 48 || args.some((arg) => Buffer.byteLength(arg) > 16384))
     throw new ControlError("invalid_request");
   const [name, ...words] = args;
+  if (name === "repos") {
+    const params: Record<string, unknown> = {};
+    for (let index = 0; index < words.length; index += 2) {
+      const flag = words[index];
+      const value = words[index + 1];
+      if (flag === "--after" && params["after"] === undefined)
+        params["after"] = sourceRepositoryName(value);
+      else if (flag === "--limit" && params["limit"] === undefined)
+        params["limit"] = integer(value, 16, 1);
+      else throw new ControlError("invalid_request");
+    }
+    return { method: "repos", params };
+  }
   if (name === "read-handoff") {
     if (words.length !== 1 && !(words.length === 3 && words[1] === "--seq"))
       throw new ControlError("invalid_request");
@@ -163,6 +177,19 @@ function orchestration(name: string | undefined, words: string[]): Command {
     }
   }
   switch (name) {
+    case "launch-orchestrator":
+      Object.assign(
+        params,
+        dispatcherLaunch({
+          repo: positional[0],
+          agent: take("--agent"),
+          host: take("--host"),
+          prompt: take("--prompt"),
+          reason: take("--reason"),
+          idempotencyKey: take("--idempotency-key"),
+        }),
+      );
+      break;
     case "create-worktree": {
       const number = take("--pull-request");
       if (number !== undefined) {

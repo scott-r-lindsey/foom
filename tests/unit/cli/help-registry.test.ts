@@ -50,7 +50,8 @@ test("help lists every control parser command, including alternate forms", () =>
   const entries = [
     lines[0]?.replace("foom [--json] ", ""),
     lines[1]?.replace("Agents: ", "").replace(" (also with --json)", ""),
-    lines[3]?.replace("Orchestrators only: ", ""),
+    lines[3]?.replace("Dispatchers: ", ""),
+    lines[4]?.replace("Orchestrators: ", ""),
   ];
   expect(documented(entries.map((entry) => entry ?? ""))).toEqual(
     [

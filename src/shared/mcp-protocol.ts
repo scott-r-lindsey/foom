@@ -1,3 +1,6 @@
+/** Complete MCP tool response bound, including text and structured representations. */
+export const MCP_RESPONSE_LIMIT = 256 * 1024;
+
 /** Supported wire versions, newest preferred when a client proposes another version. */
 export const MCP_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 export function negotiateMcpVersion(requested: string): string {

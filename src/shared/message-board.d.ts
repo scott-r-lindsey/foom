@@ -19,6 +19,8 @@ export interface BoardDecision extends DecisionAddress {
   repository: string;
   question: DecisionQuestion;
   status: DecisionStatus;
+  /** Main-authored dispatcher launch grant. Only a fixed option is accepted. */
+  grant?: true;
   movedHead?: string;
   checks?: "success" | "pending" | "failure" | "none" | "unknown";
 }

@@ -1270,3 +1270,57 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   view.unmount();
   vi.useRealTimers();
 });
+
+test("dispatcher repository choices start empty, mark running orchestrators, and reset on reopen", () => {
+  let receive: (request: DialogRequest | null) => void = () => {};
+  const answer = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render: (listener: typeof receive) => {
+        receive = listener;
+        return () => {};
+      },
+      size: vi.fn(),
+      answer,
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const request: DialogRequest = {
+    id: "dispatcher",
+    title: "Elevate to dispatcher",
+    accept: "Elevate",
+    presented: true,
+    theme: resolveInterfaceTheme("follow", false),
+    dispatcherRepositories: [
+      { name: "project", running: true },
+      { name: "other", running: false },
+    ],
+  };
+  act(() => {
+    receive(request);
+  });
+  const running = view.getByRole("checkbox", { name: /project/ });
+  const other = view.getByRole("checkbox", { name: "other" });
+  expect(running).toHaveProperty("checked", false);
+  expect(view.getByText("Orchestrator running")).toBeTruthy();
+  fireEvent.click(running);
+  fireEvent.click(other);
+  fireEvent.click(running);
+  expect(running).toHaveProperty("checked", false);
+  expect(other).toHaveProperty("checked", true);
+  fireEvent.click(view.getByRole("button", { name: "Elevate" }));
+  expect(answer).not.toHaveBeenCalled();
+  act(() => {
+    receive({ ...request, id: "second", presented: false });
+  });
+  expect(view.getByRole("checkbox", { name: "other" })).toHaveProperty("checked", false);
+  expect(view.getByRole("checkbox", { name: "other" })).toHaveProperty("disabled", true);
+});
