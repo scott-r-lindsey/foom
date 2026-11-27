@@ -53,6 +53,9 @@ in-flight scans are shared; superseded scans, removed repositories and disposed
 workspaces cannot publish late results. Git status reads use `--no-optional-locks`
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
 it opens checking before awaiting the fresh plan. Approval always fetches afresh.
+The zero-count fact opens a read-only cleanup feed that lists kept worktrees.
+It joins any matching eligibility scan and refreshes an expired cached plan
+through the same inventory path. This feed holds no removal capability.
 Fetch operations are queued per repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.
 Default discovery runs `ls-remote --symref` alongside `fetch --prune`, then tests

@@ -17,6 +17,12 @@ export interface CleanupCandidate {
   changes?: string;
 }
 
+interface CleanupActions {
+  fetch(): Promise<string>;
+  remove(candidate: CleanupCandidate, base: string): Promise<void>;
+  branches(candidates: readonly CleanupCandidate[]): Promise<readonly string[]>;
+}
+
 /** Main owns the lifetime; closing a presentation only unsubscribes it. */
 export class CleanupRun implements CleanupFeed {
   private readonly id = randomUUID();
@@ -34,11 +40,8 @@ export class CleanupRun implements CleanupFeed {
     private readonly deps: {
       checkingCount?: number | undefined;
       fetchedAt?(): number | undefined;
-      fetch(): Promise<string>;
-      remove(candidate: CleanupCandidate, base: string): Promise<void>;
-      branches(candidates: readonly CleanupCandidate[]): Promise<readonly string[]>;
       changed(): void;
-    },
+    } & (CleanupActions | { reviewOnly: true }),
   ) {}
   get pending(): boolean {
     return this.phase !== "finished";
@@ -70,6 +73,7 @@ export class CleanupRun implements CleanupFeed {
     const fetchedAt = this.deps.fetchedAt?.();
     return {
       ...(this.error ? { error: this.error } : {}),
+      ...("reviewOnly" in this.deps ? { reviewOnly: this.deps.reviewOnly } : {}),
       stage: this.stage,
       ...(this.deps.checkingCount !== undefined ? { checkingCount: this.deps.checkingCount } : {}),
       ...(fetchedAt !== undefined ? { fetchedAt } : {}),
@@ -97,6 +101,7 @@ export class CleanupRun implements CleanupFeed {
     for (const listener of this.listeners) listener();
   }
   ready(plan: readonly CleanupCandidate[]): void {
+    if ("reviewOnly" in this.deps) plan = plan.filter((item) => item.reason !== undefined);
     this.plan = plan;
     this.items = plan.map(({ tree, reason, changes }, index) => ({
       id: String(index),
@@ -132,10 +137,11 @@ export class CleanupRun implements CleanupFeed {
     this.publish();
   }
   act(): void {
+    if ("reviewOnly" in this.deps) return;
     if (this.stage === "ready" && this.total > 0 && !this.stopped) {
       this.stage = "run";
       this.publish();
-      this.operation = this.run();
+      this.operation = this.run(this.deps);
     } else if (this.active) {
       this.stopped = true;
       this.publish();
@@ -144,10 +150,10 @@ export class CleanupRun implements CleanupFeed {
   async settled(): Promise<void> {
     await this.operation;
   }
-  private async run(): Promise<void> {
+  private async run(actions: CleanupActions): Promise<void> {
     let base: string;
     try {
-      base = await this.deps.fetch();
+      base = await actions.fetch();
     } catch {
       this.failed();
       return;
@@ -169,10 +175,10 @@ export class CleanupRun implements CleanupFeed {
         this.publish();
         try {
           if (candidate.tree.branch === null) {
-            const removal = detached.then(() => this.deps.remove(candidate, base));
+            const removal = detached.then(() => actions.remove(candidate, base));
             detached = removal.catch(() => undefined);
             await removal;
-          } else await this.deps.remove(candidate, base);
+          } else await actions.remove(candidate, base);
           item.state = "removed";
           removed.push(candidate);
         } catch (error) {
@@ -196,7 +202,7 @@ export class CleanupRun implements CleanupFeed {
       }
     }
     try {
-      const kept = await this.deps.branches(removed);
+      const kept = await actions.branches(removed);
       for (const item of this.items) if (kept.includes(item.branch)) item.reason = "branch kept";
     } catch {
       for (const item of this.items) if (item.state === "removed") item.reason = "branch kept";

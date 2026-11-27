@@ -1043,6 +1043,7 @@ export class WorkspaceContext {
   homeFacts: ReturnType<typeof homeShellFacts> | undefined;
   panelFacts(repository: string, worktree: string) {
     this.known(repository);
+    if (repository === worktree) this.cleanup.refreshMergeEligibility(repository);
     return this.deps.worktrees.panelFacts(repository, worktree);
   }
 

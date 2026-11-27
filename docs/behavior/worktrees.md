@@ -7,9 +7,12 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 For repositories with linked worktrees, the menu offers **Delete merged
 worktrees…** below **Remove from Foom…** when the eligibility count is positive,
 before the first scan completes, or after a scan fails. A completed scan with
-zero eligible worktrees hides the command. The repository panel still shows
-**0 eligible to delete**. When a later scan finds eligible worktrees, the command
-and its count return automatically.
+zero eligible worktrees hides the command. In the repository panel, select
+**0 eligible to delete** to review the kept branches and their reasons. The
+read-only review opens with a **Close** button. Opening the repository panel or
+selecting the zero count refreshes eligibility when the cached result is at least
+one minute old. When the scan finds eligible worktrees, the command and its
+count return automatically.
 
 Foom fetches the remote
 (`origin`, or the sole remote) and resolves its advertised default branch. A

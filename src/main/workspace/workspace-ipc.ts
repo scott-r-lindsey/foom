@@ -182,6 +182,8 @@ function sidebarCommand(value: unknown): SidebarCommand {
     return { kind, repository, ...(startNew ? { startNew } : {}) };
   }
   if (kind === "remove-repository") return { kind, repository };
+  if (kind === "review-kept-worktrees" && Object.keys(value).length === 2)
+    return { kind, repository };
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
   if (
@@ -324,7 +326,7 @@ export function attachWorkspace(
           return Promise.resolve(false);
         contents.send("confirmation:dialog");
         return requestDialog({
-          title: "Delete merged worktrees?",
+          title: request.feed?.current().reviewOnly ? "Kept worktrees" : "Delete merged worktrees?",
           accept: "Delete",
           ...(request.subject !== undefined ? { subject: request.subject } : {}),
           worktrees: request.worktrees,

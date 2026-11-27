@@ -1329,7 +1329,7 @@
 .panel-sub {
   color: var(--muted);
 }
-.sidebar-panel .panel-rename-title {
+.sidebar-panel :is(.panel-rename-title, .panel-review-link) {
   display: inline;
   width: auto;
   min-height: 0;
@@ -1342,11 +1342,15 @@
   overflow-wrap: anywhere;
   animation: none;
 }
-.sidebar-panel .panel-rename-title:hover {
+.sidebar-panel :is(.panel-rename-title, .panel-review-link):hover {
   background: transparent;
 }
-.panel-rename-title::before {
+:is(.panel-rename-title, .panel-review-link)::before {
   display: none;
+}
+.sidebar-panel .panel-review-link {
+  color: var(--highlight);
+  text-decoration: underline;
 }
 .panel-chip {
   --chip: var(--muted);

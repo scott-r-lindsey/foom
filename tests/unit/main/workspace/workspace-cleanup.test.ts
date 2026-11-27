@@ -141,6 +141,13 @@ test("merged cleanup cancels, refuses stale fetches and hides ineligible invento
   await expect
     .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedError)
     .toBe("fetch failed");
+  await workspace.sidebarCommand(
+    { kind: "review-kept-worktrees", repository: repo.path },
+    (request) => {
+      expect(request.kind).toBe("merged-worktrees");
+      return Promise.resolve(false);
+    },
+  );
   await workspace.dispose();
 });
 

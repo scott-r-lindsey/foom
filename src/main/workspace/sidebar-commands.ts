@@ -787,6 +787,10 @@ export async function sidebarCommand(
     await this.cleanup.deleteMerged(command.repository, confirm, command.startNew);
     return;
   }
+  if (command.kind === "review-kept-worktrees") {
+    await this.cleanup.reviewMerged(command.repository, confirm);
+    return;
+  }
   if (command.kind === "remove-repository") {
     await this.removeRepository(command.repository, () => confirm({ kind: "remove" }));
     return;

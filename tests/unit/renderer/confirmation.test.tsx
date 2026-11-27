@@ -237,6 +237,26 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
     items: [{ id: "0", branch: "<script>", state: "queued" as const }],
   };
   act(() => {
+    receive({
+      ...base,
+      title: "Kept worktrees",
+      cleanup: {
+        reviewOnly: true,
+        stage: "ready",
+        progress: {
+          ...progress,
+          total: 0,
+          items: [{ id: "0", branch: "feature", state: "kept", reason: "uncommitted changes" }],
+        },
+      },
+    });
+  });
+  expect(view.getByRole("list", { name: "Kept worktrees" }).textContent).toBe(
+    "featureuncommitted changes",
+  );
+  expect(view.getAllByRole("button").map((button) => button.textContent)).toEqual(["Close"]);
+  expect(view.queryByRole("checkbox", { name: "Close when completed" })).toBeNull();
+  act(() => {
     receive({ ...base, cleanup: { stage: "checking", checkingCount: 11, progress } });
   });
   expect(view.getByRole("heading", { name: "Checking11" })).toBeTruthy();

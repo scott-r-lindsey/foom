@@ -425,6 +425,71 @@ it("keeps the completed zero count visible until a replacement scan finishes", a
   });
 });
 
+it("reviews kept worktrees without deletion authority and reuses a fresh eligibility plan", async () => {
+  const f = fixture();
+  f.trees([tree("dirty"), tree("unmerged"), tree("eligible")]);
+  f.worktrees.changes.mockResolvedValueOnce(" M tracked.txt\0");
+  f.worktrees.mergedCommit.mockResolvedValueOnce(false);
+  expect((await f.scan()).mergedCount).toBe(1);
+  f.owner.refreshMergeEligibility(repository);
+  expect(f.deps.refresh).not.toHaveBeenCalled();
+
+  await f.owner.reviewMerged(repository, async (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
+    const feed = request.feed;
+    await vi.waitFor(() => {
+      expect(feed.current()).toMatchObject({
+        reviewOnly: true,
+        stage: "ready",
+        progress: {
+          total: 0,
+          items: [
+            { branch: "dirty", state: "kept", reason: "uncommitted changes" },
+            { branch: "unmerged", state: "kept", reason: "not merged" },
+          ],
+        },
+      });
+    });
+    feed.act();
+    expect(feed.current().stage).toBe("ready");
+    return true;
+  });
+  expect(f.worktrees.mergedDefault).toHaveBeenCalledOnce();
+  expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
+  expect(f.worktrees.deleteMergedBranches).not.toHaveBeenCalled();
+});
+
+it.each(["success", "failure", "inventory failure"] as const)(
+  "refreshes expired eligibility for the panel and kept review (%s)",
+  async (outcome) => {
+    const f = fixture();
+    f.worktrees.mergedCommit.mockResolvedValueOnce(false);
+    expect((await f.scan()).mergedCount).toBe(0);
+    f.advance();
+    f.owner.refreshMergeEligibility(repository);
+    expect(f.deps.refresh).toHaveBeenCalledOnce();
+    if (outcome === "failure")
+      f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
+    if (outcome === "inventory failure")
+      f.deps.inventory.mockRejectedValueOnce(new Error("unavailable"));
+    await f.owner.reviewMerged(repository, async (request) => {
+      if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
+      const feed = request.feed;
+      expect(feed.current().stage).toBe("checking");
+      await vi.waitFor(() => {
+        expect(feed.current()).toMatchObject(
+          outcome === "success"
+            ? { stage: "ready", progress: { items: [], total: 0 } }
+            : { error: "fetch failed" },
+        );
+      });
+      return false;
+    });
+    if (outcome === "success") expect(f.inventory().mergedCount).toBe(1);
+    if (outcome === "failure") expect(f.inventory().mergedError).toBe("offline");
+  },
+);
+
 it.each(["inventory", "main only", "repository removed", "shutdown"] as const)(
   "discards late scan publication after %s",
   async (change) => {

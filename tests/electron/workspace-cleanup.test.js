@@ -1077,6 +1077,146 @@ test("merged cleanup skips Git-ignored build folders and hides the action at zer
   await assert.rejects(realpath(merged.path), { code: "ENOENT" });
 });
 
+test("zero merged cleanup eligibility opens the kept review and refreshes while the board stays focused", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-kept-worktrees-")));
+  removeAfterApps(context, root);
+  const repository = path.join(root, "repo");
+  const checkout = path.join(root, "keep-changes");
+  const home = path.join(root, "home");
+  await mkdir(repository);
+  await mkdir(home);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repository,
+    });
+  git("init", "-q", "-b", "main");
+  await writeFile(path.join(repository, "tracked.txt"), "initial\n");
+  git("add", "tracked.txt");
+  git("commit", "-m", "initial");
+  const remote = path.join(root, "remote.git");
+  git("clone", "--bare", repository, remote);
+  git("remote", "add", "origin", remote);
+  git("worktree", "add", "-b", "keep-changes", checkout);
+  const edit = () => writeFile(path.join(checkout, "tracked.txt"), "keep tracked changes\n");
+  const restore = () => writeFile(path.join(checkout, "tracked.txt"), "initial\n");
+  await edit();
+
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  await app.evaluate(({ app, dialog }, repository) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { CleanupOwner } = load("./build/main/workspace/cleanup-owner.js");
+    const inventory = CleanupOwner.prototype.inventory;
+    CleanupOwner.prototype.inventory = function (...args) {
+      CleanupOwner.prototype.inventory = inventory;
+      let time = Date.now();
+      this.deps.now = () => time;
+      globalThis.expireEligibility = () => {
+        time += 60_001;
+      };
+      return inventory.apply(this, args);
+    };
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+  }, repository);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  const actions = page.getByRole("button", { name: "Actions for repo", exact: true });
+  const zero = page.getByRole("button", { name: "0 eligible to delete", exact: true });
+  const deletion = page.getByRole("menuitem", { name: /Delete merged worktrees…/ });
+  const openPanel = async () => {
+    await actions.click();
+    await expect(actions).toHaveAttribute("aria-expanded", "true");
+  };
+  const closePanel = async () => {
+    await page.keyboard.press("Escape");
+    await expect(actions).toHaveAttribute("aria-expanded", "false");
+  };
+  const reviewKept = async () => {
+    await zero.click();
+    const review = await confirmationPage(app, "Kept worktrees");
+    await expect(review.getByRole("list", { name: "Kept worktrees" })).toContainText(
+      "keep-changesuncommitted changes",
+    );
+    await expect(review.getByRole("button", { name: /delete/i })).toHaveCount(0);
+    return review;
+  };
+  await openPanel();
+  await expect(zero).toBeVisible();
+  await expect(deletion).toHaveCount(0);
+  const review = await reviewKept();
+  await review.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(review.getByRole("alertdialog")).toHaveCount(0);
+
+  if (process.env.FOOM_SCREENSHOTS === "1") {
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(mode);
+      await openPanel();
+      await page.locator(".sidebar-panel").screenshot({
+        path: evidencePath(`screenshots-1331/panel-${mode}.png`),
+        animations: "disabled",
+      });
+      await reviewKept();
+      await expect
+        .poll(() => review.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(mode);
+      await review.screenshot({
+        path: evidencePath(`screenshots-1331/review-${mode}.png`),
+        animations: "disabled",
+      });
+      await review.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(review.getByRole("alertdialog")).toHaveCount(0);
+    }
+  }
+
+  // A tracked edit does not change Git worktree membership or wake its watcher.
+  // Keep the board focused so native focus refresh cannot repair the stale zero.
+  await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+  await page.evaluate(() => {
+    globalThis.blurredDuringEligibilityRefresh = false;
+    window.addEventListener(
+      "blur",
+      () => {
+        globalThis.blurredDuringEligibilityRefresh = true;
+      },
+      { once: true },
+    );
+  });
+  await openPanel();
+  await expect(zero).toBeVisible();
+  await closePanel();
+  await restore();
+  await app.evaluate(() => globalThis.expireEligibility());
+  await openPanel();
+  await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+  await expect(deletion).toHaveText("Delete merged worktrees…1");
+  assert.equal(await page.evaluate(() => globalThis.blurredDuringEligibilityRefresh), false);
+
+  await closePanel();
+  await edit();
+  await app.evaluate(() => globalThis.expireEligibility());
+  await openPanel();
+  await expect(zero).toBeVisible();
+  await restore();
+  await app.evaluate(() => globalThis.expireEligibility());
+  await zero.click();
+  await expect(review.getByRole("list", { name: "Kept worktrees" })).toContainText("main checkout");
+  await expect(review.getByText("keep-changes", { exact: true })).toHaveCount(0);
+  await expect(review.getByRole("button", { name: /delete/i })).toHaveCount(0);
+  await review.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(review.getByRole("alertdialog")).toHaveCount(0);
+  await openPanel();
+  await expect(deletion).toHaveText("Delete merged worktrees…1");
+});
+
 test("closing a board declines its queued cleanup and releases its repository before another board answers", {
   timeout: deadline(60_000),
 }, async (context) => {

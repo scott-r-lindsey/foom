@@ -14,8 +14,8 @@ source and ignore superseded replies. Normal row panels retain their opening top
 position when late facts change their height; the body scrolls within the remaining
 viewport rather than moving commands beneath a stationary pointer. An explicit
 retained-window resize refits placement; the config panel keeps bottom alignment.
-Values render as inert text, with narrow
-identifier-scoped copy controls for the listed facts. Session title edits
+Values render as text, with narrow identifier-scoped copy controls for the listed
+facts and a read-only worktree review at zero eligible. Session title edits
 remain local view preferences. The theme subscription applies the validated
 `panelColor` setting as root metadata; CSS forces undecorated panels for High
 Contrast and increased OS contrast without weakening status outlines.
@@ -24,9 +24,13 @@ Contrast and increased OS contrast without weakening status outlines.
 trusted top frame. WorktreeService validates registered membership and canonical
 launch identity even on cache hits. Local Git reads use argument arrays and
 three-second deadlines, and results are cached for three seconds per checkout
-identity. Failed reads return null facts. The request never calls fetch: merge
-comparison uses only the last successful default commit already fetched by the
-cleanup service. Default-branch and last-fetch facts also read the local remote HEAD and FETCH_HEAD timestamp, including repositories with no linked checkouts. Sidebar eligibility supplies the same count used by cleanup.
+identity. Failed reads return null facts. Panel fact reads compare against the
+last successful default commit already fetched by the cleanup service. Opening
+a repository panel with expired eligibility requests a sidebar inventory refresh,
+which can schedule a background scan independently of the fact read.
+Default-branch and last-fetch facts also read the local remote HEAD and FETCH_HEAD
+timestamp, including repositories with no linked checkouts. Sidebar eligibility
+supplies the same count used by cleanup.
 
 Fact-copy actions use validated sidebar commands and main’s clipboard capability: home paths are main-owned, checkout paths require a registered checkout identity, and conversation IDs come from the selected session. Browser clipboard permissions remain denied.
 

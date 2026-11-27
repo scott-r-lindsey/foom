@@ -255,6 +255,7 @@ const validCleanupReason: Validator<CleanupReason> = literal(
 const boundedChanges: Validator<string> = (value): value is string =>
   text(value) && value.length <= 25_050;
 const validCleanupDialog: Validator<CleanupDialog> = shape({
+  reviewOnly: either(absent, literal(true)),
   checkingCount: either(absent, count),
   fetchedAt: either(absent, range(0, Number.MAX_SAFE_INTEGER)),
   error: either(absent, literal("fetch failed")),

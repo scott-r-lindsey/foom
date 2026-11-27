@@ -166,7 +166,15 @@ test("an open repository menu restores merged cleanup when eligibility rises fro
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
   expect(view.queryByRole("menuitem", { name: /Delete merged worktrees…/ })).toBeNull();
-  expect(view.getByText("0 eligible to delete")).toBeTruthy();
+  const review = view.getByRole("button", { name: "0 eligible to delete" });
+  await act(async () => {
+    fireEvent.click(review);
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenCalledExactlyOnceWith({
+    kind: "review-kept-worktrees",
+    repository: "/foom",
+  });
   const menu = view.getByRole("menu");
   expect(menu.lastElementChild?.textContent).toContain("Remove from Foom…");
   expect(view.getAllByRole("separator").filter((item) => menu.contains(item))).toHaveLength(1);

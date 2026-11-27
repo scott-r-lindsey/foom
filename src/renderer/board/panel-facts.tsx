@@ -154,10 +154,12 @@ export function PanelFacts({
   subject,
   source,
   options,
+  command,
 }: {
   subject: PanelSubject;
   source: BoardSource;
   options: LaunchOptions | undefined;
+  command: (command: SidebarCommand) => Promise<void>;
 }) {
   const [now] = useState(Date.now);
   const [handoffError, setHandoffError] = useState("");
@@ -311,10 +313,22 @@ export function PanelFacts({
             </Chip>
             {subject.repository.mergedCount === undefined ? (
               <Sub>merged count unknown</Sub>
+            ) : subject.repository.mergedCount === 0 ? (
+              <button
+                type="button"
+                className="panel-review-link"
+                aria-haspopup="dialog"
+                onClick={() => {
+                  void command({
+                    kind: "review-kept-worktrees",
+                    repository: subject.repository.path,
+                  });
+                }}
+              >
+                0 eligible to delete
+              </button>
             ) : (
-              <Chip tone={subject.repository.mergedCount ? "done" : "neutral"}>
-                {subject.repository.mergedCount} eligible to delete
-              </Chip>
+              <Chip tone="done">{subject.repository.mergedCount} eligible to delete</Chip>
             )}
           </Fact>
           <Fact label="Sessions">

@@ -117,8 +117,10 @@ and running count. Repository panels show path, remote, default branch, last
 fetch status, worktree/creation/eligible-merged counts and session states; they
 offer New worktree, pinning and **Remove from Foom…** (with “keeps files”).
 With linked worktrees, **Delete merged worktrees…** is available when the count
-is positive, before the first scan completes, or after a scan fails. At zero,
-the count stays in the facts and the command returns when eligibility rises.
+is positive, before the first scan completes, or after a scan fails. Select the
+**0 eligible to delete** fact to review the kept worktrees and their reasons.
+Opening the panel or selecting the fact refreshes an eligibility result at
+least one minute old. The delete command returns when eligibility rises.
 **Deleting merged worktrees** opens an active checklist. **Cleanup results**
 opens an undismissed finished checklist independently of the delete command.
 Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline

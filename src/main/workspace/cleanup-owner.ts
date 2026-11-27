@@ -70,6 +70,15 @@ export interface CleanupOwnerDependencies {
   now: () => number;
 }
 
+interface MergeEligibility {
+  key: string;
+  count: number;
+  expires: number;
+  scan?: Promise<void>;
+  plan?: readonly CleanupCandidate[];
+  result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
+}
+
 /** Main-owned cleanup plans, scans, runs and safe removal coordination. */
 export class CleanupOwner {
   private autoRemoveMergedWorktrees = false;
@@ -88,16 +97,7 @@ export class CleanupOwner {
   >();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
   private readonly mergeScans = new Map<string, Set<Promise<void>>>();
-  private readonly mergeEligibility = new Map<
-    string,
-    {
-      key: string;
-      count: number;
-      expires: number;
-      plan?: readonly CleanupCandidate[];
-      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
-    }
-  >();
+  private readonly mergeEligibility = new Map<string, MergeEligibility>();
 
   constructor(private readonly deps: CleanupOwnerDependencies) {}
 
@@ -747,6 +747,42 @@ export class CleanupOwner {
     });
   }
 
+  refreshMergeEligibility(repository: string): void {
+    const cached = this.mergeEligibility.get(repository);
+    if (cached && this.deps.now() >= cached.expires) this.deps.refresh();
+  }
+
+  async reviewMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
+    this.deps.known(repository);
+    const cached = this.mergeEligibility.get(repository);
+    const review = new CleanupRun({
+      reviewOnly: true,
+      checkingCount: cached?.count,
+      fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
+      changed: () => {},
+    });
+    const answer = confirm({
+      kind: "merged-worktrees",
+      subject: basename(repository),
+      worktrees: [],
+      feed: review,
+    });
+    try {
+      if (!cached || this.deps.now() >= cached.expires) {
+        const trees = await this.deps.inventory(repository);
+        this.deps.known(repository);
+        this.cachedMergeEligibility(repository, trees);
+      }
+      const entry = this.mergeEligibility.get(repository);
+      await entry?.scan;
+      if (entry?.result.mergedError !== undefined) review.failed();
+      else review.ready(entry?.plan ?? []);
+    } catch {
+      review.failed();
+    }
+    await answer;
+  }
+
   /** Never let remote discovery hold up local inventory or session publication. */
   private cachedMergeEligibility(repository: string, worktrees: readonly Worktree[]) {
     if (this.cleanupRuns.get(repository)?.pending)
@@ -758,13 +794,7 @@ export class CleanupOwner {
     const key = JSON.stringify(worktrees.map((tree) => [tree, this.sessionSkip(tree.path)]));
     const cached = this.mergeEligibility.get(repository);
     if (cached?.key === key && this.deps.now() < cached.expires) return cached.result;
-    const entry: {
-      key: string;
-      count: number;
-      expires: number;
-      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
-      plan?: readonly CleanupCandidate[];
-    } = {
+    const entry: MergeEligibility = {
       key,
       count: worktrees.length,
       expires: Number.POSITIVE_INFINITY,
@@ -780,10 +810,10 @@ export class CleanupOwner {
       mergedCount?: number;
       mergedError?: string;
     }) => {
-      // A newer inventory, repository removal or shutdown supersedes this scan.
-      if (this.deps.closed() || this.mergeEligibility.get(repository) !== entry) return;
       entry.result = result;
       entry.expires = this.deps.now() + 60_000;
+      // A review can still read its snapshot, but a superseded scan cannot update the sidebar.
+      if (this.deps.closed() || this.mergeEligibility.get(repository) !== entry) return;
       this.deps.onChange?.();
     };
     const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
@@ -805,10 +835,12 @@ export class CleanupOwner {
         },
       )
       .finally(() => {
+        delete entry.scan;
         scans.delete(scan);
         if (scans.size === 0) this.mergeScans.delete(repository);
       });
     scans.add(scan);
+    entry.scan = scan;
     return entry.result;
   }
 }

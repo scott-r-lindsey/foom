@@ -29,6 +29,7 @@ export interface CleanupProgress {
   items: readonly CleanupItem[];
 }
 export interface CleanupDialog {
+  reviewOnly?: true;
   checkingCount?: number;
   fetchedAt?: number;
   error?: "fetch failed";

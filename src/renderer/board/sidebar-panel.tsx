@@ -89,7 +89,13 @@ export function SidebarPanel({
         mark: mark,
         facts: (() => {
           const facts = (
-            <PanelFacts key={menu.id} subject={subject} source={source} options={options} />
+            <PanelFacts
+              key={menu.id}
+              subject={subject}
+              source={source}
+              options={options}
+              command={command}
+            />
           );
           if (fieldOpen && subject.kind === "worktree")
             return (

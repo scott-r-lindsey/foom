@@ -98,6 +98,9 @@ test("rejects malformed structured fields and preserves literal data", async () 
   };
   listener({}, valid);
   expect(render).toHaveBeenLastCalledWith(valid);
+  const review = { ...valid, cleanup: { ...valid.cleanup, reviewOnly: true } };
+  listener({}, review);
+  expect(render).toHaveBeenLastCalledWith(review);
   for (const invalid of [
     undefined,
     false,
@@ -108,6 +111,7 @@ test("rejects malformed structured fields and preserves literal data", async () 
       cleanup: { progress: { items: [{ omittedChanges }] } },
     })),
     { cleanup: { progress: { items: [{ changes: 42 }] } } },
+    { cleanup: { reviewOnly: false } },
     { cleanup: { progress: { items: [{ changes: "x".repeat(25_051) }] } } },
     { removals: {} },
     { removals: [null] },
