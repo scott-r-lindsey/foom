@@ -10,6 +10,8 @@ export interface RemoteReviewSnapshot {
 import type { HookSignal } from "./hooks";
 /** Main-only mapping; paths authorize nothing without the selected local checkout. */
 export interface RemoteAgentSpec {
+  /** Registered main checkout with this exact credential-free origin. */
+  orchestratorOrigin?: string;
   reviewer?: true;
   childPressure?: true;
   agent: string;
@@ -24,7 +26,9 @@ export interface RemoteAgentSpec {
   reviewSnapshot?: RemoteReviewSnapshot;
 }
 export type RemoteControlResult =
-  | { type: "identity"; alias: string; role: "child"; capabilities: string[] }
+  | { type: "identity"; alias: string; role: "child" | "orchestrator"; capabilities: string[] }
+  | { type: "orchestrator-result"; payload: string }
+  | { type: "orchestrator-error"; error: string }
   | { type: "handoff"; seq: number; status: "done" | "blocked" | "failed"; timestamp: string }
   | {
       type: "manual";

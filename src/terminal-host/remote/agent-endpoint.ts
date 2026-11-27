@@ -10,9 +10,11 @@ import type { RemoteControlResult } from "../../shared/remote-agent";
 import {
   keys,
   record,
+  REMOTE_ORCHESTRATOR_RESPONSE_LIMIT,
   remoteControlResult,
   remoteControlParams,
 } from "../../shared/remote-agent-protocol";
+import { remoteControlDeadline } from "../../shared/remote-agent-deadline";
 import { reduceV2 } from "../../shared/agent-hook-events";
 import { checkSocket, privateDirectory } from "./private-path";
 
@@ -144,10 +146,9 @@ export class AgentEndpoint {
                   end(401);
                   return;
                 }
-                const result = await call(
-                  value["method"],
-                  remoteControlParams(value["method"], value["params"]),
-                );
+                const params = remoteControlParams(value["method"], value["params"]);
+                req.socket.setTimeout(remoteControlDeadline(value["method"], params) + 1000);
+                const result = await call(value["method"], params);
                 if (!this.live()) {
                   end(401);
                   return;
@@ -257,7 +258,8 @@ export function endpointRequest(
         const chunks: Buffer[] = [];
         res.on("data", (bytes: Buffer) => {
           size += bytes.length;
-          if (size > 65536) res.destroy(new Error("Remote response too large"));
+          if (size > REMOTE_ORCHESTRATOR_RESPONSE_LIMIT)
+            res.destroy(new Error("Remote response too large"));
           else chunks.push(bytes);
         });
         res.on("error", reject);
@@ -279,9 +281,11 @@ export function endpointRequest(
         });
       },
     );
+    const call = record(value) ? value : {};
+    const method = typeof call["method"] === "string" ? call["method"] : "";
     const deadline = setTimeout(
       () => req.destroy(new Error("Remote request timed out")),
-      path === "/hook" ? 1000 : 10000,
+      path === "/hook" ? 1000 : remoteControlDeadline(method, call["params"]) + 2000,
     );
     req.once("close", () => {
       clearTimeout(deadline);

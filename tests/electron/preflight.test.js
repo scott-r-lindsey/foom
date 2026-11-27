@@ -614,6 +614,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "setupComplete",
     "showNestedRepositoryNames",
     "showPullRequests",
+    "sourceDirectory",
     "terminalClipboardWrites",
     "unreadChildMinutes",
     "wakeIntervalMinutes",
@@ -668,6 +669,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       alertVolume: 0.5,
     },
     codeFolder: await realpath(repo),
+    sourceDirectory: null,
   });
 
   const created = await page.evaluate(

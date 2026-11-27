@@ -238,3 +238,37 @@ describe("child handoff ownership and waits", () => {
     expect(h.orchestration.handoffs.latest(child.id)).toBeUndefined();
   });
 });
+
+it("records a dispatcher-launched parent's handoff only while the scoped grant survives", async () => {
+  const { actor, orchestration } = harness();
+  const validate = vi.fn();
+  await expect(
+    orchestration.dispatcherHandoff(
+      actor,
+      {
+        status: "done",
+        summary: "Repository checked",
+        idempotencyKey: "report",
+      },
+      validate,
+    ),
+  ).resolves.toMatchObject({ status: "done", seq: 1 });
+  expect(validate).toHaveBeenCalled();
+  expect(orchestration.handoffs.entries(actor.terminalId)).toMatchObject([
+    { summary: "Repository checked" },
+  ]);
+  validate.mockImplementation(() => {
+    throw new Error("Grant expired");
+  });
+  await expect(
+    orchestration.dispatcherHandoff(
+      actor,
+      {
+        status: "blocked",
+        summary: "Late report",
+        idempotencyKey: "late",
+      },
+      validate,
+    ),
+  ).rejects.toThrow("Grant expired");
+});

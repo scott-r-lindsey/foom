@@ -1,5 +1,7 @@
-/** The stdio bridge's complete JSON response bound, also used to budget pages. */
-export const MCP_RESPONSE_LIMIT = 256 * 1024;
+import { MCP_RESPONSE_LIMIT } from "../shared/mcp-protocol";
+
+export { MCP_RESPONSE_LIMIT };
+
 export const MCP_ID_LIMIT = 200;
 
 /** Preserve both MCP representations when measuring or sending a tool result. */
@@ -13,4 +15,12 @@ export function mcpToolResponse(id: unknown, value: unknown) {
       isError: false,
     },
   };
+}
+
+/** Reserve the largest valid JSON-RPC ID, including JSON escaping. */
+export function fitsMcpToolResponse(value: unknown): boolean {
+  return (
+    Buffer.byteLength(JSON.stringify(mcpToolResponse("\u0000".repeat(MCP_ID_LIMIT), value))) <=
+    MCP_RESPONSE_LIMIT
+  );
 }

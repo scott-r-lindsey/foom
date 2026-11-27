@@ -9,7 +9,7 @@ import { LaunchFailure } from "../../shared/launch-failure";
 import { imagePasteRecipient } from "../../shared/image-paste";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
-import type { AgentId, AgentLaunch, AgentLaunched } from "../../shared/agents";
+import type { AgentId, AgentInstallation, AgentLaunch, AgentLaunched } from "../../shared/agents";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
 import { builtinAgent } from "../../shared/providers/catalog";
@@ -29,6 +29,7 @@ import { observerHealth } from "../agents/providers/installed-observers";
 import { agentProvider, knownAgentId, providerRevision } from "../agents/providers/registry";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { AgentSetupContext, WorktreeLaunchContext } from "./workspace-capabilities";
+import type { WorkspaceMethods } from "./workspace-types";
 import { homeDirectory, shellPath } from "./home-shell";
 import { installerEnvironment } from "../../node-common/vendor-install";
 
@@ -91,6 +92,7 @@ export async function launchAgent(
   replacement?: { id: string; conversationId?: string },
   extra: Pick<
     AgentLaunch,
+    | "automated"
     | "control"
     | "prompt"
     | "conversationId"
@@ -102,6 +104,8 @@ export async function launchAgent(
     | "pressure"
     | "selection"
     | "remoteCheckout"
+    | "remoteOrchestrator"
+    | "terminalId"
   > = {},
   parentHold?: CheckoutHold,
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
@@ -111,16 +115,22 @@ export async function launchAgent(
     try {
       if (this.enabled[request.agent] !== true) throw new LaunchFailure("agent_disabled");
       // Scan once so launches don't each probe the login shell.
-      if (!extra.remoteCheckout && !remoteAgentTarget(process.argv, request.worktree))
+      if (
+        !extra.remoteCheckout &&
+        !extra.remoteOrchestrator &&
+        !remoteAgentTarget(process.argv, request.worktree)
+      )
         await this.scanAgents(false);
       // Look up the branch before spawning, so nothing can fail between spawn and tracking.
       const tree = extra.remoteCheckout
         ? {
             branch: `${extra.remoteCheckout.branch === "HEAD" ? "Detached HEAD" : extra.remoteCheckout.branch} · ${extra.remoteCheckout.target.host}`,
           }
-        : (await this.deps.worktrees.listWorktrees(request.repository)).find(
-            (entry) => entry.path === request.worktree,
-          );
+        : extra.remoteOrchestrator
+          ? { branch: `Main checkout · ${extra.remoteOrchestrator.target.host}` }
+          : (await this.deps.worktrees.listWorktrees(request.repository)).find(
+              (entry) => entry.path === request.worktree,
+            );
       const checkClosing = () => {
         if (
           checkoutBusy(
@@ -159,7 +169,10 @@ export async function launchAgent(
           checkClosing();
           extra.beforeSpawn?.();
         },
-        ...(replacement && !this.launched.get(replacement.id)?.remote ? { localOnly: true } : {}),
+        ...((extra.automated && !extra.remoteOrchestrator) ||
+        (replacement && !this.launched.get(replacement.id)?.remote)
+          ? { localOnly: true }
+          : {}),
         defaultArguments,
         ...(replacement
           ? {
@@ -437,7 +450,7 @@ export async function startMachine(
   this: WorktreeLaunchContext,
   host: string | null,
   run: AgentId,
-  restoreId?: string,
+  restore?: Parameters<WorkspaceMethods["startMachine"]>[2],
   location?: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch">,
   conversation?: string,
   confirm?: ConfirmWorkspace,
@@ -447,6 +460,7 @@ export async function startMachine(
   parentHold?: CheckoutHold,
   setup?: { id: string; prompt: string },
 ): Promise<string | undefined> {
+  const restoreId = typeof restore === "string" ? restore : restore?.id;
   let reservation: string | undefined;
   let hold: CheckoutHold | undefined;
   const perform = async (): Promise<string | undefined> => {
@@ -459,8 +473,16 @@ export async function startMachine(
     const hosts = this.deps.hosts;
     let remote: RemoteTarget | undefined;
     let trackedLocation = location;
-    let launchHome = homeDirectory;
+    const previous = restoreId ? this.launched.get(restoreId) : undefined;
+    const source =
+      host === null && run !== "shell" && !location && !setup
+        ? restoreId
+          ? previous?.sourceSession && previous.worktree
+          : this.sourceDirectory
+        : undefined;
+    let launchHome = source || homeDirectory;
     let command = shellPath();
+    let installation: AgentInstallation | undefined;
     const args =
       run === "shell"
         ? process.platform === "win32"
@@ -537,12 +559,13 @@ export async function startMachine(
           worktree: trackedLocation.worktree,
           branch: trackedLocation.branch,
           agent: run,
+          ...(reviewer ? { reviewer: true } : {}),
         };
       }
       command = `ssh ${host}`;
     } else if (run !== "shell") {
       const scan = await this.scanAgents(false);
-      const installation = scan.agents.find((agent) => agent.id === run);
+      installation = scan.agents.find((agent) => agent.id === run);
       if (!installation?.path) throw new LaunchFailure("agent_unavailable");
       command = installation.path;
     }
@@ -616,6 +639,7 @@ export async function startMachine(
       )
     )
       throw new Error("This worktree is busy");
+    let id: string;
     try {
       if (restoreId) {
         this.executionOwner.reset(restoreId);
@@ -626,9 +650,9 @@ export async function startMachine(
         agentResult = await this.agents.launch({
           agent: run,
           ...(reviewer ? { reviewer: true } : {}),
-          repository: homeDirectory,
-          worktree: homeDirectory,
-          humanHome: true,
+          repository: launchHome,
+          worktree: launchHome,
+          ...(source ? { humanSource: true } : { humanHome: true }),
           ...(setup
             ? {
                 beforeSpawn: () => {
@@ -654,7 +678,7 @@ export async function startMachine(
           ensureOpen();
           permission?.validate();
         };
-      const id =
+      id =
         agentResult?.id ??
         (await this.deps.terminals.create({
           ...(signal ? { signal } : {}),
@@ -680,6 +704,7 @@ export async function startMachine(
         worktree: launchHome,
         branch: null,
         ...(trackedLocation ?? { home: true, machine: true }),
+        ...(source ? { sourceSession: true } : {}),
         attention: agentResult?.attention ?? "evaluator",
         ...(conversationId ? { conversationId } : {}),
         state: null,
@@ -700,7 +725,6 @@ export async function startMachine(
       this.executionOwner.launched(id);
       this.persist();
       this.refresh();
-      return id;
     } catch (error) {
       if (restoreId) {
         this.executionOwner.markExited(restoreId, -1);
@@ -708,6 +732,8 @@ export async function startMachine(
       }
       throw error;
     }
+    if (typeof restore === "object" && installation) await restore.onRestore(id, installation);
+    return id;
   };
   try {
     return await (location ? this.withRepository(location.repository, perform) : perform());

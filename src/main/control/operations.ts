@@ -6,6 +6,8 @@ import type { Action, Operation, Principal, Reason, Status, StoredOperation } fr
 
 function failureDetail(reason: Reason): { detail?: string } {
   if (reason === "origin-auth") return { detail: launchReasons[reason] };
+  if (reason === "dispatcher_capacity")
+    return { detail: "The dispatcher has reached its limit of 128 retained orchestrators." };
   const entry = Object.entries(removalReasons).find(([code]) => code === reason);
   return entry ? { detail: entry[1] } : {};
 }
@@ -27,6 +29,15 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function fingerprint(
+  action: Action,
+  targetId: string | null,
+  confirmation: boolean,
+  input: string,
+) {
+  return hash(JSON.stringify([action, targetId, confirmation, input]));
+}
+
 /** Separate from rotated audit history: never evict live grant deduplication records. */
 export class Operations {
   private readonly records = new Map<string, StoredOperation>();
@@ -39,7 +50,8 @@ export class Operations {
 
   private check(actor: Principal): void {
     this.active(actor);
-    if (actor.role !== "orchestrator") throw new ControlError("forbidden");
+    if (actor.role !== "orchestrator" && actor.role !== "dispatcher")
+      throw new ControlError("forbidden");
   }
 
   lookup(actor: Principal, selector: Record<string, unknown>): Operation {
@@ -60,6 +72,27 @@ export class Operations {
     return { ...found.operation };
   }
 
+  /** Match an existing intent without reserving a new operation or resolving a live target. */
+  replay(
+    actor: Principal,
+    action: Action,
+    key: string,
+    input: string,
+    targetId?: string | null,
+    confirmation = false,
+  ): Promise<Operation> | undefined {
+    this.check(actor);
+    identifier(key);
+    const record = this.records.get(`${actor.generation}:${hash(key)}`);
+    if (!record) return;
+    const target = targetId === undefined ? record.operation.targetId : targetId;
+    if (record.fingerprint !== fingerprint(action, target, confirmation, input))
+      throw new ControlError("conflict");
+    return this.writes.then(() =>
+      this.lookup(actor, { operationId: record.operation.operationId }),
+    );
+  }
+
   /** Input is a validated canonical encoding from the future action handler; only its hash persists. */
   async begin(
     actor: Principal,
@@ -76,20 +109,14 @@ export class Operations {
       throw new ControlError("invalid_request");
     if (targetId !== null) identifier(targetId);
     const index = `${actor.generation}:${hash(key)}`;
-    const fingerprint = hash(JSON.stringify([action, targetId, confirmation, input]));
-    const existing = this.records.get(index);
-    if (existing) {
-      if (existing.fingerprint !== fingerprint) throw new ControlError("conflict");
-      await this.writes;
-      this.check(actor);
-      return { ...this.lookup(actor, { idempotencyKey: key }), created: false };
-    }
+    const existing = this.replay(actor, action, key, input, targetId, confirmation);
+    if (existing) return { ...(await existing), created: false };
     if (this.records.size >= this.limit) throw new ControlError("capacity");
     const now = new Date().toISOString();
     const record: StoredOperation = {
       actor,
       key: hash(key),
-      fingerprint,
+      fingerprint: fingerprint(action, targetId, confirmation, input),
       operation: {
         operationId: randomUUID(),
         action,
@@ -138,6 +165,7 @@ export class Operations {
         "revoked",
         "uncertain",
         "error",
+        "dispatcher_capacity",
         ...Object.keys(removalReasons),
         ...Object.keys(launchReasons),
       ].includes(reason)

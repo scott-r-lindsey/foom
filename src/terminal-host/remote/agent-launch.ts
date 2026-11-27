@@ -27,7 +27,8 @@ import {
 import type { RemoteAgentSpec, RemoteControlResult } from "../../shared/remote-agent";
 import type { HookSignal } from "../../shared/hooks";
 import type { TerminalSpec } from "../../shared/desktop";
-import { record } from "../../shared/remote-agent-protocol";
+import { record, REMOTE_ORCHESTRATOR_METHODS } from "../../shared/remote-agent-protocol";
+import { gitOrigin } from "../../shared/registered-hosts";
 import { AgentEndpoint } from "./agent-endpoint";
 import { hostDiscovery, remoteCheckout, hostEnvironment, hostProbe } from "./agent-discovery";
 
@@ -112,12 +113,33 @@ export async function prepareRemoteAgent(
     if (request.reviewer && request.permissionLevel === "full")
       throw new Error("Remote reviewer bypass is unavailable");
   }
-  const checkout = () =>
-    remoteCheckout(request.repository, request.worktree, hostEnvironment(), cancellation).catch(
-      () => {
-        throw new LaunchFailure("remote_worktree_unavailable");
-      },
-    );
+  const checkout = async () => {
+    const env = hostEnvironment();
+    try {
+      if (request.orchestratorOrigin) {
+        if (
+          !profile ||
+          !gitOrigin(request.orchestratorOrigin) ||
+          request.worktree !== request.repository
+        )
+          throw new LaunchFailure("remote_worktree_unavailable");
+        const origin = await hostProbe(
+          "git",
+          ["config", "--local", "--get", "remote.origin.url"],
+          request.repository,
+          env,
+          false,
+          5000,
+          cancellation,
+        );
+        if (origin.trim() !== request.orchestratorOrigin)
+          throw new LaunchFailure("remote_worktree_unavailable");
+      }
+      return await remoteCheckout(request.repository, request.worktree, env, cancellation);
+    } catch {
+      throw new LaunchFailure("remote_worktree_unavailable");
+    }
+  };
   const validateOwner = async () => {
     if (!request.checkoutIdentity || profile === undefined) return;
     const owner = await readWorktreeProvenance(request.worktree);
@@ -219,8 +241,11 @@ export async function prepareRemoteAgent(
       ...(!request.conversationId && conversation ? { newId: conversation } : {}),
     };
     if (conversation) endpoint.state.conversation = conversation;
+    const controlNames = request.orchestratorOrigin
+      ? REMOTE_ORCHESTRATOR_METHODS
+      : ["whoami", "manual", "handoff"];
     values["toolRules"] = JSON.stringify(
-      ["whoami", "manual", "handoff"].map((name) => ({
+      controlNames.map((name) => ({
         action: `${String(values["mcpName"])}_${name}`,
         resource: "*",
         effect: "allow",
@@ -301,7 +326,9 @@ export async function prepareRemoteAgent(
     endpoint.state.launchFacts = facts;
     const prompts = request.prompt
       ? [
-          "Task from your local Foom orchestrator (another agent, not the user). Before stopping when finished, blocked or CI fails, report with handoff({status: done|blocked|failed, summary, idempotencyKey}) or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\n" +
+          (request.orchestratorOrigin
+            ? "Task from your Foom dispatcher. Use whoami to confirm your repository authority.\n\n"
+            : "Task from your local Foom orchestrator (another agent, not the user). Before stopping when finished, blocked or CI fails, report with handoff({status: done|blocked|failed, summary, idempotencyKey}) or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\n") +
             request.prompt,
         ]
       : [];
@@ -314,7 +341,9 @@ export async function prepareRemoteAgent(
     }
     if (guidance)
       prompts.push(
-        "Use foom whoami --json for your launch alias and capabilities. Remote phase 2 exposes handoff, manual and identity only; filesystem preview and fleet/repository tools are unavailable to remote children.",
+        request.orchestratorOrigin
+          ? "Use foom whoami for repository capabilities, then foom call METHOD --params JSON."
+          : "Use foom whoami --json for your launch alias and capabilities. Remote phase 2 exposes handoff, manual and identity only; filesystem preview and fleet/repository tools are unavailable to remote children.",
       );
     if (prompts.length) {
       if (
@@ -375,7 +404,7 @@ export async function prepareRemoteAgent(
         for (const channel of endpoint.channels.values()) args.push(...expand(channel.arguments));
       else if (stage === "tools" && mcp && model.launch.toolPermissions) {
         const permissions = model.launch.toolPermissions;
-        const grants = ["whoami", "manual", "handoff"]
+        const grants = controlNames
           .filter((name) => permissions.names.includes(name))
           .map((name) =>
             permissions.format === "mcp-double-underscore"

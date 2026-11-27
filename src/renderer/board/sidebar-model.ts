@@ -73,6 +73,9 @@ export function rollup(rows: readonly BoardRow[]): BoardRow | undefined {
 export function repositoryKey(path: string): string {
   return `repository:${path}`;
 }
+export function sourceDirectoryKey(path: string): string {
+  return `source-directory:${path}`;
+}
 export function worktreeKey(path: string): string {
   return `worktree:${path}`;
 }

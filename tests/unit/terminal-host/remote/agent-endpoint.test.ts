@@ -1,6 +1,7 @@
 import * as Fs from "node:fs";
 import { createConnection } from "node:net";
 import { request } from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
 import { stat, writeFile, rm } from "node:fs/promises";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -67,6 +68,38 @@ function raw(
     req.end(body);
   });
 }
+
+test.skipIf(process.platform === "win32")(
+  "the helper receives board pages above 64 KiB through the private socket",
+  async () => {
+    const result = {
+      type: "orchestrator-result" as const,
+      payload: JSON.stringify({ posts: Array(8).fill({ text: '"'.repeat(6000) }), next: null }),
+    };
+    const { env } = await fixture(() => Promise.resolve(result));
+    await expect(
+      endpointRequest("/call", { method: "board_read", params: { thread: "thread" } }, env),
+    ).resolves.toEqual(result);
+  },
+);
+test.skipIf(process.platform === "win32")(
+  "a bounded remote wait can finish after the normal socket and helper deadlines",
+  { timeout: 15000 },
+  async () => {
+    const result = {
+      type: "orchestrator-result" as const,
+      payload: JSON.stringify({ sessions: [], changed: [], timedOut: true }),
+    };
+    const f = await fixture(() => delay(10500, result));
+    await expect(
+      endpointRequest(
+        "/call",
+        { method: "wait_for", params: { ids: ["child"], timeoutMs: 10500 } },
+        f.env,
+      ),
+    ).resolves.toEqual(result);
+  },
+);
 test.skipIf(process.platform === "win32")(
   "authenticates independent launch credentials on a private Unix socket, reduces hooks locally and revokes on dispose",
   async () => {

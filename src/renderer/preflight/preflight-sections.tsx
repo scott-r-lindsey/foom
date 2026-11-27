@@ -245,6 +245,23 @@ export function PreflightSections({
         <h2 ref={headingRef} tabIndex={-1}>
           General
         </h2>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = new FormData(event.currentTarget).get("sourceDirectory");
+            if (typeof value === "string") save({ sourceDirectory: value.trim() || null });
+          }}
+        >
+          <label>
+            Source directory
+            <input
+              key={state.settings.sourceDirectory}
+              name="sourceDirectory"
+              defaultValue={state.settings.sourceDirectory ?? ""}
+            />
+          </label>
+          <button type="submit">Save source directory</button>
+        </form>
         <WorktreeLocationControls state={state} repositories={repositories} save={save} />
         <label className="check">
           <input

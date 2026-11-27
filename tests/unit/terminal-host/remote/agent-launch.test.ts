@@ -22,6 +22,7 @@ import {
 } from "../../../../src/terminal-host/remote/agent-launch";
 import {
   hostDiscovery,
+  hostProbe,
   remoteCheckout,
 } from "../../../../src/terminal-host/remote/agent-discovery";
 vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
@@ -58,6 +59,31 @@ const spec = {
   prompt: "Do the task",
 };
 const call = () => Promise.resolve({ type: "error" as const, error: "unavailable" as const });
+test.skipIf(process.platform === "win32")(
+  "remote orchestrator launch pins the approved clone origin",
+  async () => {
+    const origin = "https://example.test/project.git";
+    const prompt = "- Review the fixture.";
+    const parent = { ...spec, worktree: spec.repository, orchestratorOrigin: origin, prompt };
+    const prepare = (profile?: string) =>
+      prepareRemoteAgent(parent, "/fixture/shell", home, () => {}, call, undefined, profile);
+    await expect(prepare()).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+    vi.mocked(hostProbe).mockResolvedValueOnce("https://example.test/foreign.git\n");
+    await expect(prepare("fixture")).rejects.toMatchObject({
+      reason: "remote_worktree_unavailable",
+    });
+    vi.mocked(hostProbe).mockResolvedValueOnce(`${origin}\n`).mockResolvedValueOnce(`${origin}\n`);
+    const prepared = await prepare("fixture");
+    endpoints.push(prepared.endpoint);
+    expect(prepared.spec.cwd).toBe(spec.repository);
+    expect(prepared.spec.args.slice(-2)).toEqual([
+      "--",
+      "Task from your Foom dispatcher. Use whoami to confirm your repository authority.\n\n" +
+        prompt,
+    ]);
+    expect(prepared.spec.args.join(" ")).toContain("__create_worktree");
+  },
+);
 test.skipIf(process.platform === "win32")(
   "remote Claude uses host discovery, private stdio MCP and reduced hooks without hub credentials or terminal IDs",
   async () => {
@@ -420,9 +446,13 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test.skipIf(process.platform === "win32").each(["pi", "opencode"])(
-  "fixture %s consumes generated module and sends reduced lifecycle events over the private socket",
-  async (agent) => {
+test.skipIf(process.platform === "win32").each([
+  ["pi", "child", ["whoami", "manual", "handoff"]],
+  ["pi", "orchestrator", ["whoami", "sessions", "session_state", "board_read"]],
+  ["opencode", "child", ["whoami", "manual", "handoff"]],
+] as const)(
+  "fixture %s with the %s grant consumes its generated module over the private socket",
+  async (agent, role, capabilities) => {
     vi.mocked(hostDiscovery).mockResolvedValueOnce({
       command: process.execPath,
       env: { PATH: "/fixture" },
@@ -434,8 +464,8 @@ test.skipIf(process.platform === "win32").each(["pi", "opencode"])(
       Promise.resolve({
         type: "identity" as const,
         alias: "11111111-1111-4111-8111-111111111111",
-        role: "child" as const,
-        capabilities: ["whoami", "manual", "handoff"],
+        role,
+        capabilities: [...capabilities],
       }),
     );
     const prepared = await prepareRemoteAgent(
@@ -470,7 +500,7 @@ if(agent==='pi') {
  assert.equal(registered,undefined);
  process.env.FOOM_REMOTE_TOKEN=token;
  await handlers.get('before_agent_start')({},ctx);
- assert.deepEqual(Object.keys(registered.toolExposure),['whoami','manual','handoff']);
+ assert.deepEqual(registered.toolExposure,Object.fromEntries(${JSON.stringify(capabilities)}.map(tool=>[tool,"direct"])));
  assert.deepEqual(registered.args,['--mcp']);
  assert.equal(registered.command,process.execPath);
  await handlers.get('agent_start')({},ctx);
@@ -678,5 +708,44 @@ test.skipIf(process.platform === "win32")(
         call,
       ),
     ).rejects.toThrow(/reviewer bypass/);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "registered dispatcher launches combine the pinned origin and managed permission arguments",
+  async () => {
+    const origin = "https://example.test/project.git";
+    vi.mocked(hostProbe).mockResolvedValueOnce(origin).mockResolvedValueOnce(origin);
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: "/fixture/codex",
+      env: { PATH: "/fixture" },
+      version: "codex-cli 0.167.0",
+      help: "-c --sandbox --ask-for-approval",
+    });
+    const prepared = await prepareRemoteAgent(
+      {
+        ...spec,
+        agent: "codex",
+        worktree: spec.repository,
+        orchestratorOrigin: origin,
+        permissionLevel: "workspace",
+        hooks: false,
+      },
+      "/fixture/shell",
+      home,
+      () => {},
+      call,
+      undefined,
+      "fixture",
+    );
+    endpoints.push(prepared.endpoint);
+    expect(prepared.spec.cwd).toBe(spec.repository);
+    expect(prepared.spec.args.slice(0, 4)).toEqual([
+      "--sandbox",
+      "workspace-write",
+      "--ask-for-approval",
+      "never",
+    ]);
+    expect(prepared.ready).toMatchObject({ permissionLevel: "workspace", mcp: true });
   },
 );

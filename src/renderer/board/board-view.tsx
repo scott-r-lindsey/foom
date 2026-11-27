@@ -98,6 +98,8 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "copy-session-id": "Unable to copy session ID.",
   "make-orchestrator": "Unable to make orchestrator.",
   "revoke-orchestrator": "Unable to revoke orchestrator.",
+  "elevate-dispatcher": "Unable to elevate to dispatcher.",
+  "demote-dispatcher": "Unable to demote dispatcher.",
   "take-over": "Unable to take over session.",
 };
 const emptyPreviews: readonly PreviewSummary[] = [];
@@ -318,10 +320,14 @@ function BoardContents({
       source.getSidebar?.() ??
         (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
     );
-    const expanded = pruneExpansion(current.sidebarExpanded ?? {}, repositories);
+    const sources = options && [
+      ...(options.sourceDirectory ? [options.sourceDirectory] : []),
+      ...rows.filter((row) => row.sourceSession).map((row) => row.repository),
+    ];
+    const expanded = pruneExpansion(current.sidebarExpanded ?? {}, repositories, sources);
     if (expanded !== current.sidebarExpanded)
       changeLayout({ ...current, sidebarExpanded: expanded }, true);
-  }, [source, rows, layout.sidebarExpanded, changeLayout, layoutRef]);
+  }, [source, rows, layout.sidebarExpanded, changeLayout, layoutRef, options]);
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
   const buttonsRef = useRef(new Map<string, HTMLElement>());

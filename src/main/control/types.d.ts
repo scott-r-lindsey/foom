@@ -3,7 +3,7 @@ import type { LaunchReason } from "../../shared/launch-failure";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { RemoteControlResult } from "../../shared/remote-agent";
 import type { RemovalReason } from "../workspace/worktree-outcome";
-export type Role = "agent" | "orchestrator" | "cli";
+export type Role = "agent" | "orchestrator" | "dispatcher" | "cli";
 export interface Principal {
   /** ISO timestamp when the current role was granted; refreshed on role changes. */
   readonly grantedAt: string;
@@ -14,6 +14,7 @@ export interface Principal {
   readonly terminalId: string;
   readonly parentId: string | null;
   readonly role: Role;
+  readonly source?: true;
 }
 /** Provider attachment data alone carries no workspace authority. */
 export interface McpAttachment {
@@ -54,6 +55,7 @@ export type Reason =
   | "revoked"
   | "uncertain"
   | "error"
+  | "dispatcher_capacity"
   | RemovalReason
   | LaunchReason;
 export interface Operation {
