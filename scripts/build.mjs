@@ -1,4 +1,5 @@
-import { build } from "esbuild";
+import { recordBuildDirectory } from "./build-inputs.mjs";
+import { bundleBuild } from "./bundle-build.mjs";
 import { JSDOM } from "jsdom";
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, cp, glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -12,6 +13,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 // Normalize the prebuilds before development launches and before Forge copies them.
 // https://github.com/microsoft/node-pty/issues/850
 if (process.platform === "darwin") {
+  recordBuildDirectory(join(root, "node_modules/node-pty/prebuilds"));
   for await (const helper of glob("node_modules/node-pty/prebuilds/darwin-*/spawn-helper", {
     cwd: root,
   })) {
@@ -36,7 +38,7 @@ await writeFile(
   JSON.stringify({ source: sourceRevision }),
 );
 // Inline the pure board registry: the sandbox loader still requires only Electron.
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/preload/preload.ts")],
   bundle: true,
   platform: "browser",
@@ -57,13 +59,13 @@ for (const asset of ["index.html", "confirmation.html", "tokens.css"]) {
 }
 
 // Bundle feature styles into the existing allowlisted URL; no runtime CSS imports.
-await build({
+await bundleBuild({
   entryPoints: [fileURLToPath(new URL("../src/renderer/styles/styles.css", import.meta.url))],
   bundle: true,
   outfile: fileURLToPath(new URL("../build/renderer/styles.css", import.meta.url)),
 });
 
-await build({
+await bundleBuild({
   entryPoints: [fileURLToPath(new URL("../src/renderer/renderer.tsx", import.meta.url))],
   bundle: true,
   tsconfig: fileURLToPath(new URL("../tsconfig.renderer.json", import.meta.url)),
@@ -96,7 +98,7 @@ const shortcuts = ["darwin", "linux"]
   .join("\n");
 await mkdir(join(root, "build/manual"), { recursive: true });
 await copyFile(join(root, "src/manual/manual.css"), join(root, "build/manual/manual.css"));
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/manual/search.ts")],
   bundle: true,
   platform: "browser",
@@ -109,7 +111,7 @@ await writeFile(join(root, "build/manual/manual.html"), completedManual);
 // Share one extraction definition with the page; future main-process consumers
 // can read this bundled artifact without a DOM or a second list of section IDs.
 const indexModule = join(root, "build/manual-index.cjs");
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/manual/section-index.ts")],
   bundle: true,
   platform: "node",
@@ -129,7 +131,7 @@ for (const font of ["geist.ttf", "geist-mono.ttf"]) {
 }
 
 // One browser-only runtime shared by every isolated Markdown preview.
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/renderer/preview/runtime.ts")],
   bundle: true,
   minify: true,
@@ -174,8 +176,16 @@ const thirdPartyNotices = [
   "src/sounds/NOTICES.txt",
   "src/main/evaluator/agent-rules/LICENSE.txt",
 ];
+recordBuildDirectory(join(root, "src/renderer/fonts"));
 for await (const name of glob("src/renderer/fonts/*.txt", { cwd: root })) {
   thirdPartyNotices.push(name);
+}
+recordBuildDirectory(join(root, "node_modules/@img"));
+if (process.env.FOOM_BUILD_INPUTS) {
+  for await (const directory of glob("node_modules/@img/*", { cwd: root, withFileTypes: true })) {
+    if (directory.isDirectory())
+      recordBuildDirectory(join(root, "node_modules/@img", directory.name));
+  }
 }
 for await (const name of glob("node_modules/@img/*/{LICENSE,README.md}", { cwd: root })) {
   thirdPartyNotices.push(name);
@@ -193,7 +203,7 @@ await writeFile(
     ).join("\n\n"),
 );
 
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/renderer/confirmation.tsx")],
   tsconfig: join(root, "tsconfig.renderer.json"),
   bundle: true,
@@ -203,7 +213,7 @@ await build({
   format: "esm",
   outfile: join(root, "build/renderer/confirmation.js"),
 });
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/renderer/styles/confirmation.css")],
   bundle: true,
   outfile: join(root, "build/renderer/confirmation.css"),
