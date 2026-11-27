@@ -332,11 +332,8 @@ test.each([0, 23, undefined])(
       data.update("permission", { recipe: true, exited: true, exitCode });
     });
     const tile = screen.getByRole("region", { name: /Tile 1:/ });
-    expect(
-      within(tile).getByText(
-        exitCode === 0 ? "Done" : `Failed · exit code ${String(exitCode ?? "unknown")}`,
-      ),
-    ).toBeTruthy();
+    const status = exitCode === 0 ? "Done" : `Failed · exit code ${String(exitCode ?? "unknown")}`;
+    expect(within(tile).getByTitle(status).textContent).toBe(status);
   },
 );
 
