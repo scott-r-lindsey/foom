@@ -2009,16 +2009,25 @@ test.each([false, true])(
     fireEvent.click(screen.getByRole("button", { name: "Install git" }));
     await screen.findByRole("region", { name: "Install terminal" });
     const listReads = api.mock.calls.filter(([action]) => action.action === "list").length;
-    if (fails)
-      api.mockImplementation((action) =>
-        action.action === "list"
-          ? Promise.reject(new Error("read failed"))
-          : Promise.resolve(missing),
-      );
-    await act(async () => {
+    const refresh = Promise.withResolvers<HostsState>();
+    api.mockImplementation((action) =>
+      action.action === "list" ? refresh.promise : Promise.resolve(missing),
+    );
+    act(() => {
       exit({ exited: true, code: 0 });
-      await Promise.resolve();
     });
+    const install = screen.getByRole<HTMLButtonElement>("button", { name: "Install git" });
+    expect(screen.getByText("Checking…")).toBeTruthy();
+    expect(install.disabled).toBe(true);
+    await act(async () => {
+      if (fails) refresh.reject(new Error("read failed"));
+      else refresh.resolve(saved(missing));
+      await refresh.promise.catch(() => undefined);
+    });
+    expect(screen.queryByText("Checking…")).toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Install git" }).disabled).toBe(
+      false,
+    );
     if (fails) expect(screen.getByText("Unable to refresh tool")).toBeTruthy();
     else
       expect(api.mock.calls.filter(([action]) => action.action === "list")).toHaveLength(
@@ -2084,6 +2093,13 @@ test("returning to Hosts reattaches the window's install without starting anothe
   const { api, unmount } = await mount(initial, {
     installs: {
       sessions: () => new Map([["worker", "existing-install"]]),
+      hostActions: () =>
+        new Map([
+          [
+            "existing-install",
+            { action: "recipe", host: "worker", tool: "git", operation: "install" },
+          ],
+        ]),
       hasSessions: () => true,
       running: () => Promise.resolve(true),
       close,

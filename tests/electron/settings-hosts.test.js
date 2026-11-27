@@ -1495,6 +1495,22 @@ test("Recorded host requirements are inert, editable and clearable in Settings",
   ).resolves.toBeNull();
 });
 
+async function waitForHeldGitInspection(calls) {
+  await expect
+    .poll(async () =>
+      (await readFile(calls, "utf8"))
+        .trim()
+        .split("\n")
+        .some((line) => {
+          const { message, phase } = JSON.parse(line);
+          return (
+            phase === "held" && message.target?.kind === "tool" && message.target.tool === "git"
+          );
+        }),
+    )
+    .toBe(true);
+}
+
 test("Repositories lists existing checkouts and opens fixed repair recipes without exposing remote output", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -1542,7 +1558,7 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
     )
     .toContain("FIXTURE_RECIPE_COMPLETE");
   await capture("fix-install-tile");
-  await updateScenario({
+  const installed = {
     recipeExit: 0,
     facts: {
       tools: [
@@ -1550,10 +1566,17 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
         { id: "gh", state: "ready", signIn: "signed-out" },
       ],
     },
-  });
+  };
+  await updateScenario({ ...installed, hold: "inspect" });
   await expect(
     card.getByRole("region", { name: "Install terminal" }).getByRole("status"),
   ).toHaveText("Done");
+  await waitForHeldGitInspection(calls);
+  const gitRow = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  await expect(gitRow).toContainText("Checking…");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
   await openSettingsScreen(page);
@@ -1564,18 +1587,16 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
   await expect(card).toBeVisible();
   // The pending Git result leaves the card open. Once Git is ready, the card
   // collapses, so wait for its Expand button before checking the row.
+  await updateScenario(installed);
   await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
-  await expect(
-    card
-      .locator(".host-check-row")
-      .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) }),
-  ).toContainText("Pass · Installed");
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toHaveCount(0);
   const installChecks = (await readFile(calls, "utf8"))
     .trim()
     .split("\n")
     .slice(beforeInstall)
     .map((line) => JSON.parse(line))
-    .filter(({ message }) => message.type === "manage")
+    .filter(({ message, phase }) => message.type === "manage" && !phase)
     .map(({ message }) => message);
   assert.deepEqual(
     installChecks
@@ -2285,15 +2306,22 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   assert.deepEqual(checks, [null, { kind: "tool", tool: "git" }]);
   await terminal.getByRole("button", { name: "Dismiss" }).click();
   await expect(terminal).toHaveCount(0);
-  await updateScenario({
-    recipeExit: 23,
+  const missingGit = {
     facts: { tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
-  });
+  };
+  await updateScenario(missingGit);
   await card.getByRole("button", { name: "Reload git", exact: true }).click();
   await expect(card.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
   await card.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  await updateScenario({ ...missingGit, hold: "inspect", recipeExit: 23 });
   await expect(terminal.getByRole("status")).toHaveText("Failed · exit code 23");
+  await waitForHeldGitInspection(calls);
+  await expect(gitRow).toContainText("Checking…");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
+  await updateScenario(missingGit);
   await expect(gitRow).toContainText("Not found");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
   await captureHosts(app, page, "1062/install-failed");
 });
 

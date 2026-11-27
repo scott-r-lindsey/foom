@@ -32,7 +32,8 @@ type RegisteredGitOrigin = NonNullable<HostsState["gitOrigins"]>[number];
 type RecipeView = {
   host: string;
   id: string;
-  finished: boolean;
+  phase: "running" | "checking" | "finished";
+  installTool?: string;
   endpoint?: GitOriginEndpoint;
   reveal?: true;
   gh?: "install" | "sign-in";
@@ -410,6 +411,7 @@ function Checklist({
   act: (action: HostsAction) => void;
   changeFolder: () => void;
 }) {
+  const reload = use(ReloadContext);
   const result = progress?.result ?? preflight?.result ?? entry.result;
   const facts = result?.ok ? result.facts : undefined;
   const agents =
@@ -454,6 +456,7 @@ function Checklist({
       type="button"
       disabled={
         disabled ||
+        (operation === "install" && reload?.pending.has(rowKey({ kind: "tool", tool: id }))) ||
         (id === "gh" && ghRunning) ||
         (signInTerminal?.tool === id && signInTerminal.running)
       }
@@ -887,7 +890,7 @@ export function HostsSettings({
         {
           host,
           id,
-          finished: false,
+          phase: "running",
           ...(source.githubSignInSessions?.().has(id)
             ? {
                 gh: source.githubSignInSessions().get(id)
@@ -904,19 +907,31 @@ export function HostsSettings({
           host: action.host,
           id,
           endpoint: action.endpoint,
-          finished: false,
+          phase: "running",
         });
+      else if (action.operation === "install") {
+        const recipe = saved.get(action.host);
+        if (recipe?.id === id) saved.set(action.host, { ...recipe, installTool: action.tool });
+      }
     }
     return saved;
   });
   const clearRecipe = (host: string) => {
     setRecipes(
       (previous) =>
-        new Map([...previous].filter(([, recipe]) => recipe.host !== host || !recipe.finished)),
+        new Map(
+          [...previous].filter(([, recipe]) => recipe.host !== host || recipe.phase !== "finished"),
+        ),
     );
   };
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
+      setRecipes((previous) => {
+        for (const [key, recipe] of previous)
+          if (recipe.id === id && recipe.installTool)
+            return new Map(previous).set(key, { ...recipe, phase: "checking" });
+        return previous;
+      });
       await api?.({ action: "list" })
         .then((next) => {
           setState(next);
@@ -927,7 +942,7 @@ export function HostsSettings({
         });
       setRecipes((previous) => {
         for (const [key, recipe] of previous)
-          if (recipe.id === id) return new Map(previous).set(key, { ...recipe, finished: true });
+          if (recipe.id === id) return new Map(previous).set(key, { ...recipe, phase: "finished" });
         return previous;
       });
       if (succeeded)
@@ -1100,7 +1115,10 @@ export function HostsSettings({
             {
               host: action.host,
               id,
-              finished: false,
+              phase: "running",
+              ...(action.action === "recipe" && action.operation === "install"
+                ? { installTool: action.tool }
+                : {}),
               ...(action.action === "trust-origin"
                 ? { endpoint: action.endpoint, reveal: true as const }
                 : {}),
@@ -1313,7 +1331,7 @@ export function HostsSettings({
       {hostsQuery.data !== undefined &&
         [...recipes.values()].map((recipe) =>
           recipe.endpoint &&
-          !recipe.finished &&
+          recipe.phase !== "finished" &&
           !state.hosts.some((host) => host.host === recipe.host) ? (
             <section
               className="host-card host-compact"
@@ -1370,11 +1388,11 @@ export function HostsSettings({
             if (
               origin.host !== entry.host ||
               !origin.endpoint ||
-              (awaitingTrust && origin.finished)
+              (awaitingTrust && origin.phase === "finished")
             )
               continue;
             originTerminals.set(originRecipeKey(entry.host, origin.endpoint), {
-              running: !origin.finished,
+              running: origin.phase !== "finished",
               panel: originPanel(origin.id, origin.reveal),
             });
           }
@@ -1539,11 +1557,14 @@ export function HostsSettings({
                       .map(([key]) => key.slice(entry.host.length + 1)),
                     ...(entry.rowFailures ?? []).map((row) => rowKey(row.target)),
                   ]),
-                  pending: new Set(
-                    [...rowPending]
+                  pending: new Set([
+                    ...[...rowPending]
                       .filter((key) => key.startsWith(`${entry.host}:`))
                       .map((key) => key.slice(entry.host.length + 1)),
-                  ),
+                    ...(recipe?.phase === "checking" && recipe.installTool
+                      ? [rowKey({ kind: "tool", tool: recipe.installTool })]
+                      : []),
+                  ]),
                 }}
               >
                 <Checklist
@@ -1555,10 +1576,14 @@ export function HostsSettings({
                     !recipe.gh &&
                     recipeAction?.action === "recipe" &&
                     recipeAction.operation === "sign-in"
-                      ? { tool: recipeAction.tool, running: !recipe.finished, panel: terminal }
+                      ? {
+                          tool: recipeAction.tool,
+                          running: recipe.phase !== "finished",
+                          panel: terminal,
+                        }
                       : undefined
                   }
-                  ghRunning={!!recipe?.gh && !recipe.finished}
+                  ghRunning={!!recipe?.gh && recipe.phase !== "finished"}
                   ghPanel={
                     !awaitingTrust && recipe?.gh ? (
                       <GithubSignInPanel
