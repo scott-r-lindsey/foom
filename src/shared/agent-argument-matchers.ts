@@ -5,7 +5,6 @@ import type { AgentManifestV2 } from "./agent-manifest-v2";
 type Matcher = AgentManifestV2["reservedArguments"][number];
 function overrideValueMatches(raw: string, expected: string): boolean {
   if (raw === expected) return true;
-  if (!raw.startsWith('"') && !raw.startsWith("'")) return false;
   try {
     const parsed = parseToml(`value = ${raw}`, { maxDepth: 24, unsafeKeyBehaviour: "throw" });
     return isRecord(parsed) && parsed["value"] === expected;

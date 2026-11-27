@@ -107,6 +107,25 @@ it("classifies generated Workspace and Full access arguments as bypass outside m
   expect(matchesArguments(model.bypassArguments, bundledCodex.permissionLevels.ask)).toBe(false);
   for (const args of [bundledCodex.permissionLevels.workspace, bundledCodex.permissionLevels.full])
     expect(matchesArguments(model.bypassArguments, args)).toBe(true);
+  expect(
+    applyPermissionArguments(model, "workspace", [], 0, { [permissionLevelSupported]: true }),
+  ).toEqual(bundledCodex.permissionLevels.workspace);
+});
+
+it.each([
+  ["sandbox_mode", "danger-full-access", "'"],
+  ["approval_policy", "never", '"'],
+  ["default_permissions", ":danger-full-access", "'"],
+])("matches Codex override %s with boundary quotes", (key, value, quote) => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  for (const quoted of [`${value}${quote}`, `'${value}`, `"${value}"`, `"${value}'`]) {
+    const override = `${key}=${quoted}`;
+    const args = ["-c", override];
+    expect(matchesArguments(model.bypassArguments, args), override).toBe(true);
+    expect(() =>
+      applyPermissionArguments(model, "workspace", args, 0, { [permissionLevelSupported]: true }),
+    ).toThrow("agent-permission-conflict");
+  }
 });
 
 it("decodes quoted TOML approval values while keeping root-only override matching", () => {

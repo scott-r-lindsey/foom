@@ -169,9 +169,10 @@ CLI 0.172.0, published 2026-11-24. [CLI reference](https://learn.chatgpt.com/doc
 | Disable the sandbox | `--sandbox danger-full-access`, `--sandbox=danger-full-access`, `-s danger-full-access`, `-s=danger-full-access`, `-sdanger-full-access` and config overrides selecting `sandbox_mode=danger-full-access` or `default_permissions=:danger-full-access` | [Sandbox values](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/sandbox_mode_cli_arg.rs), [built-in permission presets](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/approval-presets/src/lib.rs) |
 
 Each override accepts `--config KEY=VALUE`, `--config=KEY=VALUE`,
-`-c KEY=VALUE`, `-c=KEY=VALUE` and `-cKEY=VALUE`. Codex parses TOML values
-and falls back to bare strings. Foom matches decoded string values, so quotes,
-TOML escapes and comments on quoted values cannot hide a selector. Any
+`-c KEY=VALUE`, `-c=KEY=VALUE` and `-cKEY=VALUE`. Foom matches decoded TOML
+strings, including values with TOML escapes or comments. If TOML parsing fails,
+Foom follows Codex and strips single and double quotes from either end, including
+unpaired or mismatched quotes. Any
 combination of an approval-off and a sandbox-off selector is caught regardless
 of argument order. A single selector is enough for acknowledgement or refusal.
 Foom checks explicit arguments and does not read vendor profiles or infer the

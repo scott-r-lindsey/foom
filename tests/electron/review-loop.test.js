@@ -578,7 +578,9 @@ esac
     if (scenario === "codex-bypass") {
       await waitStep("build");
       const save = page.evaluate(() =>
-        window.desktop.saveSetup({ agentArguments: { codex: ["--yolo"] } }),
+        window.desktop.saveSetup({
+          agentArguments: { codex: ["-c", "sandbox_mode=danger-full-access'"] },
+        }),
       );
       const consent = await confirmationPage(app, "Save bypass defaults for Codex?");
       await consent.getByRole("button", { name: "Save bypass defaults", exact: true }).click();

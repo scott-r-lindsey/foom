@@ -1667,12 +1667,12 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   await sections.getByRole("button", { name: "Foom config", exact: true }).click();
   const file = path.join(home, ".foom/config/settings.json");
   const original = await readFile(file, "utf8");
+  const approvalBypass = ["-c", 'approval_policy=never"'];
   const args = [
     "--eval",
     `const publish = ${publishFixtureRecord.toString().replaceAll("\n", " ")}; publish(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); process.stdin.resume()`,
     "fixture",
-    "--ask-for-approval",
-    "never",
+    ...approvalBypass,
   ];
   const proposal = JSON.stringify({
     ...JSON.parse(original),
@@ -1703,7 +1703,6 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
       .locator(".section")
       .filter({ has: disclosure.getByRole("heading", { name: label, exact: true }) })
       .locator(".argument-lines code");
-  const approvalBypass = ["--ask-for-approval", "never"];
   assert.deepEqual(await argumentLines("Codex after").allTextContents(), args);
   await expect(argumentLines("Codex bypass")).toHaveText(approvalBypass);
   await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
