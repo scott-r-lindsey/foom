@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runInNewContext } from "node:vm";
 import { suiteFiles } from "../tests/electron/test-suites.js";
+import { discoverRegistrations } from "./electron-selection.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 // The setup allowances are measured step wall time minus JUnit case time.
@@ -250,18 +249,7 @@ function main(args) {
   }
   const planPath = resolve(root, "tests/electron/shard-plan.json");
   const old = JSON.parse(readFileSync(planPath, "utf8"));
-  const names = [];
-  for (const file of suiteFiles()) {
-    const suiteRequire = createRequire(file);
-    runInNewContext(readFileSync(file, "utf8"), {
-      process,
-      require: (specifier) =>
-        specifier === "./test-shard.js"
-          ? { test: (name) => names.push(name) }
-          : suiteRequire(specifier),
-    });
-  }
-  if (new Set(names).size !== names.length) throw new Error("Duplicate current test registration");
+  const names = [...discoverRegistrations(suiteFiles()).keys()];
   const counts = old.platforms.map((platform) => old.shardCounts[platform]);
   const sourceCounts = measurementCounts(
     sources,

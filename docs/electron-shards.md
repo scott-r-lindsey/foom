@@ -69,8 +69,14 @@ within each job, preserving native desktop/focus behavior. Shards within a
 platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
 Suite discovery preserves named registrations independently of file layout.
-Generated loop cases are included in registration audits. Empty files on a shard
-may appear as Node runner placeholders; these are not named test registrations.
+Registration discovery includes generated loop cases without invoking test
+bodies. Full CI shards use the files containing their planned test names. A
+shard keeps the full inventory if it can receive a hash-assigned test, the plan
+cannot be reconciled with registrations, or discovery cannot resolve a suite.
+Local pattern filters use the same discovery to pass only matching files to
+Node. Unknown matches and ambiguous filters keep the full inventory. An
+explicit `--suite` keeps the requested file list. Empty files may appear as
+Node runner placeholders and do not count toward the focused pass total.
 
 ```sh
 # Full suite, no sharding (Linux)

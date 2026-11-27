@@ -30,6 +30,7 @@ function fixture(context, { timeout } = {}) {
   }
   for (const name of [
     "electron-tests.mjs",
+    "electron-selection.mjs",
     "electron-summary.mjs",
     "validation-fingerprint.mjs",
     "build-inputs.mjs",
@@ -39,7 +40,12 @@ function fixture(context, { timeout } = {}) {
   ]) {
     cpSync(new URL(name, import.meta.url), join(root, "scripts", name));
   }
-  for (const name of ["test-shard.js", "test-suites.js", "shard-plan.json"]) {
+  for (const name of [
+    "test-shard.js",
+    "test-suites.js",
+    "shard-assignment.js",
+    "shard-plan.json",
+  ]) {
     cpSync(
       new URL(`../tests/electron/${name}`, import.meta.url),
       join(root, "tests/electron", name),
@@ -173,11 +179,59 @@ test("wrapper forwards both filter forms, reports executed tests and preserves s
         require('node:assert/strict').ok(process.execArgv.includes('--test-concurrency=1'));
       });`,
   );
-  const multiple = run(["--reuse-build", "--test-name-pattern=^selected"]);
+  const single = run(["--reuse-build", "--test-name-pattern=/^SELECTED CASE$/i"]);
+  assert.equal(single.status, 0, single.output);
+  assert.match(single.output, /1 of 2 suite files/);
+  assert.doesNotMatch(single.output, /two\.test\.js/);
+  const multiple = run([
+    "--reuse-build",
+    "--test-name-pattern=^selected case$",
+    "--test-name-pattern=^selected second$",
+  ]);
   assert.equal(multiple.status, 0, multiple.output);
   assert.match(multiple.output, /2 selected tests passed/);
+
+  const missing = run(["--reuse-build", "--test-name-pattern=^missing$"]);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.output, /No selected tests passed/);
+  assert.match(missing.output, /one\.test\.js/);
+  assert.match(missing.output, /two\.test\.js/);
+
+  writeFileSync(
+    join(root, "tests/electron/two.test.js"),
+    `const { test } = require('./test-shard.js');
+      if (process.env.NODE_TEST_CONTEXT) test('selected case', () => {});`,
+  );
+  const uncertain = run(["--reuse-build", "--test-name-pattern=^selected case$"]);
+  assert.equal(uncertain.status, 0, uncertain.output);
+  assert.match(uncertain.output, /2 selected tests passed/);
+
   const packaged = run(["--packaged", "--test-name-pattern=^selected case$"]);
   assert.equal(packaged.status, 0, packaged.output);
+});
+
+test("CI wrapper loads only files for its measured shard", (context) => {
+  const { root, run } = fixture(context);
+  const directory = join(root, "tests/electron");
+  writeFileSync(
+    join(directory, "shard-plan.json"),
+    JSON.stringify({ shards: { 2: [{ "first case": [] }, { "second case": [] }] } }),
+  );
+  for (const [file, name] of [
+    ["one", "first"],
+    ["two", "second"],
+  ]) {
+    writeFileSync(
+      join(directory, `${file}.test.js`),
+      `const { test } = require('./test-shard.js');
+        test('${name} case', () => {});`,
+    );
+  }
+  const selected = run([], { CI: "true", FOOM_ELECTRON_SHARD: "2/2" });
+  assert.equal(selected.status, 0, selected.output);
+  assert.match(selected.output, /1 of 2 suite files/);
+  assert.match(selected.output, /second case/);
+  assert.doesNotMatch(selected.output, /one\.test\.js|first case/);
 });
 
 test("wrapper rejects invalid options, invalid regexes, zero matches, and propagates failures", (context) => {
