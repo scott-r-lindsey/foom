@@ -107,6 +107,7 @@ Narrow preview headers keep the document glyph visible and the menu and actions
 available as the preview identity truncates. When the network text no longer fits,
 the globe stays visible with “Network enabled” as its accessible name and tooltip.
 When the menu and action buttons need more room, the buttons move to a second row.
+Short tiles compact both rows to leave room for the preview.
 
 Preview headers have a keyboard-reachable **Reload** icon beside Close. It is faint at
 rest and fully opaque when the header is hovered or the icon has keyboard focus, with

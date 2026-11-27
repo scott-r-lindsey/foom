@@ -64,6 +64,9 @@
   font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
 }
+.terminal-tile[data-kind="preview"] {
+  container: preview-tile / size;
+}
 .terminal-tile[data-kind="preview"] .tile-title {
   flex-wrap: wrap;
 }
@@ -278,6 +281,38 @@
   /* A startup tile has no menu fallback. Keep its Close button in the header. */
   .tile-title-main:has(.tile-number:enabled) + .tile-controls {
     display: none;
+  }
+}
+@container preview-tile (height < 64px) {
+  .tile-title {
+    /* Budget both header rows so the native view can keep positive bounds. */
+    --preview-header-height: calc(100cqh - min(10px, 25cqh));
+    --preview-header-row: calc(var(--preview-header-height) / 2);
+    min-height: min(30px, var(--preview-header-height));
+    max-height: var(--preview-header-height);
+  }
+  .tile-title-main,
+  .tile-title .tile-number,
+  .tile-controls button,
+  .tile-heading-content svg {
+    max-height: var(--preview-header-row);
+  }
+  .tile-heading-content {
+    min-height: 0;
+    flex-wrap: nowrap;
+  }
+  .tile-heading-content :is(.preview-glyph, .preview-network, .preview-network svg) {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  .tile-title .tile-number {
+    flex-wrap: nowrap;
+    line-height: 1;
+    overflow: clip;
+  }
+  .tile-number span {
+    min-width: 0;
+    overflow: clip;
   }
 }
 .tile-shell,
