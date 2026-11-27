@@ -1063,7 +1063,7 @@
         "macOS quit from an inactive app activates trusted consent and keeps board close guarded": [
           0, 0, 5.342
         ],
-        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
+        "merged cleanup skips Git-ignored build folders and hides the action at zero eligible": [
           3.567, 36.848, 12.359
         ],
         "middle click focuses the inactive terminal and routes typing to its PTY": [
@@ -1260,7 +1260,7 @@
         "macOS private selection pastes from terminal A to B through bracketed paste": [
           4.376, 15.402, 9.751
         ],
-        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
+        "merged cleanup skips Git-ignored build folders and hides the action at zero eligible": [
           3.567, 36.848, 12.359
         ],
         "neutral identity badges keep labels and geometry across themes and interface scales": [
@@ -2405,7 +2405,7 @@
         "merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees": [
           8.893, 32.823, 16.335
         ],
-        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
+        "merged cleanup skips Git-ignored build folders and hides the action at zero eligible": [
           3.567, 36.848, 12.359
         ],
         "ordinary Close refuses a second owned or sidebar removal until terminal teardown settles": [

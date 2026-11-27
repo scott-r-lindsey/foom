@@ -189,7 +189,7 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
 
 export async function sidebarCommand(
   this: SidebarCommandsContext,
-  command: Exclude<SidebarCommand, { kind: "open-handoff-link" | "review-merged-worktrees" }>,
+  command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
   confirm: ConfirmWorkspace,
   validateClose?: () => void,
   closeSignal?: AbortSignal,
@@ -771,11 +771,7 @@ export async function sidebarCommand(
     return;
   }
   if (command.kind === "delete-merged-worktrees") {
-    await this.cleanup.deleteMerged(command.repository, confirm);
-    return;
-  }
-  if (command.kind === "open-merged-cleanup") {
-    await this.cleanup.openMergedCleanup(command.repository, command.runId, confirm);
+    await this.cleanup.deleteMerged(command.repository, confirm, command.startNew);
     return;
   }
   if (command.kind === "remove-repository") {

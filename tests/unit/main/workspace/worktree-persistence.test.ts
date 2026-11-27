@@ -139,14 +139,10 @@ describe("persistent ownership", () => {
     service = await restart();
     await service.addRepository(repo);
     const { path } = await service.createWorktree(repo, "persist");
-    const other = await service.createWorktree(repo, "other");
     const metadata = await readFile(join(path, ".git"));
     await rm(join(path, ".git"));
-    await service.listWorktrees(repo, { skipOwnership: true });
-    await service.removalIdentity(repo, other.path);
-    expect((await saved()).managed.map((entry) => entry["path"])).toContain(path);
     await service.listWorktrees(repo);
-    expect((await saved()).managed.map((entry) => entry["path"])).toEqual([other.path]);
+    expect((await saved()).managed).toEqual([]);
     await writeFile(join(path, ".git"), metadata);
     await (await restart()).removeWorktree(repo, path);
     await expect(realpath(path)).rejects.toThrow();

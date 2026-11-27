@@ -18,11 +18,6 @@ export interface FetchFacts {
   head: string | null;
 }
 
-export interface FetchedDefault {
-  readonly branch: string;
-  readonly head: string;
-}
-
 export interface CreationContext extends Pick<WorktreeService, "validateBranch" | "listWorktrees"> {
   readonly root: string;
   readonly createdParents: Map<string, string>;

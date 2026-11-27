@@ -48,25 +48,12 @@ publish after repository removal or shutdown.
 
 Sidebar inventory never awaits remote merge checks. Main caches eligibility for
 one minute, starts a background scan for a new local worktree/session inventory
-or an expired result, and emits a workspace change when it finishes. A replacement
-scan keeps the previous result for display and checks a new plan. Matching
+or an expired result, and emits a workspace change when it finishes. Matching
 in-flight scans are shared; superseded scans, removed repositories and disposed
 workspaces cannot publish late results. Git status reads use `--no-optional-locks`
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
-it opens checking before awaiting the fresh plan. The zero-count review runs the
-eligibility checks against current checkout state and the branch and commit
-from the same successful default fetch. A failed refresh preserves that snapshot.
-The review, including Forge context validation, reads Git membership without
-reconciling Foom's creation records. It presents a static, read-only dialog after
-the checks finish. Main checks that the same registration, checkout inventory and
-session eligibility still apply after the scan and again when the dialog leaves
-the presentation queue. Admission also reruns the local eligibility checks so
-changes to files can invalidate a queued review. Queued results require the run
-ID that was opened. Main consumes a checklist when a presented dialog displaying
-finished results closes.
-Only deletion uses a cleanup run, repository reservation and
-removal queue. Deletion approval always fetches afresh. Fetch operations are queued per
-repository, including background and explicit scans.
+it opens checking before awaiting the fresh plan. Approval always fetches afresh.
+Fetch operations are queued per repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.
 Default discovery runs `ls-remote --symref` alongside `fetch --prune`, then tests
 the advertised commit with `cat-file -e`. Only an absent object needs the explicit
@@ -109,14 +96,10 @@ hashes. Same-project, exact-head, stable-refresh, clean and identity guards rema
 Every removal rechecks this evidence. Automatic removal uses this verified PR path
 alongside its existing ancestry/no-unpushed-commits path, preserving clean status,
 identity, session and authority guards. A failed post-confirmation fetch prevents every removal.
-Merged cleanup rechecks session eligibility after the final asynchronous status
-read and before invoking Git removal.
 Main owns one `CleanupRun` per repository. While it is pending, inventory does not
 start background eligibility scans. Before deletion begins, cleanup drains all
-existing scans, including superseded scans and read-only eligibility reviews, so
+existing scans, including superseded scans whose results will be discarded, so
 Windows directory handles held by their Git processes cannot block removal.
-Reviews opened during approved cleanup read membership only and report linked
-checkouts as unavailable until cleanup finishes.
 Four workers run the existing removal
 path, retaining its revalidation passes. Successful removals retain their branch
 launch locks through the ref transaction so Foom cannot recreate those branches
@@ -141,9 +124,7 @@ validated boolean answer approves only a ready plan, stops only an active run,
 or closes the presentation. Checking cannot approve. Main publishes current state
 on the existing render channel; stale IDs and non-boolean payloads are ignored.
 Hide/close/Escape unsubscribe without stopping; reopening subscribes to the same
-run. The sidebar opens a checklist by repository and run ID. Main ignores an ID
-that no longer matches the current run. The repository reservation lasts until
-workers settle, including while hidden.
+run. The repository reservation lasts until workers settle, including while hidden.
 Shutdown stops scheduling new removals and waits for in-flight work.
 As with ordinary removal, this does not isolate concurrent filesystem mutations
 by external local processes. Fetches disable interactive credential prompts and

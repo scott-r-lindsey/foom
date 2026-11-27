@@ -336,7 +336,6 @@ export function ConfirmationCard({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
   const [closeWhenCompleted, setCloseWhenCompleted] = useState(true);
-  const unfinishedCleanupShownRef = useRef(false);
   const closedIdRef = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [nowTick, setNowTick] = useState(Date.now);
@@ -401,7 +400,6 @@ export function ConfirmationCard({
   const wide = Boolean(
     request?.cleanup ||
       request?.worktrees ||
-      request?.worktreeEligibility ||
       request?.removals ||
       request?.changes ||
       request?.sessions ||
@@ -466,15 +464,11 @@ export function ConfirmationCard({
   }, [requestId, wide, bounded, embedded]);
   useEffect(() => {
     const cleanup = request?.cleanup;
-    if (!request?.presented || !cleanup) return;
-    if (cleanup.progress.phase !== "finished") {
-      unfinishedCleanupShownRef.current = true;
-      return;
-    }
     if (
-      unfinishedCleanupShownRef.current &&
+      request &&
       closeWhenCompleted &&
-      cleanup.stage === "run" &&
+      cleanup?.stage === "run" &&
+      cleanup.progress.phase === "finished" &&
       !cleanup.error &&
       cleanup.progress.total > 0 &&
       cleanup.progress.items.filter((item) => item.state === "removed").length ===
@@ -897,12 +891,6 @@ export function ConfirmationCard({
               </Section>
             )}
             {request.changes !== undefined && <Changes value={request.changes} />}
-            {request.worktreeEligibility &&
-              (request.worktreeEligibility.length ? (
-                <Worktrees label="Worktree eligibility" items={request.worktreeEligibility} />
-              ) : (
-                <p className="prose">There are no linked worktrees.</p>
-              ))}
             {request.worktrees && !cleanup && (
               <>
                 <Section
@@ -980,9 +968,7 @@ export function ConfirmationCard({
                   ? "Done"
                   : running
                     ? "Hide"
-                    : request.worktreeEligibility
-                      ? request.accept
-                      : (request.cancel ?? "Cancel")}
+                    : (request.cancel ?? "Cancel")}
           </button>
           {request.removals && (
             <button
@@ -1006,7 +992,7 @@ export function ConfirmationCard({
                 : "Approve selected"}
             </button>
           )}
-          {!finished && !plugin && !request.worktreeEligibility && (
+          {!finished && !plugin && (
             <button
               type="button"
               disabled={disabled || (deadline !== undefined && now >= deadline)}

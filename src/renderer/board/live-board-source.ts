@@ -698,7 +698,6 @@ export function createAppSource(): BoardSource {
     },
     onFocusWorktree: (callback) => window.desktop.onFocusWorktree?.(callback) ?? (() => {}),
     sidebarCommand: async (command, startup) => {
-      if (command.kind === "review-merged-worktrees") return window.desktop.sidebarCommand(command);
       if ("id" in command && command.id === shellId && command.kind === "restart") {
         await restart();
         return;

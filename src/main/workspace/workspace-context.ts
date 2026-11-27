@@ -266,7 +266,7 @@ export class WorkspaceContext {
     this.cleanup = new CleanupOwner({
       checkoutHolds: this.checkoutHolds,
       worktrees: deps.worktrees,
-      inventory: (repository, options) => this.worktrees(repository, options),
+      inventory: (repository) => this.worktrees(repository),
       known: (repository) => {
         this.known(repository);
       },
@@ -654,14 +654,9 @@ export class WorkspaceContext {
     };
   }
 
-  async worktrees(
-    repository: string,
-    options?: { skipOwnership?: true },
-  ): Promise<readonly Worktree[]> {
+  async worktrees(repository: string): Promise<readonly Worktree[]> {
     this.known(repository);
-    const local = await (options
-      ? this.deps.worktrees.listWorktrees(repository, options)
-      : this.deps.worktrees.listWorktrees(repository));
+    const local = await this.deps.worktrees.listWorktrees(repository);
     const discovered = await this.deps.hosts?.worktrees?.(repository);
     const retained = [
       ...new Map(

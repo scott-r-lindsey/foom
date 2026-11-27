@@ -87,25 +87,9 @@ export function SidebarPanel({
           ),
         kind: kind,
         mark: mark,
-        facts: (controlRef) => {
+        facts: (() => {
           const facts = (
-            <PanelFacts
-              key={menu.id}
-              subject={subject}
-              source={source}
-              options={options}
-              cleanupReviewRef={controlRef}
-              reviewCleanup={
-                subject.kind === "repository"
-                  ? () => {
-                      void command({
-                        kind: "review-merged-worktrees",
-                        repository: subject.repository.path,
-                      });
-                    }
-                  : undefined
-              }
-            />
+            <PanelFacts key={menu.id} subject={subject} source={source} options={options} />
           );
           if (fieldOpen && subject.kind === "worktree")
             return (
@@ -165,7 +149,7 @@ export function SidebarPanel({
           ) : (
             facts
           );
-        },
+        })(),
         pinned: menu.pinned,
         enter: () => {
           enter();

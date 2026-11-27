@@ -381,10 +381,6 @@ const dialogFields = {
       }),
     ),
   ),
-  worktreeEligibility: either(
-    absent,
-    array(shape({ id: nonempty, branch: text, reason: nonempty })),
-  ),
   worktreePath: either(absent, nonempty),
   changes: either(absent, boundedChanges),
   discardCount: either(absent, count),

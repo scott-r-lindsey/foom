@@ -259,9 +259,7 @@ export type SidebarCommand =
   | { kind: "remove-worktree"; repository: string; worktree: string }
   | { kind: "cleanup-worktree"; repository: string; worktree: string }
   | { kind: "prune-worktree"; repository: string; worktree: string }
-  | { kind: "delete-merged-worktrees"; repository: string }
-  | { kind: "open-merged-cleanup"; repository: string; runId: string }
-  | { kind: "review-merged-worktrees"; repository: string }
+  | { kind: "delete-merged-worktrees"; repository: string; startNew?: true }
   | { kind: "remove-repository"; repository: string }
   | { kind: "stop"; id: string }
   | { kind: "close"; id: string }

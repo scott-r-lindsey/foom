@@ -741,8 +741,10 @@
 .tile-pads:has(button:hover) .pad-direction:focus-within:not(:hover) .pad-reason {
   display: none;
 }
-.sidebar-panel:has(.tile-pads) {
-  --panel-command-width: 254px;
+@media (min-width: 601px) {
+  .sidebar-panel:has(.tile-pads) .panel-body {
+    grid-template-columns: 254px minmax(0, 1fr);
+  }
 }
 .app-menu:not(.sidebar-panel):has(.space-splits) {
   min-width: min(250px, calc(100vw - 16px));

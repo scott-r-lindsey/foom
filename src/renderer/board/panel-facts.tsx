@@ -1,6 +1,6 @@
 import { CopyValue as Copy } from "../ui/copy-value";
 import { useEffect, useState, useRef, useCallback } from "react";
-import type { ReactNode, RefCallback } from "react";
+import type { ReactNode } from "react";
 import type { OrchestrationEntry, OrchestrationView, SidebarCommand } from "../../shared/workspace";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { ConfigStatus } from "../../shared/foom-config";
@@ -153,14 +153,10 @@ export function PanelFacts({
   subject,
   source,
   options,
-  cleanupReviewRef,
-  reviewCleanup,
 }: {
   subject: PanelSubject;
   source: BoardSource;
   options: LaunchOptions | undefined;
-  cleanupReviewRef?: RefCallback<HTMLButtonElement>;
-  reviewCleanup?: (() => void) | undefined;
 }) {
   const [now] = useState(Date.now);
   const [handoffError, setHandoffError] = useState("");
@@ -313,17 +309,6 @@ export function PanelFacts({
             </Chip>
             {subject.repository.mergedCount === undefined ? (
               <Sub>merged count unknown</Sub>
-            ) : subject.repository.mergedCount === 0 && reviewCleanup ? (
-              <button
-                ref={cleanupReviewRef}
-                type="button"
-                className="panel-cleanup-review"
-                aria-haspopup="dialog"
-                title="Review worktree eligibility"
-                onClick={reviewCleanup}
-              >
-                <Chip tone="neutral">0 eligible to delete</Chip>
-              </button>
             ) : (
               <Chip tone={subject.repository.mergedCount ? "done" : "neutral"}>
                 {subject.repository.mergedCount} eligible to delete

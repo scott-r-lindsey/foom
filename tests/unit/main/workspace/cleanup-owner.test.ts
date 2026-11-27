@@ -48,9 +48,7 @@ function fixture() {
   const changes = vi.fn<CleanupOwnerDependencies["worktrees"]["changes"]>(() =>
     Promise.resolve(""),
   );
-  const registered = { path: repository, name: "repo" };
   const worktrees = {
-    listRepositories: vi.fn(() => [registered]),
     changes,
     cleanupStatus: vi.fn<CleanupOwnerDependencies["worktrees"]["cleanupStatus"]>(
       (repo, path, identity) => changes(repo, path, identity),
@@ -69,7 +67,6 @@ function fixture() {
     cleanupBrokenWorktree: vi.fn(async () => {}),
     removeRepository: vi.fn(async () => {}),
     mergedDefault: vi.fn(() => Promise.resolve("base")),
-    lastFetchedDefault: vi.fn(() => ({ branch: "main", head: "base" })),
     mergedFetchTime: vi.fn(() => 500),
     mergedCommit: vi.fn<CleanupOwnerDependencies["worktrees"]["mergedCommit"]>(() =>
       Promise.resolve(true),
@@ -397,103 +394,6 @@ it.each(["disabled", "eligible", "ineligible", "policy changed", "dirty", "cance
   },
 );
 
-it("drains an in-flight eligibility review before approved cleanup removes its checkout", async () => {
-  const f = fixture();
-  f.trees([tree("main", { path: repository }), tree()]);
-  await f.scan();
-  const read = Promise.withResolvers<string>();
-  const entered = Promise.withResolvers<undefined>();
-  f.worktrees.cleanupStatus.mockImplementationOnce(() => {
-    entered.resolve(undefined);
-    return read.promise;
-  });
-  const review = f.owner.reviewMerged(repository);
-  await entered.promise;
-  await f.run(async (feed) => {
-    try {
-      expect(feed.current().stage).toBe("run");
-      expect((await f.owner.reviewMerged(repository))?.worktrees).toMatchObject([
-        { branch: "main", reason: "main checkout" },
-        { branch: "feature", reason: "unavailable" },
-      ]);
-      expect(f.worktrees.mergedDefault.mock.calls).toEqual([[repository, false]]);
-      expect(f.worktrees.cleanupStatus).toHaveBeenCalledTimes(2);
-      expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
-    } finally {
-      read.resolve("");
-      expect((await review)?.worktrees).toMatchObject([
-        { branch: "main", reason: "main checkout" },
-        { branch: "feature", reason: "eligible" },
-      ]);
-    }
-  });
-  expect(f.worktrees.removeWorktree).toHaveBeenCalledOnce();
-});
-
-it("keeps an approved checkout when a session starts during its final status read", async () => {
-  const f = fixture();
-  const entered = Promise.withResolvers<undefined>();
-  const status = Promise.withResolvers<string>();
-  const remove = vi.fn();
-  f.worktrees.removeWorktree.mockImplementationOnce(async (_repo, _path, _force, _id, validate) => {
-    f.worktrees.cleanupStatus.mockImplementationOnce(() => {
-      entered.resolve(undefined);
-      return status.promise;
-    });
-    await validate?.();
-    remove();
-  });
-  await f.run(async () => {
-    await entered.promise;
-    f.rows([row()]);
-    f.deps.exitCode.mockReturnValue(undefined);
-    status.resolve("");
-  });
-  expect(remove).not.toHaveBeenCalled();
-  expect(f.inventory().cleanup?.items[0]).toMatchObject({ state: "kept", reason: "running" });
-});
-
-it.each(["checkout removed", "branch moved", "repository re-added", "session started"] as const)(
-  "drops a worktree review when %s during the status read",
-  async (change) => {
-    const f = fixture();
-    const entered = Promise.withResolvers<undefined>();
-    const status = Promise.withResolvers<string>();
-    f.worktrees.cleanupStatus.mockImplementationOnce(() => {
-      entered.resolve(undefined);
-      return status.promise;
-    });
-    const review = f.owner.reviewMerged(repository);
-    await entered.promise;
-    if (change === "checkout removed") f.trees([]);
-    if (change === "branch moved") f.trees([tree("feature", { head: "new-head" })]);
-    if (change === "repository re-added")
-      f.worktrees.listRepositories.mockReturnValue([{ path: repository, name: "repo" }]);
-    if (change === "session started") {
-      f.rows([row()]);
-      f.deps.exitCode.mockReturnValue(undefined);
-    }
-    status.resolve(" M file\0");
-    await expect(review).resolves.toBeUndefined();
-  },
-);
-
-it("drops a queued review if membership becomes unavailable before presentation", async () => {
-  const f = fixture();
-  const review = await f.owner.reviewMerged(repository);
-  if (!review) throw new Error("Missing review");
-  await expect(review.canPresent()).resolves.toBe(true);
-  f.deps.inventory.mockRejectedValueOnce(new Error("Unavailable"));
-  await expect(review.canPresent()).resolves.toBe(false);
-});
-
-it("ignores a stale eligibility click after the registration is gone", async () => {
-  const f = fixture();
-  f.worktrees.listRepositories.mockReturnValue([]);
-  await expect(f.owner.reviewMerged(repository)).resolves.toBeUndefined();
-  expect(f.deps.inventory).not.toHaveBeenCalled();
-});
-
 it("discovers eligibility without blocking inventory, shares scans, expires results, and reports errors", async () => {
   const f = fixture();
   const fetch = Promise.withResolvers<string>();
@@ -509,6 +409,20 @@ it("discovers eligibility without blocking inventory, shares scans, expires resu
   f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
   expect((await f.scan()).mergedError).toBe("offline");
   expect(f.worktrees.mergedDefault).toHaveBeenCalledTimes(2);
+});
+
+it("keeps the completed zero count visible until a replacement scan finishes", async () => {
+  const f = fixture();
+  f.worktrees.mergedCommit.mockResolvedValueOnce(false);
+  expect((await f.scan()).mergedCount).toBe(0);
+  const fetch = Promise.withResolvers<string>();
+  f.worktrees.mergedDefault.mockReturnValueOnce(fetch.promise);
+  f.advance();
+  expect(f.inventory().mergedCount).toBe(0);
+  fetch.resolve("base");
+  await vi.waitFor(() => {
+    expect(f.inventory().mergedCount).toBe(1);
+  });
 });
 
 it.each(["inventory", "main only", "repository removed", "shutdown"] as const)(
@@ -621,37 +535,14 @@ it("reuses a fresh plan, fetches on approval, retains locks through branch delet
   await work;
   expect(f.locks.size).toBe(0);
   const fetches = f.worktrees.mergedDefault.mock.calls.length;
-  const runId = f.inventory().cleanup?.id;
-  if (!runId) throw new Error("Missing run ID");
-  await f.owner.openMergedCleanup(repository, runId, (request) => {
+  await f.owner.deleteMerged(repository, (request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
     expect(request.feed.current().progress.phase).toBe("finished");
-    request.onCleanupResultsDismissed?.();
     return Promise.resolve(true);
   });
   expect(f.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
   expect(f.inventory().cleanup).toBeUndefined();
 });
-
-it.each(["removed", "replaced"] as const)(
-  "drops results queued for a run that was %s before presentation",
-  async (change) => {
-    const f = fixture();
-    await f.run();
-    const runId = f.inventory().cleanup?.id;
-    if (!runId) throw new Error("Missing run ID");
-    await f.owner.openMergedCleanup(repository, runId, async (request) => {
-      if (request.kind !== "merged-worktrees") throw new Error("Missing results");
-      expect(request.canPresent?.()).toBe(true);
-      if (change === "removed") await f.owner.removeRepository(repository);
-      else await f.run();
-      expect(request.canPresent?.()).toBe(false);
-      return false;
-    });
-    if (change === "removed") expect(f.inventory().cleanup).toBeUndefined();
-    else expect(f.inventory().cleanup?.id).not.toBe(runId);
-  },
-);
 
 it.each([
   "branch",

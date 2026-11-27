@@ -5,9 +5,9 @@ import { CommandGlyph, PanelMark } from "./panel-glyphs";
 import type { CommandGlyphName } from "./panel-glyphs";
 import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
-import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CSSProperties, ReactNode, RefCallback } from "react";
+import type { CSSProperties, ReactNode } from "react";
 export interface RowAction {
   label: string;
   disabled?: boolean;
@@ -39,7 +39,7 @@ export interface PanelContent {
   title: ReactNode;
   kind: string;
   mark: string;
-  facts: ReactNode | ((controlRef: RefCallback<HTMLButtonElement>) => ReactNode);
+  facts: ReactNode;
   pinned: boolean;
   enter?: () => void;
   leave?: () => void;
@@ -103,26 +103,6 @@ export function RowMenu({
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
   const pointerPinRef = useRef(false);
-  const removedFocusedControlRef = useRef(false);
-  const controlRef = useCallback((button: HTMLButtonElement | null) => {
-    if (!button) return;
-    return () => {
-      // React detaches the ref before removing the focused control from the DOM.
-      if (document.activeElement === button) removedFocusedControlRef.current = true;
-    };
-  }, []);
-  useLayoutEffect(() => {
-    if (!removedFocusedControlRef.current) return;
-    removedFocusedControlRef.current = false;
-    if (document.activeElement === document.body) {
-      const command = ref.current?.querySelector<HTMLButtonElement>(
-        ".row-menu-items button:not(:disabled)",
-      );
-      // Like keyboard navigation within the panel, reveal the newly focused command.
-      if (command) command.focus();
-      else restoreBoardFocus(anchor);
-    }
-  });
   useLayoutEffect(() => {
     const menu = ref.current;
     return () => {
@@ -428,7 +408,6 @@ export function RowMenu({
             ) : action ? (
               <button
                 key={action.label}
-                ref={isPanel ? controlRef : undefined}
                 type="button"
                 role={action.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                 aria-checked={action.checked}
@@ -491,7 +470,7 @@ export function RowMenu({
             ),
           )}
         </div>
-        {typeof panel?.facts === "function" ? panel.facts(controlRef) : panel?.facts}
+        {panel?.facts}
       </div>
       {sub && submenu && (
         <RowMenu

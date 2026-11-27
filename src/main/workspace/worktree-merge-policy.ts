@@ -9,7 +9,6 @@ import {
 } from "./merge-proof";
 import { git } from "./worktree-operations";
 import type { MergePolicyDependencies } from "./worktree-state.d";
-import type { FetchedDefault } from "./worktree-features.d";
 
 /** Deletion eligibility consumes fresh identity and isolated proof capabilities. */
 export class WorktreeMergePolicy {
@@ -55,17 +54,13 @@ export class WorktreeMergePolicy {
     }
   }
 
-  async mergedCommit(
-    repository: string,
-    tree: Worktree,
-    fetched: string | FetchedDefault,
-  ): Promise<boolean> {
-    const { head: base, branch } =
-      typeof fetched === "string"
-        ? { head: fetched, branch: this.dependencies.fetchFacts(repository)?.branch }
-        : fetched;
+  async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
     const head = tree.head;
-    if (!head || (tree.branch !== null && branch === tree.branch)) return false;
+    if (
+      !head ||
+      (tree.branch !== null && this.dependencies.fetchFacts(repository)?.branch === tree.branch)
+    )
+      return false;
     if (tree.branch) await this.dependencies.validateBranch(repository, tree.branch);
     if (!commitId.test(base) || !commitId.test(head)) throw new Error("Invalid commit ID");
     try {
@@ -74,12 +69,7 @@ export class WorktreeMergePolicy {
     } catch {
       // A content conflict does not rule out an earlier PR merge.
     }
-    return this.verifiedPrMerge(
-      repository,
-      tree,
-      base,
-      typeof fetched === "string" ? undefined : fetched.branch,
-    );
+    return this.verifiedPrMerge(repository, tree, base);
   }
 
   /** Forge output is only a hint; never pass its unchecked values to Git. */
@@ -87,10 +77,14 @@ export class WorktreeMergePolicy {
     repository: string,
     tree: Worktree,
     base: string,
-    defaultBranch = this.dependencies.fetchFacts(repository)?.branch,
   ): Promise<boolean> {
     try {
-      if (!tree.branch || !tree.head || defaultBranch === tree.branch) return false;
+      if (
+        !tree.branch ||
+        !tree.head ||
+        this.dependencies.fetchFacts(repository)?.branch === tree.branch
+      )
+        return false;
       const remote = await this.dependencies.forgeRemote(repository);
       const pr = pullRequest(
         await (remote === undefined

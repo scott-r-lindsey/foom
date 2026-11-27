@@ -2,7 +2,6 @@ import { LaunchFailure } from "../../shared/launch-failure";
 import { RemovalError } from "./worktree-outcome";
 import { removalStatus } from "./worktree-operations";
 import type { CheckoutHold, CheckoutHolds } from "./worktree-reservations";
-import { lstat } from "node:fs/promises";
 import { basename } from "node:path";
 import { conversationId } from "../agents/conversation";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
@@ -14,13 +13,11 @@ import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { Worktree } from "../../shared/worktrees";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { WorktreeService } from "./worktrees";
-import type { FetchedDefault } from "./worktree-features.d";
 
 export interface CleanupOwnerDependencies {
   checkoutHolds: CheckoutHolds;
   worktrees: Pick<
     WorktreeService,
-    | "listRepositories"
     | "changes"
     | "cleanupChanges"
     | "cleanupStatus"
@@ -30,7 +27,6 @@ export interface CleanupOwnerDependencies {
     | "cleanupBrokenWorktree"
     | "removeRepository"
     | "mergedDefault"
-    | "lastFetchedDefault"
     | "mergedFetchTime"
     | "mergedCommit"
     | "deleteMergedBranches"
@@ -38,10 +34,7 @@ export interface CleanupOwnerDependencies {
     | "canAutoRemoveReview"
     | "canAutoRemove"
   >;
-  inventory: (
-    repository: string,
-    options?: { skipOwnership?: true },
-  ) => Promise<readonly Worktree[]>;
+  inventory: (repository: string) => Promise<readonly Worktree[]>;
   known: (repository: string) => void;
   withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   /** Validate before reserving, with the release kept synchronous after the last await. */
@@ -94,8 +87,7 @@ export class CleanupOwner {
     }
   >();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
-  private readonly dismissedCleanupRuns = new WeakSet<CleanupRun>();
-  private readonly mergeScans = new Map<string, Set<Promise<unknown>>>();
+  private readonly mergeScans = new Map<string, Set<Promise<void>>>();
   private readonly mergeEligibility = new Map<
     string,
     {
@@ -550,14 +542,10 @@ export class CleanupOwner {
     return undefined;
   }
 
-  private async mergedPlan(
-    repository: string,
-    resolveBase: () => string | FetchedDefault | Promise<string>,
-    inventory?: readonly Worktree[],
-  ) {
+  private async mergedPlan(repository: string, refresh: boolean, inventory?: readonly Worktree[]) {
     const trees = inventory ?? (await this.deps.inventory(repository));
     if (!trees.some((tree) => tree.path !== repository && !tree.bare)) return [];
-    const base = await resolveBase();
+    const base = await this.deps.worktrees.mergedDefault(repository, refresh);
     return Promise.all(
       trees.map(async (tree) => {
         let reason: CleanupReason | undefined;
@@ -613,180 +601,35 @@ export class CleanupOwner {
     );
   }
 
-  private trackMergeScan<T>(repository: string, scan: Promise<T>): Promise<T> {
-    const scans = this.mergeScans.get(repository) ?? new Set<Promise<unknown>>();
-    this.mergeScans.set(repository, scans);
-    const tracked = scan.finally(() => {
-      scans.delete(tracked);
-      if (scans.size === 0) this.mergeScans.delete(repository);
-    });
-    scans.add(tracked);
-    return tracked;
-  }
-
-  async reviewMerged(repository: string) {
-    const registered = this.registrationGuard(repository);
-    if (!registered()) return;
-    const readInventory = () => this.deps.inventory(repository, { skipOwnership: true });
-    // Once approval starts draining readers, new reviews can only read membership.
-    const readPlan = (trees: readonly Worktree[]) =>
-      this.cleanupRuns.get(repository)?.active
-        ? trees.map(
-            (tree): CleanupCandidate => ({
-              tree,
-              reason: tree.path === repository || tree.bare ? "main checkout" : "unavailable",
-            }),
-          )
-        : this.mergedPlan(
-            repository,
-            () => this.deps.worktrees.lastFetchedDefault(repository),
-            trees,
-          );
-    const reasons = (plan: readonly CleanupCandidate[]) =>
-      JSON.stringify(
-        plan.map(({ tree, reason }) => JSON.stringify([tree.host, tree.path, reason])).sort(),
-      );
-    const review = async () => {
-      const trees = await readInventory();
-      if (!registered() || !trees.some((tree) => tree.path !== repository && !tree.bare)) return;
-      const key = await this.reviewInventoryKey(trees);
-      if (!registered()) return;
-      const plan = await readPlan(trees);
-      const planReasons = reasons(plan);
-      const currentInventory = async () => {
-        const current = await readInventory().catch(() => undefined);
-        if (
-          current &&
-          registered() &&
-          (await this.reviewInventoryKey(current)) === key &&
-          registered()
-        )
-          return current;
-      };
-      const revalidate = async () => {
-        if (!registered()) return false;
-        try {
-          const current = await currentInventory();
-          if (!current || !registered() || reasons(await readPlan(current)) !== planReasons)
-            return false;
-          return registered() && Boolean(await currentInventory()) && registered();
-        } catch {
-          return false;
-        }
-      };
-      if (!registered() || !(await currentInventory()) || !registered()) return;
-      return {
-        // A queued dialog may outlive a file edit without any inventory changes.
-        canPresent: () => this.trackMergeScan(repository, revalidate()),
-        worktrees: plan.map(({ tree, reason }, index) => ({
-          id: String(index),
-          branch:
-            tree.branch ??
-            `${basename(tree.path)} · Detached at ${tree.head?.slice(0, 7) ?? "Unknown"}`,
-          reason: reason ?? "eligible",
-        })),
-      };
-    };
-    try {
-      return await this.trackMergeScan(repository, review());
-    } catch (error) {
-      if (registered()) throw error;
-    }
-  }
-
-  private registrationGuard(repository: string): () => boolean {
-    // WorktreeService returns the registered record until it is replaced or forgotten.
-    const registration = this.deps.worktrees
-      .listRepositories()
-      .find((row) => row.path === repository);
-    return () =>
-      !this.deps.closed() &&
-      registration !== undefined &&
-      this.deps.worktrees.listRepositories().includes(registration);
-  }
-
-  private async reviewInventoryKey(trees: readonly Worktree[]): Promise<string> {
-    const directories = await Promise.all(
-      trees.map(async (tree) => {
-        if (tree.host) return;
-        const stat = await lstat(tree.path, { bigint: true }).catch(() => undefined);
-        return stat && [stat.dev, stat.ino, stat.birthtimeNs].map(String);
-      }),
-    );
-    return JSON.stringify(
-      trees
-        .map((tree, index) =>
-          JSON.stringify([
-            tree.path,
-            tree.host,
-            tree.branch,
-            tree.head,
-            tree.bare,
-            tree.locked,
-            tree.prunable,
-            tree.removalFailed,
-            directories[index],
-            this.sessionSkip(tree.path),
-          ]),
-        )
-        .sort(),
-    );
-  }
-
-  async openMergedCleanup(
+  async deleteMerged(
     repository: string,
-    runId: string,
     confirm: ConfirmWorkspace,
+    startNew = false,
   ): Promise<void> {
-    const run = this.cleanupRuns.get(repository);
-    if (run?.id !== runId || (!run.approved && run.pending)) return;
-    await this.presentMergedCleanup(repository, run, confirm);
-  }
-
-  private async presentMergedCleanup(
-    repository: string,
-    run: CleanupRun,
-    confirm: ConfirmWorkspace,
-  ): Promise<void> {
-    const registered = this.registrationGuard(repository);
-    // An already queued pre-approval dialog may still show a cancelled feed.
-    // A request to reopen results belongs to the currently published run.
-    const preApproval = !run.approved && run.pending;
-    const dismissal = { observed: false };
-    await confirm({
-      kind: "merged-worktrees",
-      subject: basename(repository),
-      worktrees: [],
-      feed: run,
-      canPresent: () => registered() && (preApproval || this.cleanupRuns.get(repository) === run),
-      onCleanupResultsDismissed: () => {
-        dismissal.observed = true;
-      },
-    });
-    if (dismissal.observed) {
-      // Another board may already be preparing a replacement for these results.
-      this.dismissedCleanupRuns.add(run);
-      if (this.cleanupRuns.get(repository) === run) {
+    this.deps.known(repository);
+    const existing = this.cleanupRuns.get(repository);
+    if (existing && (existing.pending || !startNew)) {
+      await confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: existing,
+      });
+      if (!existing.pending && this.cleanupRuns.get(repository) === existing) {
         this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
+      return;
     }
-  }
-
-  async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
-    this.deps.known(repository);
-    const existing = this.cleanupRuns.get(repository);
-    if (existing?.pending) return this.presentMergedCleanup(repository, existing, confirm);
     return this.deps.withRepository(repository, async () => {
-      const registered = this.registrationGuard(repository);
       const releases = new Set<() => void>();
       const run = new CleanupRun({
         checkingCount: this.mergeEligibility.get(repository)?.count,
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
         fetch: async () => {
           // Windows cannot remove a checkout while a background Git process uses it as cwd.
-          // Include superseded scans and read-only reviews, even if their view is closed.
-          await Promise.allSettled([...(this.mergeScans.get(repository) ?? [])]);
+          // Include superseded scans too: their publication is discarded, but they still run.
+          await Promise.all([...(this.mergeScans.get(repository) ?? [])]);
           return this.deps.worktrees.mergedDefault(repository, true);
         },
         changed: () => {
@@ -827,18 +670,10 @@ export class CleanupOwner {
             }
             return;
           }
-          const checkSessions = () => {
-            const reason = this.sessionSkip(tree.path);
-            if (reason) throw new KeptWorktree(reason);
-          };
-          const readSnapshot = async () => {
-            const status = await (tree.branch === null || changes
+          const readSnapshot = () =>
+            tree.branch === null || changes
               ? this.deps.worktrees.cleanupChanges(repository, tree.path, identity, tree.head)
-              : this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head));
-            // Main-owned session state can change while the last Git command finishes.
-            checkSessions();
-            return status;
-          };
+              : this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head);
           const revalidate = async () => {
             const current = (await this.deps.inventory(repository)).find(
               (item) => item.path === tree.path,
@@ -850,7 +685,8 @@ export class CleanupOwner {
               (await this.deps.worktrees.removalIdentity(repository, tree.path)) !== identity
             )
               throw new KeptWorktree("worktree changed");
-            checkSessions();
+            const reason = this.sessionSkip(tree.path);
+            if (reason) throw new KeptWorktree(reason);
             // Snapshot comparisons belong to the removal owner, after async proof
             // work and at the final service boundary. Do not duplicate them here.
             // Re-read forge hints and local evidence; the displayed plan alone
@@ -884,42 +720,29 @@ export class CleanupOwner {
       const prepare =
         cached?.plan && this.deps.now() < cached.expires
           ? Promise.resolve(cached.plan)
-          : this.mergedPlan(repository, () => this.deps.worktrees.mergedDefault(repository, true));
+          : this.mergedPlan(repository, true);
       if (cached?.plan && this.deps.now() < cached.expires) run.ready(cached.plan);
-      const dismissal = { observed: false };
+      // Request presentation before awaiting network or filesystem checks.
+      const answer = confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: run,
+      });
       try {
-        // Request presentation before awaiting network or filesystem checks.
-        const answer = confirm({
-          kind: "merged-worktrees",
-          subject: basename(repository),
-          worktrees: [],
-          feed: run,
-          canPresent: registered,
-          onCleanupResultsDismissed: () => {
-            dismissal.observed = true;
-          },
-        });
-        try {
-          const plan = await prepare;
-          if (registered()) run.ready(plan);
-          else run.cancelBeforeApproval();
-        } catch {
-          if (registered()) run.failed();
-          else run.cancelBeforeApproval();
-        }
-        if ((await answer) && registered()) run.act();
-      } finally {
-        // Queued presentations can still hold this feed. Revoke its approval
-        // action before releasing the repository reservation.
-        run.cancelBeforeApproval();
-        // Hide resolves presentation while approved removal may still be running.
-        await run.settled();
-        if (this.cleanupRuns.get(repository) === run && (dismissal.observed || !run.approved)) {
-          if (!run.approved && existing && !this.dismissedCleanupRuns.has(existing))
-            this.cleanupRuns.set(repository, existing);
-          else this.cleanupRuns.delete(repository);
-          this.deps.refresh();
-        }
+        run.ready(await prepare);
+      } catch {
+        run.failed();
+      }
+      if (await answer) run.act();
+      const reviewed = run.current().stage === "run" && !run.pending;
+      // Hide resolves presentation, but the repository reservation lasts through the run.
+      await run.settled();
+      const canceled = run.current().stage !== "run";
+      if (reviewed || canceled) {
+        if (canceled && existing) this.cleanupRuns.set(repository, existing);
+        else this.cleanupRuns.delete(repository);
+        this.deps.refresh();
       }
     });
   }
@@ -945,7 +768,11 @@ export class CleanupOwner {
       key,
       count: worktrees.length,
       expires: Number.POSITIVE_INFINITY,
-      result: cached?.result ?? { canDeleteMerged: false },
+      // Keep the menu hidden at a known zero until the replacement scan settles.
+      result: {
+        canDeleteMerged: false,
+        ...(cached?.result.mergedCount === 0 ? { mergedCount: 0 } : {}),
+      },
     };
     this.mergeEligibility.set(repository, entry);
     const publish = (result: {
@@ -959,26 +786,29 @@ export class CleanupOwner {
       entry.expires = this.deps.now() + 60_000;
       this.deps.onChange?.();
     };
-    const scan = this.mergedPlan(
-      repository,
-      () => this.deps.worktrees.mergedDefault(repository, false),
-      worktrees,
-    ).then(
-      (plan) => {
-        entry.plan = plan;
-        publish({
-          canDeleteMerged: plan.some((item) => !item.reason),
-          mergedCount: plan.filter((item) => !item.reason).length,
-        });
-      },
-      (error: unknown) => {
-        publish({
-          canDeleteMerged: false,
-          mergedError: error instanceof Error ? error.message : String(error),
-        });
-      },
-    );
-    void this.trackMergeScan(repository, scan);
+    const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
+    this.mergeScans.set(repository, scans);
+    const scan: Promise<void> = this.mergedPlan(repository, false, worktrees)
+      .then(
+        (plan) => {
+          entry.plan = plan;
+          publish({
+            canDeleteMerged: plan.some((item) => !item.reason),
+            mergedCount: plan.filter((item) => !item.reason).length,
+          });
+        },
+        (error: unknown) => {
+          publish({
+            canDeleteMerged: false,
+            mergedError: error instanceof Error ? error.message : String(error),
+          });
+        },
+      )
+      .finally(() => {
+        scans.delete(scan);
+        if (scans.size === 0) this.mergeScans.delete(repository);
+      });
+    scans.add(scan);
     return entry.result;
   }
 }

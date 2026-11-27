@@ -79,99 +79,6 @@ function invoke(channel: string, args: unknown[] = [], event: unknown = trusted)
   return handler(event, ...args);
 }
 
-test("eligibility review presents only its snapshot and ignores the dialog answer", async () => {
-  const worktrees = [{ id: "0", branch: "feature", reason: "eligible" }];
-  const review = { worktrees, canPresent: vi.fn(() => Promise.resolve(true)) };
-  const read = Promise.withResolvers<typeof review>();
-  const reviewMergedWorktrees = vi.fn(() => Promise.resolve(review));
-  reviewMergedWorktrees.mockReturnValueOnce(read.promise);
-  const sidebarCommand = vi.fn();
-  attached.dispose();
-  mock.handle.mockClear();
-  attached = attachWorkspace(
-    window,
-    { ...workspace, reviewMergedWorktrees, sidebarCommand } as unknown as Workspace,
-    owns,
-    requestDialog,
-  );
-  const command = { kind: "review-merged-worktrees", repository: "/repo" };
-  const close = Promise.withResolvers<boolean>();
-  requestDialog.mockReturnValueOnce(close.promise);
-  const first = invoke("workspace:sidebar-command", [command]);
-  const whileReading = invoke("workspace:sidebar-command", [command]);
-  read.resolve(review);
-  await vi.waitFor(() => {
-    expect(requestDialog).toHaveBeenCalled();
-  });
-  const whileOpen = invoke("workspace:sidebar-command", [command]);
-  close.resolve(false);
-  await expect(Promise.all([first, whileReading, whileOpen])).resolves.toEqual([
-    undefined,
-    undefined,
-    undefined,
-  ]);
-  expect(reviewMergedWorktrees).toHaveBeenCalledExactlyOnceWith("/repo");
-  expect(requestDialog.mock.calls[0]?.[0]).toMatchObject({
-    title: "Worktree eligibility",
-    subject: "repo",
-    accept: "Close",
-    glyph: "branch",
-    localOnly: true,
-    worktreeEligibility: worktrees,
-  });
-  const admitted = requestDialog.mock.calls[0]?.[0].canPresent;
-  if (!admitted) throw new Error("Missing presentation guard");
-  expect(contents.send).not.toHaveBeenCalledWith("confirmation:dialog");
-  await expect(admitted()).resolves.toBe(true);
-  expect(contents.send).toHaveBeenCalledWith("confirmation:dialog");
-  contents.send.mockClear();
-  review.canPresent.mockResolvedValueOnce(false);
-  await expect(admitted()).resolves.toBe(false);
-  expect(contents.send).not.toHaveBeenCalled();
-  const validation = Promise.withResolvers<boolean>();
-  review.canPresent.mockReturnValueOnce(validation.promise);
-  const leaving = admitted();
-  frame.url = "about:blank";
-  validation.resolve(true);
-  await expect(leaving).resolves.toBe(false);
-  expect(contents.send).not.toHaveBeenCalled();
-  frame.url = "app://bundle/index.html";
-  expect(sidebarCommand).not.toHaveBeenCalled();
-  reviewMergedWorktrees.mockImplementationOnce(() => {
-    contents.isDestroyed.mockReturnValue(true);
-    return Promise.resolve(review);
-  });
-  await expect(invoke("workspace:sidebar-command", [command])).resolves.toBeUndefined();
-  expect(requestDialog).toHaveBeenCalledOnce();
-  expect(reviewMergedWorktrees).toHaveBeenCalledTimes(2);
-});
-
-test("merged cleanup only notifies its board when the queued results are current", async () => {
-  const canPresent = vi.fn(() => true);
-  const sidebarCommand = (_request: unknown, confirm: ConfirmWorkspace) =>
-    confirm({ kind: "merged-worktrees", worktrees: [], canPresent });
-  attached.dispose();
-  mock.handle.mockClear();
-  attached = attachWorkspace(
-    window,
-    { ...workspace, sidebarCommand } as unknown as Workspace,
-    owns,
-    requestDialog,
-  );
-  requestDialog.mockResolvedValueOnce(false);
-  await invoke("workspace:sidebar-command", [
-    { kind: "delete-merged-worktrees", repository: "/repo" },
-  ]);
-  const admission = requestDialog.mock.calls[0]?.[0].canPresent;
-  if (!admission) throw new Error("Missing presentation guard");
-  expect(contents.send).not.toHaveBeenCalled();
-  canPresent.mockReturnValueOnce(false);
-  expect(admission()).toBe(false);
-  expect(contents.send).not.toHaveBeenCalled();
-  expect(admission()).toBe(true);
-  expect(contents.send).toHaveBeenCalledWith("confirmation:dialog");
-});
-
 test("rejects untrusted senders on every channel", () => {
   const channels = mock.handle.mock.calls.map(([name]) => name);
   expect(channels).toEqual([
@@ -408,11 +315,7 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "claude" },
     { kind: "remove-repository", repository: "/repo" },
     { kind: "delete-merged-worktrees", repository: "/repo" },
-    {
-      kind: "open-merged-cleanup",
-      repository: "/repo",
-      runId: "4123abcd-4567-4123-8123-456789abcdef",
-    },
+    { kind: "delete-merged-worktrees", repository: "/repo", startNew: true },
     { kind: "remove-worktree", repository: "/repo", worktree: "/tree" },
     { kind: "copy-worktree-path", repository: "/repo", worktree: "/tree" },
     { kind: "stop", id: "t1" },
@@ -439,10 +342,9 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "stop", id: "" },
     { kind: "close", id: "foreign" },
     { kind: "launch", repository: null },
-    { kind: "open-merged-cleanup", repository: "/repo" },
-    { kind: "open-merged-cleanup", repository: "/repo", runId: "invalid" },
     { kind: "launch", repository: "/repo", worktree: "" },
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "evil" },
+    { kind: "delete-merged-worktrees", repository: "/repo", startNew: "true" },
     { kind: "evil", repository: "/repo", worktree: "/tree" },
     { kind: "review", repository: "/repo", worktree: "/tree", run: "claude" },
     { kind: "review", repository: "/repo", worktree: "/tree", run: "codex" },

@@ -203,16 +203,11 @@ test.each([
     changed() {},
   });
   run.ready([]);
-  const onCleanupResultsDismissed = vi.fn();
-  run.failed();
   const actor = new AbortController();
   let result: boolean | undefined;
   let reservationHeld = true;
   const queued = dialog
-    .request(
-      { title: "Delete merged worktrees", accept: "Delete", feed: run, onCleanupResultsDismissed },
-      actor.signal,
-    )
+    .request({ title: "Delete merged worktrees", accept: "Delete", feed: run }, actor.signal)
     .then((answer) => {
       result = answer;
     })
@@ -242,41 +237,7 @@ test.each([
   expect(afterAbandonment).toEqual({ result: false, reservationHeld: false });
   expect(neverShown).toBe(0);
   expect(child.show).not.toHaveBeenCalled();
-  expect(onCleanupResultsDismissed).not.toHaveBeenCalled();
 });
-
-test.each(["before", "after"] as const)(
-  "closing a cleanup dialog only dismisses results that finished %s the close",
-  async (timing) => {
-    const dialog = setup();
-    const run = new CleanupRun({
-      fetch: () => Promise.resolve("base"),
-      remove: () => Promise.resolve(),
-      branches: () => Promise.resolve([]),
-      changed() {},
-    });
-    const onCleanupResultsDismissed = vi.fn();
-    try {
-      const result = dialog.request({
-        title: "Delete merged worktrees",
-        accept: "Delete",
-        feed: run,
-        onCleanupResultsDismissed,
-      });
-      const id = await shown();
-      expect(window().webContents.send.mock.calls.at(-1)?.[1]).not.toHaveProperty(
-        "onCleanupResultsDismissed",
-      );
-      if (timing === "before") run.failed();
-      answer(id, false);
-      if (timing === "after") run.failed();
-      await result;
-      expect(onCleanupResultsDismissed).toHaveBeenCalledTimes(timing === "before" ? 1 : 0);
-    } finally {
-      dialog.dispose();
-    }
-  },
-);
 
 test("a board renderer crash leaves an already presented trusted decision usable", async () => {
   const dialog = setup();
@@ -287,31 +248,6 @@ test("a board renderer crash leaves an already presented trusted decision usable
   answer(id, true);
   await expect(pending).resolves.toBe(true);
   dialog.dispose();
-});
-
-test("a queued dialog checks its presentation guard before rendering", async () => {
-  const dialog = setup();
-  try {
-    const front = dialog.request(content);
-    const frontId = await shown();
-    const canPresent = vi.fn(() => Promise.resolve(false));
-    const queued = dialog.request({ ...content, title: "Old cleanup", canPresent });
-    expect(canPresent).not.toHaveBeenCalled();
-    answer(frontId, false);
-    await front;
-    await expect(queued).resolves.toBe(false);
-    expect(canPresent).toHaveBeenCalledOnce();
-    expect(window().webContents.send.mock.calls.map(([, request]) => request)).not.toContainEqual(
-      expect.objectContaining({ title: "Old cleanup" }),
-    );
-    const current = dialog.request({ ...content, canPresent: () => true });
-    const currentId = await shown();
-    expect(window().webContents.send.mock.calls.at(-1)?.[1]).not.toHaveProperty("canPresent");
-    answer(currentId, false);
-    await current;
-  } finally {
-    dialog.dispose();
-  }
 });
 
 test("same-document and subframe navigation do not abandon queued decisions", async () => {

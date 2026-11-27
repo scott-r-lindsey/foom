@@ -191,31 +191,6 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     );
   }
   act(() => {
-    receive({
-      presented: true,
-      id: "eligibility",
-      title: "Worktree eligibility",
-      accept: "Close",
-      theme: resolveInterfaceTheme("follow", false),
-      worktreeEligibility: [{ id: "0", branch: "feature", reason: "eligible" }],
-    });
-  });
-  expect(view.getByRole("list", { name: "Worktree eligibility" }).textContent).toContain(
-    "featureeligible",
-  );
-  expect(view.getAllByRole("button").map((button) => button.textContent)).toEqual(["Close"]);
-  act(() => {
-    receive({
-      presented: true,
-      id: "eligibility-empty",
-      title: "Worktree eligibility",
-      accept: "Close",
-      theme: resolveInterfaceTheme("follow", false),
-      worktreeEligibility: [],
-    });
-  });
-  expect(view.getByText("There are no linked worktrees.")).toBeTruthy();
-  act(() => {
     receive(null);
   });
   expect(view.queryByRole("alertdialog")).toBeNull();
@@ -757,12 +732,10 @@ test("cleanup closes only complete successful runs and resets its choice on ever
     state: "removed" | "error" | "kept" = "removed",
     stopped = false,
     phase: "remove" | "finished" = "finished",
-    id = base.id,
   ) => {
     if (!base.cleanup) throw new Error("Missing cleanup");
     open({
       ...base,
-      id,
       cleanup: {
         stage: "run",
         progress: {
@@ -805,9 +778,6 @@ test("cleanup closes only complete successful runs and resets its choice on ever
   finish();
   expect(answer).toHaveBeenCalledExactlyOnceWith("first", false);
   finish();
-  expect(answer).toHaveBeenCalledTimes(1);
-  finish("removed", false, "finished", "reopened");
-  expect(view.getByRole("button", { name: "Done" })).toBeTruthy();
   expect(answer).toHaveBeenCalledTimes(1);
   open({ ...base, id: "second" });
   expect(view.getByRole("checkbox")).toHaveProperty("checked", true);

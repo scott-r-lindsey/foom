@@ -100,14 +100,10 @@ outside click or tree scrolling closes it and returns focus to the row. Hover
 cannot replace a pinned panel; dragging suppresses panels.
 
 Panels have a title band, a 248 px command column and facts beside it, up to
-720 px wide and contained within the window. When the panel itself is too narrow
-for both columns, facts stack below the commands in the same vertical scroll area.
-Commands retain their existing confirmations. Arrow keys, Home/End and Enter
-operate commands. Copyable paths and conversation IDs are buttons. If a refresh
-removes the focused command or the focused eligibility review button, focus moves
-to the first available command and scrolls it into view if needed. Clicking a
-session title renames it with the same Enter/blur, Escape and empty-name behavior
-as sidebar double-click rename.
+720 px wide and contained within the window. Commands retain their existing
+confirmations. Arrow keys, Home/End and Enter operate commands; copyable paths
+and conversation IDs are buttons. Clicking a session title renames it with the
+same Enter/blur, Escape and empty-name behavior as sidebar double-click rename.
 
 The home shell row (`>_ shell ~`) sits above repositories. Its name and **New
 shell** command launch in the main-owned home directory. Shells group beneath
@@ -115,13 +111,11 @@ it and restart in home when they were running at quit and Restore sessions on la
 and running count. Repository panels show path, remote, default branch, last
 fetch status, worktree/creation/eligible-merged counts and session states; they
 offer New worktree, pinning and **Remove from Foom…** (with “keeps files”).
-With linked worktrees, **Delete merged worktrees…** appears when the count is
-positive, before the first scan completes, or after a scan fails. At zero, the
-count remains in the panel facts. Select **0 eligible to delete** to review
-current eligibility and reasons for keeping each worktree. This review is read-only.
-Open active cleanup through **Deleting merged worktrees** and completed
-checklists through **Cleanup results**.
-
+With linked worktrees, **Delete merged worktrees…** is available when the count
+is positive, before the first scan completes, or after a scan fails. At zero,
+the count stays in the facts and the command returns when eligibility rises.
+**Deleting merged worktrees** opens an active checklist. **Cleanup results**
+opens an undismissed finished checklist independently of the delete command.
 Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline
 field with no dialog or helper copy. Paste `claude --resume <id>` (or `-r <id>`),
 `codex resume <id>` or `agy --conversation <id>`, or a bare ID and choose a detected,

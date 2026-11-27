@@ -1,5 +1,5 @@
 import { createWorktreeFixture } from "./worktree-git-fixture";
-import { mkdir, readFile, realpath, rename, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupReady } from "../../../helpers/cleanup-feed";
@@ -26,25 +26,6 @@ let service: WorktreeService;
 async function git(...args: string[]): Promise<string> {
   const { stdout } = await execute(args, { cwd: repo });
   return stdout;
-}
-function createWorkspace() {
-  return new Workspace({
-    worktrees: service,
-    terminals: {
-      create: () => Promise.reject(new Error("No launch expected")),
-      kill: () => Promise.resolve(),
-      stop: () => Promise.resolve(true),
-      tail: () => Promise.resolve([]),
-    },
-    verdicts: {
-      forget: vi.fn(),
-      classify: () => Promise.reject(new Error("No verdict expected")),
-      commit: () => Promise.resolve(),
-      recordAction: () => Promise.resolve(),
-    },
-    receiver: () => Promise.reject(new Error("No hooks expected")),
-    onState: () => {},
-  });
 }
 beforeEach(
   usingFixture(async () => {
@@ -810,18 +791,14 @@ describe("merged worktree containment", () => {
   });
   it("fetches the advertised default, shares inventory fetches and refuses failed refreshes", async () => {
     expect(service.mergedFetchTime(repo)).toBeUndefined();
-    expect(() => service.lastFetchedDefault(repo)).toThrow("has not been checked");
     await expect(service.mergedDefault(repo)).rejects.toThrow("remote");
     const upstream = await remote();
     const base = await service.mergedDefault(repo, true);
-    const fetchedAt = service.mergedFetchTime(repo);
-    expect(fetchedAt).toEqual(expect.any(Number));
+    expect(service.mergedFetchTime(repo)).toEqual(expect.any(Number));
     await git("remote", "set-url", "origin", join(temporary, "missing"));
-    expect(service.lastFetchedDefault(repo)).toEqual({ branch: "main", head: base });
     expect(await service.mergedDefault(repo)).toBe(base);
     await expect(service.mergedDefault(repo, true)).rejects.toThrow("fetch failed");
-    expect(service.mergedFetchTime(repo)).toBe(fetchedAt);
-    expect(service.lastFetchedDefault(repo)).toEqual({ branch: "main", head: base });
+    expect(service.mergedFetchTime(repo)).toBeUndefined();
     await git("remote", "set-url", "origin", upstream);
     await git("branch", "next");
     await git("push", "origin", "next");
@@ -834,121 +811,6 @@ describe("merged worktree containment", () => {
     await git("remote", "remove", "second");
     await execute(["symbolic-ref", "HEAD", "refs/heads/missing"], { cwd: upstream });
     await expect(service.mergedDefault(repo, true)).rejects.toThrow("default branch");
-  });
-  it("reviews zero eligible checkouts against the last successful base after a forced fetch fails", async () => {
-    await feature();
-    const upstream = await remote();
-    const workspace = createWorkspace();
-    try {
-      const base = await service.mergedDefault(repo);
-      const fetchedAt = service.mergedFetchTime(repo);
-      await rename(upstream, join(temporary, "offline.git"));
-      await expect(service.mergedDefault(repo, true)).rejects.toThrow("fetch failed");
-      expect(service.lastFetchedDefault(repo)).toEqual({ branch: "main", head: base });
-      expect(service.mergedFetchTime(repo)).toBe(fetchedAt);
-      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toMatchObject([
-        { branch: "main", reason: "main checkout" },
-        { branch: "feature", reason: "not merged" },
-      ]);
-    } finally {
-      await workspace.dispose();
-    }
-  });
-  it("drops a queued eligibility review when a tracked edit is restored", async () => {
-    const tree = await feature();
-    await git("merge", "--ff-only", "feature");
-    await remote();
-    await service.mergedDefault(repo);
-    const workspace = createWorkspace();
-    try {
-      const tracked = join(tree.path, "feature.txt");
-      await writeFile(tracked, "edited\n");
-      const review = await workspace.reviewMergedWorktrees(repo);
-      expect(review?.worktrees).toContainEqual({
-        id: "1",
-        branch: "feature",
-        reason: "uncommitted changes",
-      });
-      await writeFile(tracked, "feature\n");
-      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual({
-        id: "1",
-        branch: "feature",
-        reason: "eligible",
-      });
-      await expect(review?.canPresent()).resolves.toBe(false);
-    } finally {
-      await workspace.dispose();
-    }
-  });
-  it("keeps managed checkout records when a read-only review consults the forge", async () => {
-    const userData = join(temporary, "user-data");
-    const lookup = vi.fn();
-    service = await WorktreeService.open(userData, root, [], (_remote, context) => ({
-      async lookup() {
-        const sample = await context?.();
-        await sample?.validate();
-        lookup();
-        return undefined;
-      },
-    }));
-    await service.addRepository(repo);
-    await feature();
-    const { path } = await service.createWorktree(repo, "moved");
-    await remote();
-    await service.mergedDefault(repo);
-    const state = join(userData, "worktrees.json");
-    const original = await readFile(state, "utf8");
-    const moved = join(temporary, "moved-aside");
-    const workspace = createWorkspace();
-    await rename(path, moved);
-    try {
-      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual({
-        id: "1",
-        branch: "feature",
-        reason: "not merged",
-      });
-      expect(lookup).toHaveBeenCalledOnce();
-      expect(await readFile(state, "utf8")).toBe(original);
-    } finally {
-      await rename(moved, path);
-      await workspace.dispose();
-    }
-    expect((await service.listWorktrees(repo)).find((tree) => tree.path === path)?.managed).toBe(
-      true,
-    );
-  });
-
-  it("uses the branch from the same fetch as the commit throughout a read-only review", async () => {
-    await git("branch", "next");
-    const tree = await feature();
-    const upstream = await remote();
-    await execute(["symbolic-ref", "HEAD", "refs/heads/feature"], { cwd: upstream });
-    await service.mergedDefault(repo, true);
-    const workspace = createWorkspace();
-    const kept = { id: "1", branch: "feature", reason: "not merged" };
-    const gate = Promise.withResolvers<undefined>();
-    const reading = Promise.withResolvers<undefined>();
-    const status = service.cleanupStatus.bind(service);
-    try {
-      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual(kept);
-      vi.spyOn(service, "cleanupStatus").mockImplementationOnce(async (...args) => {
-        reading.resolve(undefined);
-        await gate.promise;
-        return status(...args);
-      });
-      const review = workspace.reviewMergedWorktrees(repo);
-      try {
-        await reading.promise;
-        await execute(["symbolic-ref", "HEAD", "refs/heads/next"], { cwd: upstream });
-        expect(await service.mergedDefault(repo, true)).not.toBe(tree.head);
-      } finally {
-        gate.resolve(undefined);
-        expect((await review)?.worktrees).toContainEqual(kept);
-      }
-      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual(kept);
-    } finally {
-      await workspace.dispose();
-    }
   });
 });
 
@@ -1003,7 +865,23 @@ it.each(["untracked", "commit", "forge"])(
     const upstream = join(temporary, "remote.git");
     await git("clone", "--bare", repo, upstream);
     await git("remote", "add", "origin", upstream);
-    const workspace = createWorkspace();
+    const workspace = new Workspace({
+      worktrees: service,
+      terminals: {
+        create: () => Promise.reject(new Error("No launch expected")),
+        kill: () => Promise.resolve(),
+        stop: () => Promise.resolve(true),
+        tail: () => Promise.resolve([]),
+      },
+      verdicts: {
+        forget: vi.fn(),
+        classify: () => Promise.reject(new Error("No verdict expected")),
+        commit: () => Promise.resolve(),
+        recordAction: () => Promise.resolve(),
+      },
+      receiver: () => Promise.reject(new Error("No hooks expected")),
+      onState: () => {},
+    });
     try {
       await expect(
         workspace.sidebarCommand(

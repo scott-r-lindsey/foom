@@ -6,18 +6,14 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 
 For repositories with linked worktrees, the menu offers **Delete merged
 worktrees…** below **Remove from Foom…** when the eligibility count is positive,
-before the first scan completes, or after a scan fails. A replacement scan keeps
-the last completed result visible until the new scan finishes. At zero, the
-repository facts show **0 eligible to delete**. Select that count
-for a read-only review of current checkouts against the last fetched default
-branch. Each checkout shows its eligibility or the reason it would be kept.
-The review has a **Close** button. If the repository, its checkout inventory or the
-eligibility reasons change before the review opens, Foom drops that review.
-The menu updates when a background scan finishes, including while the menu is open. Open an active run through
-**Deleting merged worktrees** and its completed checklist through **Cleanup results**.
+before the first scan completes, or after a scan fails. A completed scan with
+zero eligible worktrees hides the command. The repository panel still shows
+**0 eligible to delete**. When a later scan finds eligible worktrees, the command
+and its count return automatically.
 
-Foom fetches the remote (`origin`, or the sole remote) and resolves its advertised
-default branch. A branch is merged when `git merge-tree --write-tree <default> <branch>` produces
+Foom fetches the remote
+(`origin`, or the sole remote) and resolves its advertised default branch. A
+branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
 squash and rebase merges without GitHub access. Alternatively, a same-repository
 PR reported MERGED qualifies only when its reported head exactly matches the local
@@ -48,11 +44,10 @@ The trusted dialog lists candidate branches, then skipped checkouts with short
 reasons, and offers **Delete** and **Cancel**. During cleanup it becomes a live
 checklist with a count, progress bar, **Stop** and **Hide**. Stop finishes the
 in-flight removals and starts no more; Hide and Escape close only the window.
-There is one run per repository, and the repository panel reopens its checklist.
-If a replacement ends before Delete is approved, the previous undismissed checklist
-returns. A queued dialog for a cancelled run opens with Done and cannot approve deletion.
-Reopened finished runs stay visible until dismissed and offer **Done**.
-The sidebar shows the same count and queued, removing,
+There is one run per repository. **Deleting merged worktrees** reopens the
+active checklist. **Cleanup results** reopens an undismissed finished checklist,
+even at zero eligible. When a fresh cleanup is available, it has its own menu
+entry. Finished runs offer **Done**. The sidebar shows the same count and queued, removing,
 removed, kept or error tags; a completion status reports the result when hidden.
 Removing uses the highlight, errors use failure ink, and reduced motion disables
 sweep and fold animations. Main checkouts, locked,
