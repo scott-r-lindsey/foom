@@ -1065,6 +1065,9 @@
             },
             "value": {
               "$ref": "#/$defs/shortText"
+            },
+            "approvalOnly": {
+              "type": "boolean"
             }
           }
         },
@@ -1095,6 +1098,9 @@
           "properties": {
             "override": {
               "$ref": "#/$defs/override"
+            },
+            "approvalOnly": {
+              "type": "boolean"
             }
           }
         }
@@ -1117,6 +1123,14 @@
           "minItems": 1
         },
         "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keySegment"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "failClosedKeys": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/keySegment"

@@ -1,6 +1,49 @@
+import { parse as parseToml } from "smol-toml";
+import { isRecord } from "./agent-manifest-values";
 import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 type Matcher = AgentManifestV2["reservedArguments"][number];
+type Override = Extract<Matcher, { override: object }>["override"];
+
+function overrideValueMatches(
+  path: readonly string[],
+  raw: string,
+  rule: Override,
+  expected: string,
+  rootOnly: boolean,
+): boolean {
+  const keyMatches = rule.keys.includes(path.at(-1) ?? "");
+  if (keyMatches && raw === expected) return true;
+  const failClosed = path.some((key) => rule.failClosedKeys?.includes(key));
+  if (!keyMatches && !failClosed && (rootOnly || !raw.startsWith("{"))) return false;
+  let value: unknown;
+  try {
+    const parsed = parseToml(`value = ${raw}`, { maxDepth: 24, unsafeKeyBehaviour: "throw" });
+    if (!isRecord(parsed) || !Object.hasOwn(parsed, "value")) return failClosed;
+    value = parsed["value"];
+  } catch {
+    // Codex falls back to the literal value with boundary quotes removed.
+    return (keyMatches && raw.replace(/^["']+|["']+$/gu, "") === expected) || failClosed;
+  }
+  return (
+    (keyMatches && value === expected) ||
+    (!rootOnly && tableValueMatches(value, rule.keys, expected))
+  );
+}
+
+function tableValueMatches(value: unknown, keys: readonly string[], expected: string): boolean {
+  const pending = [value];
+  while (pending.length > 0) {
+    const table = pending.pop();
+    if (!isRecord(table)) continue;
+    for (const [key, entry] of Object.entries(table)) {
+      if (keys.includes(key) && entry === expected) return true;
+      if (isRecord(entry)) pending.push(entry);
+    }
+  }
+  return false;
+}
+
 export function matchesArguments(
   matchers: readonly Matcher[],
   args: readonly string[],
@@ -31,21 +74,18 @@ export function argumentMatchIndex(
         const segments = (equals < 0 ? config : config.slice(0, equals))
           .replace(/[\s"']/gu, "")
           .split(".");
-        const value =
-          equals < 0
-            ? ""
-            : config
-                .slice(equals + 1)
-                .trim()
-                .replace(/^(?:"(.*)"|'(.*)')$/u, "$1$2");
-        if (overrideKeys === "root")
-          return (
-            rule.keys.includes(segments[0] ?? "") &&
-            (rule.value === undefined || (segments.length === 1 && value === rule.value))
+        if (rule.value === undefined)
+          return (overrideKeys === "root" ? segments.slice(0, 1) : segments).some((key) =>
+            rule.keys.includes(key),
           );
-        return rule.value === undefined
-          ? segments.some((key) => rule.keys.includes(key))
-          : rule.keys.includes(segments.at(-1) ?? "") && value === rule.value;
+        if (equals < 0 || (overrideKeys === "root" && segments.length !== 1)) return false;
+        return overrideValueMatches(
+          segments,
+          config.slice(equals + 1).trim(),
+          rule,
+          rule.value,
+          overrideKeys === "root",
+        );
       }
       return matcher.forms.some((form) => {
         if (form === "exact") return arg === matcher.flag && matcher.value === undefined;
