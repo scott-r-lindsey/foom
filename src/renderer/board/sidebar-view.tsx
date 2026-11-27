@@ -315,6 +315,7 @@ export function Sidebar(props: SidebarProps) {
                 const rid = repositoryKey(repo.repository.path);
                 const machines = repositoryMachines(source.getMachines?.() ?? []);
                 const cleanup = repo.repository.cleanup;
+                const cleanupId = cleanup?.id;
                 const deleting = cleanup && cleanup.phase !== "finished";
                 const { mergedCount, mergedError } = repo.repository;
                 const canStartCleanup =
@@ -422,7 +423,7 @@ export function Sidebar(props: SidebarProps) {
                           });
                         },
                       },
-                      ...(cleanup || canStartCleanup ? [null] : []),
+                      ...(cleanupId || canStartCleanup ? [null] : []),
                       ...(canStartCleanup
                         ? [
                             {
@@ -438,7 +439,7 @@ export function Sidebar(props: SidebarProps) {
                             },
                           ]
                         : []),
-                      ...(cleanup
+                      ...(cleanup && cleanupId
                         ? [
                             {
                               label: deleting ? "Deleting merged worktrees" : "Cleanup results",
@@ -450,6 +451,7 @@ export function Sidebar(props: SidebarProps) {
                                 command({
                                   kind: "delete-merged-worktrees",
                                   repository: repo.repository.path,
+                                  runId: cleanupId,
                                 }),
                             },
                           ]

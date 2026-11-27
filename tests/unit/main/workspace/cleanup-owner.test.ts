@@ -544,6 +544,81 @@ it("reuses a fresh plan, fetches on approval, retains locks through branch delet
   expect(f.inventory().cleanup).toBeUndefined();
 });
 
+it("a queued second presentation cannot approve a canceled cleanup review", async () => {
+  const f = fixture();
+  await f.run();
+  await f.scan();
+  const cancel = Promise.withResolvers<boolean>();
+  const replacement = f.owner.deleteMerged(repository, () => cancel.promise, true);
+  const duplicate = vi.fn(() => Promise.resolve(false));
+  await f.owner.deleteMerged(repository, duplicate, true);
+  expect(duplicate).not.toHaveBeenCalled();
+  const queued = Promise.withResolvers<CleanupFeed>();
+  const answer = Promise.withResolvers<boolean>();
+  const opening = f.owner.deleteMerged(repository, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    queued.resolve(request.feed);
+    return answer.promise;
+  });
+  const feed = await queued.promise;
+  cancel.resolve(false);
+  await replacement;
+  f.worktrees.removeWorktree.mockClear();
+  feed.act();
+  expect(feed.current().stage).toBe("ready");
+  expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
+  answer.resolve(false);
+  await opening;
+});
+
+it("keeps retained results when a fresh cleanup's preparation fails", async () => {
+  const f = fixture();
+  await f.run();
+  const retained = f.inventory().cleanup?.id;
+  expect(retained).toBeDefined();
+  f.advance();
+  await f.scan();
+  f.advance();
+  f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
+  await f.owner.deleteMerged(
+    repository,
+    async (request) => {
+      if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+      await vi.waitFor(() => {
+        expect(request.feed?.current().error).toBe("fetch failed");
+      });
+      return false;
+    },
+    true,
+  );
+  expect(f.inventory().cleanup?.id).toBe(retained);
+});
+
+it("canceling a fresh cleanup leaves results dismissed by another board", async () => {
+  const f = fixture();
+  await f.run();
+  const runId = f.inventory().cleanup?.id;
+  if (!runId) throw new Error("Missing retained results");
+  const done = Promise.withResolvers<boolean>();
+  const cancel = Promise.withResolvers<boolean>();
+  const replacement = f.owner.deleteMerged(repository, () => cancel.promise, true);
+  const confirm = vi.fn((request: Parameters<ConfirmWorkspace>[0]) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    expect(request.feed.current().progress).toMatchObject({ id: runId, phase: "finished" });
+    return done.promise;
+  });
+  const results = f.owner.deleteMerged(repository, confirm, runId);
+  expect(confirm).toHaveBeenCalledOnce();
+  done.resolve(false);
+  await results;
+  confirm.mockClear();
+  await f.owner.deleteMerged(repository, confirm, runId);
+  expect(confirm).not.toHaveBeenCalled();
+  cancel.resolve(false);
+  await replacement;
+  expect(f.inventory().cleanup).toBeUndefined();
+});
+
 it.each([
   "branch",
   "head",

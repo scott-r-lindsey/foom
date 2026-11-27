@@ -173,6 +173,11 @@ function sidebarCommand(value: unknown): SidebarCommand {
     throw new Error("Invalid prune request");
   if (kind === "delete-merged-worktrees") {
     const startNew = value["startNew"];
+    const runId = value["runId"];
+    if (runId !== undefined) {
+      if (startNew !== undefined || !text(runId, 36)) throw new Error("Invalid cleanup request");
+      return { kind, repository, runId };
+    }
     if (startNew !== undefined && startNew !== true) throw new Error("Invalid cleanup request");
     return { kind, repository, ...(startNew ? { startNew } : {}) };
   }
