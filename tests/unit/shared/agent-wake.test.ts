@@ -18,6 +18,8 @@ test("wake templates strip untrusted content, bound names and never include cont
 test("only a complete fixed template, known step and validated manifest policy cross the boundary", () => {
   const input = { policy, step: "cancel", line: wakeLine(["child"]) };
   expect(isWakeInput(input)).toBe(true);
+  expect(isWakeInput({ ...input, line: wakeLine([], true) })).toBe(true);
+  expect(isWakeInput({ ...input, line: wakeLine(["child"], true) })).toBe(true);
   for (const step of ["check", "submit"]) expect(isWakeInput({ ...input, step })).toBe(true);
   for (const value of [
     null,

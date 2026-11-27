@@ -32,7 +32,7 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     codex,
     "codex",
-    "2a38aaf111496fec47c8ce02a073553a15ad43f2495bcc69c69b78dcdf1c2385",
+    "54f9b353fb394e60bc687144ab0f33562e6923046830dcdc77c5f4db2260f2dc",
   ),
   bundledProvider(agy, "agy", "f5ca8ccb1d4c1b41280cf58d231fc672ad0c857a050e0e0e906d2f132942b53d"),
   bundledProvider(

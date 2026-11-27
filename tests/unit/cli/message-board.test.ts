@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { boardCommand } from "../../../src/cli/message-board";
 import { command } from "../../../src/cli/commands";
@@ -109,4 +112,51 @@ it("forwards an explicit empty target set for bounded board-only waits", () => {
     method: "wait_for",
     params: { ids: [], boardAfter: "cursor", timeoutMs: 0 },
   });
+});
+
+it("posts bounded JSON questions and withdraws by post ID", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "foom-question-cli-"));
+  try {
+    const text = join(directory, "post.txt");
+    await writeFile(text, "Decision requested");
+    const questions = [
+      {
+        title: "Proceed?",
+        options: [
+          { id: "yes", label: "Yes" },
+          { id: "no", label: "No" },
+        ],
+      },
+    ];
+    const args = [
+      "post",
+      "--thread",
+      "t",
+      "--kind",
+      "question",
+      "--text-file",
+      text,
+      "--questions-file",
+      "-",
+      "--idempotency-key",
+      "k",
+    ];
+    async function* json(value: string) {
+      yield await Promise.resolve(value);
+    }
+    expect(await boardCommand(args, json(JSON.stringify(questions)))).toMatchObject({
+      method: "board_post",
+      params: { thread: "t", kind: "question", text: "Decision requested", questions },
+    });
+    await expect(boardCommand(args, json("{"))).rejects.toThrow("invalid_request");
+    await expect(boardCommand(args, json("[]"))).rejects.toThrow("invalid_request");
+    expect(
+      await boardCommand(["resolve", "t", "--post", "q", "--idempotency-key", "k"], input()),
+    ).toEqual({
+      method: "board_resolve",
+      params: { thread: "t", post: "q", idempotencyKey: "k" },
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

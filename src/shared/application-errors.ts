@@ -10,6 +10,10 @@ const messages = {
   "launch-cancel-incomplete": "Terminal may still be running.",
   "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "session-has-children": "Close its children first.",
+  "agent-permission-conflict":
+    "Remove permission options from Settings → Agents → Global default arguments before using a permission level.",
+  "agent-permission-acknowledgement": "Clear and choose Full access again in Settings → Agents.",
+  "agent-permission-unavailable": "This agent version does not support Foom’s permission level.",
   "theme-selection-changed": "The theme changed. Choose it again after the theme list refreshes.",
   "settings-busy": "Settings are busy; try again.",
   "settings-lock-corrupt":

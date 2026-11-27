@@ -17,6 +17,7 @@ import * as orchestrationCommands from "./orchestration-commands";
 
 import type { ActionLogPage } from "../../shared/action-log";
 import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
+import type { TerminalSpec } from "../../shared/desktop";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { ExecutionTransition } from "../../shared/execution";
 import type { Settings } from "../../shared/setup";
@@ -74,7 +75,12 @@ export class WorkspaceContext {
   control:
     | Promise<
         Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
-          Partial<Pick<ControlRuntime, "audit" | "takeOver" | "board">>
+          Partial<
+            Pick<
+              ControlRuntime,
+              "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview"
+            >
+          >
       >
     | undefined;
   receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
@@ -111,11 +117,18 @@ export class WorkspaceContext {
 
   async messageBoard(method: string, input: unknown): Promise<unknown> {
     await this.initializeControl();
-    const board = (await this.control)?.board;
+    const runtime = await this.control;
+    const board = runtime?.board;
     if (!board) throw new Error("Board unavailable");
     if (method === "threads") return board.threads(input);
     if (method === "read") return board.read(input);
     if (method === "post") return board.append("human", "human", input);
+    if (method === "decisions") return runtime.humanDecisions?.(input);
+    if (method === "answer") return board.answer(input);
+    if (method === "preview") {
+      const request = board.preview(input);
+      return request ? ((await runtime.decisionPreview?.(request)) ?? null) : null;
+    }
     if (method === "resolve") return board.resolve("human", input);
     throw new Error("Invalid board method");
   }
@@ -363,7 +376,7 @@ export class WorkspaceContext {
           const result = await reattachRemoteSession(
             entry,
             registeredHosts,
-            deps.terminals,
+            { create: this.createTerminal.bind(this) },
             (request) => this.agents.launch(request),
             control,
             control && "parentId" in control
@@ -373,6 +386,7 @@ export class WorkspaceContext {
           const row = {
             ...entry,
             ...result,
+            ...(entry.permissionLevel === "full" ? { bypass: true } : {}),
             ...this.replacementVersion(entry.id),
             dormant: false,
             exited: false,
@@ -413,14 +427,11 @@ export class WorkspaceContext {
       },
       onChange: (localOnly) => deps.onChange?.(localOnly),
     });
-    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) =>
-      this.sessions.pruneHosts(host),
-    );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
       : new AgentService(
           deps.worktrees,
-          deps.terminals,
+          { create: this.createTerminal.bind(this) },
           prepare,
           prepareControl,
           this.agyPlugin,
@@ -442,6 +453,10 @@ export class WorkspaceContext {
             },
           },
         );
+    this.unsubscribeHostRemoval = registeredHosts?.onRemoved?.((host) => {
+      this.agents.forgetHostPermissions(host);
+      return this.sessions.pruneHosts(host);
+    });
   }
 
   /** Setup's choices apply to later launches; running agents keep theirs. */
@@ -453,6 +468,7 @@ export class WorkspaceContext {
           | "worktreeLocation"
           | "agentArguments"
           | "agentBypassIdentities"
+          | "agentPermissions"
           | "agentHooks"
           | "showNewChildren"
           | "closeFinishedAgents"
@@ -484,6 +500,7 @@ export class WorkspaceContext {
     this.cleanup.configure(settings.autoRemoveMergedWorktrees ?? false);
     this.agents.setEnabled(settings.agents);
     this.agents.setBypassIdentities(settings.agentBypassIdentities);
+    this.agents.setPermissionLevels(settings.agentPermissions);
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);
     this.agentHooks = settings.agentHooks ?? {};
@@ -505,6 +522,21 @@ export class WorkspaceContext {
 
   persist(): void {
     this.sessions.persist();
+  }
+
+  async createTerminal(
+    spec: TerminalSpec,
+    revalidateAfterPause?: () => Promise<void>,
+  ): Promise<string> {
+    let pause = this.sessions.restoreSpawnPause(spec.id);
+    while (pause) {
+      await pause;
+      if (this.closed) break;
+      await revalidateAfterPause?.();
+      pause = this.sessions.restoreSpawnPause(spec.id);
+    }
+    if (this.closed) throw new Error("Workspace is closed");
+    return this.deps.terminals.create(spec);
   }
 
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
@@ -632,6 +664,7 @@ export class WorkspaceContext {
           .filter(
             (row) =>
               row.repository === repository &&
+              !row.reattachOnly &&
               row.placement?.kind === "remote" &&
               row.worktree.startsWith("/foom-remote/"),
           )
@@ -857,6 +890,7 @@ export class WorkspaceContext {
     if (checkout && !hold) throw new ApplicationError("session-busy");
     try {
       this.busySessions.add(entry.id);
+      this.sessions.claim(entry.id);
       entry.closeState = "closing";
       this.deps.terminals.setClosing?.(entry.id, true);
       this.refresh();
@@ -1011,9 +1045,10 @@ export class WorkspaceContext {
     this.features.executionEvents,
   );
 
-  removed: WorkspaceMethods["removed"] = orchestrationCommands.removed.bind(
-    this.features.executionEvents,
-  );
+  removed(id: string): void {
+    this.sessions.claim(id);
+    orchestrationCommands.removed.call(this.features.executionEvents, id);
+  }
 
   input: WorkspaceMethods["input"] = orchestrationCommands.input.bind(
     this.features.executionEvents,
@@ -1027,6 +1062,7 @@ export class WorkspaceContext {
     if (this.closed) return;
     this.unsubscribeHostRemoval?.();
     this.closed = true;
+    this.sessions.finishQuit();
     this.launchAbort.abort();
     await (await this.probeHttp?.catch(() => undefined))?.close();
     await this.cleanup.dispose();

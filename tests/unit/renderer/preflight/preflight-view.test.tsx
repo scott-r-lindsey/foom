@@ -1385,3 +1385,18 @@ test("Terminal discloses and saves profile-only OSC 52 consent", async () => {
     expect(source.save).toHaveBeenCalledWith({ terminalClipboardWrites: true });
   });
 });
+
+test("Settings saves a permission edit through the source and displays the saved value", async () => {
+  const state = setupState({ setupComplete: true });
+  const source = fake(state);
+  render(<Preflight source={source} initial={state} onLaunched={vi.fn()} settingsMode />);
+  fireEvent.click(button("Agents"));
+  const selector = await screen.findByRole("combobox", { name: "Codex permission level" });
+  fireEvent.change(selector, { target: { value: "workspace" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledExactlyOnceWith({
+      agentPermissions: { global: { codex: { level: "workspace" } } },
+    });
+    expect(selector).toHaveProperty("value", "workspace");
+  });
+});

@@ -134,6 +134,61 @@ it("uses stable numeric versions, complete option boundaries and earlier fact de
   required(m.discovery.facts[1]).enabled = false;
   expect(facts("anything")["promptSupport"]).toBe(false);
 });
+it("preserves manifest facts and launch arguments at Agent default when adding permission levels", async () => {
+  const fact = "permissionLevelSupported";
+  const manifest = {
+    ...fixture,
+    conversation: { ...fixture.conversation, newId: undefined },
+    discovery: {
+      ...fixture.discovery,
+      facts: [...fixture.discovery.facts, { id: fact, helpTokens: ["--fixture-capability"] }],
+    },
+    launch: {
+      ...fixture.launch,
+      display: {
+        arguments: ["--fixture-display"],
+        when: { all: [{ field: fact, op: "eq", value: true }] },
+      },
+    },
+  };
+  const permissionLevels = {
+    ask: ["--ask"],
+    full: ["--yolo"],
+    conflicts: [{ flag: "--ask", forms: ["exact"] }],
+    helpTokens: ["--ask"],
+  };
+  const help = "--fixture-capability";
+  const version = "fixture 1.2.3";
+  const withoutPolicy = await launch(model(manifest), {}, [], undefined, false, version, help);
+  const withPolicy = await launch(
+    model({ ...manifest, permissionLevels }),
+    {},
+    [],
+    undefined,
+    false,
+    version,
+    help,
+  );
+  expect(withoutPolicy.install.inline).toBe(true);
+  expect(withoutPolicy.prepared.args).toContain("--fixture-display");
+  expect(withPolicy.install.inline).toBe(true);
+  expect(discoveryFacts(withPolicy.provider.model, version, help, {})).toEqual(
+    discoveryFacts(withoutPolicy.provider.model, version, help, {}),
+  );
+  expect(withPolicy.prepared.args).toEqual(withoutPolicy.prepared.args);
+  await expect(
+    withPolicy.provider.prepareLaunch(
+      withPolicy.install,
+      request,
+      [],
+      undefined,
+      false,
+      true,
+      undefined,
+      "ask",
+    ),
+  ).rejects.toThrow("agent-permission-unavailable");
+});
 it("evaluates absent and missing facts fail-closed with all/any semantics", () => {
   const m = model();
   const condition = (

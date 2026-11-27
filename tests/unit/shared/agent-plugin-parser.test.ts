@@ -1,3 +1,10 @@
+import bundledCodex from "../../../src/shared/bundled-agents/codex.json";
+import {
+  applyPermissionArguments,
+  checkPermissionConflicts,
+} from "../../../src/shared/agent-permission-arguments";
+import { permissionLevelSupported } from "../../../src/shared/agent-launch-values";
+import { matchesArguments } from "../../../src/shared/agent-argument-matchers";
 import { expect, it } from "vitest";
 import claude from "../../fixtures/agent-plugins-v2/claude.json";
 import codex from "../../fixtures/agent-plugins-v2/codex.json";
@@ -52,3 +59,112 @@ it.each([1, 0, 3, 99, "2", null, undefined])(
     }
   },
 );
+
+it("refuses permission arguments placed after a terminator or declared without their bypass classification", () => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  const facts = { [permissionLevelSupported]: true };
+  expect(() => applyPermissionArguments(model, "workspace", ["--", "prompt"], 2, facts)).toThrow(
+    "agent-permission-conflict",
+  );
+  const policy = model.permissionLevels;
+  const workspace = policy?.workspace;
+  if (!policy || !workspace) throw new Error("Missing Codex Workspace declaration");
+  expect(() =>
+    applyPermissionArguments(
+      { ...model, permissionLevels: { ...policy, workspace: undefined } },
+      "workspace",
+      [],
+      0,
+      facts,
+    ),
+  ).toThrow("agent-permission-unavailable");
+  const invalid = { ...model, permissionLevels: { ...policy, full: workspace } };
+  expect(() => applyPermissionArguments(invalid, "full", [], 0, facts)).toThrow(
+    "Invalid agent permission declaration",
+  );
+  expect(() =>
+    applyPermissionArguments(
+      { ...model, permissionLevels: { ...policy, workspace: policy.full } },
+      "workspace",
+      [],
+      0,
+      facts,
+    ),
+  ).toThrow("Invalid agent permission declaration");
+  expect(() =>
+    applyPermissionArguments(
+      { ...model, permissionLevels: { ...policy, ask: workspace } },
+      "ask",
+      [],
+      0,
+      facts,
+    ),
+  ).toThrow("Invalid agent permission declaration");
+});
+
+it("classifies generated Workspace and Full access arguments as bypass outside managed launches", () => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  expect(matchesArguments(model.bypassArguments, bundledCodex.permissionLevels.ask)).toBe(false);
+  for (const args of [bundledCodex.permissionLevels.workspace, bundledCodex.permissionLevels.full])
+    expect(matchesArguments(model.bypassArguments, args)).toBe(true);
+});
+
+it("decodes quoted TOML approval values while keeping root-only override matching", () => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  expect(
+    matchesArguments(
+      model.bypassArguments,
+      ["-c", String.raw`approval_policy="n\u0065ver"`],
+      "root",
+    ),
+  ).toBe(true);
+  expect(
+    matchesArguments(
+      model.bypassArguments,
+      ["-c", 'profiles.team.approval_policy="never"'],
+      "root",
+    ),
+  ).toBe(false);
+});
+
+it.each(["-Check the README", "-s is broken", "-add tests", "-profile x"])(
+  "accepts the Codex prompt %s after the option terminator",
+  (prompt) => {
+    const { model } = parse(JSON.stringify(bundledCodex));
+    const facts = { [permissionLevelSupported]: true };
+    expect(applyPermissionArguments(model, "workspace", ["--", prompt], 0, facts)).toEqual([
+      ...bundledCodex.permissionLevels.workspace,
+      "--",
+      prompt,
+    ]);
+  },
+);
+
+it("still refuses a Codex permission flag before the option terminator", () => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  const facts = { [permissionLevelSupported]: true };
+  expect(() =>
+    applyPermissionArguments(model, "workspace", ["-sread-only", "--", "-s is broken"], 0, facts),
+  ).toThrow("agent-permission-conflict");
+});
+
+it.each([
+  { args: ["--profile", "team"] },
+  { args: ["-c", 'profile="team"'] },
+  { args: ["--config=profile=team"] },
+  { args: ["--yolo"] },
+  { args: ["--not-so-yolo"] },
+  { args: ["-anever"] },
+  { args: ["-c", String.raw`approval_policy="n\u0065ver"`] },
+])("refuses Codex permission override $args with managed permissions", ({ args }) => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  const facts = { [permissionLevelSupported]: true };
+  expect
+    .soft(() => {
+      checkPermissionConflicts(model, args);
+    })
+    .toThrow("agent-permission-conflict");
+  expect(() => applyPermissionArguments(model, "ask", args, 0, facts)).toThrow(
+    "agent-permission-conflict",
+  );
+});

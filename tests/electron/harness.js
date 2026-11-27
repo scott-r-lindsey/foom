@@ -828,6 +828,11 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
         `app.setPath("home", ${JSON.stringify(options.home)});`,
         `app.setPath("sessionData", ${JSON.stringify(sessionData)});`,
         `app.setAppPath(${JSON.stringify(entry)});`,
+        ...(options.restoreFixture
+          ? [
+              `require(${JSON.stringify(path.join(__dirname, "restore-fixture.js"))}).install(${JSON.stringify(entry)}, ${JSON.stringify(options.restoreFixture)});`,
+            ]
+          : []),
         `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,
       ].join("\n"),
     );

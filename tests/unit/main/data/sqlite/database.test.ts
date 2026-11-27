@@ -1,6 +1,16 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile, chmod, readFile, symlink, mkdir, rename } from "node:fs/promises";
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  chmod,
+  readFile,
+  readdir,
+  symlink,
+  mkdir,
+  rename,
+} from "node:fs/promises";
 import * as privateFiles from "../../../../../src/node-common/private-files";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -760,6 +770,15 @@ test("settings import preserves accepted config baseline and historical consent 
   const { importProfileSettings } = await import("../../../../../src/main/data-import/settings");
   const { db, file, profile } = await fixture();
   const configText = JSON.stringify({ kind: "settings", hooks: false });
+  const themeDigests = {
+    "themes/test.json": "b".repeat(64),
+    "themes/art.json": {
+      decoded: true,
+      digest: "d".repeat(64),
+      jsonDigest: "e".repeat(64),
+      sources: { sidebar: "f".repeat(64) },
+    },
+  };
   await put(profile, {
     ...sources(),
     "settings.json": JSON.stringify({
@@ -767,7 +786,7 @@ test("settings import preserves accepted config baseline and historical consent 
       remoteProfile: "a".repeat(32),
       configText,
       configDigest: createHash("sha256").update(configText).digest("hex"),
-      themeDigests: { "themes/test.json": "b".repeat(64) },
+      themeDigests,
       settings: {
         terminalClipboardWrites: true,
         agentArguments: { codex: [] },
@@ -780,6 +799,9 @@ test("settings import preserves accepted config baseline and historical consent 
   expect((await importProfileSettings(db, profile)).value.alreadyImported).toBe(true);
   inspect(file, (raw) => {
     expect(raw.prepare("SELECT * FROM profile_metadata").all()).toHaveLength(5);
+    expect(
+      raw.prepare("SELECT value FROM profile_metadata WHERE key='themeDigests'").get(),
+    ).toEqual({ value: JSON.stringify(themeDigests) });
     expect(
       raw.prepare("SELECT identity FROM agent_consents WHERE agent='custom-agent'").get()?.[
         "identity"
@@ -2230,3 +2252,123 @@ test.each(["unsupported", "unavailable", "encrypt"])(
     ).rejects.toThrow();
   },
 );
+
+test("imports production decision posts, their bound heads and receipts", async () => {
+  const { importBoardRows } = await import("../../../../../src/main/data-import/board");
+  const { MessageBoard } = await import("../../../../../src/main/control/message-board");
+  const { db, file, profile } = await fixture();
+  const directory = await privateFiles.privateDirectory(profile);
+  const repository = boardThread.repository;
+  const headSha = "a".repeat(64);
+  const board = await MessageBoard.open(
+    directory,
+    () => [{ id: repository, name: "Fixture" }],
+    vi.fn(),
+    () => ({ headSha }),
+  );
+  const question = await board.append(`orchestrator:${repository}`, "grant", {
+    kind: "question",
+    text: "A decision",
+    title: "Release",
+    to: [repository],
+    questions: [
+      {
+        title: "Proceed?",
+        options: [
+          { id: "go", label: "Proceed" },
+          { id: "no", label: "Hold" },
+        ],
+        subject: { pullRequest: 340, headSha },
+      },
+    ],
+    idempotencyKey: "question-key",
+  });
+  const answer = await board.answer({
+    answers: [{ post: question.post, index: 0, option: "go" }],
+    idempotencyKey: "answer-key",
+  });
+  const original = await readFile(join(directory, "board.json"), "utf8");
+  const report = await db.write((orm) => importBoardRows(orm, original));
+  expect(report.value).toMatchObject({ accepted: 5, quarantined: 0 });
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT id, kind FROM board_posts ORDER BY rowid").all()).toEqual([
+      { id: question.post, kind: "question" },
+      { id: answer.post, kind: "answer" },
+    ]);
+    expect(raw.prepare("SELECT post FROM board_receipts").all()).toHaveLength(2);
+    expect(
+      raw
+        .prepare(
+          "SELECT json_extract(data, '$.answers[0].subject.headSha') AS sha FROM board_posts WHERE kind='answer'",
+        )
+        .get(),
+    ).toEqual({ sha: headSha });
+  });
+  const { appendDatabaseBoardPost } = await import("../../../../../src/main/data-import/board");
+  await expect(
+    appendDatabaseBoardPost(db, {
+      ...boardPost,
+      id: "duplicate-decision",
+      thread: question.thread,
+      kind: "answer",
+      answers: [
+        { post: question.post, index: 0, option: "go", subject: { pullRequest: 340, headSha } },
+      ],
+    }),
+  ).rejects.toThrow("unavailable");
+});
+
+test("upgrading the board post constraint preserves existing posts and composite receipts", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "foom-sqlite-board-upgrade-"));
+  roots.push(profile);
+  const directory = await privateFiles.privateDirectory(profile, "data");
+  const file = join(directory, "profile.sqlite");
+  await (await privateFiles.createPrivateFile(file)).close();
+  const migrations = join(process.cwd(), "src/main/data/sqlite/migrations");
+  const old = (await readdir(migrations))
+    .sort()
+    .filter((name) => name <= "20261118055629_remove_repository_setup");
+  const scripts = await Promise.all(
+    old.map((name) => readFile(join(migrations, name, "migration.sql"), "utf8")),
+  );
+  inspect(file, (raw) => {
+    raw.exec("CREATE TABLE _schema (version INTEGER PRIMARY KEY, digest TEXT NOT NULL) STRICT");
+    for (const [index, script] of scripts.entries()) {
+      raw.exec(script);
+      raw
+        .prepare("INSERT INTO _schema VALUES (?, ?)")
+        .run(index + 1, createHash("sha256").update(script).digest("hex"));
+    }
+    raw.exec(`PRAGMA user_version=${String(scripts.length)}`);
+    raw
+      .prepare("INSERT INTO board_threads (id, state, data) VALUES (?, ?, ?)")
+      .run(boardThread.id, boardThread.state, JSON.stringify(boardThread));
+    raw
+      .prepare("INSERT INTO board_posts VALUES (?, ?, ?, ?)")
+      .run(boardPost.id, boardPost.thread, boardPost.kind, JSON.stringify(boardPost));
+    raw
+      .prepare("INSERT INTO board_receipts VALUES (?, ?, ?, ?, ?)")
+      .run(
+        boardReceipt.scope,
+        boardReceipt.key,
+        boardReceipt.hash,
+        boardReceipt.result.thread,
+        boardReceipt.result.post,
+      );
+  });
+  const upgraded = await ProfileDatabase.open(profile);
+  connections.push(upgraded);
+  inspect(file, (raw) => {
+    expect(raw.prepare("SELECT data FROM board_posts").all()).toEqual([
+      { data: JSON.stringify(boardPost) },
+    ]);
+    expect(raw.prepare("SELECT post FROM board_receipts").all()).toEqual([{ post: boardPost.id }]);
+    expect(() => {
+      raw.exec("DELETE FROM board_posts");
+    }).toThrow(/FOREIGN KEY/u);
+    expect(raw.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(raw.prepare("PRAGMA user_version").get()?.["user_version"]).toBeGreaterThan(
+      scripts.length,
+    );
+  });
+});

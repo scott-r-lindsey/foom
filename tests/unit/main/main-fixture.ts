@@ -98,6 +98,7 @@ const forgeMock = vi.hoisted(() => ({
       ) => Promise<string | ForgeInspection | undefined>,
       changed: () => void,
       provider?: ForgeProviderFactory,
+      decisionRemote?: (repository: string) => Promise<string | undefined>,
     ) => Promise<unknown>
   >(),
 }));
@@ -202,8 +203,10 @@ vi.mock("../../../src/main/previews/ipc", () => ({
 vi.mock("../../../src/main/previews/pick", () => ({ pickPreviewFile: previewMock.pickFile }));
 
 import type { ThemeCatalog } from "../../../src/shared/theme-file";
+import type * as ThemeLibraryModule from "../../../src/main/themes/library";
 
-vi.mock("../../../src/main/themes/library", () => ({
+vi.mock("../../../src/main/themes/library", async (importOriginal) => ({
+  ...(await importOriginal<typeof ThemeLibraryModule>()),
   ThemeLibrary: class {
     constructor(_root: string, changed: () => void) {
       mock.themeChanged = changed;
@@ -224,7 +227,9 @@ vi.mock("../../../src/main/config/service", () => ({
       mock.config.deps = deps;
     }
     initialize = (legacy: unknown) => mock.config.initialize(legacy);
+    startThemeDecoding = () => mock.config.startThemeDecoding();
     write = (patch: unknown) => mock.config.write(patch);
+    activeThemeImage = (id: string) => mock.config.activeThemeImage(id);
     status = () => mock.config.status;
     dispose = () => Promise.resolve();
   },
@@ -652,7 +657,9 @@ const mock = vi.hoisted(() => {
     config: {
       deps: undefined as ConfigServiceDependencies | undefined,
       initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
+      startThemeDecoding: vi.fn(() => Promise.resolve()),
       activePalette: vi.fn(() => undefined),
+      activeThemeImage: vi.fn<(id: string) => Uint8Array | undefined>(),
       write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),
       status: { folder: "/home/.foom/config", available: true, changes: [] },
     },
@@ -866,6 +873,8 @@ beforeEach(() => {
   forgeUi.supported = true;
   forgeMock.open.mockResolvedValue({
     track: vi.fn(),
+    watchDecisions: vi.fn(),
+    readDecision: vi.fn(),
     read: vi.fn(),
     close: vi.fn(),
     pause: vi.fn(),

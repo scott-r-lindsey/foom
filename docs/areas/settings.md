@@ -11,6 +11,9 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 The main settings store copies incoming values and exposes immutable snapshots
 of committed settings and legacy migration values.
+Each agent permission scope holds up to 100 choices. Main checks the merged
+choices inside the serialized write, so adding a choice beyond the limit leaves
+the profile intact. Clearing a choice frees a slot.
 
 ### Agent-editable settings format (#206)
 
@@ -105,8 +108,8 @@ brand hue and color-distance rules, contrast and the declared base. Built-in pal
 pass the same gate used for user data. The object requires the original 19 color
 tokens and optionally accepts the paired
 `highlight` / `highlight-deep` decoration colors, falling back to accent / accent-deep.
-Built-in fonts stay fixed; version 2 user themes can select bounded typography from bundled or fixed system stacks. There are no CSS filenames,
-imports, URLs or arbitrary CSS values in theme data. See [brand](../brand.md#interface-themes)
+Built-in fonts stay fixed; version 2 user themes can select bounded typography from bundled or fixed system stacks. Decorative bitmap entries name files directly in the theme folder. Theme data
+contains no CSS imports, URLs or arbitrary CSS values. See [brand](../brand.md#interface-themes)
 for the numerical invariants. [Custom theme files](themes.md) use the same gate.
 
 `renderer/ui/interface-theme.ts` subscribes to the setup source and system media
@@ -114,8 +117,9 @@ changes, sets color tokens on the root element and removes its listeners on unmo
 It ignores stale initial reads after a newer save or disposal. CSS keeps the original
 Eclipse tokens as a startup/failure fallback. Settings → Appearance uses token-scoped
 previews of every board status, including the halo, square failure light and labels.
-It neither renders terminal output nor subscribes to activity. The CSP and preload
-surface are unchanged.
+The board theme subscription is separate from terminal output and activity.
+The existing preload channels project the fixed bitmap metadata. The board image
+CSP follows the [theme bitmap rules](themes.md#decorative-bitmaps-1189).
 
 Terminal colors are independently stored as `terminalTheme`: `follow` (default), a built-in ID (`foom-light`, `foom-dark`, `solarized-light`, `solarized-dark`, `dracula`), a `user:<filename>.json` ID, or a portable palette object accepted by profile/IPC validation. Config files use the named choices; custom palette files have the format in [Custom theme files](themes.md#custom-theme-files-205). The object has exactly foreground, background, cursor, selectionBackground and the 16 named ANSI colors (black through brightWhite), each a six-digit `#RRGGBB` color. Main validates every key and value; the host protocol validates palettes again. Both processes and the renderer share the same resolver. Palette replacement resets OSC overrides; OSC 104 restores the active theme's ANSI defaults. Settings previews all 16 colors, bold, dim and selection. Third-party palette licenses are bundled in the packaged notices.
 
@@ -209,6 +213,14 @@ status columns or reload controls. Enablement is independent of installation.
 Disabled agents disappear from machine cards and launch menus and do not run probes.
 Default arguments reach both human remote launches and remote children;
 hub Environment settings remain local.
+
+When a manifest drops a saved permission level, its scope still shows the
+selection as unavailable. Reset it to Agent default in Global or Use Global in
+Machines. Launches that resolve to the unavailable level fail before spawn.
+Host observation and nickname updates leave a pending machine permission save
+eligible to commit. Removing the selected host or changing its registered code
+folder before commit causes Settings to report a failed save so the choice can
+be reviewed and saved again.
 
 Machines uses one picker, initially This computer, followed by every registered
 host. Hosts Open selects its host in that picker. There are no per-machine tabs.

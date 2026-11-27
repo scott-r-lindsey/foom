@@ -2,19 +2,25 @@
 
 Full CI runs use four named-test shards on Linux, six on Windows and eight on macOS.
 Draft PRs with entirely mapped changes run the affected suites once per platform
-using shard `1/1`; any unmapped path retains the full matrix. Ready PRs always run
-the full matrix, including the readiness event without another push. `tests/electron/shard-plan.json`
+using shard `1/1`; any unmapped path retains the full matrix. The ready transition
+runs the full matrix unless CI verifies a completed full run for the same head SHA,
+base and workflow file. `tests/electron/shard-plan.json`
 stores assignments keyed by shard count and the CI count for each platform; `test-shard.js` hashes new or renamed tests,
 and all tests at unplanned shard counts. With no shard setting the full suite runs.
 Native checks, packaging and packaged smoke run sequentially in one independent
-companion job per platform, alongside the Electron shards and static checks.
-The Quality gate requires all eighteen Electron jobs and all three companion jobs.
-Draft quality gate requires the selected Electron matrix and the same companions;
-it cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
+companion job per platform after all host builds succeed. Linux and Windows
+Electron and all host builds can start as soon as change detection finishes.
+macOS Electron and macOS native checks and packaging wait for all Linux
+Electron shards to succeed.
+The Quality gate requires all eighteen Electron jobs, host builds and all three
+packaging jobs. Draft quality gate requires the selected Electron jobs and the
+same host build and packaging jobs.
+It cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
-permit skipping both desktop matrices together. Native hook probes stay serial.
-Electron steps allow fourteen minutes on Linux, Windows and macOS. Per-test
-deadlines and the worker watchdog are unchanged.
+permit skipping all desktop jobs together. Native hook probes stay serial.
+Electron steps allow 14 minutes on Linux and Windows and 20 minutes on macOS.
+The macOS Electron job allows 26 minutes, leaving six minutes for surrounding
+work. Per-test deadlines and the worker watchdog are unchanged.
 
 ## Feature suites and local runs
 
@@ -59,8 +65,8 @@ auditing, sandboxing and shared
 `test-policy.js` deadlines. Cleanup quits every app before removing fixtures.
 
 The wrapper passes `--test-concurrency=1` explicitly: feature files run serially
-within each job, preserving native desktop/focus behavior. CI jobs remain
-independent. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
+within each job, preserving native desktop/focus behavior. Shards within a
+platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
 Suite discovery preserves named registrations independently of file layout.
 Generated loop cases are included in registration audits. Empty files on a shard
@@ -1097,3 +1103,21 @@ Combining the maximum case sums with the largest observed residual per platform
 (65.2 / 80.1 / 161.1 seconds) gives peak step estimates of 805.4 / 707.4 /
 761.1 seconds on Linux / Windows / macOS. Actual headroom will be measured in
 the first full ready-PR run.
+
+## Platform step budgets and shard headroom (#1351)
+
+The planner reports projected case time and remaining headroom for each shard
+at its platform's configured count, before and after rebalancing. It budgets
+the measured step wall time outside the named JUnit cases using the largest
+residuals from the #1295 measurements above. The case time target is 75% of the
+step limit minus this setup allowance, leaving 25% of the full step for variation.
+
+| Platform | Step limit (s) | Setup allowance (s) | Case time target (s) |
+| --- | ---: | ---: | ---: |
+| Linux | 840 | 65.2 | 564.8 |
+| Windows | 840 | 80.1 | 549.9 |
+| macOS | 1200 | 161.1 | 738.9 |
+
+The planner warns for every shard over its target, including with `--write`.
+The warnings describe the projected margin and do not change assignments or
+the CI gates. Compare projections with observed step wall times from passing runs.

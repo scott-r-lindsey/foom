@@ -160,10 +160,11 @@ test("the previous settings schema remains refreshable after adding close finish
 
 test("the previous agent schema remains refreshable after adding bundled-only installers", () => {
   const file = "schemas/agent.schema.json";
-  const previous = themeRecord(JSON.parse(OWNED_FILES[file] ?? ""), "$");
+  const previous = agentSchemaBeforeApprovalOnly();
   const definitions = themeRecord(previous["$defs"], "$.$defs");
   delete themeRecord(themeRecord(definitions["v2"], "$")["properties"], "$")["wake"];
   delete definitions["wake"];
+  removePermissionSchema(definitions);
   const setup = themeRecord(definitions["hostSetup"], "$.$defs.hostSetup");
   delete themeRecord(setup["properties"], "$.$defs.hostSetup.properties")["script"];
   delete definitions["vendorScript"];
@@ -194,9 +195,10 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
 );
 
 test("the previous agent schema remains refreshable after adding installer environment", () => {
-  const previous = structuredClone(generated);
+  const previous = agentSchemaBeforeApprovalOnly();
   Reflect.deleteProperty(previous.$defs.v2.properties, "wake");
   Reflect.deleteProperty(previous.$defs, "wake");
+  removePermissionSchema(previous.$defs);
   const properties = themeRecord(
     themeRecord(themeRecord(previous.$defs, "$.$defs")["vendorScript"], "$.$defs.vendorScript")[
       "properties"
@@ -209,6 +211,35 @@ test("the previous agent schema remains refreshable after adding installer envir
     refreshable(
       "schemas/agent.schema.json",
       new TextEncoder().encode(`${JSON.stringify(previous, null, 2)}\n`),
+    ),
+  ).toBe(true);
+});
+
+function removePermissionSchema(definitions: Record<string, unknown>) {
+  delete themeRecord(themeRecord(definitions["v2"], "$")["properties"], "$")["permissionLevels"];
+  delete definitions["permissionLevels"];
+  delete definitions["permissionArgv"];
+}
+
+function agentSchemaBeforeApprovalOnly() {
+  const previous = structuredClone(generated);
+  for (const { properties } of previous.$defs.argumentMatcher.oneOf)
+    Reflect.deleteProperty(properties, "approvalOnly");
+  return previous;
+}
+
+test("the agent schemas preceding approval-only matchers and permission declarations remain refreshable", () => {
+  const file = "schemas/agent.schema.json";
+  const previous = agentSchemaBeforeApprovalOnly();
+  const previousBytes = `${JSON.stringify(previous, null, 2)}\n`;
+  expect(refreshable(file, new TextEncoder().encode(previousBytes))).toBe(true);
+  expect(refreshable(file, new TextEncoder().encode(`${previousBytes} `))).toBe(false);
+  removePermissionSchema(previous.$defs);
+  expect(
+    refreshable(
+      file,
+      new TextEncoder().encode(`${JSON.stringify(previous, null, 2)}
+`),
     ),
   ).toBe(true);
 });

@@ -219,6 +219,10 @@ idle/exit without a report for that turn, required-check changes and PR close/me
 invalidate the shared child-event cursor; permission/credential attention alone
 does not enqueue a wake. Pending events coalesce per live orchestrator. The
 minimum interval is configurable from 1–1440 minutes, default three minutes.
+Structured human board answers may queue a fixed `Foom: board decisions answered.
+Call wait_for and board_read.` notice to the authoring repository's current
+orchestrator. Board answers coalesce with pending child events and share the
+same readiness, authority, logging and timing rules.
 
 The 2026-11-15 human decision replaces the earlier absolute “never reaches a
 menu” requirement with a **best-effort** cancel-and-recheck flow. The latest

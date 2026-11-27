@@ -20,7 +20,7 @@ export interface WorktreeLaunchContext {
   readonly closed: boolean;
   readonly control: Promise<Partial<Pick<ControlRuntime, "setRole">>> | undefined;
   readonly addWorktree: WorkspaceMethods["addWorktree"];
-  readonly agents: Pick<Agents, "launch">;
+  readonly agents: Pick<Agents, "launch" | "permissionForLaunch">;
   readonly busyWorktrees: Set<string>;
   readonly checkoutHolds: CheckoutHolds;
   readonly confirmAgentLaunch: WorkspaceMethods["confirmAgentLaunch"];
@@ -96,6 +96,7 @@ export interface AgentSetupContext {
 }
 
 export interface SidebarCommandsContext {
+  readonly sessions: Pick<SessionOwner, "reserveManualLaunch">;
   readonly forgetSession: (id: string) => Promise<void>;
   readonly closeSession: (
     entry: WorkspaceTerminal,

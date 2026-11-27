@@ -1,6 +1,10 @@
 import type { AgentManifestV2 } from "./agent-manifest-v2";
+import type { AgentPermissionLevel } from "./agent-permissions";
 
+export const permissionLevelSupported = Symbol("permissionLevelSupported");
 export type Facts = Readonly<Record<string, unknown>>;
+type DiscoveryFactValues = Record<string, unknown> & { [permissionLevelSupported]?: boolean };
+export type DiscoveryFacts = Readonly<DiscoveryFactValues>;
 export { selected } from "./agent-conditions";
 import { selected } from "./agent-conditions";
 
@@ -9,7 +13,8 @@ export function discoveryFacts(
   version: string,
   help: string,
   engine: Facts,
-): Facts {
+  permissionLevel?: AgentPermissionLevel,
+): DiscoveryFacts {
   const grammar = model.discovery.version;
   let parsed: number[] | undefined;
   if (grammar && version.startsWith(grammar.prefix)) {
@@ -32,28 +37,34 @@ export function discoveryFacts(
     }
     return true;
   };
-  const facts: Record<string, unknown> = { ...engine };
+  const advertised = (tokens: readonly string[]) =>
+    tokens.every((token) => {
+      let offset = help.indexOf(token);
+      while (offset >= 0) {
+        const before = offset === 0 ? " " : help[offset - 1];
+        const after = help[offset + token.length];
+        if (
+          before !== undefined &&
+          /\s/u.test(before) &&
+          (after === undefined || /[\s=,]/u.test(after))
+        )
+          return true;
+        offset = help.indexOf(token, offset + 1);
+      }
+      return false;
+    });
+  const facts: DiscoveryFactValues = { ...engine };
   for (const fact of model.discovery.facts) {
     facts[fact.id] =
       fact.enabled &&
       minimum(fact.minimum ?? grammar?.minimum) &&
-      fact.helpTokens.every((token) => {
-        let offset = help.indexOf(token);
-        while (offset >= 0) {
-          const before = offset === 0 ? " " : help[offset - 1];
-          const after = help[offset + token.length];
-          if (
-            before !== undefined &&
-            /\s/u.test(before) &&
-            (after === undefined || /[\s=,]/u.test(after))
-          )
-            return true;
-          offset = help.indexOf(token, offset + 1);
-        }
-        return false;
-      }) &&
+      advertised(fact.helpTokens) &&
       selected(fact.when, facts);
   }
+  const policy = model.permissionLevels;
+  if (permissionLevel && policy)
+    facts[permissionLevelSupported] =
+      minimum(policy.minimum ?? grammar?.minimum) && advertised(policy.helpTokens);
   return facts;
 }
 

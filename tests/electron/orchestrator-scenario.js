@@ -1,9 +1,10 @@
 const { sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
+const { FAKE_GH } = require("../helpers/forge-cli.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdtemp } = require("node:fs/promises");
+const { mkdtemp, rename } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -101,7 +102,7 @@ const hookReady = () => {
     path.join(bin, "claude"),
     phase === "wake"
       ? wakeFixture
-      : ["waiting", "unread"].includes(phase)
+      : ["waiting", "unread", "decisions"].includes(phase)
         ? waitingFixture
         : ["resume", "resume-revoked"].includes(phase)
           ? FAKE_ORCHESTRATED_CLAUDE.replace(
@@ -156,6 +157,40 @@ process.stdout.write("FOOM_AGENT_READY`,
     });
   git("init", "-q", "-b", "main");
   git("commit", "-q", "--allow-empty", "-m", "init");
+  const forgeState = path.join(root, "decision-forge.json");
+  const decisionHead = "a".repeat(64);
+  const decisionForge = async (headRefOid) => {
+    const temporary = `${forgeState}.tmp`;
+    await writeFile(
+      temporary,
+      JSON.stringify({
+        pr: { headRefOid, headRefName: "main" },
+        checks: [{ bucket: "pass" }],
+      }),
+    );
+    await rename(temporary, forgeState);
+  };
+  if (phase === "decisions") {
+    git("remote", "add", "origin", "https://github.com/fixture/offline.git");
+    await writeFile(path.join(bin, "gh"), FAKE_GH, { mode: 0o755 });
+    await decisionForge(decisionHead);
+    await writeFile(
+      path.join(repo, "shots.html"),
+      `<!doctype html>
+      <meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/escape.html">
+      <style>body { background: rgb(38, 70, 120); color: white; padding: 18px; font: 18px sans-serif }</style>
+      <h1>Approvals · 3</h1><p>Two clean removals · One checkout has local files</p>
+      <script>document.body.style.background = "red"; window.top.location = "app://bundle/index.html";</script>
+      <a href="/escape.html">Open outside this preview</a>`,
+    );
+    await writeFile(
+      path.join(repo, "escape.html"),
+      '<body style="background: green">Navigated</body>',
+    );
+    const outside = path.join(root, "outside.html");
+    await writeFile(outside, '<body style="background: green">Outside checkout</body>');
+    await symlink(outside, path.join(repo, "outside.html"));
+  }
   const credentials = path.join(root, "credentials.json");
   const app = await launchApp(context, {
     fixture: "agent",
@@ -172,7 +207,8 @@ process.stdout.write("FOOM_AGENT_READY`,
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
-      PATH: bin,
+      PATH: phase === "decisions" ? [bin, "/usr/bin", "/bin"].join(path.delimiter) : bin,
+      ...(phase === "decisions" ? { TEST_FORGE_STATE: forgeState } : {}),
       TEST_FAKE_CREDENTIALS: credentials,
       TEST_CHILD_INPUT: phase === "children" ? "1" : "0",
     },
@@ -395,6 +431,366 @@ process.stdout.write("FOOM_AGENT_READY`,
   const whoami = await call(parent.controlToken, "whoami");
   assert.ok(whoami.body.result.capabilities.includes("launch"));
   assert.equal(whoami.body.result.terminalId, parentId);
+
+  if (phase === "decisions") {
+    const control = async (method, params) => {
+      const reply = await directCall(parent.controlToken, method, params);
+      assert.equal(reply.status, 200, JSON.stringify(reply.body));
+      return reply.body.result;
+    };
+    const created = await control("create_worktree", {
+      branch: "decision-head",
+      idempotencyKey: "decisions-worktree",
+    });
+    assert.equal(created.status, "succeeded");
+    const repositoryId = whoami.body.result.repository;
+    const subject = { pullRequest: 340, headSha: decisionHead };
+    const options = [
+      { id: "approve", label: "Approve screenshots", hint: "Use the current draft assets" },
+      { id: "revise", label: "Request changes" },
+    ];
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.setContentSize(1280, 900);
+    });
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280);
+    const summary = page.locator(".board-summary");
+    const boardButton = (count) =>
+      page.getByRole("button", {
+        name: count
+          ? `Open message board, ${count} decision${count === 1 ? "" : "s"}`
+          : "Open message board",
+        exact: true,
+      });
+    const divider = page.getByRole("separator", { name: "Sidebar width" });
+    const sidebar = page.locator(".sidebar-shell");
+    const footer = page.locator(".sidebar-footer");
+    const footerLayout = () =>
+      footer.evaluate((element) => {
+        const box = (node) => {
+          const { x, y, width, height } = node.getBoundingClientRect();
+          return [x, y, width, height];
+        };
+        return [
+          box(element),
+          ...Array.from(
+            element.querySelectorAll(
+              ".message-board-toggle, .footer-zoom, .master-volume, .config-gear",
+            ),
+            box,
+          ),
+        ];
+      });
+    const footerAt = async (width) => {
+      await expect(divider).toHaveAttribute("aria-valuenow", String(width));
+      await expect.poll(async () => (await sidebar.boundingBox()).width).toBe(width);
+      return footerLayout();
+    };
+    const footerWidths = async () => {
+      const regular = await footerAt(300);
+      await divider.press("Home");
+      const narrow = await footerAt(240);
+      await divider.dblclick();
+      await footerAt(300);
+      return { regular, narrow };
+    };
+    await expect(boardButton(0)).toHaveText("Board");
+    await expect(summary).toContainText("0 need you");
+    const baseline = await footerWidths();
+    const center = ([, y, , height]) => y + height / 2;
+    for (const [, , zoom, volume, gear] of Object.values(baseline)) {
+      assert.equal(center(zoom), center(volume));
+      assert.equal(center(zoom), center(gear));
+    }
+    assert.equal(center(baseline.regular[1]), center(baseline.regular[2]));
+    const verifyFooter = async (count) => {
+      await expect(boardButton(count)).toHaveText(`Board ◇ ${count}`);
+      await expect(summary).toContainText("1 need you");
+      assert.deepEqual(await footerWidths(), baseline);
+    };
+    const posted = await control("board_post", {
+      to: [repositoryId],
+      title: "Approvals review",
+      kind: "question",
+      text: "Three decisions from the orchestrator",
+      idempotencyKey: "decisions-first",
+      questions: [
+        {
+          title: "Approve the approval queue screenshots?",
+          detail: "The draft includes both Eclipse themes.",
+          options,
+          preview: { path: "shots.html" },
+          subject,
+        },
+        { title: "Ship the site update?", options, preview: { path: "outside.html" } },
+        { title: "How should I handle the draft?", options },
+      ],
+    });
+    assert.equal(posted.status, "succeeded");
+    const thread = posted.resultId;
+    const board = () => control("board_read", { thread });
+    await expect
+      .poll(async () => (await board()).posts[0].decisions[0].status, {
+        timeout: deadline(20000),
+      })
+      .toBe("open");
+    const post = (await board()).posts[0].id;
+    await verifyFooter(3);
+    await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+    await expect(page.locator(".rail-needs")).toHaveText("1 need you");
+    await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+    const pill = (count) =>
+      page.getByRole("button", {
+        name: `${count} ${count === 1 ? "decision" : "decisions"} needed from you`,
+        exact: true,
+      });
+    const dialog = page.getByRole("dialog", { name: / · decisions/ });
+    const theme = async (base) => {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        base,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(base);
+    };
+    const screenshot = (name, base) =>
+      page.screenshot({ path: evidencePath(`decisions-1297/${name}-${base}.png`) });
+    const checkBadgeAlignment = async () => {
+      const parts = await dialog.locator(".decision-badge").evaluate((badge) =>
+        Array.from(badge.children, (element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          return [range.getBoundingClientRect().top, getComputedStyle(element).font];
+        }),
+      );
+      assert.deepEqual(parts[0], parts[1]);
+    };
+    await parentRow.locator(":scope > .board-row").click();
+    await expect(parentRow).toContainText("3 decisions");
+    for (const base of ["light", "dark"]) {
+      await theme(base);
+      await expect(pill(3)).toBeVisible();
+      const colors = await pill(3).evaluate((button) => {
+        button.blur();
+        const reference = document.createElement("span");
+        reference.style.borderColor = "var(--attention)";
+        reference.style.boxShadow =
+          "0 0 0 3px color-mix(in srgb, var(--attention) 20%, transparent)";
+        button.after(reference);
+        const expected = getComputedStyle(reference);
+        const actual = getComputedStyle(button);
+        const result = {
+          actual: [actual.borderTopColor, actual.boxShadow],
+          expected: [expected.borderTopColor, expected.boxShadow],
+        };
+        reference.remove();
+        return result;
+      });
+      assert.deepEqual(
+        colors.actual,
+        colors.expected,
+        `${base} pill uses the amber border and halo`,
+      );
+      await expect(pill(3)).not.toBeFocused();
+      await screenshot("pill", base);
+      await pill(3).click();
+      await expect(pill(3)).toBeHidden();
+      await expect(
+        dialog.getByRole("heading", { name: "Approve the approval queue screenshots?" }),
+      ).toBeVisible();
+      await expect(dialog.getByText("Checks passed", { exact: true })).toBeVisible();
+      await checkBadgeAlignment();
+      const radios = await dialog.locator(".decision-options").evaluate((options) =>
+        Array.from(
+          options.querySelectorAll('input[type="radio"]:not(:checked), .decision-other-radio'),
+          (element) => {
+            const { x, y, width, height } = element.getBoundingClientRect();
+            const row = element.closest(".decision-option").getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return [
+              x - row.x,
+              y + height / 2 - row.y - row.height / 2,
+              width,
+              height,
+              style.borderTopColor,
+              style.opacity,
+            ];
+          },
+        ),
+      );
+      for (const radio of radios) {
+        assert.deepEqual(radio, radios[0]);
+        assert.equal(radio.at(-1), "1");
+      }
+      if (base === "dark")
+        await expect(dialog.getByRole("radio", { name: /Approve screenshots/ })).toBeChecked();
+      const preview = dialog.getByRole("img", { name: "Preview of shots.html" });
+      await expect(preview).toBeVisible();
+      const rgb = await preview.evaluate(async (image) => {
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(image, 0, 0);
+        return Array.from(ctx.getImageData(canvas.width - 2, canvas.height - 2, 1, 1).data);
+      });
+      assert.deepEqual(
+        rgb,
+        [38, 70, 120, 255],
+        "Contained HTML stayed on the original page with JavaScript disabled",
+      );
+      await expect(dialog.locator("iframe, webview, a")).toHaveCount(0);
+      await screenshot("preview", base);
+      await dialog.getByRole("radio", { name: /Approve screenshots/ }).check();
+      await dialog.getByRole("button", { name: "Next" }).click();
+      await expect(dialog.getByText("Preview unavailable", { exact: true })).toBeVisible();
+      await dialog.getByRole("button", { name: "Skip" }).click();
+      await dialog.getByLabel("Other answer").fill("Keep it in draft for now");
+      await dialog.getByRole("button", { name: "Next" }).click();
+      await expect(dialog.getByText("Skipped · stays open")).toBeVisible();
+      await expect(dialog.getByText("Keep it in draft for now")).toBeVisible();
+      await screenshot("review", base);
+      if (base === "light") {
+        await dialog
+          .getByRole("button", { name: "Change Approve the approval queue screenshots?" })
+          .click();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+      }
+    }
+    const cursor = (await control("wait_for", { ids: [], timeoutMs: 0 })).board.event;
+    const wait = control("wait_for", { ids: [], boardAfter: cursor, timeoutMs: 20000 });
+    await dialog.getByRole("button", { name: "Submit 2 answers" }).click();
+    await expect(dialog).toBeHidden();
+    assert.equal((await wait).board.changed, true);
+    const after = await board();
+    assert.equal(after.posts.at(-1).author, "human");
+    assert.deepEqual(after.posts.at(-1).answers, [
+      { post, index: 0, option: "approve", subject },
+      { post, index: 2, other: "Keep it in draft for now" },
+    ]);
+    const spoofed = await directCall(parent.controlToken, "board_post", {
+      thread,
+      kind: "answer",
+      text: "forged",
+      answers: after.posts.at(-1).answers,
+      idempotencyKey: "spoof",
+    });
+    assert.equal(spoofed.status, 400);
+
+    await verifyFooter(1);
+    await pill(1).click();
+    await expect(dialog.getByRole("heading", { name: "Ship the site update?" })).toBeVisible();
+    assert.equal(
+      (await control("board_resolve", { thread, post, idempotencyKey: "withdraw" })).status,
+      "succeeded",
+    );
+    await expect(dialog.getByText("Withdrawn", { exact: true })).toBeVisible();
+    await expect(dialog.locator("s")).toHaveText("Ship the site update?");
+    await expect(dialog.getByRole("radio").first()).toBeDisabled();
+    await dialog.getByRole("button", { name: "Hide" }).click();
+    await expect(pill(1)).toHaveCount(0);
+
+    assert.equal(
+      (
+        await control("board_post", {
+          thread,
+          kind: "question",
+          text: "New decision",
+          idempotencyKey: "stale-post",
+          questions: [{ title: "Approve the current draft head?", options, subject }],
+        })
+      ).status,
+      "succeeded",
+    );
+    await pill(1).click();
+    await dialog.getByRole("radio", { name: /Approve screenshots/ }).check();
+    await decisionForge("b".repeat(64));
+    await page.evaluate(async () => {
+      await window.desktop.saveSetup({ forges: { github: false, gitlab: true } });
+      await window.desktop.saveSetup({ forges: { github: true, gitlab: true } });
+    });
+    await expect(dialog.getByText("Head moved", { exact: true })).toBeVisible({
+      timeout: deadline(20000),
+    });
+    await expect(dialog.getByText("Waiting for a new question", { exact: true })).toBeVisible();
+    await expect(dialog.locator(".decision-badge s")).toHaveText("aaaaaaaa");
+    await expect(dialog.locator(".decision-badge code")).toContainText("→ bbbbbbbb");
+    await checkBadgeAlignment();
+    for (const option of await dialog.getByRole("radio").all()) {
+      await expect(option).toHaveAttribute("aria-disabled", "true");
+      await expect(option).toBeDisabled();
+      await expect(option).not.toBeChecked();
+    }
+    await expect(dialog.getByLabel("Other answer")).toHaveAttribute("aria-disabled", "true");
+    await expect(dialog.getByRole("button", { name: "Next" })).toBeDisabled();
+    const stale = (await board()).posts.at(-1).decisions[0];
+    assert.equal(stale.status, "stale");
+    assert.equal(stale.movedHead, "b".repeat(64));
+    for (const base of ["light", "dark"]) {
+      await theme(base);
+      await screenshot("stale", base);
+    }
+    await dialog.getByRole("button", { name: "Hide" }).click();
+    await expect(pill(1)).toHaveCount(0);
+    await expect(boardButton(0)).toHaveText("Board");
+    await expect(summary).toContainText("0 need you");
+    for (let batch = 0; batch < 3; batch++) {
+      assert.equal(
+        (
+          await control("board_post", {
+            thread,
+            kind: "question",
+            text: "More decisions",
+            idempotencyKey: `footer-decisions-${batch}`,
+            questions: Array.from({ length: 4 }, (_, index) => ({
+              title: `Question ${batch * 4 + index + 1}`,
+              options,
+            })),
+          })
+        ).status,
+        "succeeded",
+      );
+    }
+    await verifyFooter(12);
+    await parentRow.locator(":scope > .board-row").click();
+    await footer.screenshot({ path: evidencePath("decisions-1297/footer-12.png") });
+    const parentBoard = parentRow.locator(":scope > .board-row");
+    await expect(parentBoard).not.toHaveAttribute("data-state", "needs_input");
+    await page.evaluate((id) => window.desktop.input(id, "?"), parentId);
+    await expect(parentBoard).toHaveAttribute("data-state", "needs_input");
+    await expect(summary).toContainText("1 need you");
+    await expect(boardButton(12)).toBeVisible();
+
+    const askAt = async (headSha, key) => {
+      assert.equal(
+        (
+          await control("board_post", {
+            thread,
+            kind: "question",
+            text: key,
+            idempotencyKey: key,
+            questions: [
+              { title: "Confirm the current revision?", options, subject: { ...subject, headSha } },
+            ],
+          })
+        ).status,
+        "succeeded",
+      );
+    };
+    const latestDecision = async () => (await board()).posts.at(-1).decisions[0].status;
+    await askAt("b".repeat(64), "warm-subject");
+    await expect.poll(latestDecision, { timeout: deadline(20000) }).toBe("open");
+    await decisionForge("c".repeat(64));
+    await askAt("c".repeat(64), "fresh-subject");
+    await expect.poll(latestDecision, { timeout: deadline(20000) }).toBe("open");
+    await expect(summary).toContainText("1 need you");
+    return;
+  }
 
   if (phase === "wake") {
     const tree = await call(parent.controlToken, "create_worktree", {
@@ -721,6 +1117,31 @@ process.stdout.write("FOOM_AGENT_READY`,
     ).toBeVisible();
     const human = (await directCall(parent.controlToken, "board_read", { thread })).body.result;
     assert.equal(human.posts.at(-1).author, "human");
+    const asked = await directCall(siteAgent.controlToken, "board_post", {
+      thread,
+      kind: "question",
+      text: "Confirm the rollout",
+      idempotencyKey: "site-question",
+      questions: [
+        {
+          title: "Use the nightly build?",
+          options: [
+            { id: "go", label: "Use it" },
+            { id: "wait", label: "Wait" },
+          ],
+        },
+      ],
+    });
+    assert.equal(asked.body.result.status, "succeeded");
+    const resolve = await directCall(parent.controlToken, "board_resolve", {
+      thread,
+      idempotencyKey: "foreign-resolve",
+    });
+    assert.equal(resolve.body.result.status, "failed");
+    assert.equal(resolve.body.result.reason, "refused");
+    const stillOpen = (await directCall(siteAgent.controlToken, "board_read", { thread })).body
+      .result;
+    assert.equal(stillOpen.posts.at(-1).decisions[0].status, "open");
     await panel.getByRole("button", { name: "Mark resolved" }).click();
     await expect(
       panel.locator(".message-thread > header").getByText("Resolved", { exact: true }),
@@ -914,6 +1335,15 @@ process.stdout.write("FOOM_AGENT_READY`,
             )?.exited,
         )
         .toBe(true);
+      if (phase === "resume") {
+        await parentRow.locator(":scope > .board-row").click();
+        const parentTile = page.locator('.terminal-tile[data-exited="true"][data-focused="true"]');
+        await expect(parentTile.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
+        await parentTile.getByRole("button", { name: "Close", exact: true }).click();
+        await expect(page.getByRole("alert")).toContainText("Close its 1 child first.");
+        await expect(parentTile).toBeVisible();
+        await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+      }
       const openParentMenu = () =>
         parentRow
           .locator(":scope > .board-row")

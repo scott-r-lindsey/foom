@@ -1,4 +1,11 @@
+import { isDeepStrictEqual } from "node:util";
+import { themeBitmapSlots } from "../../shared/theme-bitmaps";
+import type { ThemeApproval, ThemeBitmapApproval } from "../../shared/theme-bitmap";
 import { parseAgentDefaults as parseStoredAgentDefaults } from "../../shared/providers/arguments";
+import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
+import { hostAlias } from "../../shared/registered-hosts";
+import type { RegisteredHost } from "../../shared/registered-hosts.d";
+import type { AgentPermissionSettings } from "../../shared/agent-permissions";
 import { settingsChanged } from "../data/settings-changes";
 import { registeredHosts } from "../../shared/registered-hosts";
 import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
@@ -27,10 +34,24 @@ import type { Settings, SettingsPatch } from "../../shared/setup";
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
 const SUPERSEDED_PROFILE_WRITE = new Error("Superseded profile write");
+const hostRegistrationIdentities = new WeakMap<RegisteredHost, symbol>();
+
+/** Identity of a registered destination across display-only profile updates. */
+export function hostRegistrationIdentity(registration: RegisteredHost): symbol {
+  const current = hostRegistrationIdentities.get(registration);
+  if (current) return current;
+  const identity = Symbol();
+  hostRegistrationIdentities.set(registration, identity);
+  return identity;
+}
 
 type RegisteredHostsPatch = {
   registeredHosts: NonNullable<Settings["registeredHosts"]>;
 } & { [Key in Exclude<keyof SettingsPatch, "registeredHosts">]?: never };
+
+type AgentPermissionsPatch = {
+  agentPermissions: NonNullable<Settings["agentPermissions"]>;
+} & { [Key in Exclude<keyof SettingsPatch, "agentPermissions">]?: never };
 
 function freezeSettings<T>(value: T): T {
   if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
@@ -38,6 +59,32 @@ function freezeSettings<T>(value: T): T {
     for (const child of Object.values(value)) freezeSettings(child);
   }
   return value;
+}
+
+const sha256 = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+
+export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
+  if (sha256(value)) return value;
+  if (
+    !record(value) ||
+    Object.keys(value).length !== 4 ||
+    value["decoded"] !== true ||
+    !sha256(value["digest"]) ||
+    !sha256(value["jsonDigest"]) ||
+    !record(value["sources"])
+  )
+    return undefined;
+  if (Object.keys(value["sources"]).some((key) => !themeBitmapSlots.some((slot) => slot === key)))
+    return undefined;
+  const sources: ThemeBitmapApproval["sources"] = {};
+  for (const slot of themeBitmapSlots) {
+    const source = value["sources"][slot];
+    if (source === undefined) continue;
+    if (!sha256(source)) return undefined;
+    sources[slot] = source;
+  }
+  return { decoded: true, digest: value["digest"], jsonDigest: value["jsonDigest"], sources };
 }
 
 export const DEFAULT_SETTINGS: Settings = freezeSettings({
@@ -77,6 +124,33 @@ export const DEFAULT_SETTINGS: Settings = freezeSettings({
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function agentPermissions(value: unknown): value is AgentPermissionSettings {
+  return (
+    record(value) &&
+    Object.keys(value).length <= 34 &&
+    Object.entries(value).every(
+      ([scope, choices]) =>
+        (scope === "global" ||
+          scope === "local" ||
+          (scope.startsWith("host:") && hostAlias(scope.slice(5)))) &&
+        record(choices) &&
+        Object.keys(choices).length <= 100 &&
+        Object.entries(choices).every(
+          ([agent, choice]) =>
+            validAgentId(agent) &&
+            (choice === null ||
+              (record(choice) &&
+                Object.keys(choice).every((key) => key === "level" || key === "identity") &&
+                agentPermissionLevel(choice["level"]) &&
+                (choice["identity"] === undefined ||
+                  (choice["level"] === "full" &&
+                    typeof choice["identity"] === "string" &&
+                    /^[a-f0-9]{64}$/u.test(choice["identity"]))))),
+        ),
+    )
+  );
 }
 
 /**
@@ -157,6 +231,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       patch.registeredHosts = entry.map((host) => ({ ...host }));
     else if (key === "forges") patch.forges = parseForgeEnablement(entry);
     else if (key === "forgeHosts") patch.forgeHosts = parseForgeHosts(entry);
+    else if (key === "agentPermissions" && agentPermissions(entry))
+      patch.agentPermissions = structuredClone(entry);
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
     else if (isConfigSetting(key)) Object.assign(patch, parseConfigSettings({ [key]: entry }));
     else if (
@@ -204,7 +280,7 @@ export class SettingsStore {
   /** The config settings file this profile last applied, for Keep it on after a restart. */
   private text: string | null = null;
   /** Digests of the interface theme files this profile last applied, by config path. */
-  private themeDigests: Readonly<Record<string, string>> = {};
+  private themeDigests: Readonly<Record<string, ThemeApproval>> = {};
   private writer: ConfigWriter | undefined;
 
   private constructor(private readonly file: string) {}
@@ -313,14 +389,12 @@ export class SettingsStore {
           store.text = typeof text === "string" && text.length <= 65536 ? text : null;
           const themes = state["themeDigests"];
           if (record(themes)) {
-            const kept: Record<string, string> = {};
-            for (const [file, value] of Object.entries(themes).slice(0, MAX_THEME_DIGESTS))
-              if (
-                /^themes\/[^/]{1,200}$/.test(file) &&
-                typeof value === "string" &&
-                /^[0-9a-f]{64}$/.test(value)
-              )
-                kept[file] = value;
+            const kept: Record<string, ThemeApproval> = {};
+            for (const [file, value] of Object.entries(themes).slice(0, MAX_THEME_DIGESTS)) {
+              if (!/^themes\/[^/]{1,200}$/.test(file)) continue;
+              const approval = parseThemeApproval(value);
+              if (approval) kept[file] = approval;
+            }
             store.themeDigests = kept;
           }
         } else {
@@ -411,16 +485,16 @@ export class SettingsStore {
   }
 
   /** Digest of the theme file this profile last applied: that theme's approval baseline. */
-  themeDigest(file: string): string | null {
+  themeDigest(file: string): ThemeApproval | null {
     return Object.hasOwn(this.themeDigests, file) ? (this.themeDigests[file] ?? null) : null;
   }
 
-  async setThemeDigest(file: string, digest: string | null): Promise<void> {
-    if (this.themeDigest(file) === digest) return;
-    const next: Record<string, string> = Object.fromEntries(
+  async setThemeDigest(file: string, digest: ThemeApproval | null): Promise<void> {
+    if (isDeepStrictEqual(this.themeDigest(file), digest)) return;
+    const next: Record<string, ThemeApproval> = Object.fromEntries(
       Object.entries(this.themeDigests).filter(([key]) => key !== file),
     );
-    if (digest !== null) next[file] = digest;
+    if (digest !== null) next[file] = structuredClone(digest);
     if (Object.keys(next).length > MAX_THEME_DIGESTS) return;
     await this.write(() => {
       this.themeDigests = next;
@@ -435,7 +509,7 @@ export class SettingsStore {
   async setConfigBaseline(
     digest: string,
     text: string,
-    theme?: { file: string; digest: string },
+    theme?: { file: string; digest: ThemeApproval },
   ): Promise<void> {
     if (Buffer.byteLength(text) > 65536) return;
     if (digest === this.digest && text === this.text && !theme) return;
@@ -450,9 +524,10 @@ export class SettingsStore {
     });
   }
 
-  /** Only registered-host updates may be cancelled when their observation is superseded. */
+  /** Host observations and machine permission choices may be superseded before commit. */
   update(patch: SettingsPatch, themeDigest?: string): Promise<Settings>;
   update(patch: RegisteredHostsPatch, canCommit: (() => boolean) | undefined): Promise<Settings>;
+  update(patch: AgentPermissionsPatch, canCommit: () => boolean): Promise<Settings>;
   async update(
     patch: SettingsPatch,
     themeDigestOrGuard?: string | (() => boolean),
@@ -462,12 +537,19 @@ export class SettingsStore {
     let snapshot = patch;
     if (canCommit) {
       const keys = Reflect.ownKeys(patch);
-      const descriptor = Object.getOwnPropertyDescriptor(patch, "registeredHosts");
+      const key = keys[0];
+      const descriptor =
+        key === undefined ? undefined : Object.getOwnPropertyDescriptor(patch, key);
       const value: unknown =
         descriptor && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
-      if (keys.length !== 1 || keys[0] !== "registeredHosts" || !Array.isArray(value))
-        throw new Error("A commit guard requires a registeredHosts-only patch");
-      snapshot = { registeredHosts: value };
+      if (keys.length === 1 && key === "registeredHosts" && Array.isArray(value))
+        snapshot = { registeredHosts: value };
+      else if (keys.length === 1 && key === "agentPermissions" && agentPermissions(value))
+        snapshot = { agentPermissions: value };
+      else
+        throw new Error(
+          "A commit guard requires a registeredHosts-only or agentPermissions-only patch",
+        );
     }
     const config: ConfigSettings = {};
     const profile: SettingsPatch = {};
@@ -481,7 +563,41 @@ export class SettingsStore {
       const agentArguments = argumentsPatch
         ? parseStoredAgentDefaults({ ...this.settings.agentArguments, ...argumentsPatch })
         : this.settings.agentArguments;
-      this.settings = { ...this.settings, ...profile, agentArguments };
+      const next = { ...this.settings, ...profile, agentArguments };
+      if (profile.registeredHosts) {
+        const current = new Map(this.settings.registeredHosts?.map((host) => [host.host, host]));
+        for (const host of profile.registeredHosts) {
+          const previous = current.get(host.host);
+          if (previous?.codeFolder === host.codeFolder)
+            hostRegistrationIdentities.set(host, hostRegistrationIdentity(previous));
+        }
+      }
+      if (profile.agentPermissions || (profile.registeredHosts && this.settings.agentPermissions)) {
+        const permissions = { ...this.settings.agentPermissions };
+        for (const [scope, choices] of Object.entries(profile.agentPermissions ?? {})) {
+          if (
+            scope.startsWith("host:") &&
+            !next.registeredHosts?.some(({ host }) => scope === `host:${host}`)
+          )
+            throw new Error("Machine is no longer registered.");
+          permissions[scope] = Object.fromEntries(
+            Object.entries({ ...permissions[scope], ...choices }).filter(
+              ([, choice]) => choice !== null,
+            ),
+          );
+        }
+        const merged = Object.fromEntries(
+          Object.entries(permissions).filter(
+            ([scope, choices]) =>
+              Object.keys(choices).length > 0 &&
+              (!scope.startsWith("host:") ||
+                next.registeredHosts?.some(({ host }) => scope === `host:${host}`)),
+          ),
+        );
+        if (!agentPermissions(merged)) throw new Error("Too many agent permission choices.");
+        next.agentPermissions = merged;
+      }
+      this.settings = next;
       if (argumentsPatch)
         this.argumentsToMove = Object.values(agentArguments).some((args) => args.length)
           ? agentArguments

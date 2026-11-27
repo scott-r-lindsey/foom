@@ -1,3 +1,5 @@
+import type { AgentPermissionLevel } from "../../../../src/shared/agent-permissions";
+import { ApplicationError } from "../../../../src/shared/application-errors";
 import type { DataViews, DataViewApi } from "../../../../src/shared/data-views";
 // @vitest-environment jsdom
 import { useState } from "react";
@@ -82,6 +84,9 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
   const scan = vi.fn(() => Promise.resolve());
   const save = vi.fn((_patch: SettingsPatch) => {});
   const args = vi.fn(() => Promise.resolve());
+  const savePermission = vi.fn((_scope: string, _id: string, _level: AgentPermissionLevel | null) =>
+    Promise.resolve(),
+  );
   const openFolder = vi.fn(() => Promise.resolve());
   let configChanged:
     | ((next: Awaited<ReturnType<NonNullable<SetupSource["config"]>["status"]>>) => void)
@@ -130,7 +135,7 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
   let registrationsChanged:
     | ((registrations: NonNullable<Settings["registeredHosts"]>) => void)
     | undefined;
-  function View() {
+  function View({ codexLevels }: { codexLevels?: readonly AgentPermissionLevel[] }) {
     const [scope, setScope] = useState(initial);
     const [state, setState] = useState(() =>
       setupState({
@@ -151,7 +156,10 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
         source={source}
         state={state}
         report={{
-          ...report(installation("claude"), installation("codex", false)),
+          ...report(installation("claude"), {
+            ...installation("codex", false),
+            ...(codexLevels ? { permissionLevels: codexLevels } : {}),
+          }),
           checkedAt: 1000,
         }}
         scanning={false}
@@ -161,6 +169,19 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
           setState({ ...state, settings: { ...state.settings, ...patch } });
         }}
         saveArguments={args}
+        savePermission={async (scope, id, level) => {
+          await savePermission(scope, id, level);
+          setState((previous) => ({
+            ...previous,
+            settings: {
+              ...previous.settings,
+              agentPermissions: {
+                ...previous.settings.agentPermissions,
+                [scope]: { [id]: level === null ? null : { level } },
+              },
+            },
+          }));
+        }}
         changePlugin={() => Promise.resolve()}
         headingRef={{ current: null }}
       />
@@ -177,6 +198,7 @@ function fixture(initial = "global", initialHosts?: readonly HostRow[]) {
     save,
     args,
     openFolder,
+    savePermission,
     config,
     changed: () =>
       configChanged?.({
@@ -196,7 +218,7 @@ test("Global owns enablement and defaults; navigation and cached machine reads n
   expect(f.scan).not.toHaveBeenCalled();
   expect(screen.getByText(/Rejected · launch blocked · invalid/)).toBeTruthy();
   expect(screen.getAllByRole("tab")).toHaveLength(2);
-  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Machine" })).toBeNull();
   expect(screen.queryByText("Ready")).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "Attach hooks" }));
   expect(f.save).toHaveBeenCalledWith({ hooks: false });
@@ -373,7 +395,9 @@ test("machine picker scales to twelve registered hosts and keeps navigation read
   render(<f.View />);
   await screen.findByRole("option", { name: "machine-11" });
   expect(screen.getAllByRole("tab")).toHaveLength(2);
-  expect(screen.getAllByRole("option")).toHaveLength(13);
+  expect(
+    within(screen.getByRole("combobox", { name: "Machine" })).getAllByRole("option"),
+  ).toHaveLength(13);
   fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
     target: { value: "host:machine-11" },
   });
@@ -381,9 +405,12 @@ test("machine picker scales to twelve registered hosts and keeps navigation read
   expect(f.api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
   expect(f.scan).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("tab", { name: "Global" }));
-  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Machine" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
-  expect(screen.getByRole("combobox")).toHaveProperty("value", "host:machine-11");
+  expect(screen.getByRole("combobox", { name: "Machine" })).toHaveProperty(
+    "value",
+    "host:machine-11",
+  );
 });
 
 function stream(f: ReturnType<typeof fixture>) {
@@ -554,3 +581,76 @@ test.each([false, true])(
     await screen.findByRole("button", { name: "Finish install install-one" });
   },
 );
+
+test("permission labels use the same element and class as machine card labels", async () => {
+  const f = fixture();
+  render(<f.View />);
+  const globalLabels = screen.getAllByText("Permission level");
+
+  fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
+  const localCard = within(screen.getByRole("region", { name: "Claude Code" }));
+  const signIn = localCard.getByText("Sign-in");
+  const attention = localCard.getByText("Attention");
+  expect(attention).toMatchObject({ tagName: signIn.tagName, className: signIn.className });
+  const localLabel = within(screen.getByRole("region", { name: "Codex" })).getByText(
+    "Permission level",
+  );
+
+  await screen.findByRole("option", { name: "Build" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:worker" },
+  });
+  const remoteCard = within(screen.getByRole("region", { name: "Codex" }));
+  const remoteLabel = remoteCard.getByText("Permission level");
+  for (const label of [...globalLabels, localLabel, remoteLabel, remoteCard.getByText("Sign-in")]) {
+    expect(label).toMatchObject({ tagName: signIn.tagName, className: signIn.className });
+  }
+});
+
+test("permission edits use the visible scope and preserve the saved choice on refusal", async () => {
+  const f = fixture();
+  render(<f.View />);
+  const select = () => screen.getByRole("combobox", { name: "Codex permission level" });
+  expect(select()).toHaveProperty("value", "");
+  fireEvent.change(select(), { target: { value: "workspace" } });
+  await waitFor(() => {
+    expect(select()).toHaveProperty("value", "workspace");
+  });
+  expect(select().getAttribute("aria-description")).toContain("Git fetch and commit");
+  expect(f.savePermission).toHaveBeenLastCalledWith("global", "codex", "workspace");
+  fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
+  expect(select()).toHaveProperty("value", "");
+  expect(within(select()).getByText("Use Global · Workspace")).toBeTruthy();
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:worker" },
+  });
+  f.savePermission.mockRejectedValueOnce(new ApplicationError("agent-permission-conflict"));
+  fireEvent.change(select(), { target: { value: "full" } });
+  await screen.findByText(/Remove permission options from Settings/);
+  expect(f.savePermission).toHaveBeenLastCalledWith("host:worker", "codex", "full");
+  expect(select()).toHaveProperty("value", "");
+});
+
+test("an unavailable saved level remains visible alongside supported choices and reset", async () => {
+  const f = fixture();
+  const view = render(<f.View />);
+  const selector = screen.getByRole("combobox", {
+    name: "Codex permission level",
+  });
+  fireEvent.change(selector, { target: { value: "workspace" } });
+  await waitFor(() => {
+    expect(selector).toHaveProperty("value", "workspace");
+  });
+  view.rerender(<f.View codexLevels={["ask", "full"]} />);
+  expect(selector).toHaveProperty("value", "workspace");
+  expect(within(selector).getByRole("option", { name: "Workspace (unavailable)" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(within(selector).getByRole("option", { name: "Ask" })).toHaveProperty("disabled", false);
+  fireEvent.change(selector, { target: { value: "" } });
+  await waitFor(() => {
+    expect(f.savePermission).toHaveBeenLastCalledWith("global", "codex", null);
+    expect(selector).toHaveProperty("value", "");
+  });
+});

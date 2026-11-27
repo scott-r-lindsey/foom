@@ -1,7 +1,11 @@
+import type { ThemeBitmapPaint } from "../shared/theme-bitmap";
 import type { RepositoryRequirements } from "../shared/repository-requirements";
 import type { DataView, DataViews, ViewParams, ViewSnapshot } from "../shared/data-views";
 import type {
   BoardRead,
+  BoardDecisions,
+  BoardDecision,
+  DecisionQuestion,
   BoardThreads,
   BoardMutation,
   MessagePost,
@@ -366,11 +370,42 @@ const validThemeReason: Validator<ThemeReason> = literal(
   "too-many-files",
   "invalid-value",
   "unreadable",
+  "image-unavailable",
+  "image-format",
+  "image-status-color",
 );
 
 const validThemeKind: Validator<ThemeKind> = literal("theme", "terminal-theme");
 
+const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
+  id: (value): value is string => text(value) && /^[a-f0-9]{64}$/u.test(value),
+  opacity: range(0.05, 0.6),
+  fit: literal("cover", "contain", "tile"),
+  anchor: literal(
+    "center",
+    "top",
+    "bottom",
+    "left",
+    "right",
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+  ),
+} satisfies Contract<ThemeBitmapPaint>);
+
 const validThemeCatalog: Validator<ThemeCatalog> = shape({
+  activeBitmaps: either(
+    absent,
+    shape({
+      theme: userThemeId,
+      slots: partial({
+        board: validBitmapPaint,
+        gutter: validBitmapPaint,
+        sidebar: validBitmapPaint,
+      }),
+    }),
+  ),
   interface: array(
     shape({
       id: userThemeId,
@@ -747,6 +782,7 @@ const validHostsState: Validator<HostsState> = shape({
   result: either(absent, validHostResult),
 } satisfies Contract<HostsState>);
 
+const validAgentPermissionLevel = literal("ask", "workspace", "full");
 const validSettings: Validator<Settings> = shape({
   registeredHosts: either(absent, array(validRegisteredHost)),
   setupComplete: boolean,
@@ -773,6 +809,14 @@ const validSettings: Validator<Settings> = shape({
   forgeHosts: dictionary(text),
   agents: dictionary(boolean),
   agentArguments: dictionary(array(text)),
+  agentPermissions: either(
+    absent,
+    dictionary(
+      dictionary(
+        either(nil, shape({ level: validAgentPermissionLevel, identity: either(absent, text) })),
+      ),
+    ),
+  ),
   agentBypassAcknowledged: dictionary(boolean),
   agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
@@ -1008,6 +1052,7 @@ const validPlacement = either(
 
 const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   remote: either(absent, literal(true)),
+  reattachOnly: either(absent, literal(true)),
   remoteCleanup: either(absent, literal("unreachable")),
   closeState: either(absent, literal("closing"), literal("failed")),
   placement: validPlacement,
@@ -1031,6 +1076,8 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   dormant: either(absent, boolean),
   launchVersion: either(absent, count),
   bypass: either(absent, boolean),
+  permissionLevel: either(absent, validAgentPermissionLevel),
+  reviewer: either(absent, literal(true)),
   home: either(absent, boolean),
   machine: either(absent, boolean),
   config: either(absent, boolean),
@@ -1242,6 +1289,7 @@ const validAgentInstallation: Validator<AgentInstallation> = shape({
   restoreControl: either(absent, boolean),
   source: either(absent, text),
   bypassArguments: either(absent, array(text)),
+  permissionLevels: either(absent, array(validAgentPermissionLevel)),
   setup: either(absent, validAgentSetupStatus),
   agyPlugin: either(absent, validAgyPluginStatus),
   inline: either(absent, boolean),
@@ -1295,16 +1343,74 @@ const validMessageThread: Validator<MessageThread> = shape({
   createdAt: text,
   updatedAt: text,
 } satisfies Contract<MessageThread>);
+const validMovedHead: Validator<string> = (value): value is string =>
+  typeof value === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value);
+const validDecisionSubject = shape({
+  pullRequest: count,
+  headSha: text,
+});
+const validDecisionQuestion: Validator<DecisionQuestion> = shape({
+  title: text,
+  detail: either(absent, text),
+  options: array(shape({ id: text, label: text, hint: either(absent, text) })),
+  preview: either(
+    absent,
+    shape({ path: text, relativeTo: either(absent, literal("repository", "worktree")) }),
+  ),
+  subject: either(absent, validDecisionSubject),
+} satisfies Contract<DecisionQuestion>);
+const validBoardDecision: Validator<BoardDecision> = shape({
+  post: text,
+  index: count,
+  repository: text,
+  question: validDecisionQuestion,
+  status: literal("open", "checking", "stale", "withdrawn", "answered"),
+  movedHead: either(absent, validMovedHead),
+  checks: either(absent, literal("success", "pending", "failure", "none", "unknown")),
+} satisfies Contract<BoardDecision>);
+const validBoardDecisions: Validator<BoardDecisions> = shape({
+  counts: dictionary(count),
+  orchestrators: either(absent, dictionary(text)),
+  questions: array(validBoardDecision),
+} satisfies Contract<BoardDecisions>);
+const validDecisionAnswer = either(
+  shape({
+    post: text,
+    index: count,
+    option: text,
+    other: absent,
+    subject: either(absent, validDecisionSubject),
+  }),
+  shape({
+    post: text,
+    index: count,
+    option: absent,
+    other: text,
+    subject: either(absent, validDecisionSubject),
+  }),
+);
+const decisionPreviewImage: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length <= 2 * 1024 * 1024 &&
+  /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/u.test(value);
+
 const validMessagePost: Validator<MessagePost> = shape({
   id: text,
   thread: text,
   author: (value): value is MessagePost["author"] =>
     typeof value === "string" &&
     (value === "human" || /^orchestrator:[a-zA-Z0-9_-]{1,200}$/u.test(value)),
-  kind: literal("request", "answer", "decision-needed", "fyi", "link"),
+  kind: literal("request", "answer", "decision-needed", "fyi", "link", "question"),
   text,
   links: array(text),
   timestamp: text,
+  questions: either(absent, array(validDecisionQuestion)),
+  withdrawn: either(absent, literal(true)),
+  stale: either(absent, array(count)),
+  staleHeads: either(absent, dictionary(validMovedHead)),
+  previewWorktree: either(absent, text),
+  decisions: either(absent, array(validBoardDecision)),
+  answers: either(absent, array(validDecisionAnswer)),
 } satisfies Contract<MessagePost>);
 const validBoardThreads: Validator<BoardThreads> = shape({
   repositories: array(shape({ id: text, name: text } satisfies Contract<BoardRepository>)),
@@ -1366,6 +1472,7 @@ const validAgentLaunched: Validator<AgentLaunched> = shape({
   launchFlags: either(absent, array(text)),
   conversationId: either(absent, text),
   bypass: either(absent, boolean),
+  permissionLevel: either(absent, validAgentPermissionLevel),
   providerOrigin: either(absent, literal("config", "bundled")),
   id: nonempty,
   attention: literal("hooks", "evaluator"),
@@ -2220,6 +2327,10 @@ const desktop: DesktopApi = {
     return () => ipcRenderer.removeListener("terminal:activity", listener);
   },
   messageBoard: {
+    decisions: (input) => reply("workspace:message-board", validBoardDecisions, "decisions", input),
+    answer: (input) => reply("workspace:message-board", validBoardMutation, "answer", input),
+    preview: (input) =>
+      reply("workspace:message-board", either(nil, decisionPreviewImage), "preview", input),
     threads: (query) => reply("workspace:message-board", validBoardThreads, "threads", query),
     read: (query) => reply("workspace:message-board", validBoardRead, "read", query),
     post: (input) => reply("workspace:message-board", validBoardMutation, "post", input),

@@ -1,9 +1,17 @@
 const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
+const path = require("node:path");
+const { writeFile } = require("node:fs/promises");
 const { expect } = require("./test-policy.js");
-const { confirmationPage } = require("./harness.js");
-const { previewContents, previewViewState, composedPreview } = require("./preview-fixture.js");
+const { boardPage, confirmationPage, launchApp } = require("./harness.js");
+const {
+  composedPreview,
+  pickPreviewFile,
+  previewContents,
+  previewViewState,
+} = require("./preview-fixture.js");
+const { expectTileHeaderHitTargets, sizeTileBoard } = require("./tile-fixture.js");
 
 async function expectPreviewSnapshot(page, id) {
   const snapshot = page.locator(`.preview-snapshot[data-preview="${id}"]`);
@@ -19,6 +27,116 @@ async function expectPreviewSnapshot(page, id) {
     .toEqual([18, 52, 86, 255]);
   await expect(snapshot).toHaveCSS("pointer-events", "none");
 }
+
+test("short preview tiles keep their native views attached when zoom wraps the headers", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await sizeTileBoard(app, page, 1280, 720);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const [terminal] = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  const previews = [];
+  for (let index = 0; index < 6; index++) {
+    const file = `stack-${index}.html`;
+    await writeFile(path.join(terminal.worktree, file), "<p>Stacked preview</p>");
+    const id = await pickPreviewFile(app, page, terminal.worktree, file);
+    assert.ok(id);
+    previews.push(id);
+  }
+  await page.evaluate(
+    ({ previews, session }) => {
+      const stack = (index) => {
+        const tile = {
+          kind: "tile",
+          id: `tile-${index}`,
+          content: { kind: "preview", preview: previews[index] },
+        };
+        return index === previews.length - 1
+          ? tile
+          : {
+              kind: "split",
+              id: `row-${index}`,
+              direction: "vertical",
+              ratio: 1 / (previews.length - index),
+              first: tile,
+              second: stack(index + 1),
+            };
+      };
+      localStorage.setItem(
+        `foom.tiles.v1.${window.desktop.windows.id}`,
+        JSON.stringify({
+          version: 2,
+          focused: "tile-0",
+          tree: {
+            kind: "split",
+            id: "columns",
+            direction: "horizontal",
+            ratio: 0.18,
+            first: stack(0),
+            second: { kind: "tile", id: "shell", content: { kind: "terminal", session } },
+          },
+        }),
+      );
+    },
+    { previews, session: terminal.id },
+  );
+  await page.reload();
+  const tiles = page.locator(".terminal-tile[data-preview-id]");
+  await expect(tiles).toHaveCount(previews.length);
+  const first = page.locator(`[data-preview-id="${previews[0]}"]`);
+  await expect.poll(async () => (await previewViewState(app, previews[0])).visible).toBe(true);
+  await first.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Allow network…", exact: true }).click();
+  const confirmation = await confirmationPage(app);
+  await confirmation.getByRole("button", { name: "Allow network", exact: true }).click();
+  await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
+  const network = first.getByRole("img", { name: "Network enabled", exact: true });
+  await expect(network).toBeVisible();
+  const initialPixelRatio = await page.evaluate(() => devicePixelRatio);
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ interfaceScale: 250, terminalFontSize: 10 }),
+  );
+  await expect
+    .poll(() => page.evaluate(() => devicePixelRatio))
+    .toBeCloseTo(initialPixelRatio * 2.5);
+  // Reproduce the smaller display's content area on runners with larger work areas.
+  const window = await app.browserWindow(page);
+  try {
+    await window.evaluate((window) => window.setMinimumSize(1, 1));
+    await sizeTileBoard(app, page, 512, 288);
+  } finally {
+    await window.dispose();
+  }
+  await expect.poll(() => first.evaluate((tile) => tile.offsetWidth)).toBeLessThan(100);
+  await expect
+    .poll(() => tiles.evaluateAll((tiles) => Math.min(...tiles.map((tile) => tile.offsetHeight))))
+    .toBeLessThan(55);
+
+  for (const [index, id] of previews.entries()) {
+    const tile = page.locator(`[data-preview-id="${id}"]`);
+    const body = tile.locator(".tile-shell:visible");
+    await expect(body).toBeVisible();
+    await expect
+      .poll(async () => {
+        const view = await previewViewState(app, id);
+        return view.attached && view.visible && view.bounds.height > 0;
+      })
+      .toBe(true);
+    await expectTileHeaderHitTargets(tile, [
+      `Tile ${index + 1} menu`,
+      "Maximize tile",
+      "Reload",
+      "Close",
+    ]);
+  }
+  for (const mark of [first.locator(".preview-glyph"), network.locator("svg")]) {
+    assert.ok(
+      await mark.evaluate((icon) => {
+        const { left, right, top, bottom } = icon.getBoundingClientRect();
+        return icon.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+      }),
+    );
+  }
+});
 
 test("preview composition keeps tile and row panels visible and usable above captured pages", async (context) => {
   const { app, page, id, tile, bounds } = await composedPreview(context, 2);

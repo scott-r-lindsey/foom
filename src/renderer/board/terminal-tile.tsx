@@ -1,3 +1,5 @@
+import { agentPermissionLabels } from "../../shared/agent-permission-arguments";
+import { DecisionPill } from "./message-board-decisions";
 import { HostChip } from "./sidebar-machine-row";
 import { reviewLabel } from "../../shared/review-state";
 import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-presentation";
@@ -25,7 +27,7 @@ import {
   previewOpener,
   sidebarParent,
 } from "./sidebar-model";
-import { tileRemovalAction, landingSpace } from "./tiles";
+import { tileRemovalControls, landingSpace } from "./tiles";
 
 import type {
   TerminalViewSource,
@@ -158,6 +160,9 @@ export function Tile({
   number,
   source,
   row,
+  decisionCount = 0,
+  decisionsHidden = false,
+  onDecisions,
   rows,
   preview,
   preferences,
@@ -188,6 +193,9 @@ export function Tile({
   number: number;
   source: BoardSource;
   row: BoardRow | undefined;
+  decisionCount?: number;
+  decisionsHidden?: boolean;
+  onDecisions?: ((row: BoardRow) => void) | undefined;
   preview: PreviewSummary | undefined;
   preferences: SidebarPreferences;
   focused: boolean;
@@ -216,6 +224,19 @@ export function Tile({
   const parent = row ? sidebarParent(row, rows) : undefined;
   const driver = rows.find((entry) => entry.id === row?.probeOwner);
   const occupied = Boolean(row || preview);
+  const removalControls = tileRemovalControls(row, Boolean(preview));
+  // Preserve the primary button's focus when Hide becomes Close on exit.
+  const [primaryRemoval] = removalControls;
+  const exitStatus = row?.exited
+    ? row.recipe
+      ? row.exitCode === 0
+        ? "Done"
+        : "Failed"
+      : "exited"
+    : "";
+  const exitDetail =
+    exitStatus === "Failed" ? ` · exit code ${String(row?.exitCode ?? "unknown")}` : "";
+  const exitDescription = exitStatus + exitDetail;
   const name = row ? sessionName(row, preferences) : (preview?.relativePath ?? "");
   useEffect(
     () =>
@@ -423,104 +444,146 @@ export function Tile({
               setMenu({ anchor: menuRef.current, point: { x: event.clientX, y: event.clientY } });
           }}
         >
-          {row && (
-            <>
-              <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
-              <TileLight row={row} lightRef={lightRef} />
-              {row.state === "waiting" && (
-                <span className="session-waiting">{light(row).label}</span>
-              )}
-              {row.review && (
-                <span className="session-orchestration" data-review-phase={row.review.phase}>
-                  {reviewLabel(row.review)}
-                </span>
-              )}
-              <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
-              {row.orchestration?.role === "child" && (
-                <OrchestrationMark
-                  kind={row.review && row.review.authorId !== row.id ? "review" : "rx"}
-                  related={false}
-                  label={row.review && row.review.authorId !== row.id ? "Reviewer" : "Worker"}
-                  title={`Child of ${parent ? sessionName(parent, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`}
-                />
-              )}
-              <span
-                className={row.probe ? "tile-location probe-driver" : "tile-location"}
-                title={`${row.repository} › ${row.branch}`}
-              >
-                {row.probe
-                  ? `Probe · ${driver ? sessionName(driver, preferences) : "Config session"}`
-                  : `${row.repository} › ${row.branch}`}
-              </span>
-              {row.placement?.kind === "remote" &&
-                source
-                  .getMachines?.()
-                  .filter(
-                    (machine) =>
-                      machine.host ===
-                      (row.placement?.kind === "remote" ? row.placement.host : undefined),
-                  )
-                  .map((machine) => <HostChip key={machine.host} machine={machine} icon />)}
-              <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
-                {sessionName(row.probe ? { ...row, probe: false } : row, preferences)}
-              </span>
-              {(row.exited || row.foregroundProgram) && (
-                <span className="session-program">
-                  {row.exited
-                    ? row.recipe
-                      ? row.exitCode === 0
-                        ? "Done"
-                        : `Failed · exit code ${String(row.exitCode ?? "unknown")}`
-                      : "exited"
-                    : row.foregroundProgram}
-                </span>
-              )}
-            </>
-          )}
-          {preview && (
-            <>
-              {arrived && (
-                <span className="visually-hidden" role="status">
-                  New preview
-                </span>
-              )}
-              <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
-                <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
-              </svg>
-              <AgentBadge
-                mark={
-                  preview.kind === "markdown" ? "MD" : preview.kind === "image" ? "IMG" : "HTML"
-                }
-              />
-              <span className="tile-name" title={preview.relativePath}>
-                {preview.relativePath}
-              </span>
-              {preview.openedBy && (
-                <span
-                  className="preview-opener"
-                  title={`Opened by ${previewOpener(preview, rows, preferences)}`}
-                >
-                  <span>opened by</span>
-                  <AgentBadge mark={agentBadges.get(preview.openedBy.agent) ?? "?"} />
-                </span>
-              )}
-              {preview.network && <span className="session-program">network</span>}
-            </>
-          )}
-          <button
-            ref={menuRef}
-            type="button"
-            className="tile-number"
-            disabled={Boolean(row?.startup)}
-            aria-label={`Tile ${String(number)} menu`}
-            aria-haspopup="dialog"
-            aria-expanded={Boolean(menu)}
-            onClick={(event) => {
-              setMenu(menu ? undefined : { anchor: event.currentTarget });
-            }}
-          >
-            {number} <span aria-hidden="true">⌄</span>
-          </button>
+          <div className="tile-title-main">
+            <div className="tile-heading">
+              <div className="tile-heading-content">
+                {row && (
+                  <>
+                    <TileLight row={row} lightRef={lightRef} />
+                    {exitStatus && (
+                      <span className="tile-exit-status session-program" title={exitDescription}>
+                        <span>{exitStatus}</span>
+                        <span className="tile-exit-detail">{exitDetail}</span>
+                        <svg role="img" aria-label={exitDescription} viewBox="0 0 16 16">
+                          <path d="M7 2.5H3v11h4 M6 8h7 M10 5l3 3-3 3" />
+                        </svg>
+                      </span>
+                    )}
+                    <div className="tile-identity">
+                      <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
+                      {row.state === "waiting" && (
+                        <span className="session-waiting">{light(row).label}</span>
+                      )}
+                      {row.review && (
+                        <span
+                          className="session-orchestration"
+                          data-review-phase={row.review.phase}
+                        >
+                          {reviewLabel(row.review)}
+                        </span>
+                      )}
+                      <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+                      {row.orchestration?.role === "child" && (
+                        <OrchestrationMark
+                          kind={row.review && row.review.authorId !== row.id ? "review" : "rx"}
+                          related={false}
+                          label={
+                            row.review && row.review.authorId !== row.id ? "Reviewer" : "Worker"
+                          }
+                          title={`Child of ${parent ? sessionName(parent, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`}
+                        />
+                      )}
+                      {row.permissionLevel && (
+                        <span className="session-bypass" title="Permission level requested by Foom">
+                          {agentPermissionLabels[row.permissionLevel]}
+                        </span>
+                      )}
+                      <span
+                        className={row.probe ? "tile-location probe-driver" : "tile-location"}
+                        title={`${row.repository} › ${row.branch}`}
+                      >
+                        {row.probe
+                          ? `Probe · ${driver ? sessionName(driver, preferences) : "Config session"}`
+                          : `${row.repository} › ${row.branch}`}
+                      </span>
+                      {row.placement?.kind === "remote" &&
+                        source
+                          .getMachines?.()
+                          .filter(
+                            (machine) =>
+                              machine.host ===
+                              (row.placement?.kind === "remote" ? row.placement.host : undefined),
+                          )
+                          .map((machine) => <HostChip key={machine.host} machine={machine} icon />)}
+                      <span
+                        className="tile-name"
+                        title={sessionIdentity(row, source.shellName?.())}
+                      >
+                        {sessionName(row.probe ? { ...row, probe: false } : row, preferences)}
+                      </span>
+                      {!row.exited && row.foregroundProgram && (
+                        <span className="session-program">{row.foregroundProgram}</span>
+                      )}
+                    </div>
+                  </>
+                )}
+                {preview && (
+                  <>
+                    <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
+                      <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
+                    </svg>
+                    <div className="tile-identity">
+                      {arrived && (
+                        <span className="visually-hidden" role="status">
+                          New preview
+                        </span>
+                      )}
+                      <AgentBadge
+                        mark={
+                          preview.kind === "markdown"
+                            ? "MD"
+                            : preview.kind === "image"
+                              ? "IMG"
+                              : "HTML"
+                        }
+                      />
+                      <span className="tile-name" title={preview.relativePath}>
+                        {preview.relativePath}
+                      </span>
+                      {preview.openedBy && (
+                        <span
+                          className="preview-opener"
+                          title={`Opened by ${previewOpener(preview, rows, preferences)}`}
+                        >
+                          <span>opened by</span>
+                          <AgentBadge mark={agentBadges.get(preview.openedBy.agent) ?? "?"} />
+                        </span>
+                      )}
+                    </div>
+                    {preview.network && (
+                      <span
+                        className="preview-network"
+                        role="img"
+                        aria-label="Network enabled"
+                        title="Network enabled"
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 16 16">
+                          <circle cx="8" cy="8" r="6" />
+                          <ellipse cx="8" cy="8" rx="2.5" ry="6" />
+                          <path d="M2 8h12" />
+                        </svg>
+                        <span>network</span>
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            <button
+              ref={menuRef}
+              type="button"
+              className="tile-number"
+              disabled={Boolean(row?.startup)}
+              aria-label={`Tile ${String(number)} menu`}
+              aria-haspopup="dialog"
+              aria-expanded={Boolean(menu)}
+              onClick={(event) => {
+                setMenu(menu ? undefined : { anchor: event.currentTarget });
+              }}
+            >
+              {number} <span aria-hidden="true">⌄</span>
+            </button>
+          </div>
           <div className="tile-controls">
             <button
               type="button"
@@ -572,16 +635,20 @@ export function Tile({
                 </svg>
               </button>
             )}
-            <button
-              type="button"
-              aria-label={tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide"}
-              title={tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide"}
-              onClick={() => {
-                action(tileRemovalAction(row, Boolean(preview)));
-              }}
-            >
-              {tileRemovalAction(row, Boolean(preview)) === "close" ? "×" : "−"}
-            </button>
+            {removalControls.map((control) => (
+              <button
+                key={control === primaryRemoval ? "primary-removal" : "secondary-removal"}
+                type="button"
+                data-removal={control.action}
+                aria-label={control.label}
+                title={control.label}
+                onClick={() => {
+                  action(control.action);
+                }}
+              >
+                {control.glyph}
+              </button>
+            ))}
           </div>
         </header>
       )}
@@ -692,6 +759,15 @@ export function Tile({
             </div>
           )}
         </>
+      )}
+      {row && decisionCount > 0 && onDecisions && (
+        <DecisionPill
+          count={decisionCount}
+          hidden={decisionsHidden}
+          onOpen={() => {
+            onDecisions(row);
+          }}
+        />
       )}
       {preview && <div className="tile-shell" ref={previewRef} />}
       {error && (

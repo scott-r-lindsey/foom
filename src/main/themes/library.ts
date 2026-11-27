@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { constants, watch } from "node:fs";
+import { watch } from "node:fs";
 import type { FSWatcher } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import type {
   ParsedThemeFile,
   ThemeCatalog,
@@ -15,6 +15,12 @@ import { parseThemeFile } from "../../shared/theme-files";
 import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
 import { interfaceThemes } from "../../shared/interface-themes";
 import { terminalThemeOptions } from "../../shared/terminal-themes";
+import { themeFolderLimit, validThemeBitmapFile } from "../../shared/theme-bitmaps";
+import type { ActiveThemeBitmaps } from "../../shared/theme-bitmap";
+import { readThemeDirectory } from "../theme-directory";
+import { readThemeFile } from "./files";
+export { ThemeBitmaps, themeBitmapResponse } from "./bitmaps";
+
 const kinds = ["theme", "terminal-theme"] as const;
 function catalogTheme(theme: ThemeCatalog["interface"][number]["theme"]) {
   const collision = Object.values(interfaceThemes).some(
@@ -42,6 +48,7 @@ export class ThemeLibrary {
       | {
           id: UserThemeId;
           digest?: string;
+          bitmaps?: ActiveThemeBitmaps["slots"];
           theme: ThemeCatalog["interface"][number]["theme"] | undefined;
         }
       | undefined,
@@ -65,7 +72,11 @@ export class ThemeLibrary {
       if (index === -1) entries.push(entry);
       else entries[index] = entry;
     } else if (index !== -1) entries.splice(index, 1);
-    return structuredClone({ ...this.catalog, interface: entries });
+    return structuredClone({
+      ...this.catalog,
+      interface: entries,
+      ...(active.bitmaps && { activeBitmaps: { theme: active.id, slots: active.bitmaps } }),
+    });
   }
   async initialize(): Promise<void> {
     for (const kind of kinds) {
@@ -121,36 +132,52 @@ export class ThemeLibrary {
       const retained = new Map<string, ThemeSnapshot>();
       for (const kind of kinds) {
         let names: string[];
-        const nonFiles = new Set<string>();
+        const regular = new Set<string>();
+        const aliases = new Set<string>();
         try {
-          if (!(await lstat(this.folder(kind))).isDirectory()) throw new Error("unsafe directory");
-          const entries = await readdir(this.folder(kind), { withFileTypes: true });
-          for (const entry of entries)
-            if (!entry.isFile() && !entry.isSymbolicLink()) nonFiles.add(entry.name);
+          const entries = await readThemeDirectory(this.folder(kind));
+          for (const entry of entries) {
+            if (entry.isFile()) regular.add(entry.name);
+            else if (entry.isSymbolicLink()) aliases.add(entry.name);
+          }
           names = entries
             .map((entry) => entry.name)
             .sort(
               (a, b) =>
+                Number(regular.has(b)) - Number(regular.has(a)) ||
                 Number(this.good.has(`${kind}/${b}`)) - Number(this.good.has(`${kind}/${a}`)) ||
                 a.localeCompare(b),
             );
-        } catch {
-          next.errors.push({ kind, file: "(folder)", path: "$", reason: "unreadable" });
+        } catch (error) {
+          const reason = error instanceof ThemeValidationError ? error.reason : "unreadable";
+          next.errors.push({ kind, file: "(folder)", path: "$", reason });
           // An inaccessible directory is not evidence that its files were deleted.
           names = [...this.good.keys()]
             .filter((key) => key.startsWith(`${kind}/`))
             .map((key) => key.slice(kind.length + 1));
+          for (const file of names) regular.add(file);
         }
-        let count = 0;
+        let count = kind === "theme" ? [...regular].filter(validThemeBitmapFile).length : 0;
+        // A last-good palette still occupies registry space after an unsafe
+        // replacement. This reservation is separate from the regular-file budget.
+        let admitted =
+          count +
+          names.filter((file) => !regular.has(file) && this.good.has(`${kind}/${file}`)).length;
         for (const file of names) {
           const key = `${kind}/${file}`;
+          // Bitmap diagnostics belong to fixed slots on their JSON theme. Do
+          // not publish names of artwork or any other non-theme files here.
+          if (kind === "theme" && !file.endsWith(".json")) continue;
           let snapshot: ThemeSnapshot | undefined;
           let diagnostic: ThemeDiagnostic | undefined;
-          if (!validThemeFile(file) || nonFiles.has(file)) {
-            // Retained versions still occupy a slot even when their file became a directory.
-            if (this.good.has(key)) count++;
+          const isRegular = regular.has(file);
+          if (!validThemeFile(file) || (!isRegular && !aliases.has(file))) {
             diagnostic = { file, path: "$", reason: "unsafe-file" };
-          } else if (++count > 50) diagnostic = { file, path: "$", reason: "too-many-files" };
+          } else if (
+            (isRegular && ++count > themeFolderLimit) ||
+            ((isRegular || !this.good.has(key)) && admitted >= themeFolderLimit)
+          )
+            diagnostic = { file, path: "$", reason: "too-many-files" };
           else {
             try {
               snapshot = await this.read(kind, file);
@@ -173,11 +200,12 @@ export class ThemeLibrary {
             snapshot = this.good.get(key);
           }
           if (!snapshot) continue;
+          if (isRegular || !this.good.has(key)) admitted++;
           retained.set(key, snapshot);
           const { parsed: theme, digest } = snapshot;
           if (theme.kind === "theme")
             next.errors.push(
-              ...(theme.warnings ?? [])
+              ...[...(theme.warnings ?? []), ...(snapshot.imageDiagnostics ?? [])]
                 .slice(
                   0,
                   Math.max(0, 100 - next.errors.filter((error) => error.kind === kind).length),
@@ -207,44 +235,7 @@ export class ThemeLibrary {
     return this.queue;
   }
   private async read(kind: ThemeKind, name: string): Promise<ThemeSnapshot | undefined> {
-    const directory = this.folder(kind);
-    if (!(await lstat(directory)).isDirectory()) throw new ThemeValidationError("$", "unsafe-file");
-    const root = await realpath(directory);
-    const target = await realpath(join(root, name));
-    if (dirname(target) !== root) throw new ThemeValidationError("$", "unsafe-file");
-    const handle = await open(
-      target,
-      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-    );
-    let text: string;
-    try {
-      const info = await handle.stat();
-      if (!info.isFile()) throw new ThemeValidationError("$", "unsafe-file");
-      if (info.size > 65536) throw new ThemeValidationError("$", "too-large");
-      const bytes = Buffer.alloc(65537);
-      let size = 0;
-      while (size < bytes.length) {
-        const { bytesRead } = await handle.read(bytes, size, bytes.length - size, size);
-        if (!bytesRead) break;
-        size += bytesRead;
-      }
-      if (size > 65536) throw new ThemeValidationError("$", "too-large");
-      const current = await lstat(target);
-      if (
-        !(await lstat(directory)).isDirectory() ||
-        (await realpath(directory)) !== root ||
-        (await realpath(join(root, name))) !== target ||
-        !current.isFile() ||
-        current.ino !== info.ino ||
-        current.dev !== info.dev ||
-        current.size !== size ||
-        current.mtimeMs !== info.mtimeMs
-      )
-        throw new ThemeValidationError("$", "unsafe-file");
-      text = bytes.subarray(0, size).toString("utf8");
-    } finally {
-      await handle.close();
-    }
+    const text = (await readThemeFile(this.folder(kind), name, 65536, true)).toString("utf8");
     // Review joins the config service's queue, which may already contain a restore.
     // Never retain the target descriptor while waiting for that writer.
     const parsed = parseThemeFile(text, kind);

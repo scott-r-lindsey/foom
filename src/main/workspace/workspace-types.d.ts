@@ -80,6 +80,7 @@ export interface WorkspaceMethods {
       | "beforeSpawn"
       | "prepareSpawn"
       | "loop"
+      | "reviewer"
       | "pressure"
       | "selection"
       | "remoteCheckout"
@@ -143,7 +144,7 @@ export interface WorkspaceMethods {
   bindConfig(id: string, token: string): void;
   ensureProbeOpen(): void;
   configCredential(): Promise<{ token: string; env: Record<string, string> }>;
-  startConfig(run: AgentId, replacement?: { id: string; conversationId?: string }): Promise<void>;
+  startConfig(run: AgentId, replacement?: { id: string; conversationId?: string }): Promise<string>;
   probeState(id: string, state: TerminalState | null): TerminalState | null;
   sidebarInventory(): Promise<SidebarInventory>;
   sidebarCommand(
@@ -232,6 +233,9 @@ export type Agents = Pick<
   | "setEnabled"
   | "setHooksEnabled"
   | "setBypassIdentities"
+  | "setPermissionLevels"
+  | "forgetHostPermissions"
+  | "permissionForLaunch"
 >;
 export interface WorkspaceDependencies {
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
@@ -308,7 +312,9 @@ export interface WorkspaceDependencies {
   /** Started on the first agent launch, independently of hook support. */
   control?: () => Promise<
     Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
-      Partial<Pick<ControlRuntime, "audit" | "takeOver" | "board">>
+      Partial<
+        Pick<ControlRuntime, "audit" | "takeOver" | "board" | "humanDecisions" | "decisionPreview">
+      >
   >;
   /** Started on the first launch that attaches hooks, then reused. */
   agentPluginDirectory?: string;

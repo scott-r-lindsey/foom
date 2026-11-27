@@ -20,7 +20,7 @@ export interface SessionOwnerDependencies {
     | "identity"
     | "handoffs"
     | "view"
-    | "ownedWorktrees"
+    | "savedWorktrees"
     | "uncertainWorktrees"
     | "exited"
     | "reserve"
@@ -46,15 +46,35 @@ export interface SessionOwnerDependencies {
   onChange?: (localOnly?: boolean) => void;
 }
 
+const QUIT_RESTORE_GRACE_MS = 1_000;
+
 /** Main-owned session metadata, restoration lifecycle and pre-shutdown persistence. */
 export class SessionOwner {
   private restoreEnabled = true;
   private readonly saved = new Map<string, StoredSession>();
   private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
   private readonly restoring = new Set<string>();
+  private readonly launches = new Map<string, Promise<void>>();
+  private readonly manualLaunches = new Map<string, { row: WorkspaceTerminal | undefined }>();
+  private readonly restoreQueue = new Map<string, StoredSession>();
+  private readonly deferredDiscovery = new Map<string, StoredSession>();
+  private readonly deferredLinks = new Map<
+    string,
+    { entry: StoredSession; parentId: string; current: () => boolean }
+  >();
+  private readonly checkingDeferredLinks = new Set<string>();
+  private readonly claimedDuringDiscovery = new Set<string>();
+  private readonly restoredParents = new Map<string, () => boolean>();
+  private readonly unverifiedParents = new Map<
+    string,
+    { id: string; stillActive: () => boolean }
+  >();
   private readonly unrestoredRoles = new Set<string>();
   private restoreWork: Promise<void> | undefined;
+  private activeRestore: Promise<void> | undefined;
   private discovery: Promise<readonly StoredSession[]> | undefined;
+  private quitAttempt = 0;
+  private quitPause: { promise: Promise<void>; resolve: () => void } | undefined;
   private quitting = false;
   private pruning = false;
   private readonly forgottenSessions = new Set<string>();
@@ -66,10 +86,40 @@ export class SessionOwner {
     this.restoreEnabled = enabled;
   }
   isRestoring(id: string): boolean {
-    return this.restoring.has(id);
+    return this.restoring.has(id) && !this.manualLaunchReplaced(id);
   }
   roleNotRestored(id: string): boolean {
     return !this.restoring.has(id) && this.unrestoredRoles.has(id);
+  }
+
+  /** Accepted manual actions take precedence over saved rows and in-flight discovery. */
+  claim(id: string): void {
+    if (this.discovery) this.claimedDuringDiscovery.add(id);
+    this.restoring.delete(id);
+    this.saved.delete(id);
+    this.restoreQueue.delete(id);
+    this.deferredDiscovery.delete(id);
+    this.deferredLinks.delete(id);
+    this.unverifiedParents.delete(id);
+  }
+
+  /** Hold the startup claim through confirmation and launch without discarding saved provenance. */
+  reserveManualLaunch(id: string): (started: boolean) => void {
+    const manual = { row: this.deps.terminal(id) };
+    this.manualLaunches.set(id, manual);
+    return (started) => {
+      if (this.manualLaunches.get(id) !== manual) return;
+      const claimed = started || this.manualLaunchReplaced(id);
+      if (claimed) this.claim(id);
+      this.manualLaunches.delete(id);
+      if (claimed) this.persist();
+      this.continueRestore();
+    };
+  }
+
+  private manualLaunchReplaced(id: string): boolean {
+    const manual = this.manualLaunches.get(id);
+    return manual !== undefined && this.deps.terminal(id) !== manual.row;
   }
   rememberRemote(id: string, value: RemoteSavedPlacement): void {
     const placement = {
@@ -165,8 +215,7 @@ export class SessionOwner {
         throw error;
       }
       this.forgottenSessions.add(id);
-      this.saved.delete(id);
-      this.restoring.delete(id);
+      this.claim(id);
       this.unrestoredRoles.delete(id);
       this.remotePlacements.delete(id);
       this.deps.removeRow?.(id);
@@ -200,11 +249,13 @@ export class SessionOwner {
     }
   }
 
-  private importEntries(entries: readonly StoredSession[], discovered = false): void {
+  private importEntries(entries: readonly StoredSession[], discovered = false): Set<string> {
+    const imported = new Set<string>();
     for (const entry of this.retained(entries)) {
       if (this.forgettingSessions.has(entry.id)) continue;
       if (discovered) {
-        if (this.forgottenSessions.has(entry.id)) continue;
+        if (this.claimedDuringDiscovery.has(entry.id) || this.forgottenSessions.has(entry.id))
+          continue;
         const previous = this.saved.get(entry.id);
         const reconcile =
           previous?.remote &&
@@ -218,6 +269,10 @@ export class SessionOwner {
         // daemon observation recovers human access, never old parent authority.
         if (!reconcile && (previous || this.deps.terminal(entry.id) || this.saved.size >= 1000))
           continue;
+        if (this.manualLaunches.has(entry.id)) {
+          this.deferredDiscovery.set(entry.id, entry);
+          continue;
+        }
       }
       if (
         entry.config
@@ -229,8 +284,11 @@ export class SessionOwner {
             : false
       )
         continue;
+      // A daemon-live row recovered from an exited record starts with human access.
+      if (discovered) this.deferredLinks.delete(entry.id);
       this.deps.orchestration.handoffs.restore(entry.id, entry.handoffs ?? []);
       this.saved.set(entry.id, entry);
+      imported.add(entry.id);
       this.deps.restoreSharedReview?.(entry);
       if (entry.remoteCheckout) {
         this.remotePlacements.set(entry.id, entry.remoteCheckout);
@@ -249,6 +307,7 @@ export class SessionOwner {
       // Reserve eligible saved tiles before the first window requests inventory.
       if (restorePlan([entry], this.restoreEnabled).length) this.restoring.add(entry.id);
     }
+    return imported;
   }
 
   private records(): StoredSession[] {
@@ -264,34 +323,69 @@ export class SessionOwner {
           const sharedReview = this.deps.sharedReview?.(entry.id);
           const role = this.deps.orchestration.view(entry.id);
           const identity = this.deps.orchestration.identity(entry.id);
-          const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
+          const restoring = this.isRestoring(entry.id);
+          const replaced = this.manualLaunchReplaced(entry.id);
+          const saved = replaced ? undefined : this.saved.get(entry.id);
+          const deferred = this.deferredLinks.get(entry.id);
+          const pendingParent = deferred?.parentId ?? saved?.parentId;
+          const unverified = replaced ? undefined : this.unverifiedParents.get(entry.id);
+          const parentId = role
+            ? role.role === "child" && !role.takenOver
+              ? role.parentId
+              : undefined
+            : unverified?.stillActive()
+              ? unverified.id
+              : !replaced &&
+                  pendingParent &&
+                  (deferred
+                    ? deferred.current()
+                    : this.savedParentCurrent(pendingParent, entry.worktree))
+                ? pendingParent
+                : undefined;
           return {
             ...entry,
             ...(sharedReview ? { sharedReview } : {}),
             ...(remoteCheckout ? { remoteCheckout } : {}),
             handoffs: this.deps.orchestration.handoffs.entries(entry.id),
-            ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
-            ...(saved?.parentId ? { parentId: saved.parentId } : {}),
-            running: this.restoring.has(entry.id) || !entry.exited,
+            ...(restoring && saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
+            ...(parentId ? { parentId } : {}),
+            running: restoring || !entry.exited,
             ...(role?.role === "orchestrator" && role.active && identity !== undefined
               ? {
                   orchestrator: {
                     identity: identity.repository,
                     worktreeIdentity: identity.worktree,
                     history: role.history,
-                    worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
+                    worktrees: this.deps.orchestration.savedWorktrees(entry.id),
                     uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
                   },
                 }
               : {}),
-            ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
           };
         }),
     );
   }
 
+  private savedParentCurrent(parentId: string, worktree: string): boolean {
+    if (!this.isRestoring(parentId)) return false;
+    const current = this.restoredParents.get(parentId);
+    if (!current) return true;
+    const original = this.saved
+      .get(parentId)
+      ?.orchestrator?.worktrees?.find((tree) => tree.path === worktree);
+    return (
+      current() &&
+      (!original || this.savedCheckoutIdentity(parentId, worktree) === original.identity)
+    );
+  }
+
+  private savedCheckoutIdentity(parentId: string, worktree: string): string | undefined {
+    return this.deps.orchestration.savedWorktrees(parentId).find((tree) => tree.path === worktree)
+      ?.identity;
+  }
+
   persist(): void {
-    if (this.quitting) return;
+    if (this.isQuitting) return;
     this.pruneRows();
     void this.deps.store?.save(this.records()).catch((error: unknown) => {
       console.error("Unable to save sessions:", error);
@@ -300,71 +394,257 @@ export class SessionOwner {
 
   /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
   async prepareQuit(): Promise<void> {
-    await this.restoreWork;
-    this.quitting = true;
+    this.quitAttempt++;
+    let release: (() => void) | undefined;
+    const pause = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.quitPause = { promise: pause, resolve: () => release?.() };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, QUIT_RESTORE_GRACE_MS);
+    });
     try {
+      // Discovery has no PTY to settle. Only launches already dispatched get a grace period.
+      await Promise.race([Promise.all(this.launches.values()), deadline]);
+      this.quitting = true;
       await this.deps.store?.save(this.records());
       await this.deps.store?.flush();
     } catch (error) {
-      this.quitting = false;
+      this.resumeRestore();
       throw error;
+    } finally {
+      clearTimeout(timer);
+      if (!this.quitting) this.continueRestore();
     }
   }
 
   cancelQuit(): void {
-    this.quitting = false;
+    this.resumeRestore();
     this.persist();
+    this.continueRestore();
+  }
+
+  private resumeRestore(): void {
+    const pause = this.quitPause;
+    this.quitPause = undefined;
+    this.quitting = false;
+    pause?.resolve();
+  }
+
+  /** Wake suspended restore work after the workspace has closed. */
+  finishQuit(): void {
+    this.quitPause?.resolve();
+  }
+
+  /** Only startup owns the ID of a restore already dispatched by the scheduler. */
+  restoreSpawnPause(id: string | undefined): Promise<void> | undefined {
+    return this.quitting && id !== undefined && this.launches.has(id) && !this.deps.closed()
+      ? this.quitPause?.promise
+      : undefined;
+  }
+
+  private async waitForQuit(): Promise<void> {
+    while (this.quitPause && !this.deps.closed()) await this.quitPause.promise;
   }
 
   /** Called only after all saved windows have been shown. */
   restartSaved(): Promise<void> {
     if (this.restoreWork) return this.restoreWork;
     this.restoreWork = this.discovery
-      ? this.discovery.then((entries) => {
-          this.importEntries(entries, true);
-          return this.restartEntries();
-        })
-      : this.restartEntries();
+      ? this.discovery.then((entries) => this.finishDiscovery(entries))
+      : this.finishDiscovery([]);
     return this.restoreWork;
   }
 
-  private restartEntries(): Promise<void> {
+  private async finishDiscovery(entries: readonly StoredSession[]): Promise<void> {
+    if (this.isQuitting) await this.waitForQuit();
+    if (this.deps.closed()) return;
+    this.importEntries(entries, true);
+    this.discovery = undefined;
+    this.claimedDuringDiscovery.clear();
+    this.restoring.clear();
+    this.enqueueRestarts();
+    this.deps.onChange?.();
+    return this.drainRestore();
+  }
+
+  private enqueueRestarts(imported?: ReadonlySet<string>): void {
     const plan = restorePlan(
       [...this.saved.values()].filter(
         (entry) => !this.forgettingSessions.has(entry.id) && !this.forgottenSessions.has(entry.id),
       ),
       this.restoreEnabled,
     );
-    this.restoring.clear();
     for (const entry of plan) {
+      if (imported && !imported.has(entry.id)) continue;
       this.restoring.add(entry.id);
+      this.restoreQueue.set(entry.id, entry);
+    }
+  }
+
+  private continueRestore(): void {
+    void this.drainRestore().catch(() => {
+      console.error("Unable to continue saved session restore");
+    });
+  }
+
+  /** Only runnable work enters the scheduler. Dialog lifetimes stay outside the quit barrier. */
+  private async drainRestore(): Promise<void> {
+    if (this.quitPause || this.deps.closed()) return;
+    const discovered = [...this.deferredDiscovery.values()].filter(
+      (entry) => !this.manualLaunches.has(entry.id),
+    );
+    for (const entry of discovered) this.deferredDiscovery.delete(entry.id);
+    if (discovered.length) {
+      this.enqueueRestarts(this.importEntries(discovered, true));
+      this.deps.onChange?.();
+    }
+    this.checkDeferredLinks();
+    if (this.activeRestore) return this.activeRestore;
+
+    const heldCheckouts = new Set<string>();
+    for (const { row } of this.manualLaunches.values())
+      if (row && !row.home && !row.config) heldCheckouts.add(row.worktree);
+    const queued = [...this.restoreQueue.values()];
+    const held = new Set(
+      queued
+        .filter((entry) => this.manualLaunches.has(entry.id) || heldCheckouts.has(entry.worktree))
+        .map((entry) => entry.id),
+    );
+    const plan = queued.filter(
+      (entry) =>
+        !held.has(entry.id) &&
+        !(
+          entry.parentId &&
+          held.has(entry.parentId) &&
+          this.restoreQueue.get(entry.parentId)?.orchestrator
+        ),
+    );
+    if (!plan.length) {
+      if (!this.restoreQueue.size && !this.deferredLinks.size) this.restoredParents.clear();
+      return;
+    }
+    for (const entry of plan) {
+      this.restoreQueue.delete(entry.id);
       this.deps.busy(entry.id, true);
     }
-    this.deps.onChange?.();
-    return runRestore(plan, async (entry) => {
-      try {
-        if (
-          this.quitting ||
-          this.deps.closed() ||
-          !this.restoreEnabled ||
-          this.forgettingSessions.has(entry.id) ||
-          this.forgottenSessions.has(entry.id) ||
-          this.deps.terminal(entry.id) === undefined
-        )
-          return;
-        await this.restartSavedEntry(entry);
-      } catch (error) {
+    this.activeRestore = runRestore(plan, (entry) => this.restorePlannedEntry(entry))
+      .finally(() => {
+        this.activeRestore = undefined;
+      })
+      .then(() => this.drainRestore());
+    return this.activeRestore;
+  }
+
+  /** A late check for an exited child can proceed without keeping launches or quit open. */
+  private checkDeferredLinks(): void {
+    for (const [id, link] of this.deferredLinks) {
+      if (
+        this.restoring.has(id) ||
+        this.manualLaunches.has(id) ||
+        this.checkingDeferredLinks.has(id)
+      )
+        continue;
+      this.checkingDeferredLinks.add(id);
+      const quitAttempt = this.quitAttempt;
+      const canCheck = () => this.quitAttempt === quitAttempt;
+      void this.restoreSavedChild(link.entry, link.parentId, true, canCheck)
+        .catch(() => {
+          console.error("Unable to restore a deferred child link");
+        })
+        .finally(() => {
+          this.checkingDeferredLinks.delete(id);
+          if (this.quitPause || this.deps.closed()) return;
+          if (canCheck()) {
+            this.deferredLinks.delete(id);
+            this.persist();
+            this.deps.onChange?.();
+          }
+          this.continueRestore();
+        });
+    }
+  }
+
+  private async restorePlannedEntry(entry: StoredSession): Promise<void> {
+    if (this.quitPause) await this.waitForQuit();
+    const work = this.restoreEntry(entry);
+    this.launches.set(entry.id, work);
+    try {
+      await work;
+    } finally {
+      this.launches.delete(entry.id);
+    }
+  }
+
+  private async restoreEntry(entry: StoredSession): Promise<void> {
+    try {
+      if (
+        this.deps.closed() ||
+        !this.restoreEnabled ||
+        this.forgettingSessions.has(entry.id) ||
+        this.forgottenSessions.has(entry.id) ||
+        !this.saved.has(entry.id) ||
+        this.deps.terminal(entry.id) === undefined
+      )
+        return;
+      await this.restartSavedEntry(entry);
+    } catch (error) {
+      if (this.isQuitting) await this.waitForQuit();
+      if (!this.deps.closed()) {
         this.deps.failed(entry.id, error);
         this.deps.orchestration.exited(entry.id);
-      } finally {
+      }
+    } finally {
+      if (this.isQuitting) await this.waitForQuit();
+      this.restoring.delete(entry.id);
+      this.deps.busy(entry.id, false);
+      this.saved.delete(entry.id);
+      this.deferredLinks.delete(entry.id);
+      if (!this.deps.closed()) {
         if (this.deps.terminal(entry.id)?.dormant) this.deps.orchestration.exited(entry.id);
-        this.restoring.delete(entry.id);
-        this.deps.busy(entry.id, false);
-        this.saved.delete(entry.id);
         this.persist();
         this.deps.onChange?.();
       }
-    });
+    }
+  }
+
+  private async restoreSavedChild(
+    entry: StoredSession,
+    parentId: string,
+    exited: boolean,
+    canCheck: () => boolean = () => true,
+  ) {
+    const parentCurrent = this.restoredParents.get(parentId);
+    if (!parentCurrent || this.unverifiedParents.has(entry.id)) return false;
+    const deferred = this.deferredLinks.get(entry.id);
+    const eligible = () =>
+      parentCurrent() &&
+      (!deferred || (this.deferredLinks.get(entry.id) === deferred && deferred.current())) &&
+      canCheck() &&
+      !this.deps.closed() &&
+      this.saved.has(entry.id) &&
+      !this.forgettingSessions.has(entry.id) &&
+      this.deps.terminal(entry.id) !== undefined;
+    if (!eligible()) return false;
+    const reserveDormant = !this.restoring.has(entry.id);
+    if (reserveDormant) this.deps.busy(entry.id, true);
+    try {
+      const result = await this.deps.orchestration.restoreChild(
+        parentId,
+        { ...entry, exited },
+        eligible,
+      );
+      if (typeof result === "boolean") return result && eligible();
+      if (eligible())
+        this.unverifiedParents.set(entry.id, {
+          id: parentId,
+          stillActive: result.parentStillActive,
+        });
+      return false;
+    } finally {
+      if (reserveDormant) this.deps.busy(entry.id, false);
+    }
   }
 
   private async restartSavedEntry(entry: StoredSession): Promise<void> {
@@ -379,6 +659,8 @@ export class SessionOwner {
       this.unrestoredRoles.add(entry.id);
       const identity = await this.deps.identity(entry.repository).catch(() => undefined);
       const agents = await this.deps.agents();
+      if (this.isQuitting) await this.waitForQuit();
+      if (this.deps.closed()) return;
       if (
         restoreAuthority(
           entry,
@@ -399,29 +681,46 @@ export class SessionOwner {
           }
         }
       }
-    } else if (
-      entry.parentId &&
-      (await this.deps.orchestration.restoreChild(entry.parentId, { ...entry, exited: false }))
-    ) {
+    } else if (entry.parentId && (await this.restoreSavedChild(entry, entry.parentId, false))) {
       control = { parentId: entry.parentId };
     }
     try {
+      if (this.isQuitting) await this.waitForQuit();
+      if (this.deps.closed()) return;
       const id = await this.deps.launch(entry, control, authorityIdentity);
       if (id && slot && !("existing" in slot)) {
+        if (this.isQuitting) await this.waitForQuit();
+        if (this.deps.closed()) return;
         slot.bind(id);
+        this.restoredParents.set(id, slot.isCurrent);
         this.deps.orchestration.restoreHistory(id, entry.orchestrator?.history ?? []);
         await this.deps.orchestration.restoreWorktrees(
           id,
           entry.orchestrator?.worktrees ?? [],
           entry.orchestrator?.uncertain ?? 0,
         );
+        if (this.isQuitting) await this.waitForQuit();
+        if (this.deps.closed()) return;
         this.unrestoredRoles.delete(id);
-        for (const child of this.saved.values()) {
-          if (child.parentId === id)
-            await this.deps.orchestration.restoreChild(id, {
-              ...child,
-              exited: !this.restoring.has(child.id),
+        for (const child of [...this.saved.values()]) {
+          if (this.isQuitting) await this.waitForQuit();
+          if (this.deps.closed()) return;
+          if (child.parentId !== id || !this.saved.has(child.id)) continue;
+          if (this.manualLaunches.has(child.id) || this.restoreQueue.has(child.id)) {
+            const currentIdentity = () => this.savedCheckoutIdentity(id, child.worktree);
+            const identity =
+              entry.orchestrator?.worktrees?.find((tree) => tree.path === child.worktree)
+                ?.identity ?? currentIdentity();
+            const parentCurrent = slot.isCurrent;
+            this.deferredLinks.set(child.id, {
+              entry: child,
+              parentId: id,
+              current: () =>
+                parentCurrent() && (identity === undefined || currentIdentity() === identity),
             });
+          } else {
+            await this.restoreSavedChild(child, id, !this.restoring.has(child.id));
+          }
         }
       }
     } finally {

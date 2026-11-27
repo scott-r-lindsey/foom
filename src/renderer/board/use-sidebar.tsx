@@ -220,7 +220,8 @@ export function useSidebar(props: SidebarProps) {
   );
   const configRows = rows.filter((row) => row.config);
   const needsCount =
-    rows.filter((row) => row.state === "needs_input").length + (configStatus?.pending ? 1 : 0);
+    rows.filter((row) => row.state === "needs_input" || (props.decisionCount?.(row.id) ?? 0) > 0)
+      .length + (configStatus?.pending ? 1 : 0);
   const { tree, hiddenNeeds } = buildSidebar(
     rows.filter((row) => !row.home && !row.config),
     repositories,
@@ -492,6 +493,7 @@ export function useSidebar(props: SidebarProps) {
     const exited =
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
     const forget = Boolean(row.unavailable && row.exited);
+    const canRelaunch = !row.worktreeRemoved && !row.reattachOnly && !forget;
     const items: (RowAction | null)[] = exited
       ? [
           ...(row.orchestration?.role === "orchestrator" && row.orchestration.restoreOnResume
@@ -512,7 +514,7 @@ export function useSidebar(props: SidebarProps) {
               ]
             : []),
           ...(row.kind === "shell"
-            ? row.worktreeRemoved || forget
+            ? !canRelaunch
               ? []
               : [
                   {
@@ -525,7 +527,7 @@ export function useSidebar(props: SidebarProps) {
                   null,
                 ]
             : [
-                ...(!row.worktreeRemoved && !forget && row.conversationId && row.kind === "agent"
+                ...(canRelaunch && row.conversationId && row.kind === "agent"
                   ? [
                       {
                         label: "Resume conversation",
@@ -535,7 +537,7 @@ export function useSidebar(props: SidebarProps) {
                       },
                     ]
                   : []),
-                ...(!row.worktreeRemoved && !forget
+                ...(canRelaunch
                   ? [
                       {
                         label: "New conversation here",
@@ -572,7 +574,7 @@ export function useSidebar(props: SidebarProps) {
                   run: () => command({ kind: "take-over", id: row.id }),
                 },
               ]
-            : row.kind === "agent" && !row.config && !row.home
+            : row.kind === "agent" && !row.config && !row.home && row.placement?.kind !== "remote"
               ? [
                   row.orchestration?.role === "orchestrator" && row.orchestration.active
                     ? {
@@ -597,6 +599,7 @@ export function useSidebar(props: SidebarProps) {
       <SidebarSessionRow
         key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}
         row={row}
+        decisionCount={props.decisionCount?.(row.id) ?? 0}
         name={name}
         identity={identity}
         parentName={parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : undefined}

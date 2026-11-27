@@ -514,9 +514,15 @@ export async function sidebarCommand(
     }
     if (this.executionOwner.view(entry.id).exitCode === undefined)
       throw new Error("Session is still running");
+    if (
+      entry.reattachOnly ||
+      (entry.remote &&
+        entry.branch === "Main checkout" &&
+        !this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
+    )
+      throw new LaunchFailure("remote_worktree_unavailable");
     if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
-    this.busySessions.add(entry.id);
-    try {
+    const launch = () => {
       const replacement = {
         id: entry.id,
         ...(command.kind === "resume" && entry.conversationId !== undefined
@@ -525,17 +531,16 @@ export async function sidebarCommand(
       };
       const remoteRole = entry.remote ? this.orchestration.view(entry.id) : undefined;
       if (entry.machine) {
-        await this.startMachine(
+        return this.startMachine(
           entry.placement?.kind === "remote" ? entry.placement.host : null,
           entry.agent,
           entry.id,
           undefined,
           replacement.conversationId,
         );
-        return;
       }
       if (entry.remote && !remoteRole && entry.placement?.kind === "remote") {
-        await this.startMachine(
+        return this.startMachine(
           entry.placement.host,
           entry.agent,
           entry.id,
@@ -547,22 +552,27 @@ export async function sidebarCommand(
           replacement.conversationId,
           confirm,
         );
-        return;
       }
       if (entry.remote && (remoteRole?.role !== "child" || remoteRole.takenOver))
         throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
-      if (entry.config) await this.startConfig(entry.agent, replacement);
-      else
-        await this.startExisting(
-          entry.repository,
-          entry.worktree,
-          entry.agent,
-          confirm,
-          replacement,
-          remoteRole?.role === "child" ? { parentId: remoteRole.parentId } : undefined,
-        );
+      if (entry.config) return this.startConfig(entry.agent, replacement);
+      return this.startExisting(
+        entry.repository,
+        entry.worktree,
+        entry.agent,
+        confirm,
+        replacement,
+        remoteRole?.role === "child" ? { parentId: remoteRole.parentId } : undefined,
+      );
+    };
+    const settle = this.sessions.reserveManualLaunch(entry.id);
+    this.busySessions.add(entry.id);
+    let started = false;
+    try {
+      started = (await launch()) !== undefined;
     } finally {
       this.busySessions.delete(entry.id);
+      settle(started);
     }
     return;
   }
@@ -593,37 +603,10 @@ export async function sidebarCommand(
           (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
         ).length,
       );
-    if (command.kind === "restart") {
-      if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-      if (entry.machine)
-        await this.startMachine(
-          entry.placement?.kind === "remote" ? entry.placement.host : null,
-          "shell",
-        );
-      else if (
-        entry.remote &&
-        entry.placement?.kind === "remote" &&
-        entry.branch === "Main checkout"
-      )
-        await this.startMachine(entry.placement.host, "shell", undefined, {
-          repository: entry.repository,
-          worktree: entry.repository,
-          branch: null,
-        });
-      else if (entry.config) await this.startConfig("shell");
-      else if (entry.home && entry.remote) {
-        const target =
-          entry.placement?.kind === "remote"
-            ? this.deps.hosts?.shellTarget?.(entry.placement.host)
-            : undefined;
-        if (!target) throw new LaunchFailure("remote_host_unreachable");
-        await this.startHomeShell(undefined, target);
-      } else if (entry.home) await this.startHomeShell();
-      else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
-    }
     const identity =
       command.kind === "close" &&
       entry &&
+      !entry.remote &&
       !entry.home &&
       !entry.config &&
       (!entry.dormant ||
@@ -718,7 +701,43 @@ export async function sidebarCommand(
       } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
       this.removed(command.id);
     };
-    if (command.kind === "close" && entry) await this.closeSession(entry, cleanup, heldCheckout);
+    if (command.kind === "restart") {
+      if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
+      const launch = () => {
+        if (entry.machine)
+          return this.startMachine(
+            entry.placement?.kind === "remote" ? entry.placement.host : null,
+            "shell",
+          );
+        if (entry.remote && entry.placement?.kind === "remote" && entry.branch === "Main checkout")
+          return this.startMachine(entry.placement.host, "shell", undefined, {
+            repository: entry.repository,
+            worktree: entry.repository,
+            branch: null,
+          });
+        if (entry.config) return this.startConfig("shell");
+        if (entry.home && entry.remote) {
+          const target =
+            entry.placement?.kind === "remote"
+              ? this.deps.hosts?.shellTarget?.(entry.placement.host)
+              : undefined;
+          if (!target) throw new LaunchFailure("remote_host_unreachable");
+          return this.startHomeShell(undefined, target);
+        }
+        if (entry.home) return this.startHomeShell();
+        return this.startExisting(entry.repository, entry.worktree, "shell", confirm);
+      };
+      const settle = this.sessions.reserveManualLaunch(entry.id);
+      this.busySessions.add(entry.id);
+      let started = false;
+      try {
+        started = (await launch()) !== undefined;
+        if (started) await cleanup();
+      } finally {
+        this.busySessions.delete(entry.id);
+        settle(started);
+      }
+    } else if (entry) await this.closeSession(entry, cleanup, heldCheckout);
     else await cleanup();
     return;
   }
@@ -767,6 +786,7 @@ export async function sidebarCommand(
         row.placement?.kind === "remote" &&
         !this.orchestration.view(row.id),
     );
+    if (human?.reattachOnly) throw new LaunchFailure("remote_worktree_unavailable");
     if (human?.placement?.kind === "remote" && human.branch === "Main checkout") {
       const id = await this.startMachine(
         human.placement.host,
@@ -917,7 +937,7 @@ export async function startConfig(
   this: ConfigLaunchContext,
   run: AgentId,
   replacement?: { id: string; conversationId?: string },
-): Promise<void> {
+): Promise<string> {
   const config = this.deps.config;
   if (!config) throw new Error("Foom config is unavailable");
   await config.check();
@@ -931,11 +951,11 @@ export async function startConfig(
         credential.env,
       );
       this.bindConfig(id, credential.token);
+      return id;
     } catch (error) {
       await this.probes?.revoke(credential.token);
       throw error;
     }
-    return;
   }
   if (this.enabled[run] !== true) throw new Error("This agent is turned off in preflight");
   await this.scanAgents(false);
@@ -946,13 +966,15 @@ export async function startConfig(
     await this.queues.get(old.id);
     if (!old.dormant) await this.deps.terminals.kill(old.id);
     old.dormant = true;
-    this.executionOwner.reset(old.id);
-    this.deps.verdicts.forget(old.id);
   }
   const defaultArguments = this.defaultArguments[run] ?? [];
   let result: AgentLaunched;
   const credential = await this.configCredential();
   try {
+    if (replacement) {
+      this.executionOwner.reset(replacement.id);
+      this.deps.verdicts.forget(replacement.id);
+    }
     result = await this.agents.launch({
       agent: run,
       configEnvironment: credential.env,
@@ -1002,11 +1024,13 @@ export async function startConfig(
       : { conversationId: replacement.conversationId }),
     ...(result.conversationId ? { conversationId: result.conversationId } : {}),
     bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
+    ...(result.permissionLevel ? { permissionLevel: result.permissionLevel } : {}),
     state: null,
   });
   this.executionOwner.launched(result.id);
   this.persist();
   this.refresh();
+  return result.id;
 }
 
 export function probeState(

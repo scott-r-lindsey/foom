@@ -96,6 +96,31 @@ async function launchApprovalFixture(context) {
         if (!fixture.screenshots?.has(id)) fixture.results[id] = result;
       });
     };
+    fixture.addExpiringPairing = (id) => {
+      // Hold only this request's expiry callback. Presentation and movement
+      // guards still use real timers in both processes.
+      const expiryDelay = 60 * 60_000;
+      const expiresAt = Date.now() + expiryDelay;
+      const schedule = globalThis.setTimeout;
+      let expire;
+      globalThis.setTimeout = (callback, delay, ...args) => {
+        const timer = schedule(callback, delay, ...args);
+        if (delay > expiryDelay / 2 && delay <= expiryDelay) {
+          expire = () => {
+            clearTimeout(timer);
+            callback(...args);
+          };
+        }
+        return timer;
+      };
+      try {
+        fixture.add(id, "Credentials", expiresAt);
+      } finally {
+        globalThis.setTimeout = schedule;
+      }
+      if (!expire) throw new Error("Expected the pairing request to schedule expiry");
+      return expire;
+    };
     fixture.add("one");
     fixture.add("two");
   });
@@ -462,16 +487,26 @@ test("trusted approval gestures cannot retarget withdrawals, expiry or arrivals 
     await expect(approve("two")).toBeEnabled();
     await approve("two").click();
     await expect.poll(() => result("two")).toBe(true);
+    await expect
+      .poll(() => native.evaluate((window) => !window.isVisible() && !window.isFocused()))
+      .toBe(true);
 
-    // Pairing uses its real absolute main-owned expiry; no timers are mocked.
+    // An expiring row must arm normally even if queue presentation takes time.
+    // Release the main-owned expiry only after observing both rows and their layout.
     await app.evaluate(() => {
       const f = globalThis.approvalFixture;
-      f.add("expires", "Credentials", Date.now() + 2500);
+      f.expirePairing = f.addExpiringPairing("expires");
       f.add("after-expiry");
       f.dialog.openApprovals();
     });
+    await expect
+      .poll(() => native.evaluate((window) => window.isVisible() && window.isFocused()))
+      .toBe(true);
     await expect(approve("expires")).toBeEnabled();
+    await expect(approve("after-expiry")).toBeEnabled();
     const expiryBox = await approve("after-expiry").boundingBox();
+    assert.equal(await result("expires"), undefined);
+    await app.evaluate(() => globalThis.approvalFixture.expirePairing());
     await expect.poll(() => result("expires")).toBe(false);
     await expect(dialog.locator(".approval-placeholder")).toHaveCount(1);
     assertRetainedFootprint(

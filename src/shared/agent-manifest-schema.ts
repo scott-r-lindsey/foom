@@ -70,9 +70,14 @@ function statusProbe(v: unknown, p: string) {
   return v === "observed-health" ? v : argv(v, p);
 }
 export function argumentMatcher(v: unknown, p: string) {
-  const d = object(v, p, [], ["flag", "forms", "value", "word", "prefix", "override"]);
+  const d = object(
+    v,
+    p,
+    [],
+    ["flag", "forms", "value", "word", "prefix", "override", "approvalOnly"],
+  );
   if (d["flag"] !== undefined) {
-    object(v, p, ["flag", "forms"], ["value"]);
+    object(v, p, ["flag", "forms"], ["value", "approvalOnly"]);
     return {
       flag: flag(d["flag"], `${p}.flag`),
       forms: array(
@@ -81,6 +86,7 @@ export function argumentMatcher(v: unknown, p: string) {
         1,
       )(d["forms"], `${p}.forms`),
       value: optional(shortText)(d["value"], `${p}.value`),
+      approvalOnly: optional(boolean)(d["approvalOnly"], `${p}.approvalOnly`),
     };
   }
   if (d["word"] !== undefined) {
@@ -91,8 +97,11 @@ export function argumentMatcher(v: unknown, p: string) {
     object(v, p, ["prefix"]);
     return { prefix: eventText(d["prefix"], `${p}.prefix`) };
   }
-  object(v, p, ["override"]);
-  return { override: override(d["override"], `${p}.override`) };
+  object(v, p, ["override"], ["approvalOnly"]);
+  return {
+    override: override(d["override"], `${p}.override`),
+    approvalOnly: optional(boolean)(d["approvalOnly"], `${p}.approvalOnly`),
+  };
 }
 const versionPrefix = (v: unknown, p: string) => text(v, p, 4096, 0);
 export function selector(v: unknown, p: string) {
@@ -779,6 +788,25 @@ export function wake(v: unknown, p: string) {
     reject: array(shortText, 32, 1)(d["reject"], `${p}.reject`),
   };
 }
+const permissionArgv = array(text, 32, 1);
+function permissionLevels(v: unknown, p: string) {
+  const d = object(
+    v,
+    p,
+    ["ask", "full", "conflicts"],
+    ["workspace", "minimum", "helpTokens", "when"],
+  );
+  return {
+    ask: permissionArgv(d["ask"], `${p}.ask`),
+    workspace: optional(permissionArgv)(d["workspace"], `${p}.workspace`),
+    full: permissionArgv(d["full"], `${p}.full`),
+    conflicts: array(argumentMatcher, 32)(d["conflicts"], `${p}.conflicts`),
+    minimum: optional(minimum)(d["minimum"], `${p}.minimum`),
+    helpTokens: defaulted(array(shortText, 8), [])(d["helpTokens"], `${p}.helpTokens`),
+    when: optional(condition)(d["when"], `${p}.when`),
+  };
+}
+
 export function v2(v: unknown, p: string) {
   const d = object(
     v,
@@ -800,7 +828,7 @@ export function v2(v: unknown, p: string) {
       "attention",
       "execution",
     ],
-    ["files", "hooks", "health", "setup", "hostSetup", "wake"],
+    ["files", "hooks", "health", "setup", "hostSetup", "wake", "permissionLevels"],
   );
   return {
     kind: literal("agent")(d["kind"], `${p}.kind`),
@@ -816,6 +844,7 @@ export function v2(v: unknown, p: string) {
     reservedArguments: array(argumentMatcher, 64)(d["reservedArguments"], `${p}.reservedArguments`),
     bypassArguments: array(argumentMatcher, 64)(d["bypassArguments"], `${p}.bypassArguments`),
     bypassEnvironment: array(environment, 16)(d["bypassEnvironment"], `${p}.bypassEnvironment`),
+    permissionLevels: optional(permissionLevels)(d["permissionLevels"], `${p}.permissionLevels`),
     conversation: conversation(d["conversation"], `${p}.conversation`),
     resumePaste: array(paste, 8)(d["resumePaste"], `${p}.resumePaste`),
     attention: attention(d["attention"], `${p}.attention`),

@@ -192,11 +192,11 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
   expect(source.getSnapshot()).toHaveLength(5);
 });
 
-test("exited Close uses the sidebar command, retains the tile on failure and removes it on success", async () => {
+test("an exited saved agent's Close retains the tile on failure and removes it on success", async () => {
   const { screen, click, data, source } = setup();
   click(0);
   act(() => {
-    data.update("permission", { exited: true });
+    data.update("permission", { exited: true, conversationId: "saved-conversation" });
   });
   source.sidebarCommand = vi.fn().mockRejectedValue(new Error("failure"));
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -603,7 +603,7 @@ for (const control of ["chrome", "menu"] as const) {
     source.sidebarCommand = vi.fn(async () => {});
     if (control === "menu") {
       fireEvent.click(screen.getByRole("button", { name: "Tile 1 menu" }));
-      expect(screen.queryByRole("menuitem", { name: "Close" })).toBeNull();
+      expect(screen.getByRole("menuitem", { name: "Close" })).toBeTruthy();
       fireEvent.click(screen.getByRole("menuitem", { name: "Hide" }));
     } else fireEvent.click(screen.getByRole("button", { name: "Hide" }));
     await act(async () => {});

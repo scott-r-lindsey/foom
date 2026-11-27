@@ -6,6 +6,7 @@ import type {
   MessagePost,
   ThreadState,
 } from "../../shared/message-board";
+import { decisionKey, decisionLabel } from "./message-board-decisions";
 import { childPostText } from "../../shared/message-board-presentation";
 import { boardText } from "../../shared/message-board-validation";
 import { ActionError, useBackgroundErrors } from "./error-presentation";
@@ -19,9 +20,13 @@ const states: Record<ThreadState, string> = {
 export function MessageBoardPanel({
   api,
   subscribe,
+  decisions,
+  openDecisions,
   close,
 }: {
   api: MessageBoardApi;
+  decisions?: Record<string, number>;
+  openDecisions?: (repository: string, name: string) => void;
   subscribe: (listener: () => void) => () => void;
   close: () => void;
 }) {
@@ -197,6 +202,23 @@ export function MessageBoardPanel({
               </button>
             ))}
           </div>
+          {openDecisions &&
+            category === "topics" &&
+            Object.entries(decisions ?? {}).map(
+              ([repository, count]) =>
+                (!filter || filter === repository) && (
+                  <button
+                    key={repository}
+                    type="button"
+                    className="decision-count"
+                    onClick={() => {
+                      openDecisions(repository, name(repository));
+                    }}
+                  >
+                    ◇ {name(repository)} · {decisionLabel(count)}
+                  </button>
+                ),
+            )}
           {page?.threads.length === 0 && <p>No threads</p>}
           {page?.threads.map((row) => (
             <button
@@ -255,7 +277,9 @@ export function MessageBoardPanel({
                 <li
                   key={post.id}
                   data-decision={
-                    post.kind === "decision-needed" && selected.thread.state === "waiting-human"
+                    (post.kind === "decision-needed" &&
+                      selected.thread.state === "waiting-human") ||
+                    post.decisions?.some(({ status }) => status === "open" || status === "checking")
                   }
                 >
                   <div className="message-post-meta">
@@ -270,6 +294,53 @@ export function MessageBoardPanel({
                       ? childPostText(post.text)
                       : post.text}
                   </p>
+                  {post.decisions && (
+                    <ul className="decision-thread-record">
+                      {post.decisions.map((row) => (
+                        <li key={decisionKey(row)}>
+                          {row.status === "withdrawn" ? (
+                            <s>{row.question.title}</s>
+                          ) : (
+                            row.question.title
+                          )}
+                          {row.status !== "open" && (
+                            <span>
+                              {" "}
+                              ·{" "}
+                              {row.status === "checking"
+                                ? "Checking subject"
+                                : row.status === "stale"
+                                  ? "Stale"
+                                  : row.status === "withdrawn"
+                                    ? "Withdrawn"
+                                    : "Answered"}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {post.answers && (
+                    <ul className="decision-thread-record">
+                      {post.answers.map((answer) => {
+                        const question = selected.posts.find(({ id }) => id === answer.post)
+                          ?.questions?.[answer.index];
+                        return (
+                          <li key={decisionKey(answer)}>
+                            {question?.title} ·{" "}
+                            {answer.other ??
+                              question?.options.find(({ id }) => id === answer.option)?.label}
+                            {answer.subject && (
+                              <code>
+                                PR #{answer.subject.pullRequest} ·{" "}
+                                {answer.subject.headSha.slice(0, 8)}
+                              </code>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                   {post.links.map((link, index) => (
                     <code key={`${String(index)}:${link}`}>{link}</code>
                   ))}

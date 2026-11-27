@@ -1,6 +1,7 @@
 import { ENABLED_AGENTS } from "../../../helpers/enabled-agents";
 import { expect, test, vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
+import { WorkspaceContext } from "../../../../src/main/workspace/workspace-context";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { StoredSession } from "../../../../src/main/workspace/session-restore.d";
 import type { Launched } from "./workspace-fixture";
@@ -58,6 +59,7 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
     dormant: true,
     exited: true,
     conversationId: "saved-123",
+    reviewer: true as const,
   };
   const save = vi.fn(() => Promise.resolve());
   const flush = vi.fn(() => Promise.resolve());
@@ -75,6 +77,12 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
   expect(agents.launch).not.toHaveBeenCalled();
   await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
   expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      conversationId: "saved-123",
+      reviewer: true,
+    }),
+  );
   expect(save).toHaveBeenLastCalledWith([
     expect.objectContaining({ id: "t1", conversationId: "saved-123" }),
     expect.objectContaining({ id: "foreign", exited: true }),
@@ -509,4 +517,77 @@ test("Forget also handles an unavailable local exit without restarting Foom, whi
   expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
   expect(vi.mocked(deps.terminals, true).stop.mock.calls).toHaveLength(0);
   await workspace.dispose();
+});
+
+test("returns the saved shell to startup after a failed manual Restart", async () => {
+  const saved: StoredSession = {
+    id: "saved-shell",
+    kind: "shell",
+    agent: "shell",
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator",
+    state: null,
+    dormant: true,
+    exited: true,
+    running: true,
+  };
+  deps.sessions = {
+    load: () => Promise.resolve([saved]),
+    save: vi.fn(() => Promise.resolve()),
+    flush: vi.fn(() => Promise.resolve()),
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  const terminals = vi.mocked(deps.terminals, true);
+  terminals.create
+    .mockRejectedValueOnce(new Error("shell startup refused"))
+    .mockResolvedValueOnce(saved.id);
+  await expect(
+    workspace.sidebarCommand({ kind: "restart", id: saved.id }, () => Promise.resolve(true)),
+  ).rejects.toThrow("shell startup refused");
+  await workspace.restartSaved();
+  expect(terminals.create.mock.calls).toHaveLength(2);
+  expect(terminals.create.mock.lastCall?.[0]).toMatchObject({ id: saved.id });
+  expect(workspace.snapshot().terminals).toMatchObject([{ id: saved.id, exited: false }]);
+  await workspace.dispose();
+});
+
+test("revalidates a prepared spawn after each quit pause", async () => {
+  const context = new WorkspaceContext(deps);
+  const first = Promise.withResolvers<undefined>();
+  const second = Promise.withResolvers<undefined>();
+  vi.spyOn(context.sessions, "restoreSpawnPause")
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  const verified = Promise.withResolvers<undefined>();
+  const revalidate = vi.fn(() => Promise.resolve());
+  revalidate.mockImplementationOnce(() => {
+    verified.resolve(undefined);
+    return Promise.resolve();
+  });
+  const create = vi.spyOn(deps.terminals, "create");
+  revalidate.mockRejectedValueOnce(new Error("Checkout replaced"));
+  const spawn = context.createTerminal(
+    {
+      id: "saved",
+      command: "claude",
+      args: [],
+      cwd: tree.path,
+      cols: 80,
+      rows: 24,
+      env: {},
+    },
+    revalidate,
+  );
+  const rejected = expect(spawn).rejects.toThrow("Checkout replaced");
+  first.resolve(undefined);
+  await verified.promise;
+  expect(create).not.toHaveBeenCalled();
+  second.resolve(undefined);
+  await rejected;
+  expect(revalidate).toHaveBeenCalledTimes(2);
+  expect(create).not.toHaveBeenCalled();
+  await context.dispose();
 });

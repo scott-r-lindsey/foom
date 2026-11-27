@@ -164,6 +164,7 @@ export class ReviewEffects {
         prompt,
         {
           ...(resume ? { resume } : {}),
+          ...(reviewer ? { reviewer: true } : {}),
           selection: reviewer
             ? {
                 ...(state.model === undefined ? {} : { model: state.model }),

@@ -1,5 +1,5 @@
 import { IMAGE_CSP, imagePage, validImage } from "./image";
-import { app, session, WebContentsView } from "electron";
+import { app, session, WebContentsView, type WebPreferences } from "electron";
 import type { PreviewRecord } from "../../shared/previews";
 import { readPreview, type CanonicalRoot } from "./contained-files";
 import { pathnameFor, previewCsp, responseHeaders } from "./policy";
@@ -46,7 +46,7 @@ export function unavailablePage(url: string, origin: string, missing: boolean): 
 export function createPartition(
   record: PreviewRecord,
   root: CanonicalRoot,
-  watcher: PreviewWatcher,
+  watcher?: PreviewWatcher,
 ) {
   const origin = `foom-preview://${record.id}`;
   const partition = session.fromPartition(`preview-${record.id}`, { cache: false });
@@ -74,7 +74,13 @@ export function createPartition(
     // is a page, while images embedded in other documents remain ordinary assets.
     const parsed = pathnameFor(request.url, origin);
     const isDocument = "pathname" in parsed && parsed.pathname === documentPath;
-    const result = await readPreview(root, request.url, origin, watcher.recorder(), record.network);
+    const result = await readPreview(
+      root,
+      request.url,
+      origin,
+      watcher?.recorder(),
+      record.network,
+    );
     if (
       result.status === 200 &&
       isDocument &&
@@ -114,21 +120,22 @@ export function createPartition(
   return { partition, setDocumentUrl };
 }
 
+export function previewPreferences(partition: Electron.Session): WebPreferences {
+  return {
+    session: partition,
+    sandbox: true,
+    contextIsolation: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    disableDialogs: true,
+    navigateOnDragDrop: false,
+    webviewTag: false,
+    devTools: !app.isPackaged,
+    spellcheck: false,
+  };
+}
+
 export function createPreviewView(partition: Electron.Session) {
-  const view = new WebContentsView({
-    webPreferences: {
-      session: partition,
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-      nodeIntegrationInWorker: false,
-      nodeIntegrationInSubFrames: false,
-      disableDialogs: true,
-      navigateOnDragDrop: false,
-      webviewTag: false,
-      devTools: !app.isPackaged,
-      spellcheck: false,
-    },
-  });
-  return view;
+  return new WebContentsView({ webPreferences: previewPreferences(partition) });
 }

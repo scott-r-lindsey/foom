@@ -59,6 +59,7 @@ export interface OrchestrationHost {
       loop?: AgentLaunch["loop"];
       snapshot?: ReviewSnapshot;
       authorId?: string;
+      reviewer?: true;
       validateSnapshot?: () => Promise<void>;
       validate(): void;
     },
@@ -131,6 +132,7 @@ export interface Parent {
   /** Creations that may have left a checkout; they stay charged to the unused budget. */
   uncertain: number;
   readonly refusedWorktrees: Set<string>;
+  readonly unverifiedWorktrees: Map<string, OwnedWorktree>;
   readonly children: Map<string, Child>;
   readonly worktrees: Map<
     string,

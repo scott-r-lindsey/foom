@@ -3,7 +3,6 @@ import { isRecord } from "./agent-manifest-values";
 import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 type Matcher = AgentManifestV2["reservedArguments"][number];
-
 function overrideValueMatches(raw: string, expected: string): boolean {
   if (raw === expected) return true;
   if (!raw.startsWith('"') && !raw.startsWith("'")) return false;
@@ -16,11 +15,19 @@ function overrideValueMatches(raw: string, expected: string): boolean {
   }
 }
 
-export function matchesArguments(matchers: readonly Matcher[], args: readonly string[]): boolean {
-  return argumentMatchIndex(matchers, args) >= 0;
+export function matchesArguments(
+  matchers: readonly Matcher[],
+  args: readonly string[],
+  overrideKeys: "any" | "root" = "any",
+): boolean {
+  return argumentMatchIndex(matchers, args, overrideKeys) >= 0;
 }
 
-export function argumentMatchIndex(matchers: readonly Matcher[], args: readonly string[]): number {
+export function argumentMatchIndex(
+  matchers: readonly Matcher[],
+  args: readonly string[],
+  overrideKeys: "any" | "root" = "any",
+): number {
   return args.findIndex((arg, index) =>
     matchers.some((matcher) => {
       if ("word" in matcher) return arg === matcher.word;
@@ -38,10 +45,15 @@ export function argumentMatchIndex(matchers: readonly Matcher[], args: readonly 
         const segments = (equals < 0 ? config : config.slice(0, equals))
           .replace(/[\s"']/gu, "")
           .split(".");
-        return rule.value === undefined
-          ? segments.some((key) => rule.keys.includes(key))
-          : rule.keys.includes(segments.at(-1) ?? "") &&
-              overrideValueMatches(equals < 0 ? "" : config.slice(equals + 1).trim(), rule.value);
+        if (rule.value === undefined)
+          return (overrideKeys === "root" ? segments.slice(0, 1) : segments).some((key) =>
+            rule.keys.includes(key),
+          );
+        return (
+          (overrideKeys === "any" || segments.length === 1) &&
+          rule.keys.includes(segments.at(-1) ?? "") &&
+          overrideValueMatches(equals < 0 ? "" : config.slice(equals + 1).trim(), rule.value)
+        );
       }
       return matcher.forms.some((form) => {
         if (form === "exact") return arg === matcher.flag && matcher.value === undefined;

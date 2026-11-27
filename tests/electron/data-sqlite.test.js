@@ -297,6 +297,7 @@ test("data SQLite: board and control recovery preserve history without replay or
       token: "never-store-this-token",
     };
     await atomicPrivate(directory, `operation-${id}.json`, record);
+    const subject = { pullRequest: 340, headSha: "a".repeat(64) };
     await atomicPrivate(directory, "board.json", {
       version: 1,
       threads: [
@@ -320,8 +321,50 @@ test("data SQLite: board and control recovery preserve history without replay or
           links: [],
           timestamp: now,
         },
+        {
+          id: "question",
+          thread: "thread",
+          author: "orchestrator:historical-repository",
+          kind: "question",
+          text: "Decision history",
+          links: [],
+          timestamp: now,
+          questions: [
+            {
+              title: "Proceed?",
+              options: [
+                { id: "go", label: "Proceed" },
+                { id: "hold", label: "Hold" },
+              ],
+              subject,
+            },
+          ],
+        },
+        {
+          id: "answer",
+          thread: "thread",
+          author: "human",
+          kind: "answer",
+          text: "Decision recorded",
+          links: [],
+          timestamp: now,
+          answers: [{ post: "question", index: 0, option: "go", subject }],
+        },
       ],
-      receipts: [],
+      receipts: [
+        {
+          scope: "grant",
+          key: "ask",
+          hash: "d".repeat(64),
+          result: { thread: "thread", post: "question" },
+        },
+        {
+          scope: "human",
+          key: "answer",
+          hash: "e".repeat(64),
+          result: { thread: "thread", post: "answer" },
+        },
+      ],
     });
     const db = await ProfileDatabase.open(profile, undefined, recoveryCipher);
     try {
@@ -342,7 +385,19 @@ test("data SQLite: board and control recovery preserve history without replay or
             await fs.readFile(path.join(profile, "data/recovery/control-history-v1.json"), "utf8")
           ).includes("never-store-this-token"),
           operation,
-          posts: raw.prepare("SELECT * FROM board_posts").all().length,
+          posts: raw
+            .prepare("SELECT kind FROM board_posts ORDER BY rowid")
+            .all()
+            .map(({ kind }) => kind),
+          head: raw
+            .prepare(
+              "SELECT json_extract(data, '$.answers[0].subject.headSha') AS sha FROM board_posts WHERE kind = 'answer'",
+            )
+            .get()?.sha,
+          receipts: raw
+            .prepare("SELECT post FROM board_receipts ORDER BY rowid")
+            .all()
+            .map(({ post }) => post),
           audits: raw.prepare("SELECT * FROM audit_records").all().length,
           unchanged:
             JSON.parse(await fs.readFile(path.join(directory, `operation-${id}.json`), "utf8"))
@@ -361,7 +416,9 @@ test("data SQLite: board and control recovery preserve history without replay or
   assert.equal(result.operation.status, "indeterminate");
   assert.equal(result.operation.recovered, 1);
   assert.equal(result.operation.data.includes("never-store-this-token"), false);
-  assert.equal(result.posts, 1);
+  assert.deepEqual(result.posts, ["fyi", "question", "answer"]);
+  assert.equal(result.head, "a".repeat(64));
+  assert.deepEqual(result.receipts, ["question", "answer"]);
   assert.equal(result.audits, 0);
 });
 

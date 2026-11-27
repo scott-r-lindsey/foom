@@ -1,4 +1,4 @@
-import { mock, start, invokeWindow, newWindow } from "./main-fixture";
+import { forgeMock, mock, start, invokeWindow, newWindow } from "./main-fixture";
 import { expect, test, vi } from "vitest";
 
 test("wake eligibility follows the focused session and focus changes force a guarded recheck", async () => {
@@ -121,6 +121,7 @@ test("control startup publishes private discovery and binds trusted pairing call
       expect.any(Function),
       expect.any(Object),
       expect.any(Function),
+      expect.any(Object),
     );
     startControl.mock.calls[0]?.[5]?.();
     expect(mock.workspace.refresh).toHaveBeenCalled();
@@ -348,4 +349,59 @@ test("background approvals carry main-owned attribution while user actions retai
     await request({ title: "User action", accept: "Continue", userAction: true }, abort.signal),
   ).toBe(false);
   expect(mock.message).not.toHaveBeenCalled();
+});
+
+test("decision status and preview roots come from configured forge and registered local checkouts", async () => {
+  const { ControlRuntime } = await import("../../../src/main/control/runtime");
+  const { locationId } = await import("../../../src/main/control/metadata");
+  const startControl = vi
+    .spyOn(ControlRuntime, "start")
+    .mockRejectedValueOnce(new Error("fixture"));
+  const headSha = "a".repeat(40);
+  const readDecision = vi.fn(() => ({ headSha, requiredChecks: "success" }));
+  const watchDecisions = vi.fn();
+  forgeMock.open.mockResolvedValueOnce({
+    track: vi.fn(),
+    read: vi.fn(),
+    close: vi.fn(),
+    pause: vi.fn(),
+    invalidate: vi.fn(),
+    revision: () => 3,
+    readDecision,
+    watchDecisions,
+  });
+  const forgeRemote = vi.fn(() => Promise.resolve("https://github.com/o/r"));
+  const listWorktrees = vi.fn(() => Promise.resolve([{ path: "/tree" }]));
+  mock.openWorktrees.mockResolvedValue({
+    worktreeRoot: "/trees",
+    listRepositories: () => [{ path: "/repo", name: "Repo" }],
+    listWorktrees,
+    forgeRemote,
+  });
+  await start();
+  const control = mock.workspace.deps?.control;
+  if (!control) throw new Error("Missing control startup");
+  await expect(control()).rejects.toThrow("fixture");
+  const options = startControl.mock.calls[0]?.[8];
+  if (!options) throw new Error("Missing board decision options");
+  const repo = locationId("/repo");
+  const worktree = locationId("/tree");
+  expect(options.forgeRevision()).toBe(3);
+  expect(options.forge(repo, 7, 3)).toEqual({ headSha, checks: "success" });
+  expect(readDecision).toHaveBeenCalledWith(repo, 7, 3);
+  const subjects = [{ repository: repo, number: 7, after: 3 }];
+  options.subjectsChanged?.(subjects);
+  expect(watchDecisions).toHaveBeenCalledWith(subjects);
+  const remote = forgeMock.open.mock.calls[0]?.[4];
+  expect(await remote?.(repo)).toBe("https://github.com/o/r");
+  expect(await remote?.("foreign")).toBeUndefined();
+  expect(forgeRemote).toHaveBeenCalledWith("/repo");
+  const request = { repository: repo, worktree, path: "file.html" };
+  expect(await options.preview({ ...request, repository: "foreign" })).toBeNull();
+  expect(await options.preview({ ...request, relativeTo: "repository" })).toBeNull();
+  expect(await options.preview(request)).toBeNull();
+  expect(listWorktrees).toHaveBeenCalledWith("/repo");
+  expect(await options.preview({ ...request, worktree: "foreign" })).toBeNull();
+  listWorktrees.mockRejectedValueOnce(new Error("unavailable"));
+  expect(await options.preview(request)).toBeNull();
 });

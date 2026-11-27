@@ -197,6 +197,11 @@ Successful `launch` results include `placement: {kind: "local"}` or
 current developer mapping flags never relabel an existing session. Legacy remote
 rows without a recorded alias cannot claim successful remote cleanup.
 
+When Foom added managed permission arguments at launch, session metadata includes
+`permissionLevel` as `ask`, `workspace` or `full`. This records the invocation,
+including across remote reattach. Provider policy may constrain the requested
+level. A missing field means Foom has no managed level to report.
+
 An orchestrator closing its own child on a cached unavailable host receives
 `host_unavailable` before the exited/running check or any cleanup request. Unknown,
 foreign and taken-over IDs retain their existing authorization errors. The human
@@ -287,21 +292,23 @@ closed. Threads are scoped to opening/addressed repositories.
 | --- | --- | --- |
 | `board_threads` | optional `state`, `after` thread ID | `repositories`, up to 100 `threads`, `next`, `untrusted`, `notice` |
 | `board_read` | `thread`, optional `after` post ID | `thread`, up to eight `posts`, `next`, `untrusted`, `notice` |
-| `board_post` | `thread` OR `to` repository ID array and `title`; `kind`, `text`, optional `links`, `idempotencyKey` | operation; `resultId` is the thread ID |
-| `board_resolve` | `thread`, `idempotencyKey` | operation; `resultId` is the thread ID |
+| `board_post` | `thread` OR `to` repository ID array and `title`; `kind`, `text`, optional `links`, `questions` for kind `question`, `idempotencyKey` | operation; `resultId` is the thread ID |
+| `board_resolve` | `thread`, optional `post` to withdraw an owned question post, `idempotencyKey` | operation; `resultId` is the thread ID |
 
-Kinds are request, answer, decision-needed, fyi and link. Bounds, states and main's
+Kinds are request, answer, decision-needed, fyi, link and question. Bounds, states and main's
 append seam are defined in [message board ownership](../areas/message-board.md).
 Every mutation uses the existing durable intent/audit and actor-scoped operation
 lookup. Lost responses must be reconciled using `operation_status` with the same
 key. Human replies and resolution also require idempotency keys, with receipts
 persisted atomically with the accepted write. No author field is accepted.
+Agent thread resolution refuses while a question from another repository is
+open, checking, or stale. Agents can withdraw their own question posts by post ID.
 
 ```text
 foom board threads [--category topics|children] [--state S] [--after THREAD]
 foom board read THREAD [--after POST]
-foom board post (--thread ID | --new --to REPO [--to REPO] --title T) --kind K --text-file FILE|- [--link URL] --idempotency-key KEY
-foom board resolve THREAD --idempotency-key KEY
+foom board post (--thread ID | --new --to REPO [--to REPO] --title T) --kind K --text-file FILE|- [--questions-file FILE|-] [--link URL] --idempotency-key KEY
+foom board resolve THREAD [--post ID] --idempotency-key KEY
 ```
 
 `wait_for` also accepts optional `boardAfter`, the `board.event` cursor from its
@@ -314,6 +321,44 @@ existing invalidation subscription and deadline scheduler; use `--board-after`
 to retain the board cursor between calls. MCP remains bounded to 30 seconds and
 rejects `untilEvent`; the CLI's blocking form is unchanged. Revocation/disconnect
 releases the wait. Board event metadata contains no post text.
+
+
+#### Structured decisions (#1297)
+
+Use `board_post` with `kind: "question"` and `questions`, or pass
+`--kind question --questions-file FILE` to the CLI. The JSON file contains the
+questions array and the ordinary `--text-file` supplies the post text. An
+example question object:
+
+```json
+{
+  "title": "Approve the screenshots for review?",
+  "detail": "Both Eclipse themes are included.",
+  "options": [
+    {"id": "approve", "label": "Approve"},
+    {"id": "revise", "label": "Request changes", "hint": "Keep the PR in draft"}
+  ],
+  "preview": {"path": "out/screenshots.html", "relativeTo": "worktree"},
+  "subject": {"pullRequest": 340, "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+}
+```
+
+Use 1–4 questions, 2–4 options per question and distinct option IDs within each
+question. The serialized array is bounded to 8192 UTF-8 bytes. Preview paths are
+relative to the posting checkout by default. Use `relativeTo: "repository"` to
+select that repository's main checkout. Subject heads are full 40- or
+64-digit hexadecimal SHAs. Unknown fields fail closed.
+
+Read the post ID and per-question state through `board_read`. Call
+`board_resolve` with `{ thread, post, idempotencyKey }` to withdraw an owned open
+question post without resolving its thread. Plain-text answer posts continue to
+carry factual replies. Structured `answers` can only be created via trusted
+human renderer IPC. The response post's author is `human` and each answer
+contains `post`, zero-based `index`, `option` or `other`, and the original
+`subject` when present. Main rejects client-supplied author and subject fields
+on the answer path. An answer or observed stale head changes the board cursor
+for the question's repository. Submitted answers also use the existing opt-in
+idle wake. The fixed notice names only the Board and tool methods.
 
 
 ### Child thread events (#974)

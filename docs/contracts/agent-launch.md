@@ -139,6 +139,11 @@ see the [per-launch disclosure](mcp-attachment.md#claude-code).
 | override | `{flags,keys,value?}`; <=8 flags, <=8 literal dotted key segments. Parse separate, long equals, attached short and -c= forms. Normalize key whitespace and quotes. Keys match any path segment, or the final segment when a value is supplied. Compare trimmed bare values and decoded TOML string values, with boundary quotes removed when TOML parsing fails |
 | bypassEnvironment record | `{name,match,values?,caseInsensitive?,trim?}`; name [A-Za-z_][A-Za-z0-9_]* <=64, match present-nonempty or values; values <=16 Text <=128; no reserved/unsafe env names |
 
+Flag and override bypass matchers can mark `approvalOnly: true` for a switch
+that disables prompts while leaving sandboxing in place. A managed Workspace
+choice can generate these switches. User-supplied matches still require bypass
+consent or refuse unattended launch.
+
 The engine always rejects -- and --no-alt-screen (= included) in user defaults,
 independently of declared reservations. Match defaults for reservations, and all
 selected manifest/default argv for bypass. Environment checks use the final launch

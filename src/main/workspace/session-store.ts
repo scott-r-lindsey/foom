@@ -1,3 +1,4 @@
+import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
 import { viewChanges } from "../data/view-changes";
 import { record, keys, remotePath } from "../../shared/remote-agent-protocol";
 import { hostBranch } from "../../shared/registered-hosts";
@@ -56,9 +57,16 @@ function storedAgent(value: unknown, origin: unknown): value is string {
 
 /** Validated main-owned metadata; executable paths and credentials are never stored. */
 export function readSessions(value: unknown): StoredSession[] {
+  return parseSessions(value);
+}
+
+class InvalidWorktreeClaims extends Error {}
+
+function parseSessions(value: unknown, recoverWorktreeClaims = false): StoredSession[] {
   if (!Array.isArray(value) || value.length > 1000) throw new Error("Invalid sessions");
   const ids = new Set<string>();
-  return value.map((entry: unknown) => {
+  const refusedParents = new Set<string>();
+  const sessions = value.map((entry: unknown): StoredSession => {
     if (typeof entry !== "object" || entry === null) throw new Error("Invalid session");
     const data: Record<string, unknown> = { ...entry };
     const {
@@ -75,7 +83,10 @@ export function readSessions(value: unknown): StoredSession[] {
       orchestrator,
       parentId,
       providerOrigin,
+      permissionLevel,
+      reviewer,
       remote,
+      reattachOnly,
       placement,
       remoteCheckout,
       closeState,
@@ -84,11 +95,24 @@ export function readSessions(value: unknown): StoredSession[] {
       sharedReview,
     } = data;
     if (
+      (reviewer !== undefined &&
+        (reviewer !== true || agent === "shell" || permissionLevel === "full")) ||
+      (permissionLevel !== undefined &&
+        (agent === "shell" || !agentPermissionLevel(permissionLevel))) ||
       (closeState !== undefined && closeState !== "closing" && closeState !== "failed") ||
       (remoteCheckout !== undefined && (remote !== true || !savedRemote(remoteCheckout))) ||
       (placement !== undefined &&
         (!objectPlacement(placement) || (placement.kind === "remote") !== (remote === true))) ||
       (remote !== undefined && (remote !== true || config)) ||
+      (reattachOnly !== undefined &&
+        (reattachOnly !== true ||
+          remote !== true ||
+          placement === undefined ||
+          agent === "shell" ||
+          home !== undefined ||
+          remoteCheckout !== undefined ||
+          parentId !== undefined ||
+          orchestrator !== undefined)) ||
       (providerOrigin !== undefined &&
         (providerOrigin === "bundled"
           ? typeof agent !== "string" || !builtinAgent(agent)
@@ -151,9 +175,18 @@ export function readSessions(value: unknown): StoredSession[] {
     }
     const selection = data["selection"] === undefined ? undefined : object(data["selection"]);
     if (selection) exact(selection, ["model", "effort"]);
-    const role = readOrchestrator(orchestrator);
-    if (role && (parentId !== undefined || agent === "shell" || home || config))
+    if (
+      orchestrator !== undefined &&
+      (parentId !== undefined || agent === "shell" || home || config)
+    )
       throw new Error("Invalid role");
+    let role: StoredSession["orchestrator"];
+    try {
+      role = readOrchestrator(orchestrator);
+    } catch (error) {
+      if (!recoverWorktreeClaims || !(error instanceof InvalidWorktreeClaims)) throw error;
+      refusedParents.add(id);
+    }
     ids.add(id);
     return {
       id,
@@ -172,7 +205,10 @@ export function readSessions(value: unknown): StoredSession[] {
         : {}),
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
+      ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
+      ...(reviewer === true ? { reviewer: true as const } : {}),
       ...(remote === true ? { remote: true } : {}),
+      ...(reattachOnly === true ? { reattachOnly: true } : {}),
       ...(savedRemote(remoteCheckout) ? { remoteCheckout: { ...remoteCheckout } } : {}),
       ...(objectPlacement(placement) ? { placement } : {}),
       ...(running === undefined ? {} : { running }),
@@ -193,6 +229,9 @@ export function readSessions(value: unknown): StoredSession[] {
       ...(conversation === undefined ? {} : { conversationId: conversation }),
     };
   });
+  for (const row of sessions)
+    if (row.parentId && refusedParents.has(row.parentId)) delete row.parentId;
+  return sessions;
 }
 
 export class SessionStore {
@@ -203,7 +242,7 @@ export class SessionStore {
       const contents = await readFile(join(this.directory, "sessions.json"), "utf8");
       if (Buffer.byteLength(contents) > 32 * 1024 * 1024) return [];
       const value: unknown = JSON.parse(contents);
-      return readSessions(value);
+      return parseSessions(value, true);
     } catch {
       return [];
     }
@@ -219,7 +258,10 @@ export class SessionStore {
           branch,
           conversationId,
           providerOrigin,
+          permissionLevel,
+          reviewer,
           remote,
+          reattachOnly,
           placement,
           remoteCheckout,
           closeState,
@@ -252,7 +294,10 @@ export class SessionStore {
           branch,
           conversationId,
           ...(providerOrigin ? { providerOrigin } : {}),
+          ...(permissionLevel ? { permissionLevel } : {}),
+          ...(reviewer ? { reviewer } : {}),
           ...(remote ? { remote: true } : {}),
+          ...(reattachOnly ? { reattachOnly: true } : {}),
           ...(placement ? { placement } : {}),
           ...(remoteCheckout ? { remoteCheckout } : {}),
         }),
@@ -334,7 +379,7 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
       uncertain < 0 ||
       uncertain > WORKTREE_LIMIT)
   )
-    throw new Error("Invalid worktree budget");
+    throw new InvalidWorktreeClaims("Invalid worktree budget");
   let owned: OwnedWorktree[] | undefined;
   if (worktrees !== undefined) {
     if (!Array.isArray(worktrees) || worktrees.length > 1000) throw new Error("Invalid worktrees");
@@ -357,13 +402,13 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
             ].includes(key),
         ) ||
         !path(checkout) ||
-        paths.has(checkout) ||
         typeof identity !== "string" ||
         !identity ||
         identity.length > 4096 ||
         (state !== "unused" && state !== "used")
       )
         throw new Error("Invalid worktree");
+      if (paths.has(checkout)) throw new InvalidWorktreeClaims("Invalid worktree");
       paths.add(checkout);
       if (row["reviewer"] !== undefined && typeof row["reviewer"] !== "boolean")
         throw new Error("Invalid reviewer");
@@ -409,7 +454,7 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
         (typeof uncertain === "number" ? uncertain : 0) >
       WORKTREE_LIMIT
     )
-      throw new Error("Invalid worktree budget");
+      throw new InvalidWorktreeClaims("Invalid worktree budget");
   }
   return {
     identity: data["identity"],

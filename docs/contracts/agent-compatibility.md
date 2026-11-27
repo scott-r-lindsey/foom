@@ -54,10 +54,14 @@ to new session records. Existing origin-less Claude rows remain valid with the
 same IDs. No settings or profile consent is rewritten: enablement, hooks, defaults,
 environment lists and argument-bypass acknowledgements keep the `claude` key.
 Bundled argument bypass retains the existing Settings/config-change acknowledgement
-flow; environment bypass still requires launch confirmation, and unattended child
-bypass always fails. Conversions may reuse an acknowledgement only for an
+flow. Environment bypass still requires human launch confirmation. Unattended
+children refuse bypass except for an explicitly acknowledged Full access choice
+in Settings (#1078). Reviewers use Workspace for a resolved Full access
+preference. Providers without Workspace refuse that launch. Conversions may
+reuse an acknowledgement only for an
 identical provider/disclosure identity. Main stores a SHA-256 of the provider
-origin and complete parsed manifest in profile-only `agentBypassIdentities` after
+origin and legacy launch declaration, excluding the independent managed
+permission declaration, in profile-only `agentBypassIdentities` after
 trusted Settings/config argument consent. ID-only acknowledgements for the three
 historically reserved IDs (`claude`, `codex`, `agy`) migrate only to their pinned
 historical build identities; changing the provider does not update that attestation.
@@ -145,6 +149,13 @@ explicit bundled Resume replaces their origin. All ordinary ID-keyed preferences
 retain the existing recovery and bypass-disclosure rules. See
 [provider collision behavior](../areas/providers.md#bundled-opencode-824).
 
+When no permission level is selected, manifest launch ordering and default
+arguments retain their prior behavior. A managed Codex choice requires the
+0.167.0 discovery floor and full flag tokens. Pre-existing permission or bypass
+defaults conflict with a level and must be removed before selecting it. An
+acknowledgement for default arguments does not authorize Full access. See the
+[vendor precedence and Workspace limits](../areas/agent-launch.md#per-launch-permission-levels-1078).
+
 ## Launch argument bypass audit (#1318)
 
 Verified on 2026-11-25 against the Codex CLI reference and the source for Codex
@@ -187,3 +198,6 @@ date. No agent executable was run for this audit.
 Human launches require acknowledgement for the current manifest identity.
 Child and reviewer launches with matched defaults are refused before spawn,
 including when those defaults have human acknowledgement.
+For managed launches, Ask generates no bypass arguments. Workspace generates an
+approval-only switch while keeping workspace sandboxing. Full access generates
+both approval-off and sandbox-off switches and requires explicit consent.

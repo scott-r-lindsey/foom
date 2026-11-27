@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { locationId } from "../../../../src/main/control/metadata";
 import { Orchestration } from "../../../../src/main/control/orchestration";
+import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 
 import { harness, other, repo } from "./orchestration-helpers";
@@ -244,4 +245,194 @@ it("counts starting reservations at a changed limit", async () => {
   );
   release();
   expect(await pending).toMatchObject({ status: "succeeded" });
+});
+
+it("keeps a timed-out owned worktree's identity for a later check without granting ownership", async () => {
+  const h = harness();
+  const worktree = join(repo, "trees", "child");
+  const saved = { path: worktree, identity: "old-identity", state: "used" as const };
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  const child = { ...parent, id: "unverified", worktree, exited: true };
+  h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("remote_host_unreachable"));
+  await h.orchestration.restoreWorktrees("parent", [saved]);
+  h.rows.set(child.id, child);
+  const result = await h.orchestration.restoreChild("parent", child);
+  if (typeof result === "boolean") throw new Error("expected an unproven child link");
+  expect(result.parentStillActive()).toBe(true);
+  expect(h.host.restoreWorktree).toHaveBeenCalledOnce();
+  expect(h.orchestration.view(child.id)).toBeUndefined();
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([]);
+  expect(h.host.forge.track).not.toHaveBeenCalled();
+  await expect(h.call("read_handoff", { id: child.id })).rejects.toThrow();
+  const retry = harness();
+  const savedWorktrees = h.orchestration.savedWorktrees("parent");
+  expect(savedWorktrees).toEqual([saved]);
+  await retry.orchestration.restoreWorktrees("parent", savedWorktrees);
+  // The new tree at the same path still has to match the original identity.
+  expect(await retry.orchestration.restoreChild("parent", child)).toBe(false);
+  expect(retry.orchestration.savedWorktrees("parent")).toEqual([]);
+});
+
+it("drops a child proof if a human claims the row or replaces the parent during the check", async () => {
+  const h = harness();
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  const child = { ...parent, id: "checking", worktree: join(repo, "trees", "child"), exited: true };
+  const proof = { branch: "child", identity: "child-tree" };
+  const pending = Promise.withResolvers<typeof proof>();
+  h.host.restoreWorktree.mockReturnValueOnce(pending.promise);
+  let eligible = true;
+  const checking = h.orchestration.restoreChild("parent", child, () => eligible);
+  eligible = false;
+  pending.resolve(proof);
+  await expect(checking).resolves.toBe(false);
+
+  const next = Promise.withResolvers<typeof proof>();
+  h.host.restoreWorktree.mockReturnValueOnce(next.promise);
+  const replacing = h.orchestration.restoreChild("parent", child);
+  h.exit("parent");
+  h.launchParent("parent");
+  next.resolve(proof);
+  await expect(replacing).resolves.toBe(false);
+  expect(h.orchestration.view(child.id)).toBeUndefined();
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([]);
+});
+
+it("preserves an unavailable legacy child link only for the same active parent", async () => {
+  const h = harness();
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("timed-out"));
+  const result = await h.orchestration.restoreChild("parent", {
+    ...parent,
+    id: "legacy",
+    worktree: join(repo, "legacy"),
+    exited: true,
+  });
+  if (typeof result === "boolean") throw new Error("expected an unproven child link");
+  expect(result.parentStillActive()).toBe(true);
+  h.exit("parent");
+  h.launchParent("parent");
+  expect(result.parentStillActive()).toBe(false);
+  expect(h.orchestration.view("legacy")).toBeUndefined();
+});
+
+it.each(["create", "adopt"] as const)(
+  "supersedes unavailable saved worktree provenance on %s",
+  async (action) => {
+    const h = harness();
+    const branch = action === "create" ? "new" : "adopted";
+    const path = join(repo, "trees", branch);
+    const saved = { path, identity: "original-checkout", state: "used" as const };
+    const parent = h.rows.get("parent");
+    if (!parent) throw new Error("missing parent");
+    const oldChild = { ...parent, id: "old-child", worktree: path, exited: true };
+    h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("timed-out"));
+    await h.orchestration.restoreWorktrees("parent", [saved]);
+    const pending = await h.orchestration.restoreChild("parent", oldChild);
+    if (typeof pending === "boolean") throw new Error("missing deferred proof");
+    expect(pending.parentStillActive()).toBe(true);
+
+    const replacement = await h.mutate(
+      "create_worktree",
+      action === "create" ? { branch } : { pullRequest: 7 },
+    );
+    expect(replacement.status).toBe("succeeded");
+    expect(h.orchestration.savedWorktrees("parent")).toEqual([
+      {
+        path,
+        identity: `id-${branch}`,
+        state: "unused",
+        ...(action === "adopt" ? { pullRequest: 7 } : {}),
+      },
+    ]);
+    expect(pending.parentStillActive()).toBe(false);
+    expect(await h.orchestration.restoreChild("parent", oldChild)).toBe(false);
+    expect(h.orchestration.view(oldChild.id)).toBeUndefined();
+
+    await expect(
+      h.mutate("launch", { worktreeId: replacement.resultId, agent: "claude" }),
+    ).resolves.toMatchObject({ status: "succeeded" });
+  },
+);
+
+it("charges unverified unused records to the persisted worktree budget", async () => {
+  const h = harness();
+  h.host.restoreWorktree.mockRejectedValueOnce(new LaunchFailure("timed-out"));
+  const tree = {
+    path: join(repo, "trees", "unverified"),
+    identity: "unverified",
+    state: "unused" as const,
+  };
+  await h.orchestration.restoreWorktrees("parent", [tree], 3);
+  await expect(h.mutate("create_worktree", { branch: "too-many" })).rejects.toThrow("capacity");
+  expect(h.orchestration.savedWorktrees("parent")).toEqual([tree]);
+});
+
+it("reserves unused checkout capacity while startup proof is pending", async () => {
+  const h = harness();
+  const trees = ["one", "two", "three", "four"].map((branch) => ({
+    path: join(repo, "trees", branch),
+    identity: `id-${branch}`,
+    state: "unused" as const,
+  }));
+  const check = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(check.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", trees);
+  try {
+    await expect(h.mutate("create_worktree", { branch: "fifth" })).rejects.toThrow("capacity");
+    expect(h.host.createWorktree).not.toHaveBeenCalled();
+    expect(h.orchestration.savedWorktrees("parent")).toEqual(trees);
+  } finally {
+    check.resolve({ branch: "one", identity: "id-one" });
+    await restoring;
+  }
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual(trees);
+});
+
+it("keeps outstanding checkout identities in the save while requiring proof for ownership", async () => {
+  const h = harness();
+  const trees = ["stalled", "queued"].map((branch) => ({
+    path: join(repo, "trees", branch),
+    identity: `id-${branch}`,
+    state: "used" as const,
+  }));
+  const check = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(check.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", trees);
+  expect(h.orchestration.savedWorktrees("parent")).toEqual(trees);
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([]);
+
+  check.reject(new LaunchFailure("remote_worktree_unavailable"));
+  await restoring;
+  expect(h.orchestration.savedWorktrees("parent")).toEqual([trees[1]]);
+});
+
+it("refuses an old child when creation supersedes the checkout during an outstanding check", async () => {
+  const h = harness();
+  const path = join(repo, "trees", "replacement");
+  const parent = h.rows.get("parent");
+  if (!parent) throw new Error("missing parent");
+  const check = Promise.withResolvers<{ branch: string; identity: string }>();
+  h.host.restoreWorktree.mockReturnValueOnce(check.promise);
+  const restoring = h.orchestration.restoreWorktrees("parent", [
+    { path, identity: "old-checkout", state: "used" },
+  ]);
+  await expect(h.mutate("create_worktree", { branch: "replacement" })).resolves.toMatchObject({
+    status: "succeeded",
+  });
+  check.reject(new LaunchFailure("timed-out"));
+  await restoring;
+  expect(
+    await h.orchestration.restoreChild("parent", {
+      ...parent,
+      id: "old-child",
+      worktree: path,
+      exited: true,
+    }),
+  ).toBe(false);
+  expect(h.orchestration.savedWorktrees("parent")).toEqual([
+    { path, identity: "id-replacement", state: "unused" },
+  ]);
 });
