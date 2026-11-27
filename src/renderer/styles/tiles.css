@@ -57,12 +57,21 @@
 .tile-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0 min(6px, 2%);
   min-height: 30px;
-  padding: 0 5px;
+  padding: 0 min(5px, 2%);
   background: var(--surface);
   font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
   color: var(--muted);
+}
+.terminal-tile[data-kind="preview"] {
+  container: preview-tile / size;
+}
+.terminal-tile[data-kind="preview"] .tile-title {
+  flex-wrap: wrap;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-title {
+  container: terminal-title / inline-size;
 }
 .terminal-tile[data-focused="true"] .tile-title {
   background: color-mix(in srgb, var(--highlight) 10%, var(--surface));
@@ -71,6 +80,95 @@
 .terminal-tile[data-empty="true"] .tile-title {
   background: transparent;
   border: 0;
+}
+.tile-title-main {
+  /* Keep the menu next to the heading when preview controls wrap. */
+  display: flex;
+  flex: 1 1 max-content;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.tile-heading-content,
+.tile-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+.tile-heading {
+  /* Budget for the light and a six-character exit word even while running,
+     so the controls remain on the same row across exit. */
+  flex: 1 1 auto;
+  width: calc(24px + 6ch * 12 / 11);
+  min-width: 16px;
+  container: tile-heading / inline-size;
+}
+.tile-heading-content {
+  min-height: 24px;
+}
+.terminal-tile[data-kind="preview"] .tile-heading {
+  width: 16px;
+}
+.terminal-tile[data-kind="preview"] .tile-heading:has(.preview-network) {
+  /* Document glyph, globe and two gaps around the optional identity. */
+  width: 46px;
+}
+.tile-identity {
+  flex: 1 1 0;
+  overflow: clip;
+}
+.tile-heading .board-light {
+  flex-shrink: 0;
+  margin-inline-start: 2px;
+}
+.tile-heading .tile-exit-status {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 0;
+  white-space: pre;
+}
+.tile-exit-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-exit-status svg {
+  display: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@container tile-heading (inline-size < calc(24px + 6ch * 12 / 11)) {
+  .tile-exit-status span {
+    display: none;
+  }
+  .tile-exit-status svg {
+    display: block;
+  }
+}
+@container tile-heading (inline-size < 46px) {
+  .tile-heading-content {
+    /* Stack the marks if they cannot share the space beside the tile number.
+       The light and exit icon still fit within the normal 24px row height. */
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 0 2px;
+  }
+  .tile-identity {
+    flex: 0 0 0;
+    height: 0;
+  }
+  .tile-heading-content .preview-network {
+    min-width: 14px;
+  }
+  .preview-network span {
+    display: none;
+  }
 }
 .tile-location {
   min-width: 0;
@@ -82,12 +180,15 @@
   max-width: 45%;
   color: var(--muted);
 }
-.tile-name {
-  flex-shrink: 0;
-  max-width: 35%;
+.tile-identity :is(.tile-name, .session-program, .session-waiting, .session-orchestration) {
+  min-width: 0;
+  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.tile-name {
+  max-width: 35%;
 }
 .tile-number {
   flex-shrink: 0;
@@ -98,7 +199,22 @@
   color: var(--muted);
 }
 .tile-title .tile-number {
-  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0 1ch;
+  /* Leave 16px for a status glyph and 4px between the heading and menu. */
+  max-width: calc(100% - 20px);
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-title .tile-number {
+  flex-wrap: nowrap;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-number span {
+  min-width: 0;
+  overflow: clip;
 }
 .tile-number[data-focused="true"],
 .terminal-tile[data-focused="true"] .tile-number {
@@ -107,6 +223,9 @@
 }
 .tile-controls {
   display: flex;
+  flex: 0 0 auto;
+  max-width: 100%;
+  margin-inline-start: auto;
   opacity: 0;
 }
 .terminal-tile:hover .tile-controls,
@@ -115,11 +234,86 @@
   opacity: 1;
 }
 .tile-controls button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  overflow: clip;
+  min-width: 0;
   padding: 0;
   width: 20px;
   height: 24px;
   border: 0;
   background: transparent;
+}
+:where(.terminal-tile:not([data-kind="preview"])) .tile-controls {
+  /* Reserve separate hit targets for Maximize, Hide and Close across exit. */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 60px;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-controls button {
+  width: 100%;
+}
+.terminal-tile:not([data-kind="preview"]) .tile-controls [data-removal="close"] {
+  grid-column: -2;
+}
+/* Leave space for the state light, exit word and numbered menu before adding
+   the 20px buttons. Maximize, Hide and Close are also in the tile menu. */
+@container terminal-title (inline-size < calc(106px + 12ch)) {
+  .tile-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 40px;
+  }
+  .tile-controls > button:first-child {
+    display: none;
+  }
+}
+@container terminal-title (inline-size < calc(86px + 12ch)) {
+  .tile-controls {
+    grid-template-columns: minmax(0, 1fr);
+    width: 20px;
+  }
+  .tile-controls [data-removal="hide"] {
+    display: none;
+  }
+}
+@container terminal-title (inline-size < calc(66px + 12ch)) {
+  /* A startup tile has no menu fallback. Keep its Close button in the header. */
+  .tile-title-main:has(.tile-number:enabled) + .tile-controls {
+    display: none;
+  }
+}
+@container preview-tile (height < 64px) {
+  .tile-title {
+    /* Budget both header rows so the native view can keep positive bounds. */
+    --preview-header-height: calc(100cqh - min(10px, 25cqh));
+    --preview-header-row: calc(var(--preview-header-height) / 2);
+    min-height: min(30px, var(--preview-header-height));
+    max-height: var(--preview-header-height);
+  }
+  .tile-title-main,
+  .tile-title .tile-number,
+  .tile-controls button,
+  .tile-heading-content svg {
+    max-height: var(--preview-header-row);
+  }
+  .tile-heading-content {
+    min-height: 0;
+    flex-wrap: nowrap;
+  }
+  .tile-heading-content :is(.preview-glyph, .preview-network, .preview-network svg) {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  .tile-title .tile-number {
+    flex-wrap: nowrap;
+    line-height: 1;
+    overflow: clip;
+  }
+  .tile-number span {
+    min-width: 0;
+    overflow: clip;
+  }
 }
 .tile-shell,
 .tile-terminal {
@@ -234,6 +428,26 @@
   display: block;
 }
 
+.preview-network {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 18px;
+}
+.preview-network svg {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+.preview-network span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .preview-glyph {
   width: 16px;
   height: 16px;
@@ -363,8 +577,9 @@
 }
 .tile-controls .preview-reload {
   opacity: 0.4;
-  display: grid;
-  place-items: center;
+}
+.preview-reload svg {
+  max-width: 100%;
 }
 .tile-title:hover .preview-reload,
 .tile-controls .preview-reload:focus-visible {
@@ -486,9 +701,11 @@
 .direction-pad button[aria-disabled="true"] polygon {
   stroke-dasharray: 2 2;
 }
-.direction-pad button:hover:not([aria-disabled="true"]) polygon,
-.direction-pad button:focus-visible polygon {
+.direction-pad button:not([aria-disabled="true"]):is(:hover, :focus-visible) polygon {
   fill: var(--raised-hover);
+  stroke: var(--highlight);
+}
+.direction-pad button:focus-visible polygon {
   stroke: var(--highlight);
 }
 .pad-reason {
@@ -600,7 +817,7 @@
 
 .tile-startup {
   position: absolute;
-  inset: 38px 0 0;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -647,8 +864,10 @@
   }
 }
 
-.tile-shell .tile-startup {
-  inset: 0;
+.terminal-tile > .tile-startup {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 /* Decorative paint is behind tiles. Any text drawn over that plane has an

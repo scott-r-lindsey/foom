@@ -1,4 +1,4 @@
-const { sizeTileBoard } = require("./tile-fixture.js");
+const { expectTileHeaderHitTargets, sizeTileBoard } = require("./tile-fixture.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -11,6 +11,7 @@ const {
   FAKE_ORCHESTRATED_CLAUDE,
   assertAccessible,
   boardPage,
+  confirmationPage,
   approvalPage,
   clickApproval,
   launchApp,
@@ -97,6 +98,145 @@ async function agentPreviewFixture(context) {
   const listPreviews = (requestId) => requestAgent(requestId, ["previews", "--json"]);
   return { app, page, repo, agent, shell, credentials, requestAgent, requestPreview, listPreviews };
 }
+
+test("a narrow agent-opened preview shows its enabled network indicator", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, repo, shell, requestPreview } = await agentPreviewFixture(context);
+  const filename = "a-long-relative-filename-for-an-agent-opened-network-preview.html";
+  await writeFile(path.join(repo, filename), '<a href="next.html">Next</a>');
+  await writeFile(path.join(repo, "next.html"), "<p>Second page</p>");
+  await page.evaluate((session) => {
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        tree: { kind: "tile", id: "shell", content: { kind: "terminal", session } },
+        focused: "shell",
+        maximized: null,
+      }),
+    );
+  }, shell.id);
+  await page.reload();
+  await sizeTileBoard(app, page, 900, 640);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
+  const empty = page.locator('.terminal-tile[data-empty="true"]');
+  const divider = page.getByRole("separator", { name: "Resize tiles" });
+  const areaWidth = await page.locator(".tile-area").evaluate((area) => area.clientWidth);
+  const emptyWidth = await empty.evaluate((element) => element.offsetWidth);
+  // Each ArrowRight moves the divider by 5% of the board on this two-tile split.
+  const steps = Math.round((emptyWidth - 260) / (areaWidth * 0.05));
+  for (let step = 0; step < steps; step++) await divider.press("ArrowRight");
+  const { placement, previewId } = await requestPreview("network", filename);
+  assert.equal(placement, "landing");
+  const tile = page.locator(`[data-preview-id="${previewId}"]`);
+  await expect(tile.locator(".preview-opener")).toHaveText("opened byCC");
+  await expect
+    .poll(async () => Math.abs((await tile.evaluate((element) => element.offsetWidth)) - 260))
+    .toBeLessThanOrEqual(20);
+  const network = tile.getByRole("img", { name: "Network enabled", exact: true });
+  await expect(network).toHaveCount(0);
+  await tile.getByRole("button", { name: /^Tile \d+ menu$/ }).click();
+  await page.getByRole("menuitem", { name: "Allow network…", exact: true }).click();
+  const confirmation = await confirmationPage(app);
+  await confirmation.getByRole("button", { name: "Allow network", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+          (preview) => preview.id === previewId,
+        )?.network,
+    )
+    .toBe(true);
+  await expect(network).toHaveAttribute("title", "Network enabled");
+  const networkLabel = network.getByText("network", { exact: true });
+  await expect
+    .poll(() =>
+      networkLabel.evaluate((element) => {
+        const { left, right, width } = element.getBoundingClientRect();
+        const header = element.closest(".tile-title").getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(element);
+        return (
+          left >= header.left &&
+          right <= header.right &&
+          width >= text.getBoundingClientRect().width
+        );
+      }),
+    )
+    .toBe(true);
+  const tileWidth = () => tile.evaluate((element) => element.offsetWidth);
+  const controls = ["Tile 2 menu", "Maximize tile", "Reload", "Close"];
+  await expectTileHeaderHitTargets(tile, controls);
+  for (let step = 0; step < 4; step++) {
+    const previous = await tileWidth();
+    await divider.press("ArrowRight");
+    await expect.poll(tileWidth).toBeLessThan(previous);
+    await expectTileHeaderHitTargets(tile, controls);
+  }
+  await divider.press("End");
+  await expect.poll(tileWidth).toBeLessThan(120);
+  await expectTileHeaderHitTargets(tile, controls);
+  const expectPreviewMarks = async () => {
+    for (const mark of [tile.locator(".preview-glyph"), network.locator("svg")]) {
+      await expect
+        .poll(() =>
+          mark.evaluate((icon) => {
+            const { left, right, top, bottom } = icon.getBoundingClientRect();
+            return icon.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+          }),
+        )
+        .toBe(true);
+    }
+  };
+  await expectPreviewMarks();
+
+  await pollPreviewContents(app, previewId, "document.body.textContent").toContain("Next");
+  await previewContents(app, previewId, "document.querySelector('a').click()");
+  await pollPreviewContents(app, previewId, "document.body.textContent").toContain("Second page");
+  await expect(tile.getByRole("button", { name: "Back", exact: true })).toBeEnabled();
+  await expectTileHeaderHitTargets(tile, [
+    "Tile 2 menu",
+    "Maximize tile",
+    "Back",
+    "Forward",
+    "Reload",
+    "Close",
+  ]);
+
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ interfaceScale: 250, terminalFontSize: 10 }),
+  );
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThanOrEqual(512);
+  await divider.press("End");
+  await expect.poll(tileWidth).toBeLessThan(80);
+  await expectPreviewMarks();
+  const maximize = tile.getByRole("button", { name: "Maximize tile", exact: true });
+  const glyph = await maximize.evaluate((button) => {
+    const text = document.createRange();
+    text.selectNodeContents(button);
+    const { x, y, width, height } = text.getBoundingClientRect();
+    return { x: x + width / 2, y: y + height / 2 };
+  });
+  await page.mouse.click(glyph.x, glyph.y);
+  await expect(tile).toHaveAttribute("data-maximized", "true");
+  await tile.getByRole("button", { name: "Restore tile", exact: true }).click();
+  await expect.poll(tileWidth).toBeLessThan(80);
+  await expectTileHeaderHitTargets(tile, [
+    "Tile 2 menu",
+    "Maximize tile",
+    "Back",
+    "Forward",
+    "Reload",
+    "Close",
+  ]);
+
+  await tile.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Block network", exact: true }).click();
+  await expect(network).toHaveCount(0);
+});
 
 test("agent previews split a blank window into terminal-width columns", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
