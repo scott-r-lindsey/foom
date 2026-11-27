@@ -582,6 +582,31 @@ test.each([false, true])(
   },
 );
 
+test("permission labels use the same element and class as machine card labels", async () => {
+  const f = fixture();
+  render(<f.View />);
+  const globalLabels = screen.getAllByText("Permission level");
+
+  fireEvent.click(screen.getByRole("tab", { name: "Machines" }));
+  const localCard = within(screen.getByRole("region", { name: "Claude Code" }));
+  const signIn = localCard.getByText("Sign-in");
+  const attention = localCard.getByText("Attention");
+  expect(attention).toMatchObject({ tagName: signIn.tagName, className: signIn.className });
+  const localLabel = within(screen.getByRole("region", { name: "Codex" })).getByText(
+    "Permission level",
+  );
+
+  await screen.findByRole("option", { name: "Build" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Machine" }), {
+    target: { value: "host:worker" },
+  });
+  const remoteCard = within(screen.getByRole("region", { name: "Codex" }));
+  const remoteLabel = remoteCard.getByText("Permission level");
+  for (const label of [...globalLabels, localLabel, remoteLabel, remoteCard.getByText("Sign-in")]) {
+    expect(label).toMatchObject({ tagName: signIn.tagName, className: signIn.className });
+  }
+});
+
 test("permission edits use the visible scope and preserve the saved choice on refusal", async () => {
   const f = fixture();
   render(<f.View />);

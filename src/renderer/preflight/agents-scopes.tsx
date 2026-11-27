@@ -159,7 +159,7 @@ export function AgentsScopes(
         : "Managed agent policy may limit this setting.";
     return (
       <label className="agent-permission">
-        <span>Permission level</span>
+        <span className="agent-label">Permission level</span>
         <select
           aria-label={`${name} permission level`}
           aria-description={note}

@@ -1173,8 +1173,6 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  color: var(--muted);
-  font: var(--type-weight, 400) calc(11px * var(--type-scale, 1)) var(--font-mono);
 }
 .agent-permission > select {
   min-width: 0;
@@ -1217,7 +1215,8 @@
 .agents-scoped .agent-card {
   font-size: calc(13px * var(--type-scale, 1));
 }
-.agents-scoped .agent-setting {
+.agents-scoped .agent-setting,
+.agent-permission {
   font-size: calc(13px * var(--type-scale, 1));
 }
 .agent-status {
