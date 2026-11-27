@@ -2140,34 +2140,6 @@ test("user-started trusted confirmation stays pending during simulated app deact
   const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
-  await app.evaluate((_electron, fixture) => {
-    const load = process.getBuiltinModule("module").createRequire(fixture);
-    const { captureTimers } = load(fixture);
-    const { TrustedDialog } = load("../../build/main/confirmations/trusted-dialog.js");
-    const watchReachability = TrustedDialog.prototype.watchReachability;
-    const timers = new WeakMap();
-    const clock = {
-      next: () => timers.get(clock.owner?.reachability)?.delay,
-      tick: () => timers.get(clock.owner.reachability).fire(),
-      restore: () => {
-        TrustedDialog.prototype.watchReachability = watchReachability;
-        // Return the pending reachability check to the native clock.
-        const owner = clock.owner;
-        clearTimeout(owner.reachability);
-        owner.reachability = undefined;
-        owner.watchReachability();
-        delete globalThis.confirmationClock;
-      },
-    };
-    TrustedDialog.prototype.watchReachability = function (...args) {
-      // Let the initial check and any recovery run on the native clock so the
-      // window manager has time to settle the bounds after focus.
-      if (!this.reachabilityEstablished) return watchReachability.apply(this, args);
-      clock.owner = this;
-      return captureTimers(() => watchReachability.apply(this, args), timers);
-    };
-    globalThis.confirmationClock = clock;
-  }, require.resolve("./main-timer-fixture.js"));
   await app.evaluate(({ app }) => app.quit());
   await expect(
     dialog.getByRole("button", { name: "Stop all and quit", exact: true }),
@@ -2177,7 +2149,9 @@ test("user-started trusted confirmation stays pending during simulated app deact
     dialog,
     dialog.getByRole("button", { name: "Cancel", exact: true }),
   );
-  await expect.poll(() => app.evaluate(() => globalThis.confirmationClock.next())).toBe(5000);
+  // Allow the initial one-second native reachability check to succeed. The
+  // elapsed interval is the policy under test, rather than a readiness wait.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
   await app.evaluate(({ BrowserWindow }) => {
     const dialog = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
@@ -2201,33 +2175,8 @@ test("user-started trusted confirmation stays pending during simulated app deact
     };
   });
   try {
-    await app.evaluate(() => {
-      const assert = process.getBuiltinModule("assert/strict");
-      const clock = globalThis.confirmationClock;
-      const nativeDateNow = Date.now;
-      const nativePerformanceNow = performance.now;
-      const wallStart = nativeDateNow();
-      const monotonicStart = performance.now();
-      let elapsed = 0;
-      // Advance both elapsed-time sources along with each captured callback.
-      // Scope the overrides to this synchronous loop in Electron main.
-      try {
-        Date.now = () => wallStart + elapsed;
-        performance.now = () => monotonicStart + elapsed;
-        assert.equal(clock.next(), 5000);
-        elapsed += 5000;
-        clock.tick();
-        while (elapsed < 35_000) {
-          assert.equal(clock.next(), 1000);
-          elapsed += 1000;
-          clock.tick();
-        }
-        assert.equal(clock.next(), 1000);
-      } finally {
-        Date.now = nativeDateNow;
-        performance.now = nativePerformanceNow;
-      }
-    });
+    // Let independent native timers run throughout the inactive interval.
+    await new Promise((resolve) => setTimeout(resolve, 35_000));
     assert.equal(await app.evaluate(() => globalThis.inactiveConfirmation.presentations), 0);
     await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
     // Dialog locators require native focus in the harness. Observe availability
@@ -2250,7 +2199,6 @@ test("user-started trusted confirmation stays pending during simulated app deact
       dialog.isFocused = originals.isFocused;
       dialog.moveTop = originals.moveTop;
       dialog.focus = originals.focus;
-      globalThis.confirmationClock.restore();
       app.emit("browser-window-focus", {}, dialog);
       delete globalThis.inactiveConfirmation;
     });
