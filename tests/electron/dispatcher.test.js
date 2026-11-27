@@ -310,6 +310,37 @@ test("dispatcher restart restores launch grants and adopted orchestrators", {
       ),
     )
     .toBe(2);
+  const exitedId = result.resultId;
+  const billing = control(await credentials("billing"));
+  const handoff = await billing("handoff", {
+    status: "done",
+    summary: "Read this after restart.",
+    idempotencyKey: "restart-report",
+  });
+  assert.equal(handoff.result?.seq, 1);
+  const stopped = await request("stop", { id: exitedId, idempotencyKey: "stop-before-restart" });
+  assert.equal(stopped.result?.status, "succeeded");
+  await expect
+    .poll(async () => (await request("session_state", { id: exitedId })).result?.state)
+    .toBe("exited");
+  const report = (await request("read_handoff", { id: exitedId })).result;
+  assert.equal(report?.summary, "Read this after restart.");
+  const replacement = await request(
+    "launch_orchestrator",
+    launchRequest("billing", "replacement-before-restart"),
+  );
+  assert.equal(replacement.result?.status, "succeeded");
+  const replacementId = replacement.result.resultId;
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.find((entry) => entry.id === id)
+            ?.conversationId,
+        replacementId,
+      ),
+    )
+    .toBeTruthy();
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     const dialog = await confirmationPage(app, /^Quit with/);
@@ -325,5 +356,14 @@ test("dispatcher restart restores launch grants and adopted orchestrators", {
   assert.equal((await current("whoami")).result?.role, "dispatcher");
   const { repos } = (await current("repos")).result;
   assert.equal(repos.find((row) => row.repo === "billing").preApproved, true);
-  assert.equal(repos.find((row) => row.repo === "billing").orchestrators[0].id, result.resultId);
+  assert.equal(repos.find((row) => row.repo === "billing").orchestrators[0].id, replacementId);
+  assert.deepEqual(await current("read_handoff", { id: exitedId }), { result: report });
+  const state = await current("session_state", { id: exitedId });
+  assert.equal(state.result?.state, "exited");
+  const waited = await current("wait_for", { ids: [exitedId] });
+  assert.deepEqual(waited.result?.changed, [exitedId]);
+  assert.equal(waited.result?.sessions[0].state, "exited");
+  assert.deepEqual(await current("stop", { id: exitedId, idempotencyKey: "stop-after-restart" }), {
+    error: "not_found",
+  });
 });

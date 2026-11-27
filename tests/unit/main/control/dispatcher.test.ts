@@ -661,12 +661,23 @@ test("a replacement preserves dispatcher read access to the retained previous la
     state: "exited",
   });
   await expect(call("read_handoff", { id: previous.id })).resolves.toMatchObject(previous.handoff);
+  // Restored exited rows have saved handoffs but no live orchestration projection.
+  delete previous.orchestration;
+  previous.dormant = true;
+  await expect(call("read_handoff", { id: previous.id })).resolves.toMatchObject(previous.handoff);
+  await expect(call("wait_for", { ids: [previous.id] })).resolves.toMatchObject({
+    sessions: [{ id: previous.id, state: "exited" }],
+    changed: [previous.id],
+  });
   await expect(call("session_state", { id: replacement.id })).resolves.toMatchObject({
     id: replacement.id,
   });
   await expect(
     call("prompt", { id: previous.id, text: "Continue", idempotencyKey: "old-prompt" }),
   ).rejects.toThrow("not_found");
+  previous.exited = false;
+  previous.dormant = false;
+  await expect(call("session_state", { id: previous.id })).rejects.toThrow("not_found");
 });
 
 test("a failed demotion does not restore an exited dispatcher", async () => {

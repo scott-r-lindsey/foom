@@ -63,7 +63,8 @@ test.skipIf(process.platform === "win32")(
   "remote orchestrator launch pins the approved clone origin",
   async () => {
     const origin = "https://example.test/project.git";
-    const parent = { ...spec, worktree: spec.repository, orchestratorOrigin: origin };
+    const prompt = "- Review the fixture.";
+    const parent = { ...spec, worktree: spec.repository, orchestratorOrigin: origin, prompt };
     const prepare = (profile?: string) =>
       prepareRemoteAgent(parent, "/fixture/shell", home, () => {}, call, undefined, profile);
     await expect(prepare()).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
@@ -75,7 +76,11 @@ test.skipIf(process.platform === "win32")(
     const prepared = await prepare("fixture");
     endpoints.push(prepared.endpoint);
     expect(prepared.spec.cwd).toBe(spec.repository);
-    expect(prepared.spec.args.join(" ")).toContain("Task from your Foom dispatcher");
+    expect(prepared.spec.args.slice(-2)).toEqual([
+      "--",
+      "Task from your Foom dispatcher. Use whoami to confirm your repository authority.\n\n" +
+        prompt,
+    ]);
     expect(prepared.spec.args.join(" ")).toContain("__create_worktree");
   },
 );

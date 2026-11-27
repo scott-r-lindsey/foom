@@ -70,6 +70,8 @@ tools and grants.
 
 A replacement launch preserves the dispatcher's access to prior orchestrators
 it launched while their session rows and repository identities are retained.
-The dispatcher can read their session state and bounded handoffs. Prompt and
-stop still require a live orchestrator. Foom's authorization governs Foom tools. Provider file
-and command permissions follow the provider's own configuration.
+After restart, a revived dispatcher can read retained exited sessions and their
+bounded handoffs and include those sessions in waits. Main verifies the saved
+adoption and current repository identity for each read. Prompt and stop still
+require a live orchestrator. Foom's authorization governs Foom tools. Provider
+file and command permissions follow the provider's own configuration.

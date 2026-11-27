@@ -1130,7 +1130,10 @@ dispatcher revalidates the source checkout proof after provider discovery and
 again at clone dispatch. The remote agent prepares the main checkout,
 validates its configured origin
 and confirms its identity before spawning. The wire session context carries
-the remote host's checkout paths. The SSH stdio relay exposes only
+the remote host's checkout paths. The host validates dispatcher prompts with
+the same text rules as the hub and passes them in one argument with fixed
+dispatcher guidance, including prompts that start with a Markdown bullet.
+The SSH stdio relay exposes only
 the current repository orchestrator's control calls through a per-launch
 private endpoint. Bounded `wait_for` calls can wait up to 30 seconds, with spare
 time for the relay and private socket to return the result. Worktree creation,

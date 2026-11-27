@@ -1,4 +1,5 @@
 import { CHILD_GUIDANCE } from "../../../src/shared/control-guidance";
+import { dispatcherLaunch } from "../../../src/shared/dispatcher-validation";
 import { expect, test } from "vitest";
 import {
   remoteAgentSpec,
@@ -38,6 +39,33 @@ const signal = {
   caseId: "prompt",
   conversationId: "conversation",
 };
+test("registered-host dispatcher launch accepts a Markdown bullet through agent-open validation", () => {
+  const launch = dispatcherLaunch({
+    repo: "billing",
+    agent: "claude",
+    host: "fixture-host",
+    prompt: "  - Review the fixture.",
+    idempotencyKey: "review",
+  });
+  const wire = {
+    type: "agent-open",
+    id: "fixture-session",
+    request: 1,
+    profile: "a".repeat(32),
+    cols: 80,
+    rows: 24,
+    spec: {
+      ...spec,
+      worktree: spec.repository,
+      orchestratorOrigin: "https://example.test/repo.git",
+      prompt: launch.prompt,
+    },
+  };
+  expect(remoteRequest(wire)).toBe(true);
+  for (const prompt of [" ", "-\0", "-\u202E", "é".repeat(8193)])
+    expect(remoteRequest({ ...wire, spec: { ...wire.spec, prompt } })).toBe(false);
+});
+
 test("remote orchestrator wire fields are bounded and use their own result shape", () => {
   const launch = {
     ...spec,

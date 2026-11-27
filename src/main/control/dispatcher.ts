@@ -260,14 +260,20 @@ export class Dispatcher {
   }
 
   private owned(scope: Scope, rows = this.rows(), includeExited = false) {
-    return rows.filter(
-      (row) =>
-        row.orchestration?.role === "orchestrator" &&
-        (row.orchestration.active || (includeExited && row.exited === true)) &&
+    return rows.filter((row) => {
+      if (row.kind !== "agent") return false;
+      const role = row.orchestration;
+      // The saved adoption identifies exited rows even when restart removes their role view.
+      const eligible = row.exited
+        ? includeExited && (role === undefined || role.role === "orchestrator")
+        : role?.role === "orchestrator" && role.active;
+      return (
+        eligible &&
         scope.adopted.some(
           (target) => target.id === row.id && join(scope.directory, target.name) === row.repository,
-        ),
-    );
+        )
+      );
+    });
   }
 
   view(id: string, rows: readonly WorkspaceTerminal[]): DispatcherView | undefined {

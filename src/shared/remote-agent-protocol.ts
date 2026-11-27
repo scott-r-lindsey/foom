@@ -1,4 +1,5 @@
 import { CHILD_GUIDANCE } from "./control-guidance";
+import { isChildInput } from "./child-input";
 import { ControlError, object as controlObject, exact as controlExact } from "./control-validation";
 import { MCP_RESPONSE_LIMIT } from "./mcp-protocol";
 import { handoffRequest } from "./handoff-validation";
@@ -105,9 +106,11 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
     value["defaults"].length <= 256 &&
     value["defaults"].every((arg: unknown) => text(arg, 20480)) &&
     (value["prompt"] === undefined ||
-      (text(value["prompt"], 16384) &&
-        value["prompt"].length > 0 &&
-        !value["prompt"].trimStart().startsWith("-"))) &&
+      (value["orchestratorOrigin"] !== undefined
+        ? isChildInput({ kind: "prompt", text: value["prompt"] })
+        : text(value["prompt"], 16384) &&
+          value["prompt"].length > 0 &&
+          !value["prompt"].trimStart().startsWith("-"))) &&
     (value["conversationId"] === undefined || conversationId(value["conversationId"])) &&
     typeof value["hooks"] === "boolean" &&
     new TextEncoder().encode(JSON.stringify(value)).length <= REMOTE_AGENT_BYTES
