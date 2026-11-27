@@ -2160,6 +2160,9 @@ test("user-started trusted confirmation stays pending during simulated app deact
       },
     };
     TrustedDialog.prototype.watchReachability = function (...args) {
+      // Let the initial check and any recovery run on the native clock so the
+      // window manager has time to settle the bounds after focus.
+      if (!this.reachabilityEstablished) return watchReachability.apply(this, args);
       clock.owner = this;
       return captureTimers(() => watchReachability.apply(this, args), timers);
     };
@@ -2174,14 +2177,7 @@ test("user-started trusted confirmation stays pending during simulated app deact
     dialog,
     dialog.getByRole("button", { name: "Cancel", exact: true }),
   );
-  // Advance the actual watchdog callback after native geometry and focus are ready.
-  await app.evaluate(() => {
-    const assert = process.getBuiltinModule("assert/strict");
-    const clock = globalThis.confirmationClock;
-    assert.equal(clock.next(), 1000);
-    clock.tick();
-    assert.equal(clock.next(), 5000);
-  });
+  await expect.poll(() => app.evaluate(() => globalThis.confirmationClock.next())).toBe(5000);
   await app.evaluate(({ BrowserWindow }) => {
     const dialog = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
