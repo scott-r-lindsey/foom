@@ -178,6 +178,7 @@ test("an open repository menu restores merged cleanup when eligibility rises fro
   const menu = view.getByRole("menu");
   expect(menu.lastElementChild?.textContent).toContain("Remove from Foom…");
   expect(view.getAllByRole("separator").filter((item) => menu.contains(item))).toHaveLength(1);
+  review.focus();
   mergedCount = 2;
   act(() => {
     view.base.update("a", { state: "working" });
@@ -185,6 +186,10 @@ test("an open repository menu restores merged cleanup when eligibility rises fro
   expect(view.getByRole("menuitem", { name: /Delete merged worktrees…/ }).textContent).toBe(
     "Delete merged worktrees…2",
   );
+  const newWorktree = view.getByRole("menuitem", { name: "New worktree" });
+  expect(document.activeElement).toBe(newWorktree);
+  fireEvent.keyDown(newWorktree, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "Pin to top" }));
   const cleanupAction = view.getByRole("menuitem", { name: /Delete merged worktrees…/ });
   fireEvent.keyDown(menu, { key: "End" });
   expect(document.activeElement).toBe(cleanupAction);
@@ -192,7 +197,6 @@ test("an open repository menu restores merged cleanup when eligibility rises fro
   act(() => {
     view.base.update("a", { state: "quiet_ok" });
   });
-  const newWorktree = view.getByRole("menuitem", { name: "New worktree" });
   expect(document.activeElement).toBe(newWorktree);
   fireEvent.keyDown(newWorktree, { key: "ArrowDown" });
   expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "Pin to top" }));

@@ -459,6 +459,41 @@ it("reviews kept worktrees without deletion authority and reuses a fresh eligibi
   expect(f.worktrees.deleteMergedBranches).not.toHaveBeenCalled();
 });
 
+it("shows the newest eligibility when a kept review's scan is superseded", async () => {
+  const f = fixture();
+  const locked = tree("locked", { locked: true });
+  const dirty = tree("dirty");
+  f.trees([locked, dirty]);
+  f.worktrees.changes.mockImplementation((_repository, path) =>
+    Promise.resolve(path === dirty.path ? " M tracked.txt\0" : ""),
+  );
+  expect((await f.scan()).mergedCount).toBe(0);
+
+  const started = Promise.withResolvers<undefined>();
+  const status = Promise.withResolvers<string>();
+  f.worktrees.cleanupStatus.mockImplementationOnce(() => {
+    started.resolve(undefined);
+    return status.promise;
+  });
+  f.advance();
+  await f.owner.reviewMerged(repository, async (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
+    const feed = request.feed;
+    await started.promise;
+    expect(feed.current().stage).toBe("checking");
+    f.trees([{ ...locked, locked: false }, dirty]);
+    expect((await f.scan()).mergedCount).toBe(1);
+    status.resolve(" M tracked.txt\0");
+    await vi.waitFor(() => {
+      expect(feed.current().stage).toBe("ready");
+    });
+    expect(feed.current().progress.items).toMatchObject([
+      { branch: "dirty", reason: "uncommitted changes" },
+    ]);
+    return false;
+  });
+});
+
 it.each(["success", "failure", "inventory failure"] as const)(
   "refreshes expired eligibility for the panel and kept review (%s)",
   async (outcome) => {

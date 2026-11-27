@@ -1,6 +1,6 @@
 import { CopyValue as Copy } from "../ui/copy-value";
 import { useEffect, useState, useRef, useCallback } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefCallback } from "react";
 import type { OrchestrationEntry, OrchestrationView, SidebarCommand } from "../../shared/workspace";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { ConfigStatus } from "../../shared/foom-config";
@@ -155,11 +155,13 @@ export function PanelFacts({
   source,
   options,
   command,
+  actionRef,
 }: {
   subject: PanelSubject;
   source: BoardSource;
   options: LaunchOptions | undefined;
   command: (command: SidebarCommand) => Promise<void>;
+  actionRef?: RefCallback<HTMLButtonElement>;
 }) {
   const [now] = useState(Date.now);
   const [handoffError, setHandoffError] = useState("");
@@ -315,6 +317,7 @@ export function PanelFacts({
               <Sub>merged count unknown</Sub>
             ) : subject.repository.mergedCount === 0 ? (
               <button
+                ref={actionRef}
                 type="button"
                 className="panel-review-link"
                 aria-haspopup="dialog"

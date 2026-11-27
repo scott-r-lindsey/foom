@@ -87,7 +87,7 @@ export function SidebarPanel({
           ),
         kind: kind,
         mark: mark,
-        facts: (() => {
+        facts: (actionRef) => {
           const facts = (
             <PanelFacts
               key={menu.id}
@@ -95,6 +95,7 @@ export function SidebarPanel({
               source={source}
               options={options}
               command={command}
+              actionRef={actionRef}
             />
           );
           if (fieldOpen && subject.kind === "worktree")
@@ -155,7 +156,7 @@ export function SidebarPanel({
           ) : (
             facts
           );
-        })(),
+        },
         pinned: menu.pinned,
         enter: () => {
           enter();

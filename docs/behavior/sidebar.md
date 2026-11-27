@@ -120,7 +120,9 @@ With linked worktrees, **Delete merged worktrees…** is available when the coun
 is positive, before the first scan completes, or after a scan fails. Select the
 **0 eligible to delete** fact to review the kept worktrees and their reasons.
 Opening the panel or selecting the fact refreshes an eligibility result at
-least one minute old. The delete command returns when eligibility rises.
+least one minute old. The delete command returns when eligibility rises. If
+a live update removes the focused zero-count control, focus moves to the
+first enabled panel command.
 **Deleting merged worktrees** opens an active checklist. **Cleanup results**
 opens an undismissed finished checklist independently of the delete command.
 Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline

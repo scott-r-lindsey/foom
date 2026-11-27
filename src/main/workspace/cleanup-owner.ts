@@ -773,8 +773,11 @@ export class CleanupOwner {
         this.deps.known(repository);
         this.cachedMergeEligibility(repository, trees);
       }
-      const entry = this.mergeEligibility.get(repository);
-      await entry?.scan;
+      let entry = this.mergeEligibility.get(repository);
+      while (entry?.scan) {
+        await entry.scan;
+        entry = this.mergeEligibility.get(repository);
+      }
       if (entry?.result.mergedError !== undefined) review.failed();
       else review.ready(entry?.plan ?? []);
     } catch {
@@ -810,10 +813,10 @@ export class CleanupOwner {
       mergedCount?: number;
       mergedError?: string;
     }) => {
+      // A newer inventory, repository removal or shutdown supersedes this scan.
+      if (this.deps.closed() || this.mergeEligibility.get(repository) !== entry) return;
       entry.result = result;
       entry.expires = this.deps.now() + 60_000;
-      // A review can still read its snapshot, but a superseded scan cannot update the sidebar.
-      if (this.deps.closed() || this.mergeEligibility.get(repository) !== entry) return;
       this.deps.onChange?.();
     };
     const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();

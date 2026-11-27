@@ -7,7 +7,7 @@ import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, RefCallback } from "react";
 export interface RowAction {
   label: string;
   disabled?: boolean;
@@ -39,7 +39,7 @@ export interface PanelContent {
   title: ReactNode;
   kind: string;
   mark: string;
-  facts: ReactNode;
+  facts: (actionRef: RefCallback<HTMLButtonElement>) => ReactNode;
   pinned: boolean;
   enter?: () => void;
   leave?: () => void;
@@ -487,7 +487,7 @@ export function RowMenu({
             ),
           )}
         </div>
-        {panel?.facts}
+        {panel?.facts(actionRef)}
       </div>
       {sub && submenu && (
         <RowMenu

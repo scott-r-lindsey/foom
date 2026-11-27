@@ -1055,15 +1055,22 @@ test("merged cleanup skips Git-ignored build folders and hides the action at zer
   await expect(cleanupAction).toHaveCount(0);
 
   const eligible = path.join(path.dirname(dirty.path), "new-merged");
+  const zero = page.getByRole("button", { name: "0 eligible to delete", exact: true });
+  const newWorktree = page.getByRole("menuitem", { name: "New worktree" });
+  await page.getByRole("button", { name: "Copy default branch" }).press("Tab");
+  await expect(zero).toBeFocused();
   git("worktree", "add", "-b", "new-merged", eligible);
   await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
   await expect(cleanupAction).toHaveText("Delete merged worktrees…1");
+  await expect(newWorktree).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "Pin to top" })).toBeFocused();
   await page.keyboard.press("End");
   await expect(cleanupAction).toBeFocused();
   git("worktree", "lock", eligible);
   await expect(page.getByText("0 eligible to delete", { exact: true })).toBeVisible();
   await expect(cleanupAction).toHaveCount(0);
-  await expect(page.getByRole("menuitem", { name: "New worktree" })).toBeFocused();
+  await expect(newWorktree).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitem", { name: "Pin to top" })).toBeFocused();
   assert.equal(
