@@ -12,6 +12,7 @@ import { light, waitTime } from "./board";
 import { sessionIdentity } from "./sidebar-model";
 export type PanelSubject =
   | { kind: "home"; home: HomeShellFacts | undefined; rows: readonly BoardRow[] }
+  | { kind: "source-directory"; directory: string }
   | { kind: "config"; status: ConfigStatus | undefined; rows: readonly BoardRow[] }
   | { kind: "repository"; repository: SidebarRepository; rows: readonly BoardRow[] }
   | { kind: "worktree"; repository: SidebarRepository; tree: SidebarWorktree }
@@ -203,6 +204,7 @@ export function PanelFacts({
   const unknown = "Unknown";
   return (
     <dl className="panel-facts">
+      {subject.kind === "source-directory" && <Fact label="Folder">{subject.directory}</Fact>}
       {subject.kind === "home" && (
         <>
           <Fact label="Home">

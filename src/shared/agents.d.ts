@@ -64,6 +64,10 @@ export interface AgentLaunch {
   readonly pressure?: (value: HostPressure) => void;
   /** Main-only human home launch; grants no repository or orchestration authority. */
   readonly humanHome?: true;
+  /** Main-only local agent launch outside the Git checkout inventory. */
+  readonly humanSource?: true;
+  /** An agent requested this launch. Human bypass consent does not transfer. */
+  readonly automated?: true;
   /** Main-only registered-host capability. Never accepted from IPC. */
   readonly remoteCheckout?: {
     target: { host: string; unavailable?: (code: number) => void };
@@ -72,6 +76,13 @@ export interface AgentLaunch {
     branch: string;
     identity: string;
     reviewSnapshot?: RemoteReviewSnapshot;
+    validate(): Promise<void>;
+  };
+  /** Main-only placement in a registered host's approved main checkout. */
+  readonly remoteOrchestrator?: {
+    target: { host: string; unavailable?: (code: number) => void };
+    path: string;
+    origin: string;
     validate(): Promise<void>;
   };
   /** Main-only restoration preserves the original local placement. */
@@ -114,7 +125,9 @@ export interface AgentLaunch {
    * Main-only control role: the repository panel's orchestrator, or an orchestrator's
    * child (an ordinary agent naming its parent). Never copied from IPC or the control API.
    */
-  readonly control?: { readonly role: "orchestrator" } | { readonly parentId: string };
+  readonly control?:
+    | { readonly role: "orchestrator"; readonly beforeBind?: (id: string) => void }
+    | { readonly parentId: string };
   /** Main-owned initial prompt for a child or human host setup session, passed as one argv entry. */
   readonly prompt?: string;
   /** Main-only Environment layers (All sessions, then this agent's); never from IPC. */

@@ -22,6 +22,7 @@ import {
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentLaunch } from "../../../../src/shared/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 
 describe("automation spawn authority", () => {
@@ -438,6 +439,92 @@ describe("human home launches", () => {
 });
 
 describe("main-owned permission levels", () => {
+  it.each([false, true])(
+    "refuses dispatcher bypass defaults and uses the destination's permission (remote=%s)",
+    async (remote) => {
+      listWorktrees.mockResolvedValue([{ path: root, bare: false, prunable: false }]);
+      const spawn = vi.fn(async (spec: TerminalSpec) => {
+        const binding = spec.remote?.agent;
+        if (remote) {
+          if (!binding) throw new Error("Missing remote agent binding");
+          expect(binding.spec).toMatchObject({
+            permissionLevel: "workspace",
+            orchestratorOrigin: "https://example.test/project.git",
+          });
+          await binding.authorize();
+          binding.start();
+          binding.ready({ hooks: false, mcp: true, permissionLevel: "workspace" });
+        } else {
+          expect(spec.args).toEqual(
+            expect.arrayContaining([
+              "--sandbox",
+              "workspace-write",
+              "--ask-for-approval",
+              "on-request",
+            ]),
+          );
+        }
+        return spec.id ?? "terminal-id";
+      });
+      const service = enabledAgentService(
+        { listWorktrees, launchIdentity },
+        { create: spawn },
+        prepare,
+        () =>
+          Promise.resolve({
+            env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+            bind() {},
+            dispose() {},
+            remoteCall: () => Promise.resolve({ type: "error", error: "unavailable" }),
+          }),
+      );
+      service.setHooksEnabled(false);
+      const previous = versions.codex;
+      versions.codex = "codex-cli 0.167.0";
+      agentFixture.help = "--sandbox --ask-for-approval -c";
+      const launch: AgentLaunch = {
+        ...request,
+        agent: "codex",
+        worktree: root,
+        mainCheckout: true,
+        automated: true,
+        control: { role: "orchestrator" },
+        prompt: "Review the release.",
+        beforeSpawn() {},
+        ...(remote
+          ? {
+              remoteOrchestrator: {
+                target: { host: "worker" },
+                origin: "https://example.test/project.git",
+                path: "/remote/project",
+                validate: async () => {},
+              },
+            }
+          : { localOnly: true }),
+      };
+      try {
+        await expect(
+          service.launch({
+            ...launch,
+            defaultArguments: ["-c", 'profiles={fixture={sandbox_mode="danger-full-access"}}'],
+          }),
+        ).rejects.toThrow("Unattended child bypass is unavailable");
+        expect(spawn).not.toHaveBeenCalled();
+        service.setPermissionLevels({
+          local: { codex: { level: "ask" } },
+          "host:worker": { codex: { level: "workspace" } },
+        });
+        await expect(service.launch(launch)).resolves.toMatchObject({
+          permissionLevel: remote ? "workspace" : "ask",
+        });
+        expect(spawn).toHaveBeenCalledOnce();
+      } finally {
+        service.release(spawn.mock.lastCall?.[0].id ?? "terminal-id");
+        versions.codex = previous;
+      }
+    },
+  );
+
   it("applies the acknowledged Full access selection to a child and current Workspace on resume", async () => {
     const identity = bypassConsentIdentity("codex", true);
     if (!identity) throw new Error("Missing fixture provider");

@@ -9,6 +9,8 @@ import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import type { AgentId, AgentLaunch } from "../../shared/agents";
+import type { DispatcherLaunch, DispatcherLaunchLifecycle } from "../../shared/dispatcher";
+import { ControlError } from "../../shared/control-validation";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { ShellState } from "../../shared/desktop";
 import type { VerdictAction } from "../../shared/evaluator";
@@ -79,6 +81,7 @@ export async function makeOrchestrator(
     if (
       !entry ||
       entry.agent === "shell" ||
+      entry.sourceSession ||
       entry.config ||
       entry.remote ||
       this.sessions.isRestoring(id) ||
@@ -157,6 +160,96 @@ export async function makeOrchestrator(
     await this.auditHuman(action, id, current ?? null, "indeterminate", operationId);
     throw error;
   }
+}
+
+export async function launchOrchestrator(
+  this: OrchestrationCommandsContext,
+  request: DispatcherLaunch,
+  repository: { path: string; identity: string },
+  verify: () => Promise<void>,
+  active: () => void,
+  lifecycle: DispatcherLaunchLifecycle,
+  remote?: NonNullable<AgentLaunch["remoteOrchestrator"]> & { worktree: string },
+): Promise<string> {
+  const path = repository.path;
+  return this.withRepository(path, async () => {
+    await verify();
+    const identity = await this.deps.worktrees.launchIdentity(path, path);
+    if (identity !== repository.identity) throw new ControlError("conflict");
+    if (!remote) {
+      const report = await this.scanAgents(false);
+      const agent = report.agents.find((entry) => entry.id === request.agent);
+      if (!agent?.path || !agent.initialPrompt) throw new ControlError("unsupported");
+    }
+    active();
+    const slot = this.orchestration.reserve(path, undefined, false, {
+      repository: identity,
+      worktree: identity,
+    });
+    if ("existing" in slot) throw new ControlError("conflict");
+    let bindingId: string | undefined;
+    try {
+      const admission = remote
+        ? undefined
+        : await localAdmission.reserve(
+            localResources,
+            () =>
+              [...this.launched.values()].filter(
+                (row) =>
+                  row.kind === "agent" &&
+                  !row.dormant &&
+                  !row.remote &&
+                  this.executionOwner.view(row.id).exitCode === undefined,
+              ).length,
+          );
+      try {
+        active();
+        const result = await this.launchAgent(
+          {
+            agent: request.agent,
+            repository: path,
+            worktree: remote?.worktree ?? path,
+            cols: 80,
+            rows: 24,
+          },
+          true,
+          false,
+          identity,
+          undefined,
+          {
+            automated: true,
+            terminalId: lifecycle.terminalId,
+            ...(remote ? { remoteOrchestrator: remote } : {}),
+            control: {
+              role: "orchestrator",
+              beforeBind: (id) => {
+                lifecycle.binding(id);
+                bindingId = id;
+                slot.bind(id);
+              },
+            },
+            prompt: request.prompt,
+            pressure: () => {},
+            beforeSpawn: () => {
+              active();
+              lifecycle.spawning();
+            },
+            prepareSpawn: verify,
+          },
+        );
+        slot.bind(result.id);
+        this.refresh();
+        return result.id;
+      } finally {
+        admission?.release();
+      }
+    } catch (error) {
+      if (bindingId !== undefined && slot.isCurrent()) this.orchestration.revoke(bindingId);
+      throw error;
+    } finally {
+      slot.release();
+    }
+  });
 }
 
 export async function revokeOrchestrator(

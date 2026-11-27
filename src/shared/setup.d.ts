@@ -71,6 +71,8 @@ export interface Settings {
   sound: SoundSettings;
   /** Where the user keeps their code; preflight scans it for repositories. */
   codeFolder: string | null;
+  /** Profile-only canonical working directory for new local agent sessions. */
+  sourceDirectory: string | null;
 }
 
 /** A repository found in the code folder. */

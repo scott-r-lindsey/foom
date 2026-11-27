@@ -158,6 +158,25 @@ test("the previous settings schema remains refreshable after adding close finish
   ).toBe(true);
 });
 
+function agentSchemaWithoutDispatcherTools() {
+  const previous = structuredClone(generated);
+  const names = previous.$defs.tools.properties.names;
+  names.items.enum = names.items.enum.filter(
+    (name) => name !== "repos" && name !== "launch_orchestrator",
+  );
+  names.maxItems = names.items.enum.length;
+  return previous;
+}
+
+test("both parent agent schemas remain refreshable after merging dispatcher tools and bypass matchers", () => {
+  const file = "schemas/agent.schema.json";
+  for (const previous of [agentSchemaWithoutDispatcherTools(), agentSchemaWithoutBypassFields()]) {
+    const bytes = `${JSON.stringify(previous, null, 2)}\n`;
+    expect(refreshable(file, new TextEncoder().encode(bytes))).toBe(true);
+    expect(refreshable(file, new TextEncoder().encode(`${bytes} `))).toBe(false);
+  }
+});
+
 test("the previous agent schema remains refreshable after adding bundled-only installers", () => {
   const file = "schemas/agent.schema.json";
   const previous = agentSchemaBeforeApprovalOnly();
@@ -222,7 +241,7 @@ function removePermissionSchema(definitions: Record<string, unknown>) {
 }
 
 function agentSchemaBeforeFailClosedKeys() {
-  const previous = structuredClone(generated);
+  const previous = agentSchemaWithoutDispatcherTools();
   Reflect.deleteProperty(previous.$defs.override.properties, "failClosedKeys");
   return previous;
 }
@@ -235,10 +254,21 @@ test("the agent schema preceding fail-closed override keys remains refreshable",
   expect(refreshable(file, new TextEncoder().encode(`${previousBytes} `))).toBe(false);
 });
 
-function agentSchemaBeforeApprovalOnly() {
-  const previous = agentSchemaBeforeFailClosedKeys();
+function removeApprovalOnly(previous: typeof generated) {
   for (const { properties } of previous.$defs.argumentMatcher.oneOf)
     Reflect.deleteProperty(properties, "approvalOnly");
+}
+
+function agentSchemaWithoutBypassFields() {
+  const previous = structuredClone(generated);
+  Reflect.deleteProperty(previous.$defs.override.properties, "failClosedKeys");
+  removeApprovalOnly(previous);
+  return previous;
+}
+
+function agentSchemaBeforeApprovalOnly() {
+  const previous = agentSchemaBeforeFailClosedKeys();
+  removeApprovalOnly(previous);
   return previous;
 }
 

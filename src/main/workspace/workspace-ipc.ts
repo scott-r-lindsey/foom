@@ -146,6 +146,11 @@ function sidebarCommand(value: unknown): SidebarCommand {
       throw new Error("Invalid config launch");
     return { kind, run };
   }
+  if (kind === "elevate-dispatcher" || kind === "demote-dispatcher") {
+    if (!text(value["id"], 200) || Object.keys(value).length !== 2)
+      throw new Error("Invalid dispatcher request");
+    return { kind, id: value["id"] };
+  }
   if (
     kind === "stop" ||
     kind === "close" ||
@@ -501,6 +506,27 @@ export function attachWorkspace(
           !workspace.ownsSession(command.id)
         )
           throw new Error("Unknown or foreign terminal ID");
+        if (command.kind === "demote-dispatcher") return workspace.demoteDispatcher(command.id);
+        if (command.kind === "elevate-dispatcher") {
+          return workspace.elevateDispatcher(command.id, async (directory, repositories) => {
+            const reachable = () => !contents.isDestroyed() && contents.mainFrame.url === APP_URL;
+            if (!reachable()) return;
+            contents.send("confirmation:dialog");
+            let selected: readonly string[] | undefined;
+            const accepted = await requestDialog({
+              title: "Elevate to dispatcher",
+              subject: directory,
+              accept: "Elevate",
+              glyph: "dispatcher",
+              userAction: true,
+              dispatcherRepositories: repositories,
+              selectDispatcherRepositories: (names) => {
+                selected = names;
+              },
+            });
+            return accepted && reachable() ? selected : undefined;
+          });
+        }
         if (command.kind === "open-handoff-link") {
           const link = () =>
             workspace.orchestration.handoffs

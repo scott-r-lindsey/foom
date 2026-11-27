@@ -30,7 +30,7 @@ import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environme
 import { randomUUID } from "node:crypto";
 import { readLoginShell } from "../login-shell";
 import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import type {
@@ -164,6 +164,7 @@ export class AgentService {
       worktree: string,
       sessionId?: string,
       control?: AgentLaunch["control"],
+      source?: true,
     ) => Promise<ControlLaunch>,
     private readonly agyPlugin = new AgyPlugin(),
     private readonly confirmLaunchBypass?: (content: DialogContent) => Promise<boolean>,
@@ -334,7 +335,24 @@ export class AgentService {
         config !== undefined)
     )
       throw new Error("Invalid human home launch");
-    if (config === undefined && !request.remoteCheckout && !request.humanHome) {
+    if (
+      request.humanSource &&
+      (request.humanHome ||
+        !isAbsolute(request.worktree) ||
+        request.repository !== request.worktree ||
+        !request.localOnly ||
+        request.control ||
+        request.remoteCheckout ||
+        config !== undefined)
+    )
+      throw new Error("Invalid source directory launch");
+    const gitCheckout =
+      config === undefined &&
+      !request.remoteCheckout &&
+      !request.remoteOrchestrator &&
+      !request.humanHome &&
+      !request.humanSource;
+    if (gitCheckout) {
       const trees = await this.worktrees.listWorktrees(request.repository);
       if (
         !trees.some(
@@ -343,14 +361,29 @@ export class AgentService {
       )
         throw new Error("Worktree is missing, bare, locked, or prunable");
     }
-    const checkoutIdentity =
-      config === undefined && !request.remoteCheckout && !request.humanHome
-        ? (request.checkoutIdentity ??
-          (await this.worktrees.launchIdentity(request.repository, request.worktree)))
-        : undefined;
+    const checkoutIdentity = gitCheckout
+      ? (request.checkoutIdentity ??
+        (await this.worktrees.launchIdentity(request.repository, request.worktree)))
+      : undefined;
+    const remoteParent = request.remoteOrchestrator;
+    if (
+      remoteParent &&
+      (request.localOnly ||
+        request.remoteCheckout ||
+        !request.automated ||
+        !request.control ||
+        !("role" in request.control))
+    )
+      throw new Error("Invalid registered orchestrator launch");
     const remote = request.localOnly
       ? undefined
-      : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
+      : remoteParent
+        ? {
+            target: remoteParent.target,
+            repository: remoteParent.path,
+            worktree: remoteParent.path,
+          }
+        : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
     const permission = request.reattach
       ? undefined
       : this.permissionForLaunch(
@@ -365,7 +398,7 @@ export class AgentService {
       if (provider.origin !== "bundled") throw new LaunchFailure("remote_agent_unsupported");
       if (hasBypassArgument(request.agent, defaults))
         throw new Error("Unattended child bypass is unavailable");
-      if (!request.control || !("parentId" in request.control))
+      if (!request.control || (!remoteParent && !("parentId" in request.control)))
         throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
       if (!request.beforeSpawn) throw new Error("Remote parent authority is unavailable");
       const control = await this.prepareControl?.(
@@ -390,7 +423,8 @@ export class AgentService {
             if (agentProvider(request.agent) !== provider)
               throw new Error("Worktree or provider changed");
             await request.prepareSpawn?.();
-            if (request.remoteCheckout) await request.remoteCheckout.validate();
+            if (remoteParent) await remoteParent.validate();
+            else if (request.remoteCheckout) await request.remoteCheckout.validate();
             else if (
               (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
               checkoutIdentity
@@ -452,6 +486,7 @@ export class AgentService {
               request.worktree,
               binding?.env["FOOM_SESSION"],
               request.control,
+              ...(request.humanSource ? [true as const] : []),
             )
           : undefined;
       if (config !== undefined && agent.mcp) {
@@ -466,8 +501,7 @@ export class AgentService {
       }
       this.ensureOpen();
       if (
-        config === undefined &&
-        !request.humanHome &&
+        gitCheckout &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
           checkoutIdentity
       )
@@ -540,7 +574,11 @@ export class AgentService {
       if (permission?.level && environmentMatches.length)
         throw new Error("A bypass environment conflicts with the selected permission level.");
       if (bypass && permission?.level !== "full") {
-        if (request.reviewer || (request.control && "parentId" in request.control))
+        if (
+          request.automated ||
+          request.reviewer ||
+          (request.control && "parentId" in request.control)
+        )
           throw new Error("Unattended child bypass is unavailable");
         if (
           (provider.origin !== "bundled" ||
@@ -571,12 +609,17 @@ export class AgentService {
       const validateCheckout = async () => {
         await provider.validate?.();
         if (
-          config === undefined &&
-          !request.humanHome &&
+          gitCheckout &&
           (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
             checkoutIdentity
         )
           throw new Error("Worktree has changed. Select it and try again.");
+        if (
+          request.humanSource &&
+          ((await realpath(request.worktree).catch(() => undefined)) !== request.worktree ||
+            !(await stat(request.worktree).catch(() => undefined))?.isDirectory())
+        )
+          throw new Error("Source directory is unavailable.");
       };
       const validateSpawn = () => {
         if (agentProvider(request.agent) !== provider)

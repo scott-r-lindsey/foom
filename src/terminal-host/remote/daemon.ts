@@ -28,6 +28,7 @@ import { manageHost } from "./management";
 import { version } from "../../../package.json";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { record } from "../../shared/remote-agent-protocol";
+import { remoteControlDeadline } from "../../shared/remote-agent-deadline";
 import { prepareRemoteAgent } from "./agent-launch";
 import type { RemoteControlResult } from "../../shared/remote-agent";
 import type { HookSignal } from "../../shared/hooks";
@@ -56,6 +57,8 @@ export const MAX_EXIT_TOMBSTONES = 64;
 export const EXIT_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSIONS = 32;
 const MAX_PENDING_CONNECTIONS = 4;
+const MAX_TIMED_OUT_CALLS = 64;
+const TIMED_OUT_CALL_GRACE_MS = 10 * 60 * 1000;
 
 /** Only remote account facts can choose the executable; never protocol input. */
 export function remoteShell(shell = process.env["SHELL"], accountShell = () => userInfo().shell) {
@@ -166,6 +169,16 @@ export function serveHost(
       timer: ReturnType<typeof setTimeout>;
     }
   >();
+  const timedOutCalls = new WeakMap<Socket, Map<number, number>>();
+  const rememberTimeout = (socket: Socket, call: number) => {
+    const pending = timedOutCalls.get(socket) ?? new Map<number, number>();
+    timedOutCalls.set(socket, pending);
+    const now = performance.now();
+    for (const [key, expires] of pending) {
+      if (expires <= now || pending.size >= MAX_TIMED_OUT_CALLS) pending.delete(key);
+    }
+    pending.set(call, now + TIMED_OUT_CALL_GRACE_MS);
+  };
   const revoke = (id: string, session: Session, stopping = false) => {
     session.admission?.release();
     delete session.admission;
@@ -805,10 +818,14 @@ export function serveHost(
                       return;
                     }
                     const call = ++sequence;
-                    const timer = setTimeout(() => {
-                      calls.delete(call);
-                      resolve({ type: "error", error: "unavailable" });
-                    }, 10000);
+                    const timer = setTimeout(
+                      () => {
+                        calls.delete(call);
+                        rememberTimeout(connection, call);
+                        resolve({ type: "error", error: "unavailable" });
+                      },
+                      remoteControlDeadline(method, params),
+                    );
                     calls.set(call, { id: sessionId, socket: connection, resolve, timer });
                     void send(connection, {
                       type: "agent-call",
@@ -1065,8 +1082,14 @@ export function serveHost(
       }
       if (message.type === "agent-reply") {
         const call = calls.get(message.call);
-        if (!call || call.id !== id || call.socket !== socket)
+        if (!call) {
+          const pending = timedOutCalls.get(socket);
+          const expires = pending?.get(message.call);
+          pending?.delete(message.call);
+          if (expires !== undefined && expires > performance.now()) return;
           throw new Error("Foreign relay response");
+        }
+        if (call.id !== id || call.socket !== socket) throw new Error("Foreign relay response");
         clearTimeout(call.timer);
         calls.delete(message.call);
         call.resolve(message.result);

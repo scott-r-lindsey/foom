@@ -340,3 +340,92 @@ test("remote pre-tool drops an observation with no stdin EOF within 500ms", asyn
     vi.useRealTimers();
   }
 });
+
+test("remote orchestrator CLI and MCP expose only the capabilities returned by the relay", async () => {
+  vi.mocked(endpointRequest).mockResolvedValue(identity);
+  expect(await remoteCli(["call", "sessions", "--params", "{}"], input(""))).toEqual({
+    error: "forbidden",
+  });
+  vi.mocked(endpointRequest).mockResolvedValue({
+    ...identity,
+    role: "orchestrator",
+    capabilities: ["whoami", "sessions"],
+  });
+  expect(await remoteCli(["call", "sessions", "--params", "[]"], input(""))).toEqual({
+    error: "invalid_request",
+  });
+  expect(await remoteCli(["call", "sessions", "--params"], input(""))).toEqual({
+    error: "invalid_request",
+  });
+  expect(await remoteCli(["call", "repos", "--params", "{}"], input(""))).toEqual({
+    error: "forbidden",
+  });
+  vi.mocked(endpointRequest)
+    .mockResolvedValueOnce({
+      ...identity,
+      role: "orchestrator",
+      capabilities: ["sessions"],
+    })
+    .mockResolvedValueOnce({ type: "orchestrator-result", payload: '{"sessions":[]}' });
+  expect(await remoteCli(["call", "sessions", "--params", "{}"], input(""))).toEqual({
+    sessions: [],
+  });
+  vi.mocked(endpointRequest)
+    .mockResolvedValueOnce({
+      ...identity,
+      role: "orchestrator",
+      capabilities: ["sessions"],
+    })
+    .mockResolvedValueOnce(undefined);
+  expect(await remoteCli(["call", "sessions", "--params", "{}"], input(""))).toEqual({
+    error: "unavailable",
+  });
+  const orchestratorIdentity = {
+    ...identity,
+    role: "orchestrator" as const,
+    capabilities: ["whoami", "sessions"],
+  };
+  vi.mocked(endpointRequest)
+    .mockResolvedValueOnce(orchestratorIdentity)
+    .mockResolvedValueOnce(orchestratorIdentity)
+    .mockResolvedValueOnce({
+      ...orchestratorIdentity,
+      capabilities: ["whoami", "sessions", "handoff"],
+    });
+  const out = output();
+  await remoteMcp(
+    input(
+      [
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "fixture", version: "1" },
+          },
+        },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+        { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      ]
+        .map((value) => JSON.stringify(value))
+        .join("\n") + "\n",
+    ),
+    out.pipe,
+  );
+  const messages = out
+    .text()
+    .trim()
+    .split("\n")
+    .map((line): unknown => JSON.parse(line));
+  expect(messages[1]).toMatchObject({
+    result: {
+      tools: [
+        expect.objectContaining({ name: "whoami" }),
+        expect.objectContaining({ name: "sessions" }),
+        expect.objectContaining({ name: "handoff" }),
+      ],
+    },
+  });
+});

@@ -5,6 +5,7 @@ import type { SidebarRowEvents } from "./sidebar-interactions.d";
 import type { CSSProperties, ReactNode } from "react";
 import type { BoardRow } from "./board.d";
 import { OrchestrationMark } from "./orchestration-mark";
+import { dispatcherGlyphPath } from "./panel-glyphs";
 import { AgentBadge } from "./agent-badge";
 import { agentBadges } from "./sidebar-model";
 import { lightState, movingLight } from "./light-activity";
@@ -142,6 +143,29 @@ export function SidebarSessionRow({
         />
         <span className="session-lines">
           <span className="visually-hidden board-branch">{row.branch}</span>
+          {row.dispatcher && (
+            <>
+              <span className="session-orchestration">
+                <svg
+                  aria-hidden="true"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path d={dispatcherGlyphPath} />
+                </svg>
+                {" Dispatcher"}
+                {decisionCount > 0 && (
+                  <span className="decision-count"> · {decisionLabel(decisionCount)}</span>
+                )}
+              </span>
+              <span className="session-orchestration">
+                {row.dispatcher.orchestrators} orchestrators · {row.dispatcher.repositories} repos
+              </span>
+            </>
+          )}
           {row.orchestration?.role === "orchestrator" && (
             <span className="session-orchestration">
               {row.orchestration.active

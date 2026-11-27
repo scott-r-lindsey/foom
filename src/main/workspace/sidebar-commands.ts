@@ -539,15 +539,26 @@ export async function sidebarCommand(
           replacement.conversationId,
         );
       }
-      if (entry.remote && !remoteRole && entry.placement?.kind === "remote") {
+      const retiredOrchestrator = remoteRole?.role === "orchestrator" && !remoteRole.active;
+      if (
+        entry.remote &&
+        (!remoteRole || retiredOrchestrator) &&
+        entry.placement?.kind === "remote"
+      ) {
+        const host = entry.placement.host;
+        const dispatcherCheckout =
+          retiredOrchestrator || entry.branch === `Main checkout · ${host}`;
         return this.startMachine(
-          entry.placement.host,
+          host,
           entry.agent,
           entry.id,
           {
             repository: entry.repository,
-            worktree: entry.branch === "Main checkout" ? entry.repository : entry.worktree,
-            branch: entry.branch,
+            worktree:
+              dispatcherCheckout || entry.branch === "Main checkout"
+                ? entry.repository
+                : entry.worktree,
+            branch: dispatcherCheckout ? null : entry.branch,
           },
           replacement.conversationId,
           confirm,
@@ -741,6 +752,8 @@ export async function sidebarCommand(
     else await cleanup();
     return;
   }
+  if (command.kind === "elevate-dispatcher" || command.kind === "demote-dispatcher")
+    throw new Error("Dispatcher roles require the trusted window");
   this.known(command.repository);
   if (command.kind === "prune-worktree" || command.kind === "cleanup-worktree") {
     await this.withRepository(command.repository, async () => {

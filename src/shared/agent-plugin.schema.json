@@ -624,6 +624,7 @@
               "manual",
               "whoami",
               "sessions",
+              "repos",
               "session_state",
               "open_preview",
               "list_previews",
@@ -632,6 +633,7 @@
               "read_handoff",
               "create_worktree",
               "launch",
+              "launch_orchestrator",
               "review",
               "prompt",
               "send_keys",
@@ -647,7 +649,7 @@
               "operation_status"
             ]
           },
-          "maxItems": 24,
+          "maxItems": 26,
           "minItems": 0
         },
         "fileRules": {
