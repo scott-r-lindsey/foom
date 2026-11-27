@@ -54,7 +54,9 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
     }),
     repositories: vi.fn(() => Promise.resolve(repos)),
     agentName: vi.fn((id: string) => (id === "claude" ? "Claude Code" : undefined)),
-    launch: vi.fn<DispatcherHost["launch"]>(() => Promise.resolve("secondary-orchestrator")),
+    launch: vi.fn<DispatcherHost["launch"]>((_input, _repo, _id, _verify, _active, lifecycle) =>
+      Promise.resolve(lifecycle.terminalId),
+    ),
     prompt: vi.fn(() => Promise.resolve()),
     stop: vi.fn(() => Promise.resolve()),
   };
@@ -631,11 +633,12 @@ test("source exit after elevation commit validation rolls back the saved scope a
 });
 
 test("a replacement preserves dispatcher read access to the retained previous launch", async () => {
-  const { call, elevate, host, rows } = harness();
+  const { call, elevate, rows } = harness();
   await elevate(["secondary"]);
-  const previous = row("secondary-orchestrator", other, "orchestrator");
+  const started = object(await call("launch_orchestrator", launch));
+  expect(started).toMatchObject({ status: "succeeded" });
+  const previous = row(identifier(started["resultId"]), other, "orchestrator");
   rows.push(previous);
-  await expect(call("launch_orchestrator", launch)).resolves.toMatchObject({ status: "succeeded" });
   previous.exited = true;
   if (previous.orchestration?.role !== "orchestrator")
     throw new Error("Missing orchestration state");
@@ -647,12 +650,12 @@ test("a replacement preserves dispatcher read access to the retained previous la
     links: [],
     timestamp: "2025-01-01T00:00:00.000Z",
   };
-  const replacement = row("replacement", other, "orchestrator");
+  const replaced = object(
+    await call("launch_orchestrator", { ...launch, idempotencyKey: "replacement" }),
+  );
+  expect(replaced).toMatchObject({ status: "succeeded" });
+  const replacement = row(identifier(replaced["resultId"]), other, "orchestrator");
   rows.push(replacement);
-  host.launch.mockResolvedValueOnce(replacement.id);
-  await expect(
-    call("launch_orchestrator", { ...launch, idempotencyKey: "replacement" }),
-  ).resolves.toMatchObject({ status: "succeeded" });
   await expect(call("session_state", { id: previous.id })).resolves.toMatchObject({
     id: previous.id,
     state: "exited",
@@ -701,6 +704,70 @@ test("distinct repository selectors remain visible in launch approvals", async (
   );
 });
 
+test("a full dispatcher refuses a launch before dispatching a spawn and retains its existing handles", async () => {
+  const { call, elevate, rows, host } = harness();
+  for (let index = 1; index < 128; index++)
+    rows.push(row(`retained-${String(index)}`, repository, "orchestrator"));
+  await elevate(["primary", "secondary"]);
+  for (const retained of rows.slice(2)) {
+    retained.exited = true;
+    if (retained.orchestration?.role === "orchestrator") retained.orchestration.active = false;
+  }
+  const spawn = vi.fn();
+  host.launch.mockImplementationOnce(
+    (_input, _repository, _dispatcher, _verify, _active, lifecycle) => {
+      lifecycle.spawning();
+      spawn();
+      return Promise.resolve("overflow");
+    },
+  );
+  await expect(call("launch_orchestrator", launch)).resolves.toMatchObject({
+    status: "failed",
+    reason: "dispatcher_capacity",
+    resultId: null,
+    detail: "The dispatcher has reached its limit of 128 retained orchestrators.",
+  });
+  expect(host.launch).not.toHaveBeenCalled();
+  expect(spawn).not.toHaveBeenCalled();
+  await expect(call("session_state", { id: "retained-127" })).resolves.toMatchObject({
+    id: "retained-127",
+    state: "exited",
+  });
+});
+
+test("concurrent launches cannot share the final adoption slot before a terminal row exists", async () => {
+  const { call, elevate, rows, host, save } = harness();
+  for (let index = 1; index < 127; index++)
+    rows.push(row(`retained-${String(index)}`, repository, "orchestrator"));
+  await elevate(["primary", "secondary"]);
+  const started = Promise.withResolvers<string>();
+  const finished = Promise.withResolvers<string>();
+  host.launch.mockImplementationOnce((_input, _repo, _id, _verify, _active, lifecycle) => {
+    started.resolve(lifecycle.terminalId);
+    lifecycle.spawning();
+    return finished.promise;
+  });
+  const first = call("launch_orchestrator", launch);
+  const id = await started.promise;
+  try {
+    const scopes = object(save.mock.lastCall?.[0])["scopes"];
+    if (!Array.isArray(scopes)) throw new Error("Missing saved dispatcher scope");
+    expect(object(scopes[0])["adopted"]).toContainEqual({
+      id,
+      name: "secondary",
+      identity: "secondary-proof",
+      launched: true,
+    });
+    await expect(
+      call("launch_orchestrator", { ...launch, idempotencyKey: "last-slot" }),
+    ).resolves.toMatchObject({ status: "failed", reason: "dispatcher_capacity" });
+    expect(host.launch).toHaveBeenCalledOnce();
+  } finally {
+    finished.resolve(id);
+    await expect(first).resolves.toMatchObject({ status: "succeeded", resultId: id });
+  }
+});
+
 test("a launch refused before the spawn boundary records a definitive failure", async () => {
   const { call, elevate, host } = harness();
   await elevate();
@@ -715,9 +782,16 @@ test("a launch refused before the spawn boundary records a definitive failure", 
       return Promise.reject(new Error("Spawn acknowledgment lost"));
     },
   );
-  await expect(
-    call("launch_orchestrator", { ...launch, repo: "primary", idempotencyKey: "spawn-uncertain" }),
-  ).resolves.toMatchObject({ status: "indeterminate", reason: "uncertain" });
+  const uncertain = await call("launch_orchestrator", {
+    ...launch,
+    repo: "primary",
+    idempotencyKey: "spawn-uncertain",
+  });
+  expect(uncertain).toMatchObject({
+    status: "indeterminate",
+    reason: "uncertain",
+    resultId: host.launch.mock.lastCall?.[5].terminalId,
+  });
 });
 
 test("dispatcher wait deduplicates targets, handles an unchanged revision, and honors cancellation", async () => {
@@ -772,8 +846,8 @@ test("trusted grant projections keep host and reason separate and handoff requir
   host.launch.mockImplementationOnce(
     async (_request, _repository, _dispatcher, _verify, _active, lifecycle) => {
       lifecycle.spawning();
-      lifecycle.binding("secondary-orchestrator");
-      parent.bind("secondary-orchestrator");
+      lifecycle.binding(lifecycle.terminalId);
+      parent.bind(lifecycle.terminalId);
       const identity = await relay("whoami", {});
       if (identity.type !== "identity") throw new Error("Missing relay identity");
       expect(identity.capabilities).toContain("handoff");
@@ -781,7 +855,7 @@ test("trusted grant projections keep host and reason separate and handoff requir
         type: "orchestrator-result",
         payload: '{"seq":1}',
       });
-      return "secondary-orchestrator";
+      return lifecycle.terminalId;
     },
   );
   await dispatcher.answer({

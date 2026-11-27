@@ -16,15 +16,6 @@ export const REMOTE_PHASE_2_REASON =
 export const REMOTE_AGENT_BYTES = 65536;
 // The relay carries the same escaped JSON text as MCP, without the structured copy.
 export const REMOTE_ORCHESTRATOR_RESPONSE_LIMIT = MCP_RESPONSE_LIMIT;
-export const REMOTE_CONTROL_DEADLINE_MS = 10000;
-
-/** Allow the advertised bounded wait plus relay overhead after request validation. */
-export function remoteWaitDeadline(method: string, params: unknown): number | undefined {
-  if (method !== "wait_for" || !record(params)) return;
-  const timeout = params["timeoutMs"];
-  if (typeof timeout === "number" && Number.isInteger(timeout) && timeout >= 0 && timeout <= 30000)
-    return Math.max(REMOTE_CONTROL_DEADLINE_MS, timeout + 5000);
-}
 
 export const REMOTE_ORCHESTRATOR_METHODS = [
   "manual",

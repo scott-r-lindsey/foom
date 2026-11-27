@@ -10,12 +10,11 @@ import type { RemoteControlResult } from "../../shared/remote-agent";
 import {
   keys,
   record,
-  REMOTE_CONTROL_DEADLINE_MS,
   REMOTE_ORCHESTRATOR_RESPONSE_LIMIT,
   remoteControlResult,
   remoteControlParams,
-  remoteWaitDeadline,
 } from "../../shared/remote-agent-protocol";
+import { remoteControlDeadline } from "../../shared/remote-agent-deadline";
 import { reduceV2 } from "../../shared/agent-hook-events";
 import { checkSocket, privateDirectory } from "./private-path";
 
@@ -148,8 +147,7 @@ export class AgentEndpoint {
                   return;
                 }
                 const params = remoteControlParams(value["method"], value["params"]);
-                const wait = remoteWaitDeadline(value["method"], params);
-                if (wait !== undefined) req.socket.setTimeout(wait + 1000);
+                req.socket.setTimeout(remoteControlDeadline(value["method"], params) + 1000);
                 const result = await call(value["method"], params);
                 if (!this.live()) {
                   end(401);
@@ -283,13 +281,11 @@ export function endpointRequest(
         });
       },
     );
-    const wait =
-      path === "/call" && record(value) && typeof value["method"] === "string"
-        ? remoteWaitDeadline(value["method"], value["params"])
-        : undefined;
+    const call = record(value) ? value : {};
+    const method = typeof call["method"] === "string" ? call["method"] : "";
     const deadline = setTimeout(
       () => req.destroy(new Error("Remote request timed out")),
-      path === "/hook" ? 1000 : wait === undefined ? REMOTE_CONTROL_DEADLINE_MS : wait + 2000,
+      path === "/hook" ? 1000 : remoteControlDeadline(method, call["params"]) + 2000,
     );
     req.once("close", () => {
       clearTimeout(deadline);

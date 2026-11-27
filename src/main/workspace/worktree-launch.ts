@@ -100,6 +100,7 @@ export async function launchAgent(
     | "selection"
     | "remoteCheckout"
     | "remoteOrchestrator"
+    | "terminalId"
   > = {},
   parentHold?: CheckoutHold,
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {

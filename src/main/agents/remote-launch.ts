@@ -88,8 +88,8 @@ export async function launchRemoteChild(
         ...mapping.target,
         ...(request.reattach ? { reattach: true } : {}),
         context: {
-          repository: request.repository,
-          worktree: request.worktree,
+          repository: orchestratorOrigin ? mapping.repository : request.repository,
+          worktree: orchestratorOrigin ? mapping.worktree : request.worktree,
           branch: orchestratorOrigin ? "Main checkout" : (request.remoteCheckout?.branch ?? null),
           agent: request.agent,
         },

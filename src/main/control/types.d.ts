@@ -55,6 +55,7 @@ export type Reason =
   | "revoked"
   | "uncertain"
   | "error"
+  | "dispatcher_capacity"
   | RemovalReason
   | LaunchReason;
 export interface Operation {

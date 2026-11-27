@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { lstat, open } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fitsMcpToolResponse } from "../../node-common/mcp-response";
@@ -151,6 +152,7 @@ function savedScope(value: unknown): Scope {
 export class Dispatcher {
   private readonly live = new Set<string>();
   private readonly demoting = new Map<string, { exited: boolean }>();
+  private readonly launching = new Set<string>();
   private readonly bindingReports = new Map<
     string,
     { repository: string; authorize: () => Scope }
@@ -732,70 +734,80 @@ export class Dispatcher {
         throw new ControlError("conflict");
       authorize();
     };
-    const effects: { spawnDispatched: boolean; bindingId?: string } = { spawnDispatched: false };
-    let resultId: string | undefined;
+    const id = randomUUID();
+    const effects = { spawnDispatched: false, atCapacity: false };
+    let launched = false;
+    this.launching.add(id);
     try {
       await recheck();
-      if (add) {
-        await this.write(
-          (scopes) =>
-            scopes.map((scope) =>
-              scope.id !== actor.terminalId
-                ? scope
-                : {
-                    ...scope,
-                    approved: [
-                      ...scope.approved.filter(({ name }) => name !== repository.name),
-                      { name: repository.name, identity: repository.identity },
-                    ],
-                  },
-            ),
-          authorize,
-        );
-      }
-      await operations.finish(actor, operation.operationId, "running", "intent");
-      await recheck();
-      const id = await this.host.launch(input, repository, actor.terminalId, recheck, authorize, {
-        spawning: () => {
-          effects.spawnDispatched = true;
-        },
-        binding: (id) => {
-          effects.bindingId = id;
-          this.bindingReports.set(id, { repository: repository.path, authorize });
-        },
-      });
+      // Record the terminal handle in the serialized scope before it can spawn.
       await this.write((scopes) => {
         const retained = new Set(this.rows().map((row) => row.id));
-        return scopes.map((scope) =>
-          scope.id !== actor.terminalId
-            ? scope
-            : {
-                ...scope,
-                adopted: [
-                  ...scope.adopted.filter(
-                    (entry) =>
-                      entry.id !== id &&
-                      (entry.launched ? retained.has(entry.id) : entry.name !== repository.name),
-                  ),
-                  { id, name: repository.name, identity: repository.identity, launched: true },
-                ],
-              },
-        );
+        return scopes.map((scope) => {
+          if (scope.id !== actor.terminalId) return scope;
+          const adopted = scope.adopted.filter(
+            (entry) =>
+              retained.has(entry.id) ||
+              this.launching.has(entry.id) ||
+              (!entry.launched && entry.name !== repository.name),
+          );
+          if (adopted.length >= REPOSITORY_LIMIT) {
+            effects.atCapacity = true;
+            throw new ControlError("capacity");
+          }
+          const approved = add
+            ? [
+                ...scope.approved.filter(({ name }) => name !== repository.name),
+                { name: repository.name, identity: repository.identity },
+              ]
+            : scope.approved;
+          adopted.push({
+            id,
+            name: repository.name,
+            identity: repository.identity,
+            launched: true,
+          });
+          return { ...scope, approved, adopted };
+        });
       }, authorize);
+      await operations.finish(actor, operation.operationId, "running", "intent");
+      await recheck();
+      const actualId = await this.host.launch(
+        input,
+        repository,
+        actor.terminalId,
+        recheck,
+        authorize,
+        {
+          terminalId: id,
+          spawning: () => {
+            effects.spawnDispatched = true;
+          },
+          binding: (boundId) => {
+            if (boundId !== id) throw new ControlError("conflict");
+            this.bindingReports.set(id, { repository: repository.path, authorize });
+          },
+        },
+      );
+      if (actualId !== id) throw new ControlError("conflict");
+      authorize();
       this.changed();
-      resultId = id;
+      launched = true;
     } catch {
       // The spawn boundary determines whether the launch can have taken effect.
     } finally {
-      if (effects.bindingId !== undefined) this.bindingReports.delete(effects.bindingId);
+      this.bindingReports.delete(id);
+      this.launching.delete(id);
     }
-    if (resultId !== undefined)
-      return operations.finish(actor, operation.operationId, "succeeded", "completed", resultId);
+    if (launched)
+      return operations.finish(actor, operation.operationId, "succeeded", "completed", id);
+    if (effects.spawnDispatched)
+      return operations.finish(actor, operation.operationId, "indeterminate", "uncertain", id);
     return operations.finish(
       actor,
       operation.operationId,
-      effects.spawnDispatched ? "indeterminate" : "failed",
-      effects.spawnDispatched ? "uncertain" : "refused",
+      "failed",
+      effects.atCapacity ? "dispatcher_capacity" : "refused",
     );
   }
 

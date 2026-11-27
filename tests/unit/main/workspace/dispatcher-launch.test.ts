@@ -26,7 +26,7 @@ const launchRequest: DispatcherLaunch = {
   idempotencyKey: "launch",
   prompt: "Review the release.",
 };
-const lifecycle = { spawning() {}, binding() {} };
+const lifecycle = { terminalId: "orchestrator", spawning() {}, binding() {} };
 
 test("dispatcher launches use the ordinary orchestrator slot and recheck scope before spawn", async () => {
   scans.current = {
@@ -36,7 +36,7 @@ test("dispatcher launches use the ordinary orchestrator slot and recheck scope b
   const workspace = createWorkspace();
   const verify = vi.fn(() => Promise.resolve());
   const active = vi.fn();
-  const launchLifecycle = { spawning: vi.fn(), binding: vi.fn() };
+  const launchLifecycle = { ...lifecycle, spawning: vi.fn(), binding: vi.fn() };
   launch.mockImplementationOnce(async (request) => {
     await request.prepareSpawn?.();
     request.beforeSpawn?.();
@@ -62,6 +62,7 @@ test("dispatcher launches use the ordinary orchestrator slot and recheck scope b
     expect.objectContaining({
       repository: repo.path,
       worktree: repo.path,
+      terminalId: "orchestrator",
       automated: true,
       localOnly: true,
       prompt: launchRequest.prompt,
@@ -94,7 +95,7 @@ test("a failed launch releases an orchestrator slot already bound for startup", 
       "dispatcher",
       () => Promise.resolve(),
       vi.fn(),
-      lifecycle,
+      { ...lifecycle, terminalId: "failed" },
     ),
   ).rejects.toThrow("Launch failed");
   expect(workspace.orchestration.active(repo.path)).toBeUndefined();
@@ -230,7 +231,7 @@ test.each([
         "dispatcher",
         async () => {},
         () => {},
-        lifecycle,
+        { ...lifecycle, terminalId: "remote" },
       );
       await workspace.exited("remote", 0);
       expect(workspace.orchestration.view("remote")).toMatchObject({
@@ -370,7 +371,11 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
       }),
     ).rejects.toThrow("not_found");
     projectIdentity = (await workspace.dispatcherHost.repository(source, "project")).identity;
+    let orchestratorId: string | undefined;
     launch.mockImplementationOnce(async (request) => {
+      const id = request.terminalId;
+      if (!id) throw new Error("Missing reserved orchestrator ID");
+      orchestratorId = id;
       await request.prepareSpawn?.();
       request.beforeSpawn?.();
       const grant = await prepareControl?.(
@@ -380,8 +385,8 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
         request.control,
       );
       if (!grant?.remoteCall) throw new Error("Missing orchestrator relay");
-      grant.bind("early-orchestrator");
-      expect(workspace.orchestration.active(project)).toBe("early-orchestrator");
+      grant.bind(id);
+      expect(workspace.orchestration.active(project)).toBe(id);
       const identity = await grant.remoteCall("whoami", {});
       if (identity.type !== "identity") throw new Error("Missing relay identity");
       expect(identity.capabilities).toContain("handoff");
@@ -392,7 +397,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
       });
       if (result.type !== "orchestrator-result") throw new Error("Startup handoff failed");
       expect(result.payload).toContain('"seq":1');
-      return { id: "early-orchestrator", attention: "evaluator" };
+      return { id, attention: "evaluator" };
     });
     const endpoint = sourceEnv?.["FOOM_CONTROL_URL"];
     if (!endpoint) throw new Error("Missing source endpoint");
@@ -409,10 +414,10 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
         params: { ...launchRequest, repo: "project" },
       }),
     });
-    expect(await response.json()).toMatchObject({
-      result: { status: "succeeded", resultId: "early-orchestrator" },
-    });
-    expect(workspace.orchestration.handoffs.latest("early-orchestrator")).toMatchObject({ seq: 1 });
+    const receipt: unknown = await response.json();
+    if (!orchestratorId) throw new Error("Missing launched orchestrator ID");
+    expect(receipt).toMatchObject({ result: { status: "succeeded", resultId: orchestratorId } });
+    expect(workspace.orchestration.handoffs.latest(orchestratorId)).toMatchObject({ seq: 1 });
     await workspace.demoteDispatcher("dispatcher");
     expect(workspace.snapshot().terminals[0]?.dispatcher).toBeUndefined();
   } finally {

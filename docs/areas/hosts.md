@@ -1129,10 +1129,14 @@ the repository orchestrator slot, including when placement is remote. The
 dispatcher revalidates the source checkout proof after provider discovery and
 again at clone dispatch. The remote agent prepares the main checkout,
 validates its configured origin
-and confirms its identity before spawning. The SSH stdio relay exposes only
+and confirms its identity before spawning. The wire session context carries
+the remote host's checkout paths. The SSH stdio relay exposes only
 the current repository orchestrator's control calls through a per-launch
 private endpoint. Bounded `wait_for` calls can wait up to 30 seconds, with spare
-time for the relay and private socket to return the result.
+time for the relay and private socket to return the result. Worktree creation,
+launch and review calls have deadlines that cover bounded checkout preparation
+and launch phases. Each connection remembers up to 64 timed-out calls for ten
+minutes and discards their late replies.
 `foom call METHOD --params JSON` provides a fallback on that host.
 After the orchestrator exits, **Resume conversation** and **New conversation
 here** start a human-owned agent in the same repository on that host. The

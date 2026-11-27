@@ -19,6 +19,7 @@ export interface DispatcherLaunch {
 
 /** Main-only boundaries for a dispatcher launch. */
 export interface DispatcherLaunchLifecycle {
+  readonly terminalId: string;
   spawning(): void;
   binding(id: string): void;
 }

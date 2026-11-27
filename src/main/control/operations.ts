@@ -6,6 +6,8 @@ import type { Action, Operation, Principal, Reason, Status, StoredOperation } fr
 
 function failureDetail(reason: Reason): { detail?: string } {
   if (reason === "origin-auth") return { detail: launchReasons[reason] };
+  if (reason === "dispatcher_capacity")
+    return { detail: "The dispatcher has reached its limit of 128 retained orchestrators." };
   const entry = Object.entries(removalReasons).find(([code]) => code === reason);
   return entry ? { detail: entry[1] } : {};
 }
@@ -163,6 +165,7 @@ export class Operations {
         "revoked",
         "uncertain",
         "error",
+        "dispatcher_capacity",
         ...Object.keys(removalReasons),
         ...Object.keys(launchReasons),
       ].includes(reason)

@@ -2,10 +2,11 @@ import type * as os from "node:os";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 import type { HostResult } from "../../../../src/shared/registered-hosts.d";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
-import { hostDiscovery } from "../../../../src/terminal-host/remote/agent-discovery";
+import { hostDiscovery, hostProbe } from "../../../../src/terminal-host/remote/agent-discovery";
 import type { TerminalTelemetry } from "../../../../src/shared/desktop";
 import { endpointRequest } from "../../../../src/terminal-host/remote/agent-endpoint";
 import { record } from "../../../../src/shared/remote-agent-protocol";
+import { HOST_MANAGEMENT_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
 import { createConnection, type Socket } from "node:net";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -109,6 +110,7 @@ beforeEach(async () => {
   mock.tail.mockResolvedValue(["tail"]);
   mock.screen.mockResolvedValue({ lines: ["screen"], title: "shell", cols: 80, rows: 24 });
   mock.shutdown.mockResolvedValue(undefined);
+  vi.mocked(hostProbe).mockResolvedValue("[]");
 });
 afterEach(async () => {
   for (const socket of clients.splice(0)) socket.destroy();
@@ -908,6 +910,75 @@ test.skipIf(process.platform === "win32")(
       state: "gone",
     });
     expect(mock.create).toHaveBeenCalledOnce();
+  },
+);
+
+test.skipIf(process.platform === "win32").each([
+  { method: "create_worktree", expires: false },
+  { method: "review", expires: false },
+  { method: "launch", expires: false },
+  { method: "sessions", expires: false },
+  { method: "sessions", expires: true },
+])(
+  "remote orchestrator relay handles a slow $method reply (expired: $expires)",
+  async ({ method, expires }) => {
+    vi.useFakeTimers({ toFake: ["performance", "setTimeout", "clearTimeout"] });
+    await start();
+    const c = await client();
+    const id = "orchestrator";
+    const origin = "https://example.test/project.git";
+    vi.mocked(hostProbe).mockResolvedValue(origin);
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      profile: "f".repeat(32),
+      id,
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        agent: "claude",
+        repository: "/remote/repo",
+        worktree: "/remote/repo",
+        defaults: [],
+        hooks: false,
+        orchestratorOrigin: origin,
+      },
+    });
+    await c.wait(2);
+    c.send({ type: "agent-start", id });
+    await c.wait(4);
+    const created: unknown = mock.create.mock.calls[0]?.[0];
+    if (!record(created) || !record(created["env"])) throw new Error("Missing launch environment");
+    const env: NodeJS.ProcessEnv = {};
+    for (const [name, value] of Object.entries(created["env"]))
+      if (typeof value === "string") env[name] = value;
+    c.send({ type: "agent-activate", id });
+    const params =
+      method === "create_worktree" ? { branch: "feature", idempotencyKey: "create" } : {};
+    const pending = endpointRequest("/call", { method, params }, env).catch(
+      (error: unknown) => error,
+    );
+    await c.wait(5);
+    const call = c.messages[4];
+    if (!remoteResponse(call) || call.type !== "agent-call") throw new Error("Missing relay call");
+    await vi.advanceTimersByTimeAsync(
+      method === "create_worktree" ? 2 * HOST_MANAGEMENT_TIMEOUT_MS : 10001,
+    );
+    const result = { type: "orchestrator-result", payload: '{"status":"succeeded"}' } as const;
+    if (method === "sessions")
+      expect(await pending).toEqual({ type: "error", error: "unavailable" });
+    if (expires) await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    c.send({ type: "agent-reply", id, call: call.call, result });
+    c.send({ type: "screen", id, request: 2 });
+    if (method !== "sessions") expect(await pending).toEqual(result);
+    const attached = await Promise.race([
+      c.wait(6).then(() => true),
+      once(c.socket, "close").then(() => false),
+    ]);
+    expect(attached).toBe(!expires);
+    if (!expires) expect(c.messages[5]).toMatchObject({ type: "result", id, request: 2 });
   },
 );
 

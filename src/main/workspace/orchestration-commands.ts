@@ -218,6 +218,7 @@ export async function launchOrchestrator(
           undefined,
           {
             automated: true,
+            terminalId: lifecycle.terminalId,
             ...(remote ? { remoteOrchestrator: remote } : {}),
             control: {
               role: "orchestrator",

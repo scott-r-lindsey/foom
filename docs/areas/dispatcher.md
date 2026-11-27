@@ -39,8 +39,11 @@ agent-supplied reason is untrusted plain text.
 **Allow once** authorizes the bound launch. **Allow and add to dispatcher repos**
 commits the repository identity and authorizes the launch. **Don't launch**
 resolves the question. Main reserves the idempotency key and durable operation
-intent before acting. A rejection before the PTY spawn boundary reports failure.
-An error after spawn dispatch can report an indeterminate outcome. Authorization
+intent before acting. Main saves the reserved terminal ID in the adoption scope
+before dispatching the PTY spawn. The scope holds up to 128 orchestrator handles,
+including retained exited sessions and in-flight launches. When full it refuses
+the launch with a failed `dispatcher_capacity` receipt. An error after spawn
+dispatch can report an indeterminate outcome with the reserved terminal ID. Authorization
 ends on demotion or process exit, including if the demotion save fails after exit.
 If the source exits while elevation is being saved, main rolls back the scope
 and releases the directory slot. A failed grant write leaves unattempted
