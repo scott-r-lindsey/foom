@@ -68,20 +68,19 @@ The wrapper passes `--test-concurrency=1` explicitly: feature files run serially
 within each job, preserving native desktop/focus behavior. Shards within a
 platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
-The shard planner inventories named registrations, including generated cases,
-without invoking test bodies. The runner checks CommonJS syntax with Node and
-derives registrations from the shard helper, literal data and synchronous
-`describe` callbacks. It can follow a helper that re-exports `describe` and match
-the test name together with its ancestors. Literal arrays and their pure
-`map` and `flatMap` transformations can generate case names. Discovery reads
-fixture helper sources and checks their module-scope initialization before
-using their exports. Test bodies and fixture modules do not execute in
-selection.
-Unsupported initialization, worker-dependent registrations, syntax errors, and
-ambiguous patterns defer selection to the full inventory. A measured shard
-also keeps the full inventory when it can receive a hash-assigned case, when
-a suite has nested registrations, or when the plan cannot be reconciled with
-the proven names. An explicit `--suite` keeps the requested file list. Empty
+The runner, shard planner and inventory audit share registration discovery.
+A Node test worker loads suite modules and their helpers, builds synchronous
+`describe` groups and records the resulting test tree. Node resolves argument
+overloads, validates registration options and applies name patterns to tests
+and their ancestry. Discovery suppresses test bodies and hooks. It keeps
+a content-hash cache for repeated queries within the same process.
+
+The selector retains files with uncertain discovery results, including suite
+load and registration errors. Measured shards retain the full inventory when
+they receive a hash-assigned case. For each full CI shard layout, the audit
+checks that at least one shard loads each suite file. A locally narrowed run
+can skip unrelated suite files, so CI provides coverage of loading the full
+inventory. An explicit `--suite` keeps the requested file list. Empty
 files can appear as Node runner placeholders and do not count toward the
 focused pass total.
 

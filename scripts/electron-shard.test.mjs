@@ -1,6 +1,6 @@
-import { discoverStaticRegistrations } from "./electron-registration.mjs";
+import { discoverPlannedTests, discoverRegistrations } from "./electron-registration.mjs";
 import { selectAffected } from "./electron-affected.mjs";
-import { discoverRegistrations, selectSuiteFiles } from "./electron-selection.mjs";
+import { selectSuiteFiles } from "./electron-selection.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
@@ -9,7 +9,7 @@ import { cpSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 test("Electron shards register every test exactly once, preserve filtering and reject invalid shards", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-#-"));
@@ -19,11 +19,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
     // Collect actual registrations in every discovered suite, including generated
     // cases, without invoking a test body or launching Electron/agent fixtures.
     const inventory = suiteFiles();
-    const registrations = discoverRegistrations(inventory);
-    assert.deepEqual(
-      new Map(discoverStaticRegistrations(inventory).map(({ name, file }) => [name, file])),
-      registrations,
-    );
+    const registrations = discoverPlannedTests(inventory);
     for (const [name, file] of [
       ["agent discovery uses the fixture login shell and controlled PATH", "harness.test.js"],
       [
@@ -43,6 +39,36 @@ test("Electron shards register every test exactly once, preserve filtering and r
       readFileSync(new URL("../tests/electron/shard-plan.json", import.meta.url), "utf8"),
     );
     const discoveredFiles = inventory.map((file) => path.basename(file));
+    for (const count of new Set([1, ...Object.values(plan.shardCounts)])) {
+      const loaded = new Set();
+      const registered = [];
+      for (let index = 1; index <= count; index++) {
+        const shard = `${index}/${count}`;
+        const selected = selectSuiteFiles(inventory, { shard, patterns: [] });
+        const discovered = discoverRegistrations(inventory, { shard });
+        for (const file of selected) {
+          loaded.add(file);
+          const entry = discovered.get(file);
+          assert.ok(
+            entry?.registrations,
+            `Cannot inventory ${path.basename(file)} on shard ${shard}`,
+          );
+          for (const { name, sharded } of entry.registrations) {
+            if (sharded) registered.push(name);
+          }
+        }
+      }
+      assert.deepEqual(
+        registered.sort(),
+        [...suiteNames].sort(),
+        `Registrations at ${count} shards`,
+      );
+      assert.deepEqual(
+        inventory.filter((file) => !loaded.has(file)),
+        [],
+        `Unloaded suites at ${count} shards`,
+      );
+    }
     const previewSuites = selectAffected(["src/renderer/preview/markdown.ts"]).suites;
     const terminalSuites = selectAffected(["src/renderer/terminal/shell-controller.ts"]).suites;
     for (const [original, replacements] of Object.entries(plan.suiteSplits)) {
@@ -199,25 +225,22 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const suiteDirectory = path.join(directory, "tests/electron");
   const scripts = path.join(directory, "scripts");
-  const compiler = path.join(directory, "node_modules/typescript");
-  for (const folder of [suiteDirectory, scripts, compiler]) mkdirSync(folder, { recursive: true });
-  writeFileSync(
-    path.join(compiler, "index.js"),
-    `module.exports = require(${JSON.stringify(fileURLToPath(import.meta.resolve("typescript")))});`,
-  );
+  for (const folder of [suiteDirectory, scripts]) mkdirSync(folder, { recursive: true });
   for (const name of ["shard-assignment.js", "test-shard.js"])
     cpSync(new URL(`../tests/electron/${name}`, import.meta.url), path.join(suiteDirectory, name));
   const selector = path.join(scripts, "electron-selection.mjs");
   cpSync(new URL("./electron-selection.mjs", import.meta.url), selector);
-  cpSync(
-    new URL("./electron-registration.mjs", import.meta.url),
-    path.join(scripts, "electron-registration.mjs"),
-  );
+  for (const name of ["electron-registration.mjs", "electron-registration-worker.cjs"]) {
+    cpSync(new URL(name, import.meta.url), path.join(scripts, name));
+  }
   writeFileSync(
     path.join(suiteDirectory, "shard-plan.json"),
     JSON.stringify({ shards: { 2: [{ first: [] }, { second: [] }] } }),
   );
   const { selectSuiteFiles: select } = await import(pathToFileURL(selector).href);
+  const { discoverRegistrations: discover, discoverPlannedTests: planTests } = await import(
+    pathToFileURL(path.join(scripts, "electron-registration.mjs")).href
+  );
   const first = path.join(suiteDirectory, "first.test.cjs");
   const second = path.join(suiteDirectory, "second.test.cjs");
   const files = [first, second];
@@ -273,7 +296,14 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
       );
     }
     assert.deepEqual(passed.sort(), ["first", "second", workerOnlyName]);
-    assert.deepEqual(selections, [files, files]);
+    assert.deepEqual(selections[bucket], files);
+    assert.deepEqual(selections[1 - bucket], [otherFile]);
+    assert.equal(planTests(files).get(workerOnlyName), otherFile);
+    assert.deepEqual(runWorker("1/1", [`^${workerOnlyName}$`]).selected, [otherFile]);
+    // Changing just a dependency invalidates the inventory for the same files.
+    writeFileSync(path.join(suiteDirectory, "cases.cjs"), 'module.exports = ["updated case"];');
+    assert.equal(planTests(files).get("updated case"), otherFile);
+    assert.ok(!planTests(files).has(workerOnlyName));
   });
 
   await context.test("focused filters match a child through an imported describe", () => {
@@ -286,6 +316,13 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     );
     // The flat match would let bare-name discovery narrow away the nested match.
     writeFileSync(second, binding + 'test("group child", () => {});');
+    assert.equal(planTests(files).get("child"), first);
+    assert.deepEqual(
+      discover([first])
+        .get(first)
+        .registrations.map(({ fullName }) => fullName),
+      ["group", "group child"],
+    );
     const focused = runWorker("1/1", ["^group child$"]);
     assert.match(focused.output, /^\s+ok \d+ - child$/m);
     assert.match(focused.output, /^ok \d+ - group child$/m);
@@ -301,6 +338,77 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
       assert.match(matching.output, /^\s+ok \d+ - child$/m);
     }
   });
+
+  await context.test("ES module helpers see each suite's worker argv", () => {
+    writeFileSync(
+      path.join(suiteDirectory, "case.mjs"),
+      'import { basename } from "node:path"; export const name = basename(process.argv[1]);',
+    );
+    for (const file of files) {
+      writeFileSync(file, binding + 'test(require("./case.mjs").name, () => {});');
+    }
+    assert.deepEqual([...planTests(files).keys()], ["first.test.cjs", "second.test.cjs"]);
+    assert.deepEqual(runWorker("1/1", ["^second[.]test[.]cjs$"]).selected, [second]);
+  });
+
+  await context.test(
+    "Node chooses the suite callback and validates hooks without running them",
+    () => {
+      writeFileSync(
+        first,
+        binding +
+          `
+      const { describe, before, after, beforeEach, afterEach } = require("node:test");
+      describe("group", () => {
+        for (const hook of [before, after, beforeEach, afterEach]) {
+          hook(() => { throw Error("hook executed during discovery"); });
+        }
+        test("real child", () => { throw Error("test body executed during discovery"); });
+      }, () => { throw Error("wrong callback executed"); });
+    `,
+      );
+      writeFileSync(second, binding + 'test("other", () => {});');
+      assert.deepEqual(
+        discover([first])
+          .get(first)
+          .registrations.map(({ fullName }) => fullName),
+        ["group", "group real child"],
+      );
+      assert.equal(planTests(files).get("real child"), first);
+      assert.deepEqual(select(files, { patterns: ["^group real child$"] }), [first]);
+    },
+  );
+
+  for (const [regression, source, error] of [
+    [
+      "invalid options fail during registration",
+      'test("second", { timeout: -1 }, () => {});',
+      /options\.timeout/,
+    ],
+    [
+      "invalid destructuring fails during module initialization",
+      'const { attribute } = undefined; test("other", () => attribute);',
+      /Cannot destructure/,
+    ],
+    [
+      "a failing synchronous describe stays uncertain",
+      'const { describe } = require("node:test"); describe("group", () => { throw Error("building group failed"); });',
+      /building group failed/,
+    ],
+  ]) {
+    await context.test(regression, () => {
+      writeFileSync(first, binding + 'test("first", () => {});');
+      writeFileSync(second, binding + source);
+      assert.match(discover(files).get(second).error, error);
+      assert.throws(() => planTests(files), error);
+      assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files);
+      if (regression !== "a failing synchronous describe stays uncertain") {
+        const focused = runWorker("1/1", ["^first$"], files, 1);
+        assert.deepEqual(focused.selected, files);
+        assert.match(focused.output, error);
+      }
+    });
+  }
 
   await context.test("a syntax error in a nonmatching suite reaches the worker", () => {
     writeFileSync(first, binding + 'test("keep me", () => {});');

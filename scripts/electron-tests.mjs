@@ -292,12 +292,12 @@ const explicitFiles = packaged
   : [...new Set(selectedSuites)].sort();
 let files = explicitFiles;
 if (files.length === 0) {
-  files =
-    process.env.NODE_OPTIONS === undefined
-      ? selectSuiteFiles(inventory, { shard: process.env.FOOM_ELECTRON_SHARD, patterns })
-      : inventory;
+  const start = performance.now();
+  files = selectSuiteFiles(inventory, { shard: process.env.FOOM_ELECTRON_SHARD, patterns });
   if (files.length < inventory.length)
-    console.info(`Electron test selection: ${files.length} of ${inventory.length} suite files.`);
+    console.info(
+      `Electron test selection: ${files.length} of ${inventory.length} suite files. Selection took ${Math.round(performance.now() - start)} ms.`,
+    );
 }
 const result = spawnSync(
   process.execPath,

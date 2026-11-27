@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { suiteFiles } from "../tests/electron/test-suites.js";
-import { discoverRegistrations } from "./electron-selection.mjs";
+import { discoverPlannedTests } from "./electron-registration.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 // The setup allowances are measured step wall time minus JUnit case time.
@@ -249,7 +249,7 @@ function main(args) {
   }
   const planPath = resolve(root, "tests/electron/shard-plan.json");
   const old = JSON.parse(readFileSync(planPath, "utf8"));
-  const names = [...discoverRegistrations(suiteFiles()).keys()];
+  const names = [...discoverPlannedTests(suiteFiles()).keys()];
   const counts = old.platforms.map((platform) => old.shardCounts[platform]);
   const sourceCounts = measurementCounts(
     sources,
