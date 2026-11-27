@@ -4,6 +4,7 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
+const { existsSync } = require("node:fs");
 const {
   mkdir,
   rename,
@@ -187,11 +188,12 @@ process.stdin.resume();
   );
   const pids = path.join(root, "ssh-pids");
   const slowClose = path.join(root, "slow-close");
+  const slowCloseReached = path.join(root, "slow-close-reached");
   await writeFile(
     path.join(bin, "ssh"),
     `#!${process.execPath}
 const {spawn} = require('node:child_process');
-const {appendFileSync, existsSync, watch} = require('node:fs');
+const {appendFileSync, existsSync, watch, writeFileSync} = require('node:fs');
 const args = process.argv.slice(2); const split = args.indexOf('--');
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
 if (args[split+1] !== 'fixture-agents') process.exit(2);
@@ -205,6 +207,7 @@ const gate = ${JSON.stringify(slowClose)};
 if (!existsSync(gate)) connect();
 else {
   const watcher = watch(require('node:path').dirname(gate), ready);
+  writeFileSync(${JSON.stringify(slowCloseReached)}, '');
   function ready() {
     if (existsSync(gate)) return;
     watcher.close();
@@ -582,8 +585,8 @@ else {
   assert.equal((await call("session_state", { id })).reason, "remote_host_unreachable");
   process.kill(resumed.pid, 0);
   await rename(path.join(bin, "ssh-hidden"), path.join(bin, "ssh"));
-  await writeFile(slowClose, "hold connection until close is observed");
   await measureClose(app, page, id);
+  await writeFile(slowClose, "hold connection until close is observed");
   const closeStarted = Date.now();
   const closing = settle("close", { id, idempotencyKey: "close-after-restart" });
   let hiddenMs;
@@ -591,6 +594,9 @@ else {
     await expect.poll(async () => (await row())?.closeState).toBe("closing");
     await expect(page.locator(`[data-drag-session="${id}"]`)).toHaveCount(0);
     hiddenMs = Date.now() - closeStarted;
+    await expect
+      .poll(() => existsSync(slowCloseReached), { message: "Fake SSH entered the close hold" })
+      .toBe(true);
     assert.equal((await call("session_state", { id })).closeState, "closing");
   } finally {
     await rm(slowClose);
