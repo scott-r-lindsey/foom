@@ -47,14 +47,18 @@ if (isChild) {
   process.on("uncaughtException", fixtureError);
   process.on("unhandledRejection", fixtureError);
   if (process.env.TEST_REVIEW_OUTPUT === "1") {
+    const outputGate = path.join(process.env.TEST_REVIEW_ROOT, "output.go");
     let bytes = 0;
     let draining = false;
     setInterval(() => {
-      if (draining) return;
+      if (draining || !fs.existsSync(outputGate)) return;
       const chunk = "Fixture output line\\r\\n".repeat(1024);
+      const previousBytes = bytes;
       bytes += Buffer.byteLength(chunk);
       if (!process.stdout.write(chunk)) { draining = true; process.stdout.once("drain", () => { draining = false; }); }
-      record("output-" + path.basename(process.cwd()), String(bytes));
+      if (previousBytes < 1024 * 1024 && bytes >= 1024 * 1024) {
+        record("output-" + path.basename(process.cwd()), String(bytes));
+      }
     }, 20);
   }
   const timer = setInterval(async () => {
@@ -119,8 +123,26 @@ for (const scenario of [
     timeout: deadline(90000),
     skip: process.platform === "win32" && "The fake agent is a POSIX script",
   }, async (context) => {
-    const { chmod, mkdir, readFile, rename, symlink, writeFile } = require("node:fs/promises");
+    const {
+      chmod,
+      mkdir,
+      readFile,
+      rename,
+      symlink,
+      unlink,
+      writeFile,
+    } = require("node:fs/promises");
     const { existsSync } = require("node:fs");
+    const started = performance.now();
+    const phase = (name) => {
+      if (scenario === "one-shot" || scenario === "concurrent") {
+        // Node buffers context.diagnostic until the case finishes. Keep the
+        // current phase in the job log even if the worker watchdog fires.
+        console.info(
+          `Review loop ${scenario} +${Math.round(performance.now() - started)}ms: ${name}`,
+        );
+      }
+    };
     const root = await mkdtemp(
       scenario === "concurrent"
         ? path.join(
@@ -188,6 +210,7 @@ for (const scenario of [
         TEST_REVIEW_RESTORE: ["concurrent", "restored-unread"].includes(scenario) ? "1" : "0",
       },
     };
+    phase("launch trusted parent");
     const {
       app,
       page,
@@ -201,6 +224,8 @@ for (const scenario of [
     const call = async (method, params = {}, error) => {
       const started = performance.now();
       let response;
+      const mutation = ["create_worktree", "launch", "review", "close"].includes(method);
+      if (mutation) phase(`start ${method}`);
       try {
         response = await fetch(parent.controlUrl, {
           method: "POST",
@@ -215,7 +240,7 @@ for (const scenario of [
           // five-second responsiveness read.
           // Await completion under the case deadline; reads/input retain their
           // short responsiveness bound as well as cancellation with the case.
-          signal: ["create_worktree", "launch", "review", "close"].includes(method)
+          signal: mutation
             ? context.signal
             : AbortSignal.any([context.signal, AbortSignal.timeout(deadline(5000))]),
         });
@@ -227,6 +252,7 @@ for (const scenario of [
       }
       context.diagnostic(`Control request ${method}: ${Math.round(performance.now() - started)}ms`);
       const body = await response.json();
+      if (mutation) phase(`complete ${method}`);
       if (error) {
         assert.equal(response.ok, false);
         assert.equal(body.error, error);
@@ -244,6 +270,7 @@ for (const scenario of [
       .getByRole("button", { name: /^Actions for/ })
       .click();
     await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+    phase("approve orchestrator");
     const confirmation = await approvalPage(app);
     await expect(
       confirmation.getByText(/Close its exited children, discarding their final screens/),
@@ -254,7 +281,16 @@ for (const scenario of [
     );
     await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
     // This fixture explicitly chooses its reviewer; production starts with no provider default.
-    await page.evaluate(() => window.desktop.saveSetup({ defaultAgent: "claude" }));
+    await page.evaluate(
+      (oneShot) =>
+        window.desktop.saveSetup({
+          defaultAgent: "claude",
+          // The detached review resolves its own PR. Start board observations
+          // once the retained checkouts and their CLOSED fixture are ready.
+          ...(oneShot ? { showPullRequests: false } : {}),
+        }),
+      scenario === "one-shot",
+    );
 
     const tree = await call("create_worktree", {
       ...(["binding", "unresolved"].includes(scenario)
@@ -331,20 +367,27 @@ for (const scenario of [
           assert.ok(performance.now() - start < deadline(5000));
         }
       };
+      const roundTripsUnderOutput = async (branches) => {
+        // Measure responsiveness with noisy PTYs, after checkout and launch
+        // return. Keep that load out of Git, startup and shutdown.
+        const gate = path.join(root, "output.go");
+        await writeFile(gate, "");
+        try {
+          phase("wait for sustained child output");
+          await expect
+            .poll(() => branches.every((branch) => existsSync(`${credentials}.output-${branch}`)))
+            .toBe(true);
+          phase("measure control responsiveness under child output");
+          await roundTrips();
+        } finally {
+          await unlink(gate);
+        }
+      };
       if (concurrent) {
-        await expect
-          .poll(async () => {
-            const files = (await require("node:fs/promises").readdir(root)).filter(
-              (name) => name.startsWith("credentials.json.output-") && !name.endsWith(".tmp"),
-            );
-            const sizes = await Promise.all(
-              files.map(async (file) => Number(await readFile(path.join(root, file), "utf8"))),
-            );
-            return sizes.filter((size) => size >= 1024 * 1024).length;
-          })
-          .toBe(count);
+        await roundTripsUnderOutput(["child-one", "child-initial-2", "child-initial-3"]);
+      } else {
+        await roundTrips();
       }
-      await roundTrips();
       if (!concurrent) {
         // Consume the background child placement before arranging the saved tiles.
         const childTile = page.locator(".terminal-tile").filter({
@@ -368,12 +411,18 @@ for (const scenario of [
           )
           .toBe(ids[0]);
       }
-      await quitAndWait(app, async () => {
-        await app.evaluate(({ app }) => app.quit());
-        await (await confirmationPage(app))
-          .getByRole("button", { name: "Stop all and quit" })
-          .click();
-      });
+      phase("quit initial app");
+      await quitAndWait(
+        app,
+        async () => {
+          await app.evaluate(({ app }) => app.quit());
+          await (await confirmationPage(app))
+            .getByRole("button", { name: "Stop all and quit" })
+            .click();
+        },
+        phase,
+      );
+      phase("launch restored app");
       const restored = await launchApp(context, { ...options, fixture: "restored" });
       const restoredPage = await boardPage(restored);
       await expect
@@ -389,6 +438,7 @@ for (const scenario of [
         )
         .toBe(count);
       const previousToken = parent.controlToken;
+      phase("wait for restored parent credentials and role");
       // The fixture records credentials before terminal creation finishes and
       // control.bind authenticates the grant. Readiness needs both a fresh
       // record and a successful request, before measuring responsiveness.
@@ -442,9 +492,17 @@ for (const scenario of [
       // Two new active loops beside the three restored/escalated loops must
       // also settle without resurrecting dormant automation.
       await launchMore("restored");
-      await roundTrips();
+      await roundTripsUnderOutput(["child-restored-2", "child-restored-3"]);
+      const currentRows = await rows(restoredPage);
       assert.equal(
-        (await rows(restoredPage)).filter(
+        currentRows.filter(
+          (row) =>
+            ids.slice(3).includes(row.id) && !row.dormant && row.review?.phase === "building",
+        ).length,
+        2,
+      );
+      assert.equal(
+        currentRows.filter(
           (row) =>
             ids.slice(0, 3).includes(row.id) && row.dormant && row.review?.reason === "restored",
         ).length,
@@ -463,14 +521,32 @@ for (const scenario of [
       }
       return errors;
     };
-    const waitStep = (step) =>
-      waitForFixtureRecord(
+    const waitStep = async (step) => {
+      phase(`wait for fixture ${step}`);
+      if (scenario === "one-shot") {
+        // These records are durable and atomically published. Observe their
+        // state under the assertion deadline so progress cannot depend on a
+        // directory notification or consume the rest of the case budget.
+        await expect
+          .poll(
+            async () => {
+              const errors = await fixtureErrors();
+              assert.deepEqual(errors, []);
+              return existsSync(`${credentials}.${step}`);
+            },
+            { message: `Fixture must publish ${step}` },
+          )
+          .toBe(true);
+        return;
+      }
+      await waitForFixtureRecord(
         `${credentials}.${step}`,
         ["hook-error", "handoff-error", "fixture-error", "unexpected-input"].map(
           (suffix) => `${credentials}.${suffix}`,
         ),
         context.signal,
       );
+    };
     const shot = async (name) => {
       await page.screenshot({
         path: evidencePath(`review-loop-${scenario}-${name}.png`),
@@ -513,6 +589,7 @@ for (const scenario of [
       });
       assert.equal(reviewed.status, "succeeded");
       await waitStep("review-1");
+      phase("inspect detached reviewer");
       const invocation = JSON.parse(await readFile(`${credentials}.review-1`, "utf8"));
       assert.ok(invocation.args.at(-1).includes("changes since commit " + headSha));
       assert.ok(invocation.args.at(-1).includes('"Check zero"'));
@@ -529,6 +606,7 @@ for (const scenario of [
         await writeFile(path.join(worktree, name, "output"), "review output");
       }
       await go("review-1", { review: { verdict: "clean" } });
+      phase("wait for detached reviewer handoff");
       await expect
         .poll(async () => (await call("session_state", { id: reviewed.resultId })).handoff?.status)
         .toBe("done");
@@ -536,6 +614,7 @@ for (const scenario of [
         verdict: "clean",
       });
       assert.deepEqual(await state(), before);
+      phase("stop detached reviewer");
       await call("stop", { id: reviewed.resultId, idempotencyKey: "stop-one-shot" });
       await expect
         .poll(async () => (await call("session_state", { id: reviewed.resultId })).state)
@@ -565,7 +644,7 @@ for (const scenario of [
       assert.equal(retained.length, 2);
       for (const checkout of retained)
         await writeFile(path.join(checkout.path, "review.txt"), "retained review evidence");
-      await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: false }));
+      phase("refresh closed PR status for retained checkouts");
       await writeFile(
         `${forgeState}.tmp`,
         JSON.stringify({
@@ -575,12 +654,18 @@ for (const scenario of [
       );
       await rename(`${forgeState}.tmp`, forgeState);
       await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
+      phase("wait for retained checkout approvals");
       const confirmation = await approvalPage(app);
+      // The previous dialog instance is reused. Wait for renderer focus before
+      // measuring and scrolling its removal buttons.
+      await expect(confirmation.locator(".approval-queue")).toBeVisible();
+      await expect.poll(() => confirmation.evaluate(() => document.hasFocus())).toBe(true);
       for (const checkout of retained)
         await expect(confirmation.getByText(checkout.path, { exact: true }).first()).toBeVisible();
       await expect(confirmation.getByText("review.txt", { exact: true })).toHaveCount(2);
       await expect(confirmation.locator(".approval-row")).toHaveCount(2);
       for (const checkout of retained) {
+        phase("approve retained checkout removal");
         const request = confirmation
           .locator(".approval-row")
           .filter({ has: confirmation.getByText(checkout.path, { exact: true }) });
@@ -592,6 +677,7 @@ for (const scenario of [
           }),
         );
       }
+      phase("wait for retained checkout removal");
       await expect.poll(() => retained.every((checkout) => !existsSync(checkout.path))).toBe(true);
       assert.equal(git("rev-parse", "--verify", "child-one").trim(), headSha);
       return;
