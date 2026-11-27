@@ -45,6 +45,7 @@ export class TrustedDialog {
         resolve: (answer: boolean, outcome: DialogOutcome) => void;
         activate: boolean;
         localOnly: boolean;
+        onCleanupResultsDismissed: (() => void) | undefined;
       }
     | undefined;
   private approvalFeed: DialogContent["approvalFeed"];
@@ -452,6 +453,7 @@ export class TrustedDialog {
         approvalFeed,
         localOnly,
         canPresent,
+        onCleanupResultsDismissed,
         ...renderContent
       } = content;
       this.prepare();
@@ -504,6 +506,7 @@ export class TrustedDialog {
           },
           activate,
           localOnly: localOnly === true,
+          onCleanupResultsDismissed,
         };
       });
       this.unsubscribe = feed?.subscribe(() => {
@@ -834,6 +837,8 @@ export class TrustedDialog {
   ): void {
     const pending = this.pending;
     if (!pending) return;
+    if (pending.request.presented && pending.request.cleanup?.progress.phase === "finished")
+      pending.onCleanupResultsDismissed?.();
     // Decide before hide() relinquishes native focus. Availability failures must
     // never activate the board, nor may an abort after the person switches apps.
     const restore =

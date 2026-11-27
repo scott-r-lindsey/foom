@@ -336,6 +336,9 @@ export function attachWorkspace(
           ...(request.subject !== undefined ? { subject: request.subject } : {}),
           worktrees: request.worktrees,
           ...(request.feed ? { feed: request.feed } : {}),
+          ...(request.onCleanupResultsDismissed
+            ? { onCleanupResultsDismissed: request.onCleanupResultsDismissed }
+            : {}),
           ...(guard
             ? {
                 canPresent: () => {

@@ -60,7 +60,10 @@ The review, including Forge context validation, reads Git membership without
 reconciling Foom's creation records. It presents a static, read-only dialog after
 the checks finish. Main checks that the same registration, checkout inventory and
 session eligibility still apply after the scan and again when the dialog leaves
-the presentation queue. Queued results also require the run ID that was opened.
+the presentation queue. Admission also reruns the local eligibility checks so
+changes to files can invalidate a queued review. Queued results require the run
+ID that was opened. Main consumes a checklist when a presented dialog displaying
+finished results closes.
 Only deletion uses a cleanup run, repository reservation and
 removal queue. Deletion approval always fetches afresh. Fetch operations are queued per
 repository, including background and explicit scans.

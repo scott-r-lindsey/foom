@@ -336,6 +336,7 @@ export function ConfirmationCard({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
   const [closeWhenCompleted, setCloseWhenCompleted] = useState(true);
+  const unfinishedCleanupShownRef = useRef(false);
   const closedIdRef = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [nowTick, setNowTick] = useState(Date.now);
@@ -465,11 +466,15 @@ export function ConfirmationCard({
   }, [requestId, wide, bounded, embedded]);
   useEffect(() => {
     const cleanup = request?.cleanup;
+    if (!request?.presented || !cleanup) return;
+    if (cleanup.progress.phase !== "finished") {
+      unfinishedCleanupShownRef.current = true;
+      return;
+    }
     if (
-      request &&
+      unfinishedCleanupShownRef.current &&
       closeWhenCompleted &&
-      cleanup?.stage === "run" &&
-      cleanup.progress.phase === "finished" &&
+      cleanup.stage === "run" &&
       !cleanup.error &&
       cleanup.progress.total > 0 &&
       cleanup.progress.items.filter((item) => item.state === "removed").length ===

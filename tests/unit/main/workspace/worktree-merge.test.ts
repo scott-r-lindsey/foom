@@ -854,6 +854,32 @@ describe("merged worktree containment", () => {
       await workspace.dispose();
     }
   });
+  it("drops a queued eligibility review when a tracked edit is restored", async () => {
+    const tree = await feature();
+    await git("merge", "--ff-only", "feature");
+    await remote();
+    await service.mergedDefault(repo);
+    const workspace = createWorkspace();
+    try {
+      const tracked = join(tree.path, "feature.txt");
+      await writeFile(tracked, "edited\n");
+      const review = await workspace.reviewMergedWorktrees(repo);
+      expect(review?.worktrees).toContainEqual({
+        id: "1",
+        branch: "feature",
+        reason: "uncommitted changes",
+      });
+      await writeFile(tracked, "feature\n");
+      expect((await workspace.reviewMergedWorktrees(repo))?.worktrees).toContainEqual({
+        id: "1",
+        branch: "feature",
+        reason: "eligible",
+      });
+      await expect(review?.canPresent()).resolves.toBe(false);
+    } finally {
+      await workspace.dispose();
+    }
+  });
   it("keeps managed checkout records when a read-only review consults the forge", async () => {
     const userData = join(temporary, "user-data");
     const lookup = vi.fn();

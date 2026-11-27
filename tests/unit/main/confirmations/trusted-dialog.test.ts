@@ -203,11 +203,16 @@ test.each([
     changed() {},
   });
   run.ready([]);
+  const onCleanupResultsDismissed = vi.fn();
+  run.failed();
   const actor = new AbortController();
   let result: boolean | undefined;
   let reservationHeld = true;
   const queued = dialog
-    .request({ title: "Delete merged worktrees", accept: "Delete", feed: run }, actor.signal)
+    .request(
+      { title: "Delete merged worktrees", accept: "Delete", feed: run, onCleanupResultsDismissed },
+      actor.signal,
+    )
     .then((answer) => {
       result = answer;
     })
@@ -237,7 +242,41 @@ test.each([
   expect(afterAbandonment).toEqual({ result: false, reservationHeld: false });
   expect(neverShown).toBe(0);
   expect(child.show).not.toHaveBeenCalled();
+  expect(onCleanupResultsDismissed).not.toHaveBeenCalled();
 });
+
+test.each(["before", "after"] as const)(
+  "closing a cleanup dialog only dismisses results that finished %s the close",
+  async (timing) => {
+    const dialog = setup();
+    const run = new CleanupRun({
+      fetch: () => Promise.resolve("base"),
+      remove: () => Promise.resolve(),
+      branches: () => Promise.resolve([]),
+      changed() {},
+    });
+    const onCleanupResultsDismissed = vi.fn();
+    try {
+      const result = dialog.request({
+        title: "Delete merged worktrees",
+        accept: "Delete",
+        feed: run,
+        onCleanupResultsDismissed,
+      });
+      const id = await shown();
+      expect(window().webContents.send.mock.calls.at(-1)?.[1]).not.toHaveProperty(
+        "onCleanupResultsDismissed",
+      );
+      if (timing === "before") run.failed();
+      answer(id, false);
+      if (timing === "after") run.failed();
+      await result;
+      expect(onCleanupResultsDismissed).toHaveBeenCalledTimes(timing === "before" ? 1 : 0);
+    } finally {
+      dialog.dispose();
+    }
+  },
+);
 
 test("a board renderer crash leaves an already presented trusted decision usable", async () => {
   const dialog = setup();

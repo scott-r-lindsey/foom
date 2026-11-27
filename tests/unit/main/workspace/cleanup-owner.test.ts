@@ -626,6 +626,7 @@ it("reuses a fresh plan, fetches on approval, retains locks through branch delet
   await f.owner.openMergedCleanup(repository, runId, (request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
     expect(request.feed.current().progress.phase).toBe("finished");
+    request.onCleanupResultsDismissed?.();
     return Promise.resolve(true);
   });
   expect(f.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);

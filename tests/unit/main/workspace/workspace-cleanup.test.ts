@@ -489,6 +489,7 @@ test("a canceled new cleanup preserves the hidden checklist and reopening it nee
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
     expect(request.feed.current().progress.phase).toBe("finished");
     expect(request.feed.current().progress.items[0]?.state).toBe("removed");
+    request.onCleanupResultsDismissed?.();
     return Promise.resolve(false);
   });
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
@@ -510,7 +511,10 @@ test("canceling a new cleanup does not restore results dismissed on another boar
     (request) => {
       if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
       expect(request.feed.current().progress.id).toBe(finished.id);
-      return dismiss.promise;
+      return dismiss.promise.then((answer) => {
+        request.onCleanupResultsDismissed?.();
+        return answer;
+      });
     },
   );
   await workspace.sidebarCommand(command, async (request) => {
@@ -523,6 +527,33 @@ test("canceling a new cleanup does not restore results dismissed on another boar
   });
   expect((await workspace.sidebarInventory()).repositories[0]?.cleanup).toBeUndefined();
   await workspace.dispose();
+});
+
+test("canceling a queued results dialog preserves the previous checklist when a replacement is canceled", async () => {
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+  const cancel = Promise.withResolvers<boolean>();
+  try {
+    await cleanupCommand(workspace, command, () => Promise.resolve(true));
+    const old = (await workspace.sidebarInventory()).repositories[0]?.cleanup;
+    if (!old?.id) throw new Error("Missing previous run");
+    const queued = workspace.sidebarCommand(
+      { ...command, kind: "open-merged-cleanup", runId: old.id },
+      () => cancel.promise,
+    );
+    await workspace.sidebarCommand(command, async () => {
+      // The second board has installed its run. The first board reloads before
+      // the dialog queue reaches the results, so it never calls canPresent.
+      cancel.resolve(false);
+      await queued;
+      return false;
+    });
+    expect((await workspace.sidebarInventory()).repositories[0]?.cleanup?.id).toBe(old.id);
+  } finally {
+    cancel.resolve(false);
+    await workspace.dispose();
+  }
 });
 
 test("a dismissed cleanup checklist cannot open a fresh deletion review from a stale board", async () => {
@@ -538,6 +569,7 @@ test("a dismissed cleanup checklist cannot open a fresh deletion review from a s
     await workspace.sidebarCommand(open, (request) => {
       if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
       expect(request.feed.current().progress.phase).toBe("finished");
+      request.onCleanupResultsDismissed?.();
       return Promise.resolve(false);
     });
     vi.mocked(deps.worktrees.mergedDefault).mockClear();

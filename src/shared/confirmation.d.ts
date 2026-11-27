@@ -98,6 +98,8 @@ export interface DialogContent {
   feed?: CleanupFeed;
   /** Recheck the request after it has waited for a trusted window. */
   canPresent?: () => boolean | Promise<boolean>;
+  /** Main-only receipt for dismissing a window that displayed finished cleanup. */
+  onCleanupResultsDismissed?: () => void;
   title: string;
   accept: string;
   cancel?: "Not now";
@@ -129,6 +131,7 @@ export interface DialogRequest
     DialogContent,
     | "feed"
     | "canPresent"
+    | "onCleanupResultsDismissed"
     | "removal"
     | "removalFeed"
     | "pluginFeed"
@@ -159,6 +162,7 @@ export type WorkspaceConfirmation =
       kind: "merged-worktrees";
       feed?: CleanupFeed;
       canPresent?: () => boolean;
+      onCleanupResultsDismissed?: () => void;
       worktrees: readonly { branch: string; reason?: string }[];
       subject?: string;
     }

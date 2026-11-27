@@ -1132,6 +1132,7 @@ async function zeroEligibilityFixture(
     app,
     page,
     unlock: () => git("worktree", "unlock", checkout),
+    restoreTracked: () => writeFile(path.join(checkout, "tracked.txt"), "original\n"),
     addLocked: (branch) => git("worktree", "add", "--lock", "-b", branch, path.join(root, branch)),
   };
 }
@@ -1227,6 +1228,10 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
   });
   assert.ok(saved.repository && saved.runId);
   await results.click();
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+    "eligibleremoved",
+  );
+  await confirmation.getByRole("button", { name: "Done", exact: true }).click();
   await expect
     .poll(
       async () =>
@@ -1299,6 +1304,41 @@ test("double-clicking zero eligible opens one merged cleanup review", async (con
       reads: 1,
       finished: true,
     });
+});
+
+test("a queued eligibility review is dropped when its tracked edit is restored", async (context) => {
+  const { app, page, restoreTracked } = await zeroEligibilityFixture(context, { dirty: true });
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+    const request = TrustedDialog.prototype.request;
+    globalThis.queuedEligibility = { reason: undefined, finished: false };
+    TrustedDialog.prototype.request = function (content, ...args) {
+      if (!content.worktreeEligibility) return request.call(this, content, ...args);
+      globalThis.queuedEligibility.reason = content.worktreeEligibility.find(
+        (row) => row.branch === "merged",
+      )?.reason;
+      void request.call(this, { title: "Fixture dialog", accept: "Continue" });
+      return request.call(this, content, ...args).finally(() => {
+        globalThis.queuedEligibility.finished = true;
+      });
+    };
+  });
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await page.getByRole("button", { name: "0 eligible to delete" }).click();
+  const confirmation = await confirmationPage(app);
+  const proceed = confirmation.getByRole("button", { name: "Continue", exact: true });
+  await expect(proceed).toBeVisible();
+  assert.equal(
+    await app.evaluate(() => globalThis.queuedEligibility.reason),
+    "uncommitted changes",
+  );
+  await restoreTracked();
+  await proceed.click();
+  await expect.poll(() => app.evaluate(() => globalThis.queuedEligibility.finished)).toBe(true);
+  await expect(confirmation.getByRole("list", { name: "Worktree eligibility" })).toHaveCount(0);
 });
 
 test("removing a repository drops its in-flight worktree eligibility review", async (context) => {

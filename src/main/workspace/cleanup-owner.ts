@@ -628,36 +628,56 @@ export class CleanupOwner {
     const registered = this.registrationGuard(repository);
     if (!registered()) return;
     const readInventory = () => this.deps.inventory(repository, { skipOwnership: true });
-    const review = async () => {
-      const trees = await readInventory();
-      if (!registered() || !trees.some((tree) => tree.path !== repository && !tree.bare)) return;
-      const key = await this.reviewInventoryKey(trees);
-      if (!registered()) return;
-      // Once approval starts draining readers, new reviews can only read membership.
-      const plan = this.cleanupRuns.get(repository)?.active
+    // Once approval starts draining readers, new reviews can only read membership.
+    const readPlan = (trees: readonly Worktree[]) =>
+      this.cleanupRuns.get(repository)?.active
         ? trees.map(
             (tree): CleanupCandidate => ({
               tree,
               reason: tree.path === repository || tree.bare ? "main checkout" : "unavailable",
             }),
           )
-        : await this.mergedPlan(
+        : this.mergedPlan(
             repository,
             () => this.deps.worktrees.lastFetchedDefault(repository),
             trees,
           );
-      const canPresent = async () => {
+    const reasons = (plan: readonly CleanupCandidate[]) =>
+      JSON.stringify(
+        plan.map(({ tree, reason }) => JSON.stringify([tree.host, tree.path, reason])).sort(),
+      );
+    const review = async () => {
+      const trees = await readInventory();
+      if (!registered() || !trees.some((tree) => tree.path !== repository && !tree.bare)) return;
+      const key = await this.reviewInventoryKey(trees);
+      if (!registered()) return;
+      const plan = await readPlan(trees);
+      const planReasons = reasons(plan);
+      const currentInventory = async () => {
+        const current = await readInventory().catch(() => undefined);
+        if (
+          current &&
+          registered() &&
+          (await this.reviewInventoryKey(current)) === key &&
+          registered()
+        )
+          return current;
+      };
+      const revalidate = async () => {
         if (!registered()) return false;
         try {
-          const current = await readInventory();
-          return registered() && (await this.reviewInventoryKey(current)) === key && registered();
+          const current = await currentInventory();
+          if (!current || !registered() || reasons(await readPlan(current)) !== planReasons)
+            return false;
+          return registered() && Boolean(await currentInventory()) && registered();
         } catch {
           return false;
         }
       };
-      if (!(await canPresent()) || !registered()) return;
+      if (!registered() || !(await currentInventory()) || !registered()) return;
       return {
-        canPresent,
+        // A queued dialog may outlive a file edit without any inventory changes.
+        canPresent: () => this.trackMergeScan(repository, revalidate()),
         worktrees: plan.map(({ tree, reason }, index) => ({
           id: String(index),
           branch:
@@ -732,19 +752,18 @@ export class CleanupOwner {
     // An already queued pre-approval dialog may still show a cancelled feed.
     // A request to reopen results belongs to the currently published run.
     const preApproval = !run.approved && run.pending;
-    const presentation = { stale: false };
+    const dismissal = { observed: false };
     await confirm({
       kind: "merged-worktrees",
       subject: basename(repository),
       worktrees: [],
       feed: run,
-      canPresent: () => {
-        presentation.stale =
-          !registered() || (!preApproval && this.cleanupRuns.get(repository) !== run);
-        return !presentation.stale;
+      canPresent: () => registered() && (preApproval || this.cleanupRuns.get(repository) === run),
+      onCleanupResultsDismissed: () => {
+        dismissal.observed = true;
       },
     });
-    if (!presentation.stale && !run.pending) {
+    if (dismissal.observed) {
       // Another board may already be preparing a replacement for these results.
       this.dismissedCleanupRuns.add(run);
       if (this.cleanupRuns.get(repository) === run) {
@@ -867,6 +886,7 @@ export class CleanupOwner {
           ? Promise.resolve(cached.plan)
           : this.mergedPlan(repository, () => this.deps.worktrees.mergedDefault(repository, true));
       if (cached?.plan && this.deps.now() < cached.expires) run.ready(cached.plan);
+      const dismissal = { observed: false };
       try {
         // Request presentation before awaiting network or filesystem checks.
         const answer = confirm({
@@ -875,6 +895,9 @@ export class CleanupOwner {
           worktrees: [],
           feed: run,
           canPresent: registered,
+          onCleanupResultsDismissed: () => {
+            dismissal.observed = true;
+          },
         });
         try {
           const plan = await prepare;
@@ -886,13 +909,12 @@ export class CleanupOwner {
         }
         if ((await answer) && registered()) run.act();
       } finally {
-        const reviewed = !run.pending;
         // Queued presentations can still hold this feed. Revoke its approval
         // action before releasing the repository reservation.
         run.cancelBeforeApproval();
         // Hide resolves presentation while approved removal may still be running.
         await run.settled();
-        if (this.cleanupRuns.get(repository) === run && (reviewed || !run.approved)) {
+        if (this.cleanupRuns.get(repository) === run && (dismissal.observed || !run.approved)) {
           if (!run.approved && existing && !this.dismissedCleanupRuns.has(existing))
             this.cleanupRuns.set(repository, existing);
           else this.cleanupRuns.delete(repository);
