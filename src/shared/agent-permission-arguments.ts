@@ -31,6 +31,10 @@ export function checkPermissionConflicts(model: AgentManifestV2, args: readonly 
     throw new ApplicationError("agent-permission-conflict");
 }
 
+export function sandboxBypassMatchers(model: AgentManifestV2) {
+  return model.bypassArguments.filter((matcher) => !matcher.approvalOnly);
+}
+
 export function applyPermissionArguments(
   model: AgentManifestV2,
   level: AgentPermissionLevel | undefined,
@@ -52,7 +56,8 @@ export function applyPermissionArguments(
     throw new ApplicationError("agent-permission-conflict");
   const permissionArgs = policy[level];
   if (!permissionArgs) throw new ApplicationError("agent-permission-unavailable");
-  if (matchesArguments(model.bypassArguments, permissionArgs) !== (level === "full"))
+  const bypassMatchers = level === "ask" ? model.bypassArguments : sandboxBypassMatchers(model);
+  if (matchesArguments(bypassMatchers, permissionArgs) !== (level === "full"))
     throw new Error("Invalid agent permission declaration.");
   return [...args.slice(0, index), ...permissionArgs, ...args.slice(index)];
 }

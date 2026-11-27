@@ -227,6 +227,11 @@ test("the immediately previous guide and schema are refreshable history", () => 
 test.each([
   { agent: "claude", name: "Claude Code", args: ["--permission-mode", "bypassPermissions"] },
   { agent: "claude", name: "Claude Code", args: ["--permission-mode=bypassPermissions"] },
+  ...["--ask-for-approval", "-a"].map((flag) => ({
+    agent: "codex" as const,
+    name: "Codex",
+    args: [flag, "never"],
+  })),
   ...["--sandbox", "-s"].map((flag) => ({
     agent: "codex" as const,
     name: "Codex",
