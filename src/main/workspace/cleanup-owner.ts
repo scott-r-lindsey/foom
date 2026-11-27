@@ -87,8 +87,6 @@ export class CleanupOwner {
     }
   >();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
-  // A review holds the reservation through settlement. It replaces the visible checklist on approval.
-  private readonly cleanupReviews = new Map<string, CleanupRun>();
   private readonly mergeScans = new Map<string, Set<Promise<void>>>();
   private readonly mergeEligibility = new Map<
     string,
@@ -388,10 +386,11 @@ export class CleanupOwner {
 
   async dispose(): Promise<void> {
     this.reviewOfferAbort.abort();
-    const reviews = [...this.cleanupReviews.values()];
-    for (const run of reviews) run.stop();
-    await Promise.all([...this.reviewOfferRuns, ...reviews.map((run) => run.settled())]);
-    this.cleanupReviews.clear();
+    for (const run of this.cleanupRuns.values()) run.stop();
+    await Promise.all([
+      ...this.reviewOfferRuns,
+      ...[...this.cleanupRuns.values()].map((run) => run.settled()),
+    ]);
     this.cleanupRuns.clear();
     this.mergeEligibility.clear();
   }
@@ -605,15 +604,11 @@ export class CleanupOwner {
   async deleteMerged(
     repository: string,
     confirm: ConfirmWorkspace,
-    target?: true | string,
+    startNew = false,
   ): Promise<void> {
     this.deps.known(repository);
-    const review = this.cleanupReviews.get(repository);
-    const checklist = this.cleanupRuns.get(repository);
-    const existing = typeof target === "string" ? checklist : (review ?? checklist);
-    if (typeof target === "string" && existing?.id !== target) return;
-    if (existing && (target !== true || review)) {
-      if (target === true && !existing.active) return;
+    const existing = this.cleanupRuns.get(repository);
+    if (existing && (existing.pending || !startNew)) {
       await confirm({
         kind: "merged-worktrees",
         subject: basename(repository),
@@ -638,7 +633,6 @@ export class CleanupOwner {
           return this.deps.worktrees.mergedDefault(repository, true);
         },
         changed: () => {
-          if (run.active) this.cleanupRuns.set(repository, run);
           this.deps.refresh();
         },
         branches: async (removed) => {
@@ -721,37 +715,33 @@ export class CleanupOwner {
           );
         },
       });
-      this.cleanupReviews.set(repository, run);
+      this.cleanupRuns.set(repository, run);
       const cached = this.mergeEligibility.get(repository);
       const prepare =
         cached?.plan && this.deps.now() < cached.expires
           ? Promise.resolve(cached.plan)
           : this.mergedPlan(repository, true);
       if (cached?.plan && this.deps.now() < cached.expires) run.ready(cached.plan);
-      let dismissed = false;
+      // Request presentation before awaiting network or filesystem checks.
+      const answer = confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: run,
+      });
       try {
-        // Request presentation before awaiting network or filesystem checks.
-        const answer = confirm({
-          kind: "merged-worktrees",
-          subject: basename(repository),
-          worktrees: [],
-          feed: run,
-        });
-        try {
-          run.ready(await prepare);
-        } catch {
-          run.failed();
-        }
-        if (await answer) run.act();
-        dismissed = !run.pending;
-      } finally {
-        // A queued presentation may still hold this feed after cancellation.
-        if (run.pending && !run.active) run.stop();
-        // Hide resolves presentation, but the repository reservation lasts through the run.
-        await run.settled();
-        this.cleanupReviews.delete(repository);
-        if (dismissed && this.cleanupRuns.get(repository) === run)
-          this.cleanupRuns.delete(repository);
+        run.ready(await prepare);
+      } catch {
+        run.failed();
+      }
+      if (await answer) run.act();
+      const reviewed = run.current().stage === "run" && !run.pending;
+      // Hide resolves presentation, but the repository reservation lasts through the run.
+      await run.settled();
+      const canceled = run.current().stage !== "run";
+      if (reviewed || canceled) {
+        if (canceled && existing) this.cleanupRuns.set(repository, existing);
+        else this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
     });
@@ -759,7 +749,7 @@ export class CleanupOwner {
 
   /** Never let remote discovery hold up local inventory or session publication. */
   private cachedMergeEligibility(repository: string, worktrees: readonly Worktree[]) {
-    if (this.cleanupReviews.get(repository)?.pending)
+    if (this.cleanupRuns.get(repository)?.pending)
       return this.mergeEligibility.get(repository)?.result ?? { canDeleteMerged: false };
     if (this.deps.closed() || !worktrees.some((tree) => tree.path !== repository && !tree.bare)) {
       this.mergeEligibility.delete(repository);

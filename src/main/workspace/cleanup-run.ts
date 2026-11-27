@@ -19,7 +19,7 @@ export interface CleanupCandidate {
 
 /** Main owns the lifetime; closing a presentation only unsubscribes it. */
 export class CleanupRun implements CleanupFeed {
-  readonly id = randomUUID();
+  private readonly id = randomUUID();
   private stage: CleanupDialog["stage"] = "checking";
   private listeners = new Set<() => void>();
   private plan: readonly CleanupCandidate[] = [];

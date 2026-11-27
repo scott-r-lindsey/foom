@@ -47,9 +47,7 @@ in-flight removals and starts no more; Hide and Escape close only the window.
 There is one run per repository. **Deleting merged worktrees** reopens the
 active checklist. **Cleanup results** reopens an undismissed finished checklist,
 even at zero eligible. When a fresh cleanup is available, it has its own menu
-entry. Canceling a fresh review or dismissing its initial fetch failure preserves
-any still-undismissed results. Finished runs offer **Done**. The sidebar shows
-the same count and queued, removing,
+entry. Finished runs offer **Done**. The sidebar shows the same count and queued, removing,
 removed, kept or error tags; a completion status reports the result when hidden.
 Removing uses the highlight, errors use failure ink, and reduced motion disables
 sweep and fold animations. Main checkouts, locked,
