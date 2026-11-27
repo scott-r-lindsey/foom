@@ -362,7 +362,9 @@ process.stdin.on('data', bytes => {
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
-  const held = settings.hold && (!settings.holdHost || settings.holdHost===host) && message.operation===(settings.hold===true?'inspect':settings.hold);
+  const held = settings.hold && (!settings.holdHost || settings.holdHost===host) &&
+    (settings.hold==='recipe-inspect' ? message.operation==='inspect' && !message.target :
+      message.operation===(settings.hold===true?'inspect':settings.hold));
   const heldClone = settings.holdClone && message.operation==='clone';
   if(held || heldClone) { appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message,phase:'held'})+'\\n'); const timer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if((!held || next.hold!==settings.hold) && (!heldClone || !next.holdClone)) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
  }
@@ -2345,6 +2347,113 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   await expect(gitRow).toContainText("Not found");
   await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
   await captureHosts(app, page, "1062/install-failed");
+});
+
+test("Hosts does not repeat Git install after a rejected post-install list", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, recipeCalls, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const reload = page.getByRole("button", { name: "Reload git", exact: true });
+  const gitRow = card.locator(".host-check-row").filter({ has: reload });
+  await install.click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const originalSteps = await readFile(recipeCalls, "utf8");
+  assert.equal(originalSteps.trim().split("\n").length, 2);
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await app.evaluate(({ app }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { Setup } = load("./build/main/setup/setup.js");
+      const hosts = Setup.prototype.hosts;
+      Setup.prototype.hosts = function (action) {
+        if (action.action === "list") {
+          Setup.prototype.hosts = hosts;
+          return Promise.reject(new Error("Fixture post-install list rejection"));
+        }
+        return hosts.call(this, action);
+      };
+    });
+    await updateScenario({
+      recipeExit: 0,
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    await expect(terminal.getByRole("status")).toHaveText("Done");
+    await expect(page.getByText("Unable to refresh tool", { exact: true })).toBeVisible();
+    const reply = await page.evaluate(async () => {
+      await window.desktop.hosts({ action: "list" });
+      return window.desktop.hosts({
+        action: "recipe",
+        host: "fixture-cloud",
+        tool: "git",
+        operation: "install",
+      });
+    });
+    assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
+    assert.equal(reply.recipeSession, undefined);
+    assert.equal(reply.recipeFailure, undefined);
+    await expect(install).toBeDisabled();
+    await expect(gitRow.getByRole("button", { name: "Reload git", exact: true })).toBeEnabled();
+    await expect(gitRow).not.toContainText("Checking…");
+    await gitRow.getByRole("button", { name: "Reload git", exact: true }).click();
+  } finally {
+    await releaseHostsView();
+  }
+  await expect(gitRow).toContainText("Pass · Installed");
+});
+
+test("Hosts refuses a second Git install before a running recipe exits", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  await install.click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const originalSteps = await readFile(recipeCalls, "utf8");
+  assert.equal(originalSteps.trim().split("\n").length, 2);
+  const enabledWhileRunning = await install.isEnabled();
+  await updateScenario({ hold: "recipe-inspect" });
+  await page.evaluate(() => {
+    globalThis.fixtureDuplicateGitInstall = window.desktop.hosts({
+      action: "recipe",
+      host: "fixture-cloud",
+      tool: "git",
+      operation: "install",
+    });
+    void globalThis.fixtureDuplicateGitInstall.then(() => {
+      globalThis.fixtureDuplicateSettled = true;
+    });
+  });
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => globalThis.fixtureDuplicateSettled === true)) ||
+        (await readFile(calls, "utf8"))
+          .trim()
+          .split("\n")
+          .some((line) => {
+            const { message, phase } = JSON.parse(line);
+            return phase === "held" && message.operation === "inspect" && !message.target;
+          }),
+    )
+    .toBe(true);
+  const exited = {
+    recipeExit: 0,
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  };
+  await updateScenario({ ...exited, hold: "recipe-inspect" });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await updateScenario(exited);
+  const reply = await page.evaluate(() => globalThis.fixtureDuplicateGitInstall);
+  assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
+  assert.equal(reply.recipeFailure, "recipe-unavailable");
+  assert.equal(enabledWhileRunning, false);
 });
 
 async function verifyGitReloadAfterSnapshotFailure(context, reopen) {

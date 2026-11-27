@@ -398,7 +398,12 @@ Settings → Hosts uses the Add → Check → Fix checklist described below.
 Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. Install opens the human-owned terminal inside its host card in
 Settings and the preflight rail. gh uses the device panel below. Agent sign-in
-opens under the relevant Settings row. The remote executable verifies a main-supplied
+opens under the relevant Settings row. Main reserves each host and tool from the
+start of an install request through terminal exit or removal and the scoped
+refresh. Concurrent requests for that host and tool are refused immediately.
+When a fresh preliminary inspection already reports the requested tool ready,
+a standalone Install saves the observed tool row and succeeds without launching
+a terminal. The remote executable verifies a main-supplied
 SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
 stops on the first failure. Every Debian install starts with fixed

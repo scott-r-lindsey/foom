@@ -95,6 +95,7 @@ const ReloadContext = createContext<
       saveFailed: ReadonlySet<string>;
       needsFullCheck: boolean;
       snapshotFailed: boolean;
+      installRunning: boolean;
     }
   | undefined
 >(undefined);
@@ -457,8 +458,11 @@ function Checklist({
       type="button"
       disabled={
         disabled ||
+        reload?.installRunning ||
         (operation === "install" &&
-          (reload?.snapshotFailed || reload?.pending.has(rowKey({ kind: "tool", tool: id })))) ||
+          (reload?.snapshotFailed ||
+            reload?.pending.has(rowKey({ kind: "tool", tool: id })) ||
+            reload?.failed.has(rowKey({ kind: "tool", tool: id })))) ||
         (id === "gh" && ghRunning) ||
         (signInTerminal?.tool === id && signInTerminal.running)
       }
@@ -894,6 +898,7 @@ export function HostsSettings({
   const [checkingHosts, setCheckingHosts] = useState<ReadonlySet<string>>(() => new Set());
   const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
+  const [rowFailed, setRowFailed] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [pendingInstallViews, setPendingInstallViews] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
   );
@@ -946,7 +951,11 @@ export function HostsSettings({
   };
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
-      const action = source.views && source.installs?.hostActions?.().get(id);
+      const action = source.installs?.hostActions?.().get(id);
+      const installKey =
+        action?.action === "recipe" && action.operation === "install"
+          ? `${action.host}:${rowKey({ kind: "tool", tool: action.tool })}`
+          : undefined;
       setRecipes((previous) => {
         for (const [key, recipe] of previous)
           if (recipe.id === id && recipe.installTool)
@@ -955,20 +964,16 @@ export function HostsSettings({
       });
       await api?.({ action: "list" })
         .then((next) => {
-          if (
-            action?.action === "recipe" &&
-            action.operation === "install" &&
-            next.viewRevision !== undefined
-          ) {
+          if (source.views && installKey && next.viewRevision !== undefined) {
             // A list reply acknowledges the refresh before a delayed view can show it.
-            const key = `${action.host}:${rowKey({ kind: "tool", tool: action.tool })}`;
             const revision = next.viewRevision;
-            setPendingInstallViews((previous) => new Map(previous).set(key, revision));
+            setPendingInstallViews((previous) => new Map(previous).set(installKey, revision));
           }
           setState(next);
           setChecks(new Map());
         })
         .catch(() => {
+          if (installKey) setRowFailed((previous) => new Map(previous).set(installKey, 0));
           setError("Unable to refresh tool");
         });
       setRecipes((previous) => {
@@ -1092,6 +1097,10 @@ export function HostsSettings({
       setExpanded((previous) => new Map(previous).set(action.host, true));
     }
     const target = "host" in action ? action.host : "";
+    const installKey =
+      action.action === "recipe" && action.operation === "install"
+        ? `${action.host}:${rowKey({ kind: "tool", tool: action.tool })}`
+        : undefined;
     const startedRename = renamedRef.current.get(target);
     setBusy((previous) => new Set(previous).add(target));
     let enrolling = action.action === "add";
@@ -1165,7 +1174,16 @@ export function HostsSettings({
           ),
         );
       }
-      if (next.recipeFailure) setError("Recipe unavailable for this host");
+      if (next.recipeFailure) {
+        if (installKey) setRowFailed((previous) => new Map(previous).set(installKey, 0));
+        setError("Recipe unavailable for this host");
+      } else if (installKey && !next.recipeSession && source.views) {
+        // A stale Install can succeed without a terminal. Wait for its saved row as well.
+        const saved = await api?.({ action: "list" });
+        const revision = saved?.viewRevision;
+        if (revision !== undefined)
+          setPendingInstallViews((previous) => new Map(previous).set(installKey, revision));
+      }
       if (action.action === "add" && next.hosts.some((entry) => entry.host === action.host)) {
         setAdding(false);
         setHost("");
@@ -1210,6 +1228,7 @@ export function HostsSettings({
       }
       if (next?.preflightSaveFailed && !source.views) setError("Unable to update hosts");
     } catch {
+      if (installKey) setRowFailed((previous) => new Map(previous).set(installKey, 0));
       if (enrolling) setAddError("Unable to add host");
       else setError("Unable to update hosts");
     } finally {
@@ -1221,7 +1240,6 @@ export function HostsSettings({
       if (enrolling) setAddBusy(false);
     }
   };
-  const [rowFailed, setRowFailed] = useState<ReadonlyMap<string, number>>(() => new Map());
   const reload = async (host: string, target: HostCheckTarget, sshRevision: number) => {
     clearRecipe(host);
     const key = `${host}:${rowKey(target)}`;
@@ -1576,6 +1594,7 @@ export function HostsSettings({
                   needsFullCheck:
                     (preflight?.result ?? entry.result)?.ok !== true || summary === "Not checked",
                   snapshotFailed,
+                  installRunning: !!recipe?.installTool && recipe.phase !== "finished",
                   saveFailed: new Set(
                     (entry.rowFailures ?? [])
                       .filter((row) => row.reason === "save-failed")

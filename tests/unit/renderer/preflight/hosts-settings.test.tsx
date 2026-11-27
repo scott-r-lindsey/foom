@@ -2068,6 +2068,12 @@ test.each(recipeExitOutcomes)(
     api.mockResolvedValue({ ...missing, recipeSession: "recipe" });
     fireEvent.click(screen.getByRole("button", { name: "Install git" }));
     await screen.findByRole("region", { name: "Install terminal" });
+    const install = screen.getByRole<HTMLButtonElement>("button", { name: "Install git" });
+    if (outcome !== "read failed") {
+      fireEvent.click(install);
+      expect(api.mock.calls.filter(([action]) => action.action === "recipe")).toHaveLength(1);
+      expect(install.disabled).toBe(true);
+    }
     const listReads = api.mock.calls.filter(([action]) => action.action === "list").length;
     const refresh = Promise.withResolvers<HostsState>();
     api.mockImplementation((action) =>
@@ -2076,7 +2082,6 @@ test.each(recipeExitOutcomes)(
     act(() => {
       exit({ exited: true, code: 0 });
     });
-    const install = screen.getByRole<HTMLButtonElement>("button", { name: "Install git" });
     expect(screen.getByText("Checking…")).toBeTruthy();
     expect(install.disabled).toBe(true);
     const observed = {
@@ -2128,7 +2133,18 @@ test.each(recipeExitOutcomes)(
     await waitFor(() => {
       expect(screen.queryByText("Checking…")).toBeNull();
     });
-    if (installed) {
+    if (outcome === "read failed") {
+      fireEvent.click(install);
+      expect(api.mock.calls.filter(([action]) => action.action === "recipe")).toHaveLength(1);
+      expect(screen.getByText("Unable to refresh tool")).toBeTruthy();
+      expect(install.disabled).toBe(true);
+      const reload = screen.getByRole<HTMLButtonElement>("button", { name: "Reload git" });
+      expect(reload.disabled).toBe(false);
+      fireEvent.click(reload);
+      await waitFor(() => {
+        expect(install.disabled).toBe(false);
+      });
+    } else if (installed) {
       expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
       expect(
         screen.getByRole("button", { name: "Reload git" }).closest(".host-check-row")?.textContent,
@@ -2137,11 +2153,75 @@ test.each(recipeExitOutcomes)(
       expect(screen.getByRole<HTMLButtonElement>("button", { name: "Install git" }).disabled).toBe(
         false,
       );
-    if (outcome === "read failed") expect(screen.getByText("Unable to refresh tool")).toBeTruthy();
-    else
+    if (outcome !== "read failed")
       expect(api.mock.calls.filter(([action]) => action.action === "list")).toHaveLength(
         listReads + 1,
       );
+  },
+);
+
+test.each(["ready", "refused", "rejected"] as const)(
+  "Git install stays disabled through its reply and saved result (%s)",
+  async (outcome) => {
+    const missing = saved({
+      ...initial,
+      hosts: [{ ...host, recipes: [{ tool: "git", install: true, signIn: false }] }],
+      preflight: {
+        ...preflight,
+        result: {
+          ok: true,
+          facts: { ...facts, tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
+        },
+      },
+    });
+    const stream = viewStream();
+    stream.data.hosts = { ...missing, viewRevision: 1 };
+    const launch = Promise.withResolvers<HostsState>();
+    const api = vi.fn((action: HostsAction) =>
+      action.action === "recipe" ? launch.promise : Promise.resolve(stream.data.hosts),
+    );
+    render(<HostsSettings source={{ hosts: api, views: stream.api }} headingRef={createRef()} />);
+    const install = await screen.findByRole<HTMLButtonElement>("button", { name: "Install git" });
+    await waitFor(() => {
+      expect(install.disabled).toBe(false);
+    });
+    fireEvent.click(install);
+    expect(install.disabled).toBe(true);
+
+    if (outcome === "ready") {
+      const observed = { ...saved({ ...missing, preflight }), viewRevision: 2 };
+      api.mockImplementation((action) =>
+        action.action === "list" ? Promise.resolve(observed) : launch.promise,
+      );
+      await act(async () => {
+        launch.resolve(observed);
+        await launch.promise;
+      });
+      expect(install.disabled).toBe(true);
+      expect(screen.getByText("Checking…")).toBeTruthy();
+      act(() => {
+        stream.data.hosts = observed;
+        stream.push("hosts");
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
+      });
+    } else {
+      await act(async () => {
+        if (outcome === "refused")
+          launch.resolve({ ...missing, recipeFailure: "recipe-unavailable" });
+        else launch.reject(new Error("Fixture rejected install"));
+        await launch.promise.catch(() => undefined);
+      });
+      expect(install.disabled).toBe(true);
+      expect(screen.queryByText("Checking…")).toBeNull();
+      const reload = screen.getByRole<HTMLButtonElement>("button", { name: "Reload git" });
+      expect(reload.disabled).toBe(false);
+      fireEvent.click(reload);
+      await waitFor(() => {
+        expect(install.disabled).toBe(false);
+      });
+    }
   },
 );
 

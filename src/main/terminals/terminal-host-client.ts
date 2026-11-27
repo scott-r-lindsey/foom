@@ -641,7 +641,10 @@ export class TerminalHostClient {
     if (!this.sessions.has(id)) return;
     // A failed host has no remaining screen to remove. Allow the renderer to restart.
     if (this.child && this.sessions.get(id)?.available) await this.request({ type: "kill", id });
+    const removed = this.sessions.get(id);
     this.sessions.delete(id);
+    // Successful recipe removal can dispose the PTY before a native exit arrives.
+    if (removed?.alive && this.remote?.recipe) this.onExit(id, -1);
   }
   get runningCount(): number {
     const remoteCount = [...this.remotes.values()].reduce(

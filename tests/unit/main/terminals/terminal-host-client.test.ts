@@ -782,6 +782,22 @@ test.each([0, 7, -1])(
   },
 );
 
+test("remote recipe removal settles the exit listener if the host only acknowledges removal", async () => {
+  const remote = remoteChild();
+  mock.remote.mockReturnValue(remote);
+  const id = await client.create({
+    ...spec,
+    remote: {
+      host: "fixture",
+      human: true,
+      recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+    },
+  });
+  await client.kill(id);
+  expect(exited).toHaveBeenCalledExactlyOnceWith(id, -1);
+  expect(client.runningCount).toBe(0);
+});
+
 test("cleanup-only remote removal works without a restored client and disposes its connection", async () => {
   const remote = remoteChild();
   mock.remote.mockReturnValue(remote);

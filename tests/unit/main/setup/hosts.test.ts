@@ -7,7 +7,11 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registeredHosts } from "../../../../src/shared/registered-hosts";
-import type { RemoteInventoryResult, RemoteSessionInfo } from "../../../../src/shared/remote-host";
+import type {
+  RemoteInventoryResult,
+  RemoteSessionInfo,
+  RemoteTarget,
+} from "../../../../src/shared/remote-host";
 import type { probeHostSsh } from "../../../../src/main/terminals/remote-bootstrap";
 import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 
@@ -2649,6 +2653,96 @@ test("repository reload and clone preserve all other rows and the full-check tim
     ),
   ).toBe(true);
 });
+test("Git install refuses a duplicate before inspection completes and until its recipe exits", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const input = { action: "recipe", host: "mac-fixture", tool: "git", operation: "install" };
+    const missing = fixture.checked.preflight?.result;
+    if (!missing?.ok) throw new Error("Missing fixture facts");
+    const inspection = Promise.withResolvers<HostResult>();
+    fixture.run.mockReturnValueOnce(inspection.promise);
+    const launch = vi.fn((_target: RemoteTarget, _finished?: () => void) =>
+      Promise.resolve("git-install"),
+    );
+    const first = fixture.hosts.action(input, undefined, launch);
+    await vi.waitFor(() => {
+      expect(fixture.run).toHaveBeenCalledOnce();
+    });
+    const duplicate = fixture.hosts.action(input, undefined, launch);
+    inspection.resolve(missing);
+    await expect(first).resolves.toMatchObject({ recipeSession: "git-install" });
+    await expect(duplicate).resolves.toMatchObject({ recipeFailure: "recipe-unavailable" });
+    await expect(fixture.hosts.action(input, undefined, launch)).resolves.toMatchObject({
+      recipeFailure: "recipe-unavailable",
+    });
+    expect(fixture.run).toHaveBeenCalledOnce();
+    expect(launch).toHaveBeenCalledOnce();
+    const finish = launch.mock.calls[0]?.[1];
+    expect(finish).toBeTypeOf("function");
+    finish?.();
+    await fixture.hosts.action({ action: "list" });
+    await expect(fixture.hosts.action(input, undefined, launch)).resolves.toMatchObject({
+      recipeSession: "git-install",
+    });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("a rejected recipe launch releases the slot for another Git install", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const input = { action: "recipe", host: "mac-fixture", tool: "git", operation: "install" };
+    const launch = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new Error("Fixture rejected launch"))
+      .mockResolvedValueOnce("git-install");
+    await expect(fixture.hosts.action(input, undefined, launch)).rejects.toThrow(
+      "Fixture rejected launch",
+    );
+    await expect(fixture.hosts.action(input, undefined, launch)).resolves.toMatchObject({
+      recipeSession: "git-install",
+    });
+    expect(launch).toHaveBeenCalledTimes(2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("freshly ready Git skips every recipe step and saves the observed tool row", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const missing = fixture.checked.preflight?.result;
+    if (!missing?.ok) throw new Error("Missing fixture facts");
+    fixture.run.mockResolvedValueOnce({
+      ok: true,
+      facts: {
+        ...missing.facts,
+        tools: [{ id: "git", state: "ready", signIn: "unknown" }],
+      },
+    });
+    const launch = vi.fn(() => Promise.resolve("unexpected-install"));
+    const result = await fixture.hosts.action(
+      { action: "recipe", host: "mac-fixture", tool: "git", operation: "install" },
+      undefined,
+      launch,
+    );
+    expect(result.recipeSession).toBeUndefined();
+    expect(result.recipeFailure).toBeUndefined();
+    expect(launch).not.toHaveBeenCalled();
+    const saved = await fixture.hosts.action({ action: "list" });
+    expect(fixture.run).toHaveBeenCalledOnce();
+    const observation = saved.hosts[0]?.observation;
+    expect(observation?.checkedAt).toBe(fixture.checked.hosts[0]?.observation?.checkedAt);
+    const resultAfterInstall = observation?.preflight.result;
+    expect(
+      resultAfterInstall?.ok && resultAfterInstall.facts.tools?.find((tool) => tool.id === "git"),
+    ).toEqual({ id: "git", state: "ready", signIn: "unknown" });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("returning from recipes refreshes only the selected tool and sign-in without advancing Last checked", async () => {
   const fixture = await restartedBrewHost();
   try {

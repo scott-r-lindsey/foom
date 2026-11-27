@@ -9,32 +9,33 @@ import type { HostManagement, HostResult } from "../../../../src/shared/register
 /** A real persisted check followed by a new settings store and Hosts owner. */
 export async function restartedBrewHost() {
   const root = await mkdtemp(join(tmpdir(), "hosts-saved-recipes-"));
+  const installed = {
+    ok: true,
+    facts: {
+      codeFolder: "/Users/fixture/foom",
+      version: "0.1.0",
+      sessions: 0,
+      cores: 8,
+      load: [0, 0, 0],
+      memoryTotal: 8000,
+      memoryAvailable: 4000,
+      folder: { state: "pass" },
+      requirements: {
+        distro: "darwin",
+        libc: "supported",
+        packageManager: "brew",
+        mac: { commandLineTools: true, staysAwake: true, protectedFolder: false },
+      },
+      tools: [
+        { id: "git", state: "missing", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-out" },
+      ],
+      agents: [{ id: "codex", state: "ready", signIn: "signed-out" }],
+    },
+  } satisfies HostResult;
   const run = vi
     .fn<(host: string, request: HostManagement) => Promise<HostResult>>()
-    .mockResolvedValue({
-      ok: true,
-      facts: {
-        codeFolder: "/Users/fixture/foom",
-        version: "0.1.0",
-        sessions: 0,
-        cores: 8,
-        load: [0, 0, 0],
-        memoryTotal: 8000,
-        memoryAvailable: 4000,
-        folder: { state: "pass" },
-        requirements: {
-          distro: "darwin",
-          libc: "supported",
-          packageManager: "brew",
-          mac: { commandLineTools: true, staysAwake: true, protectedFolder: false },
-        },
-        tools: [
-          { id: "git", state: "missing", signIn: "unknown" },
-          { id: "gh", state: "ready", signIn: "signed-out" },
-        ],
-        agents: [{ id: "codex", state: "ready", signIn: "signed-out" }],
-      },
-    });
+    .mockResolvedValue(installed);
   const store = await SettingsStore.open(root);
   await store.update({
     agents: { codex: true },
@@ -48,6 +49,21 @@ export async function restartedBrewHost() {
   });
   first.dispose();
   run.mockClear();
+  // Recipe tests model tools removed after the saved check and restored by the recipe.
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "inspect" && !request.target && request.partial
+        ? {
+            ...installed,
+            facts: {
+              ...installed.facts,
+              tools: installed.facts.tools.map((tool) => ({ ...tool, state: "missing" })),
+              agents: installed.facts.agents.map((agent) => ({ ...agent, state: "missing" })),
+            },
+          }
+        : installed,
+    ),
+  );
   const reopened = await SettingsStore.open(root);
   const hosts = new Hosts(reopened, () => [], "0.1.0", run, "a".repeat(32));
   return {

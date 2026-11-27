@@ -1102,6 +1102,7 @@ export class Hosts {
   private sshRevision = 0;
   private readonly pendingRows = new HostObservations<string, PendingHostRow[]>();
   private pendingRecipeRefreshes = 0;
+  private readonly installing = new Map<string, symbol>();
   private currentRow(host: string, row: PendingHostRow): boolean {
     return row.sshRevision === undefined || row.sshRevision >= this.checklistRevision(host);
   }
@@ -1169,11 +1170,34 @@ export class Hosts {
         this.pendingRecipeRefreshes--;
       });
     this.pending = queued;
-    void queued
-      .then(() => this.action({ action: "list" }))
-      .catch(() => {
-        console.warn("Recipe row refresh failed");
-      });
+    return this.action({ action: "list" }).catch(() => {
+      console.warn("Recipe row refresh failed");
+    });
+  }
+  private async checkQueuedRows(host: string, rows: readonly PendingHostRow[]) {
+    const retained = new Set<PendingHostRow>();
+    if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
+      for (const row of rows) {
+        try {
+          if (!this.currentRow(host, row)) continue;
+          this.registeredRow(host, row.target);
+          if (row.retry) await row.retry();
+          else await this.reloadRow(host, row.target);
+        } catch (error) {
+          if (error instanceof HostRowUnavailable) continue;
+          if (error instanceof HostRowSaveFailed) {
+            row.retry = error.retry;
+            if (error.sshRevision !== undefined) row.sshRevision = error.sshRevision;
+          }
+          row.reason = row.retry ? "save-failed" : "check-failed";
+          retained.add(row);
+        }
+      }
+    const remaining = (this.pendingRows.get(host) ?? []).filter(
+      (row) => !rows.includes(row) || (retained.has(row) && this.currentRow(host, row)),
+    );
+    if (remaining.length) this.pendingRows.set(host, remaining);
+    else this.pendingRows.delete(host);
   }
   private registeredRow(host: string, target: HostCheckTarget) {
     const registration = this.registered(host);
@@ -1628,6 +1652,22 @@ export class Hosts {
       input.action === "draft-preflight" ||
       input.action === "setup-recheck";
     const host = "host" in input ? input.host : undefined;
+    const installKey =
+      input.action === "recipe" && ["install", "install-sign-in"].includes(input.operation)
+        ? JSON.stringify([input.host, input.tool])
+        : undefined;
+    const install = Symbol();
+    if (installKey) {
+      // Claim before joining the action queue, so a duplicate never waits to launch.
+      if (this.installing.has(installKey))
+        return Promise.resolve({ ...this.state(), recipeFailure: "recipe-unavailable" });
+      this.installing.set(installKey, install);
+    }
+    const releaseInstall = () => {
+      if (installKey && this.installing.get(installKey) === install)
+        this.installing.delete(installKey);
+    };
+    let recipeStarted = false;
     let release: (() => void) | undefined;
     const hostWork = host ? (this.hostPending.get(host) ?? Promise.resolve()) : Promise.resolve();
     const prior = host
@@ -1639,32 +1679,7 @@ export class Hosts {
         if (isCheck) release = await this.enterCheck();
         if (input.action === "list") {
           await this.refreshGitOrigins();
-          for (const [host, rows] of [...this.pendingRows]) {
-            const retained: PendingHostRow[] = [];
-            if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
-              for (const row of rows) {
-                try {
-                  if (!this.currentRow(host, row)) continue;
-                  this.registeredRow(host, row.target);
-                  if (row.retry) await row.retry();
-                  else await this.reloadRow(host, row.target);
-                } catch (error) {
-                  if (error instanceof HostRowUnavailable) continue;
-                  if (error instanceof HostRowSaveFailed) {
-                    row.retry = error.retry;
-                    if (error.sshRevision !== undefined) row.sshRevision = error.sshRevision;
-                  }
-                  row.reason = row.retry ? "save-failed" : "check-failed";
-                  retained.push(row);
-                }
-              }
-            const remaining = (this.pendingRows.get(host) ?? []).filter(
-              (row) =>
-                !rows.includes(row) || (retained.includes(row) && this.currentRow(host, row)),
-            );
-            if (remaining.length) this.pendingRows.set(host, remaining);
-            else this.pendingRows.delete(host);
-          }
+          for (const [host, rows] of [...this.pendingRows]) await this.checkQueuedRows(host, rows);
           return this.state(undefined, true);
         }
         if (input.action === "reload") {
@@ -1714,7 +1729,7 @@ export class Hosts {
           const recipeSession = await launchRecipe(
             { host: input.host, profile: this.profile, human: true, trustOrigin: origin },
             () => {
-              this.refreshRecipeRows(input.host, targets);
+              void this.refreshRecipeRows(input.host, targets);
             },
           );
           if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
@@ -1752,6 +1767,22 @@ export class Hosts {
             this.results.set(input.host, inspected);
             await this.expandRegistration(input.host);
           }
+          if (
+            input.operation === "install" &&
+            inspected.ok &&
+            [...inspected.facts.agents, ...(inspected.facts.tools ?? [])].some(
+              (tool) => tool.id === input.tool && tool.state === "ready",
+            )
+          ) {
+            const target = { kind: "tool", tool: input.tool } as const;
+            const current = this.registered(input.host);
+            const row = this.queueRows(input.host, [target]).get(JSON.stringify(target));
+            if (row) {
+              row.retry = () => this.applyRowCheck(input.host, current, target, inspected);
+              await this.checkQueuedRows(input.host, [row]);
+            }
+            return this.state();
+          }
           const recipe = this.recipe(input.host, input.tool, input.operation, inspected);
           if (!recipe || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
@@ -1774,10 +1805,11 @@ export class Hosts {
               },
             },
             () => {
-              this.refreshRecipeRows(input.host, targets);
+              void this.refreshRecipeRows(input.host, targets).finally(releaseInstall);
             },
           );
           if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
+          recipeStarted = typeof recipeSession === "string";
           return {
             ...this.state(),
             ...(typeof recipeSession === "string" ? { recipeSession } : {}),
@@ -2153,7 +2185,10 @@ export class Hosts {
         this.cacheHostLocations(state, repositories);
         return state;
       })
-      .finally(() => release?.());
+      .finally(() => {
+        release?.();
+        if (!recipeStarted) releaseInstall();
+      });
     if (host) this.trackHostWork(host, work);
     if (!isCheck) this.pending = work;
     return work.then((state) => this.trustState(state, trustSignal));
