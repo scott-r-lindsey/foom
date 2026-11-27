@@ -646,6 +646,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "a093e326009c7ef7dc48f8517b8b814667bce6101fde9e1b8639a37b38a24949",
     "648cead2a9d760fb80a48889b240441220d06f99b65d0f9213ec47045e2050a0",
     "ccd9c41eabb527f0e5af47b733915af14374571749f052b406d616cf417fbc5c",
+    "ee35238632530546b951c06d1d22a928c56b5d352b7778bca42074f6807c0674",
   ],
   "schemas/theme.schema.json": [
     "add57d054e68d788be3f6e64351b0785954fe4a9014cf1b73050fa2c10180beb",

@@ -518,11 +518,14 @@ export function hooks(v: unknown, p: string) {
   };
 }
 export function override(v: unknown, p: string) {
-  const d = object(v, p, ["flags", "keys"], ["value"]);
+  const d = object(v, p, ["flags", "keys"], ["value", "failClosedKeys"]);
+  if (d["failClosedKeys"] !== undefined && d["value"] === undefined)
+    fail(`${p}.failClosedKeys`, "incompatible-combination");
   return {
     flags: array(flag, 8, 1)(d["flags"], `${p}.flags`),
     keys: array(keySegment, 8, 1)(d["keys"], `${p}.keys`),
     value: optional(shortText)(d["value"], `${p}.value`),
+    failClosedKeys: optional(array(keySegment, 8, 1))(d["failClosedKeys"], `${p}.failClosedKeys`),
   };
 }
 export function environment(v: unknown, p: string) {

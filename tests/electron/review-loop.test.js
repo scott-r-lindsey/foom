@@ -579,7 +579,14 @@ esac
       await waitStep("build");
       const save = page.evaluate(() =>
         window.desktop.saveSetup({
-          agentArguments: { codex: ["-c", "sandbox_mode=danger-full-access'"] },
+          agentArguments: {
+            codex: [
+              "-c",
+              'profiles={fixture={sandbox_mode="danger-full-access"}}',
+              "-p",
+              "fixture",
+            ],
+          },
         }),
       );
       const consent = await confirmationPage(app, "Save bypass defaults for Codex?");

@@ -158,6 +158,7 @@
       "override": {
         "flags": ["-c", "--config"],
         "keys": ["sandbox_mode"],
+        "failClosedKeys": ["profiles", "sandbox_mode"],
         "value": "danger-full-access"
       }
     },
@@ -165,6 +166,7 @@
       "override": {
         "flags": ["-c", "--config"],
         "keys": ["approval_policy"],
+        "failClosedKeys": ["approval_policy"],
         "value": "never"
       },
       "approvalOnly": true
@@ -173,6 +175,7 @@
       "override": {
         "flags": ["-c", "--config"],
         "keys": ["default_permissions"],
+        "failClosedKeys": ["default_permissions"],
         "value": ":danger-full-access"
       }
     }

@@ -543,6 +543,10 @@ Workspace declaration. The arguments are never
 read from a repository launch request. Conflicting defaults fail before spawn.
 Config override conflict matchers inspect the root key, so a permission table
 and its subkeys conflict even if nested keys in unrelated tables share its name.
+Override matchers with a `value` also look for matching keys and decoded TOML
+strings in nested tables when checking bypass. Optional `failClosedKeys` on a
+value matcher classify a TOML parse failure as a match when the override path
+contains one of those keys.
 The engine stores permission support under a private symbol that manifest fact IDs
 and selectors cannot name. At Agent default, adding a permission declaration
 leaves discovery facts and launch arguments unchanged.

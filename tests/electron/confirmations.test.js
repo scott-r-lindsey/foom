@@ -1667,7 +1667,7 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   await sections.getByRole("button", { name: "Foom config", exact: true }).click();
   const file = path.join(home, ".foom/config/settings.json");
   const original = await readFile(file, "utf8");
-  const approvalBypass = ["-c", 'approval_policy=never"'];
+  const approvalBypass = ["-c", 'profiles.fixture={approval_policy="never"}'];
   const args = [
     "--eval",
     `const publish = ${publishFixtureRecord.toString().replaceAll("\n", " ")}; publish(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); process.stdin.resume()`,

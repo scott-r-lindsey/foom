@@ -221,8 +221,22 @@ function removePermissionSchema(definitions: Record<string, unknown>) {
   delete definitions["permissionArgv"];
 }
 
-function agentSchemaBeforeApprovalOnly() {
+function agentSchemaBeforeFailClosedKeys() {
   const previous = structuredClone(generated);
+  Reflect.deleteProperty(previous.$defs.override.properties, "failClosedKeys");
+  return previous;
+}
+
+test("the agent schema preceding fail-closed override keys remains refreshable", () => {
+  const file = "schemas/agent.schema.json";
+  const previous = agentSchemaBeforeFailClosedKeys();
+  const previousBytes = `${JSON.stringify(previous, null, 2)}\n`;
+  expect(refreshable(file, new TextEncoder().encode(previousBytes))).toBe(true);
+  expect(refreshable(file, new TextEncoder().encode(`${previousBytes} `))).toBe(false);
+});
+
+function agentSchemaBeforeApprovalOnly() {
+  const previous = agentSchemaBeforeFailClosedKeys();
   for (const { properties } of previous.$defs.argumentMatcher.oneOf)
     Reflect.deleteProperty(properties, "approvalOnly");
   return previous;

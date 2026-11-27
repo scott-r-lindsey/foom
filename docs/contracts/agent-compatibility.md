@@ -170,13 +170,17 @@ CLI 0.172.0, published 2026-11-24. [CLI reference](https://learn.chatgpt.com/doc
 
 Each override accepts `--config KEY=VALUE`, `--config=KEY=VALUE`,
 `-c KEY=VALUE`, `-c=KEY=VALUE` and `-cKEY=VALUE`. Foom matches decoded TOML
-strings, including values with TOML escapes or comments. If TOML parsing fails,
-Foom follows Codex and strips single and double quotes from either end, including
-unpaired or mismatched quotes. Any
-combination of an approval-off and a sandbox-off selector is caught regardless
-of argument order. A single selector is enough for acknowledgement or refusal.
-Foom checks explicit arguments and does not read vendor profiles or infer the
-effect of custom permission profiles. [Config override parser](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/config_override.rs).
+strings, including values with TOML escapes or comments. It checks permission
+keys at any depth in dotted paths and inline or nested TOML tables. Profile
+overrides are checked in any argument order, regardless of profile selection.
+If parsing fails, Foom checks Codex's literal fallback, which strips single
+and double quotes from either end, including unpaired or mismatched quotes.
+Unparseable values on paths containing `profiles`, `sandbox_mode`,
+`approval_policy` or `default_permissions` also require acknowledgement for a
+human launch and are refused for unattended launches. A single selector is
+enough to trigger those safeguards. Foom checks explicit arguments and does not
+read vendor profiles or infer the effect of custom permission profiles.
+[Config override parser](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/utils/cli/src/config_override.rs).
 
 `--approve-for-me` and `--not-so-yolo` route requests through automated review
 with workspace-write sandboxing. Historical `--full-auto` used on-request

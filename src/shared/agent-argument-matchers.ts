@@ -3,15 +3,45 @@ import { isRecord } from "./agent-manifest-values";
 import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 type Matcher = AgentManifestV2["reservedArguments"][number];
-function overrideValueMatches(raw: string, expected: string): boolean {
-  if (raw === expected) return true;
+type Override = Extract<Matcher, { override: object }>["override"];
+
+function overrideValueMatches(
+  path: readonly string[],
+  raw: string,
+  rule: Override,
+  expected: string,
+  rootOnly: boolean,
+): boolean {
+  const keyMatches = rule.keys.includes(path.at(-1) ?? "");
+  if (keyMatches && raw === expected) return true;
+  const failClosed = path.some((key) => rule.failClosedKeys?.includes(key));
+  if (!keyMatches && !failClosed && (rootOnly || !raw.startsWith("{"))) return false;
+  let value: unknown;
   try {
     const parsed = parseToml(`value = ${raw}`, { maxDepth: 24, unsafeKeyBehaviour: "throw" });
-    return isRecord(parsed) && parsed["value"] === expected;
+    if (!isRecord(parsed) || !Object.hasOwn(parsed, "value")) return failClosed;
+    value = parsed["value"];
   } catch {
     // Codex falls back to the literal value with boundary quotes removed.
-    return raw.replace(/^["']+|["']+$/gu, "") === expected;
+    return (keyMatches && raw.replace(/^["']+|["']+$/gu, "") === expected) || failClosed;
   }
+  return (
+    (keyMatches && value === expected) ||
+    (!rootOnly && tableValueMatches(value, rule.keys, expected))
+  );
+}
+
+function tableValueMatches(value: unknown, keys: readonly string[], expected: string): boolean {
+  const pending = [value];
+  while (pending.length > 0) {
+    const table = pending.pop();
+    if (!isRecord(table)) continue;
+    for (const [key, entry] of Object.entries(table)) {
+      if (keys.includes(key) && entry === expected) return true;
+      if (isRecord(entry)) pending.push(entry);
+    }
+  }
+  return false;
 }
 
 export function matchesArguments(
@@ -48,10 +78,13 @@ export function argumentMatchIndex(
           return (overrideKeys === "root" ? segments.slice(0, 1) : segments).some((key) =>
             rule.keys.includes(key),
           );
-        return (
-          (overrideKeys === "any" || segments.length === 1) &&
-          rule.keys.includes(segments.at(-1) ?? "") &&
-          overrideValueMatches(equals < 0 ? "" : config.slice(equals + 1).trim(), rule.value)
+        if (equals < 0 || (overrideKeys === "root" && segments.length !== 1)) return false;
+        return overrideValueMatches(
+          segments,
+          config.slice(equals + 1).trim(),
+          rule,
+          rule.value,
+          overrideKeys === "root",
         );
       }
       return matcher.forms.some((form) => {

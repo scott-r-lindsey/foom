@@ -1128,6 +1128,14 @@
           "maxItems": 8,
           "minItems": 1
         },
+        "failClosedKeys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keySegment"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
         "value": {
           "$ref": "#/$defs/shortText"
         }

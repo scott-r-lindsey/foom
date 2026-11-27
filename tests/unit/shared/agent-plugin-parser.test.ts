@@ -110,6 +110,13 @@ it("classifies generated Workspace and Full access arguments as bypass outside m
   expect(
     applyPermissionArguments(model, "workspace", [], 0, { [permissionLevelSupported]: true }),
   ).toEqual(bundledCodex.permissionLevels.workspace);
+  for (const args of [
+    bundledCodex.permissionLevels.workspace,
+    ["-c", 'profiles={team={approval_policy="never"}}'],
+  ])
+    expect(() =>
+      applyPermissionArguments(model, "workspace", args, 0, { [permissionLevelSupported]: true }),
+    ).toThrow("agent-permission-conflict");
 });
 
 it.each([
@@ -144,6 +151,63 @@ it("decodes quoted TOML approval values while keeping root-only override matchin
       "root",
     ),
   ).toBe(false);
+  expect(
+    matchesArguments(
+      model.bypassArguments,
+      ["-c", 'profiles={team={approval_policy="never"}}'],
+      "root",
+    ),
+  ).toBe(false);
+});
+
+it.each([
+  ["sandbox_mode", "danger-full-access"],
+  ["approval_policy", "never"],
+  ["default_permissions", ":danger-full-access"],
+])("finds Codex %s in profile overrides", (key, value) => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  for (const args of [
+    ["-c", `profiles.team.${key}="${value}"`, "-p", "team"],
+    ["-c", `profiles.team={${key}="${value}"}`, "-p", "team"],
+    ["-c", `profiles={team={${key}="${value}"}}`, "-c", "profile=team"],
+    ["-c", `profiles={team.${key}="${value}"}`],
+    [`--config=settings={group={item={"${key}"="${value}"}}}`],
+  ]) {
+    expect(matchesArguments(model.bypassArguments, args), args.join(" ")).toBe(true);
+  }
+});
+
+it.each([
+  'profiles={team={approval_policy="never"}',
+  'profiles.team={default_permissions=":danger-full-access"',
+  "profiles.team.sandbox_mode={",
+  "profiles.team.approval_policy={",
+  "default_permissions={",
+  `profiles={${"nested={".repeat(25)}approval_policy="never"${"}".repeat(26)}`,
+])("fails closed for an unparseable Codex override: %s", (override) => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  expect(matchesArguments(model.bypassArguments, ["-c", override])).toBe(true);
+});
+
+it.each([
+  'profiles={team={approval_policy="on-request",sandbox_mode="workspace-write"}}',
+  'profiles.team={"approval_policy.note"="never"}',
+  'profiles.team={message="approval_policy=never"}',
+  'unrelated={team={approval_policy="never"}',
+  "profile=team",
+])("accepts a Codex override with no matching bypass: %s", (override) => {
+  const { model } = parse(JSON.stringify(bundledCodex));
+  expect(matchesArguments(model.bypassArguments, ["-c", override])).toBe(false);
+});
+
+it("requires a value on override matchers that fail closed", () => {
+  expect(() =>
+    parse(
+      changed(codex, "bypassArguments", [
+        { override: { flags: ["-c"], keys: ["profiles"], failClosedKeys: ["profiles"] } },
+      ]),
+    ),
+  ).toThrow("incompatible-combination");
 });
 
 it.each(["-Check the README", "-s is broken", "-add tests", "-profile x"])(
