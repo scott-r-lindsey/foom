@@ -6,12 +6,17 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  recordBuildDirectory,
+  recordBuildInput,
+  withoutBuildInputTracking,
+} from "../build-inputs.mjs";
 import { hex, renderBlackHole, toneMap } from "./blackhole.mjs";
 import { encodeIcns, encodeIco, ICNS_TYPES } from "./containers.mjs";
 import { downsample, encodePng, toDitheredBytes } from "./png.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
-/** Git-ignored and outside every Electron build fingerprint input. */
+/** Git-ignored cache of generated icon sets. */
 export const CACHE_ROOT = join(here, "../../.cache/foom-icons");
 
 /** Camera rolled −25° and 7° above the disk plane. */
@@ -149,7 +154,8 @@ const digest = (data) => createHash("sha256").update(data).digest("hex");
  */
 async function readCached(cache) {
   try {
-    const manifest = JSON.parse(await readFile(join(cache, MANIFEST), "utf8"));
+    const manifestBytes = await readFile(join(cache, MANIFEST));
+    const manifest = JSON.parse(manifestBytes.toString("utf8"));
     const names = (await readdir(cache)).filter((name) => name !== MANIFEST).sort();
     if (JSON.stringify(names) !== JSON.stringify([...ICON_FILES].sort())) return undefined;
     const files = new Map();
@@ -159,7 +165,9 @@ async function readCached(cache) {
       if (entry?.size !== data.length || entry?.sha256 !== digest(data)) return undefined;
       files.set(name, data);
     }
-    return Object.keys(manifest.files).length === ICON_FILES.length ? files : undefined;
+    return Object.keys(manifest.files).length === ICON_FILES.length
+      ? { files, manifestBytes, names: [...names, MANIFEST].sort() }
+      : undefined;
   } catch {
     return undefined;
   }
@@ -185,11 +193,19 @@ export async function writeIcons(
   { cacheRoot = CACHE_ROOT, generate = () => iconFiles(iconImages()) } = {},
 ) {
   const cache = join(cacheRoot, await sourceKey());
-  let files = await readCached(cache);
+  // Cache maintenance only observes generated data. Record verified bytes when
+  // they actually supply the output so a failed lookup can be repaired.
+  const cached = await withoutBuildInputTracking(() => readCached(cache));
+  let files = cached?.files;
+  if (cached) {
+    recordBuildDirectory(cache, cached.names);
+    recordBuildInput(join(cache, MANIFEST), cached.manifestBytes);
+    for (const [name, bytes] of cached.files) recordBuildInput(join(cache, name), bytes);
+  }
   const rendered = !files;
   if (!files) {
     await mkdir(cacheRoot, { recursive: true });
-    await pruneStaging(cacheRoot);
+    await withoutBuildInputTracking(() => pruneStaging(cacheRoot));
     files = generate();
     if (JSON.stringify([...files.keys()].sort()) !== JSON.stringify([...ICON_FILES].sort()))
       throw new Error("Icon generator produced an unexpected file set");
@@ -203,7 +219,8 @@ export async function writeIcons(
       }
       await writeFile(join(staging, MANIFEST), JSON.stringify(manifest, null, 2));
       // A damaged entry is replaced; a concurrent build's valid entry is kept.
-      if (!(await readCached(cache))) await rm(cache, { recursive: true, force: true });
+      if (!(await withoutBuildInputTracking(() => readCached(cache))))
+        await rm(cache, { recursive: true, force: true });
       await rename(staging, cache);
     } catch {
       // Caching is best effort (another build may have published first); the

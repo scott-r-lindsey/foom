@@ -1,9 +1,10 @@
-import { build } from "esbuild";
+import { bundleBuild } from "./bundle-build.mjs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { nodeRuntimeLicense } from "./node-runtime.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const output = join(root, "build", "console");
@@ -13,7 +14,7 @@ await mkdir(output, { recursive: true });
 await mkdir(temporary, { recursive: true });
 const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 const bundle = join(temporary, "cli.cjs");
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/cli/main.ts")],
   bundle: true,
   platform: "node",
@@ -55,9 +56,7 @@ execFileSync(
 );
 if (process.platform === "darwin") execFileSync("codesign", ["--sign", "-", executable]);
 // Ship the actual build runtime's notices, including its embedded dependencies.
-const runtimeRoot =
-  process.platform === "win32" ? dirname(process.execPath) : dirname(dirname(process.execPath));
-await copyFile(join(runtimeRoot, "LICENSE"), join(output, "NODE-LICENSE.txt"));
+await copyFile(nodeRuntimeLicense(), join(output, "NODE-LICENSE.txt"));
 await writeFile(
   join(output, "manifest.json"),
   JSON.stringify({
