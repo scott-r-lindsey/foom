@@ -1562,8 +1562,9 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
   await expect(card).toBeVisible();
-  const expandInstalled = card.getByRole("button", { name: "Expand fixture-cloud", exact: true });
-  if (await expandInstalled.count()) await expandInstalled.click();
+  // The pending Git result leaves the card open. Once Git is ready, the card
+  // collapses, so wait for its Expand button before checking the row.
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
   await expect(
     card
       .locator(".host-check-row")
