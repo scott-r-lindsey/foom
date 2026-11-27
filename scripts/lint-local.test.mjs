@@ -10,7 +10,7 @@ test("local lint reuses only complete success and invalidates cross-file types, 
   context.after(() => rmSync(root, { recursive: true, force: true }));
   for (const dir of ["scripts", "src", "test-results", "node_modules/oxlint/bin"])
     mkdirSync(join(root, dir), { recursive: true });
-  for (const name of ["lint-local.mjs", "validation-fingerprint.mjs"])
+  for (const name of ["lint-local.mjs", "validation-fingerprint.mjs", "node-runtime.mjs"])
     cpSync(new URL(name, import.meta.url), join(root, "scripts", name));
   writeFileSync(
     join(root, "node_modules/oxlint/bin/oxlint"),

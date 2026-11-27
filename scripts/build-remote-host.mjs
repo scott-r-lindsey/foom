@@ -1,4 +1,5 @@
-import { build } from "esbuild";
+import { recordBuildInput } from "./build-inputs.mjs";
+import { bundleBuild } from "./bundle-build.mjs";
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ const temporary = join(root, "build/remote-sea");
 await mkdir(output, { recursive: true, mode: 0o700 });
 await mkdir(temporary, { recursive: true });
 const bundle = join(temporary, "host.cjs");
-await build({
+await bundleBuild({
   entryPoints: [join(root, "src/terminal-host/remote/main.ts")],
   bundle: true,
   platform: "node",
@@ -73,6 +74,8 @@ if (process.platform === "darwin") {
   const blob = join(temporary, "host.blob");
   const config = join(temporary, "sea.json");
   const native = join(root, `node_modules/node-pty/prebuilds/${process.platform}-${process.arch}`);
+  const pty = join(native, "pty.node");
+  recordBuildInput(pty); // Node reads this asset directly while assembling the SEA.
   await writeFile(
     config,
     JSON.stringify({
@@ -83,7 +86,7 @@ if (process.platform === "darwin") {
       useCodeCache: false,
       execArgvExtension: "none",
       assets: {
-        "pty.node": join(native, "pty.node"),
+        "pty.node": pty,
       },
     }),
   );
