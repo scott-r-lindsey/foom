@@ -2347,11 +2347,11 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   await captureHosts(app, page, "1062/install-failed");
 });
 
-test("Hosts can reload Git after its post-install snapshot fails", {
-  skip: process.platform === "win32",
-  timeout: deadline(60000),
-}, async (context) => {
+async function verifyGitReloadAfterSnapshotFailure(context, reopen) {
   const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  const before = await page.evaluate(
+    async () => (await window.desktop.hosts({ action: "list" })).viewRevision,
+  );
   await card.getByRole("button", { name: "Install git", exact: true }).click();
   const terminal = card.getByRole("region", { name: "Install terminal" });
   await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
@@ -2371,6 +2371,18 @@ test("Hosts can reload Git after its post-install snapshot fails", {
     .locator(".host-check-row")
     .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
   await expect(gitRow).toContainText("Checking…");
+  if (reopen) {
+    const settings = page.getByRole("region", { name: "Settings", exact: true });
+    await settings.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    await expect(settings).toHaveCount(0);
+    await openSettingsScreen(page);
+    await settings
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name: "Hosts", exact: true })
+      .click();
+    await expect(gitRow).toContainText("Not found");
+    await expect(reload).toBeDisabled();
+  }
   await app.evaluate(({ app }) => {
     const load = process
       .getBuiltinModule("node:module")
@@ -2387,12 +2399,15 @@ test("Hosts can reload Git after its post-install snapshot fails", {
   const loadError = page.getByText("Unable to load hosts", { exact: true });
   try {
     await updateScenario(installed);
-    const git = await page.evaluate(async () => {
+    const { git, revision } = await page.evaluate(async () => {
       const reply = await window.desktop.hosts({ action: "list" });
-      return reply.hosts[0].observation.preflight.result.facts.tools.find(({ id }) => id === "git")
-        .state;
+      const git = reply.hosts[0].observation.preflight.result.facts.tools.find(
+        ({ id }) => id === "git",
+      );
+      return { git: git.state, revision: reply.viewRevision };
     });
     assert.equal(git, "ready");
+    assert.ok(revision > before);
     await expect(loadError).toBeVisible();
   } finally {
     await app.evaluate(() => globalThis.restoreFixtureHostsView());
@@ -2407,7 +2422,25 @@ test("Hosts can reload Git after its post-install snapshot fails", {
   await expect(loadError).toHaveCount(0);
   await expect(gitRow).toContainText("Pass · Installed");
   await expect(card.getByRole("button", { name: "Install git", exact: true })).toHaveCount(0);
-});
+}
+
+test(
+  "Hosts can reload Git after its post-install snapshot fails",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => verifyGitReloadAfterSnapshotFailure(context, false),
+);
+
+test(
+  "Hosts can reload Git when the resumed snapshot fails",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => verifyGitReloadAfterSnapshotFailure(context, true),
+);
 
 test("Hosts shows Add progress and fixed failures without a check output panel", {
   skip: process.platform === "win32",

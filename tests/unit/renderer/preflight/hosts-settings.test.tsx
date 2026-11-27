@@ -232,9 +232,9 @@ test("running setup is projected from the host view and the explicit reveal hand
   fireEvent.click(screen.getByRole("button", { name: "Show agent" }));
   expect(await screen.findByText("Unable to show setup agent")).toBeTruthy();
 });
-test.each([false, true])(
-  "live saved host controls wait for owner-held row retries (failed=%s)",
-  async (failed) => {
+test.each(["list failed", "snapshot failed", "ready"] as const)(
+  "live saved host controls wait for owner-held row retries (%s)",
+  async (outcome) => {
     const stream = viewStream();
     stream.data.hosts = { ...saved(initial), viewRevision: 1 };
     const resumed = Promise.withResolvers<HostsState>();
@@ -250,18 +250,38 @@ test.each([false, true])(
     );
     expect(api).toHaveBeenCalledExactlyOnceWith({ action: "list" });
     await act(async () => {
-      if (failed) resumed.reject(new Error("Cannot resume"));
+      if (outcome === "list failed") resumed.reject(new Error("Cannot resume"));
       else resumed.resolve({ ...saved(initial), viewRevision: 2 });
       await resumed.promise.catch(() => undefined);
     });
     const check = screen.getByRole("button", { name: "Check capabilities" });
-    if (failed) expect(screen.getByText("Unable to refresh hosts")).toBeTruthy();
+    if (outcome === "list failed") expect(screen.getByText("Unable to refresh hosts")).toBeTruthy();
     else {
       expect(check.matches(":disabled")).toBe(true);
-      act(() => {
+      if (outcome === "snapshot failed") {
+        act(() => {
+          stream.errors.add("hosts");
+          stream.push("hosts");
+        });
+        await screen.findByText("Unable to load hosts");
+        const reload = screen.getByRole("button", { name: "Reload git" });
+        expect(reload.matches(":disabled")).toBe(false);
+        stream.errors.delete("hosts");
         stream.data.hosts = { ...saved(initial), viewRevision: 2 };
-        stream.push("hosts");
-      });
+        fireEvent.click(reload);
+        await waitFor(() => {
+          expect(screen.queryByText("Unable to load hosts")).toBeNull();
+        });
+        expect(api).toHaveBeenCalledWith({
+          action: "reload",
+          host: "worker",
+          target: { kind: "tool", tool: "git" },
+        });
+      } else
+        act(() => {
+          stream.data.hosts = { ...saved(initial), viewRevision: 2 };
+          stream.push("hosts");
+        });
     }
     await waitFor(() => {
       expect(check.matches(":disabled")).toBe(false);

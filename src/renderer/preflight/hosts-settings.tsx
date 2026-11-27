@@ -868,8 +868,10 @@ export function HostsSettings({
   const api = source.hosts;
   const [resuming, setResuming] = useState<boolean | number>(!!source.views);
   const viewRevision = state.viewRevision ?? 0;
+  // Once the list settles, row reload can recover a failed subscription.
   const resumingRows =
-    resuming === true || (typeof resuming === "number" && resuming > viewRevision);
+    resuming === true ||
+    (!snapshotFailed && typeof resuming === "number" && resuming > viewRevision);
   useEffect(() => {
     if (!source.views) return;
     let active = true;
