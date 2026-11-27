@@ -1143,6 +1143,11 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
     const original = WorktreeService.prototype.deleteMergedBranches;
     const gate = Promise.withResolvers();
     globalThis.releaseCleanupBranches = () => gate.resolve();
+    const mergedDefault = WorktreeService.prototype.mergedDefault;
+    WorktreeService.prototype.mergedDefault = async function (repository, fresh) {
+      if (!fresh && globalThis.failEligibilityScan) throw new Error("Fixture fetch failed");
+      return mergedDefault.call(this, repository, fresh);
+    };
     WorktreeService.prototype.deleteMergedBranches = async function (...args) {
       const result = await original.apply(this, args);
       await gate.promise;
@@ -1180,6 +1185,18 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
   const deleteAction = page.getByRole("menuitem", { name: /Delete merged worktrees…/ });
   await expect(deleteAction).toHaveText("Delete merged worktrees…1");
   await expect(results).toBeVisible();
+  await deleteAction.click();
+  await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await app.evaluate(() => {
+    globalThis.failEligibilityScan = true;
+  });
+  addLocked("trigger-failed-scan");
+  await panel.click();
+  await expect(page.getByRole("menuitem", { name: "Fixture fetch failed" })).toBeDisabled();
+  await expect(results).toBeVisible();
+  await expect(deleteAction).toHaveText("Delete merged worktrees…");
   await deleteAction.click();
   await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
   await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();

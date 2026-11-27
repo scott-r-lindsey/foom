@@ -321,11 +321,10 @@ export function Sidebar(props: SidebarProps) {
                 const canStartCleanup =
                   !deleting &&
                   (mergedCount === undefined
-                    ? !cleanupResults &&
-                      (repo.repository.canDeleteMerged ||
-                        repo.repository.worktrees.some(
-                          (tree) => tree.path !== repo.repository.path && !tree.bare,
-                        ))
+                    ? repo.repository.canDeleteMerged ||
+                      repo.repository.worktrees.some(
+                        (tree) => tree.path !== repo.repository.path && !tree.bare,
+                      )
                     : mergedCount > 0);
                 const openCleanup = () =>
                   command({

@@ -92,6 +92,7 @@ export class CleanupOwner {
     }
   >();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
+  private readonly dismissedCleanupRuns = new WeakSet<CleanupRun>();
   private readonly mergeScans = new Map<string, Set<Promise<unknown>>>();
   private readonly mergeEligibility = new Map<
     string,
@@ -665,9 +666,13 @@ export class CleanupOwner {
         worktrees: [],
         feed: existing,
       });
-      if (!existing.pending && this.cleanupRuns.get(repository) === existing) {
-        this.cleanupRuns.delete(repository);
-        this.deps.refresh();
+      if (!existing.pending) {
+        // Another board may already be preparing a replacement for these results.
+        this.dismissedCleanupRuns.add(existing);
+        if (this.cleanupRuns.get(repository) === existing) {
+          this.cleanupRuns.delete(repository);
+          this.deps.refresh();
+        }
       }
       return;
     }
@@ -790,7 +795,8 @@ export class CleanupOwner {
       await run.settled();
       const canceled = run.current().stage !== "run";
       if (this.cleanupRuns.get(repository) === run && (reviewed || canceled)) {
-        if (canceled && existing) this.cleanupRuns.set(repository, existing);
+        if (canceled && existing && !this.dismissedCleanupRuns.has(existing))
+          this.cleanupRuns.set(repository, existing);
         else this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }

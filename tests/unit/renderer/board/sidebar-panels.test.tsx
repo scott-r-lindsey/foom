@@ -230,15 +230,23 @@ test("a read-only eligibility review leaves a newly available cleanup command us
   await review.promise;
 });
 
-test("eligibility can return while a hidden cleanup checklist is still available", async () => {
+test.each([
+  { eligibility: { canDeleteMerged: true, mergedCount: 1 }, label: "Delete merged worktrees…1" },
+  {
+    eligibility: { canDeleteMerged: false, mergedError: "Fetch failed" },
+    label: "Delete merged worktrees…",
+  },
+])("a hidden cleanup checklist leaves $label available", async ({ eligibility, label }) => {
   const view = setup();
-  let mergedCount = 1;
+  let scan: Pick<SidebarRepository, "canDeleteMerged" | "mergedCount" | "mergedError"> = {
+    canDeleteMerged: true,
+    mergedCount: 1,
+  };
   let progress: SidebarRepository["cleanup"];
   view.source.getSidebar = () => [
     {
       ...repository,
-      canDeleteMerged: mergedCount > 0,
-      mergedCount,
+      ...scan,
       ...(progress ? { cleanup: progress } : {}),
     },
   ];
@@ -264,7 +272,7 @@ test("eligibility can return while a hidden cleanup checklist is still available
   fireEvent.click(actions);
   expect(view.getByRole("menuitem", { name: /Deleting merged worktrees/ })).toBeTruthy();
   act(() => {
-    mergedCount = 0;
+    scan = { canDeleteMerged: false, mergedCount: 0 };
     progress = {
       total: 1,
       done: 1,
@@ -277,12 +285,16 @@ test("eligibility can return while a hidden cleanup checklist is still available
   expect(view.getByRole("menuitem", { name: "Cleanup results" })).toBeTruthy();
   expect(view.queryByRole("menuitem", { name: /Delete merged worktrees…/ })).toBeNull();
   act(() => {
-    mergedCount = 1;
+    scan = eligibility;
     view.base.update("a", { state: "working" });
   });
   expect(view.getByRole("menuitem", { name: "Cleanup results" })).toBeTruthy();
+  if (eligibility.mergedError)
+    expect(
+      view.getByRole("menuitem", { name: eligibility.mergedError }).hasAttribute("disabled"),
+    ).toBe(true);
   const deleteAction = view.getByRole("menuitem", { name: /Delete merged worktrees…/ });
-  expect(deleteAction.textContent).toBe("Delete merged worktrees…1");
+  expect(deleteAction.textContent).toBe(label);
   await act(async () => {
     fireEvent.click(deleteAction);
     await Promise.resolve();

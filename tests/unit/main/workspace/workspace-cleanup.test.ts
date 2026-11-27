@@ -491,6 +491,33 @@ test("a canceled new cleanup preserves the hidden checklist and reopening it nee
   await workspace.dispose();
 });
 
+test("canceling a new cleanup does not restore results dismissed on another board", async () => {
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+  await cleanupCommand(workspace, command, () => Promise.resolve(true));
+  const finished = (await workspace.sidebarInventory()).repositories[0]?.cleanup;
+  expect(finished?.phase).toBe("finished");
+  expect(typeof finished?.id).toBe("string");
+
+  const dismiss = Promise.withResolvers<boolean>();
+  const results = workspace.sidebarCommand(command, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
+    expect(request.feed.current().progress.id).toBe(finished?.id);
+    return dismiss.promise;
+  });
+  await workspace.sidebarCommand({ ...command, startNew: true }, async (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    expect(request.feed.current().stage).not.toBe("run");
+    expect(request.feed.current().progress.id).not.toBe(finished?.id);
+    dismiss.resolve(false);
+    await results;
+    return false;
+  });
+  expect((await workspace.sidebarInventory()).repositories[0]?.cleanup).toBeUndefined();
+  await workspace.dispose();
+});
+
 test("cleanup retains branch reservations until the checked-ref transaction settles", async () => {
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
