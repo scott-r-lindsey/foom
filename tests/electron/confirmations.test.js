@@ -2204,12 +2204,29 @@ test("user-started trusted confirmation stays pending during simulated app deact
     await app.evaluate(() => {
       const assert = process.getBuiltinModule("assert/strict");
       const clock = globalThis.confirmationClock;
-      clock.tick(); // First inactive observation at the existing five-second cadence.
-      for (let elapsed = 5000; elapsed < 35_000; elapsed += 1000) {
-        assert.equal(clock.next(), 1000);
+      const nativeDateNow = Date.now;
+      const nativePerformanceNow = performance.now;
+      const wallStart = nativeDateNow();
+      const monotonicStart = performance.now();
+      let elapsed = 0;
+      // Advance both elapsed-time sources along with each captured callback.
+      // Scope the overrides to this synchronous loop in Electron main.
+      try {
+        Date.now = () => wallStart + elapsed;
+        performance.now = () => monotonicStart + elapsed;
+        assert.equal(clock.next(), 5000);
+        elapsed += 5000;
         clock.tick();
+        while (elapsed < 35_000) {
+          assert.equal(clock.next(), 1000);
+          elapsed += 1000;
+          clock.tick();
+        }
+        assert.equal(clock.next(), 1000);
+      } finally {
+        Date.now = nativeDateNow;
+        performance.now = nativePerformanceNow;
       }
-      assert.equal(clock.next(), 1000);
     });
     assert.equal(await app.evaluate(() => globalThis.inactiveConfirmation.presentations), 0);
     await expect(board.locator(".board-confirmation-scrim")).toBeVisible();

@@ -1228,6 +1228,37 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   const removedWorktree = `worktree ${expectedCheckout}`;
   const beforeRemoval = listedWorktrees();
   assert.ok(beforeRemoval.includes(removedWorktree));
+  await openSettingsScreen(restored);
+  await restored
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await restored.getByRole("button", { name: "Expand fleet-worker", exact: true }).click();
+  // Check while the recovered checkout still exists so counting it as
+  // foreign would change the saved and rendered totals.
+  const checkCapabilities = restored.getByRole("button", {
+    name: "Check capabilities",
+    exact: true,
+  });
+  await checkCapabilities.click();
+  await expect(checkCapabilities).toBeEnabled();
+  const checked = (
+    await restored.evaluate(() => window.desktop.hosts({ action: "list" }))
+  ).hosts.find((host) => host.host === "fleet-worker");
+  assert.equal(checked.observation?.preflight.result.ok, true, JSON.stringify(checked.observation));
+  assert.equal(checked.foreignWorktrees, 2);
+  restartTiming("host inventory refreshed");
+  await restored.locator(".host-details > summary").click();
+  await expect(restored.getByText("2 other worktrees", { exact: true })).toBeVisible();
+  for (const theme of ["eclipse-light", "eclipse-dark"]) {
+    await restored.evaluate(
+      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+      theme,
+    );
+    await restored.screenshot({ path: path.resolve(`test-results/941-hosts-${theme}.png`) });
+  }
+  await restored.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(restored.getByRole("region", { name: "Settings" })).toBeHidden();
   const deleting = restored.evaluate(
     ({ repository, worktree }) =>
       window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
@@ -1257,35 +1288,6 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   );
   assert.ok((await stat(foreignTree)).isDirectory());
   assert.ok((await stat(untaggedTree)).isDirectory());
-  await openSettingsScreen(restored);
-  await restored
-    .getByRole("navigation", { name: "Settings sections" })
-    .getByRole("button", { name: "Hosts", exact: true })
-    .click();
-  await restored.getByRole("button", { name: "Expand fleet-worker", exact: true }).click();
-  // The Settings action runs the full preflight. Verify its saved result and
-  // the rendered foreign count from that one check.
-  const checkCapabilities = restored.getByRole("button", {
-    name: "Check capabilities",
-    exact: true,
-  });
-  await checkCapabilities.click();
-  await expect(checkCapabilities).toBeEnabled();
-  const checked = (
-    await restored.evaluate(() => window.desktop.hosts({ action: "list" }))
-  ).hosts.find((host) => host.host === "fleet-worker");
-  assert.equal(checked.observation?.preflight.result.ok, true, JSON.stringify(checked.observation));
-  assert.equal(checked.foreignWorktrees, 2);
-  restartTiming("host inventory refreshed");
-  await restored.locator(".host-details > summary").click();
-  await expect(restored.getByText("2 other worktrees", { exact: true })).toBeVisible();
-  for (const theme of ["eclipse-light", "eclipse-dark"]) {
-    await restored.evaluate(
-      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
-      theme,
-    );
-    await restored.screenshot({ path: path.resolve(`test-results/941-hosts-${theme}.png`) });
-  }
 }
 
 const fleetOptions = { skip: process.platform === "win32", timeout: deadline(90000) };
