@@ -6,7 +6,7 @@ const path = require("node:path");
 // Keep only paths allocated by this worker, with their original identity. Never
 // sweep the shared directory: an unmarked older profile cannot prove ownership.
 const allocated = new Map();
-process.once("exit", () => {
+function removeAllocatedStorage() {
   for (const [directory, identity] of allocated) {
     try {
       const current = lstatSync(directory);
@@ -22,13 +22,15 @@ process.once("exit", () => {
         console.warn(`Unable to remove storage fixture ${directory}:`, error);
     }
   }
-});
+}
 
 function allocate(root, prefix) {
   // Allocation and registration are synchronous, so process.exit cannot occur
   // between creating the directory and taking responsibility for its cleanup.
   const directory = mkdtempSync(path.join(root, prefix));
-  allocated.set(directory, lstatSync(directory));
+  const identity = lstatSync(directory);
+  if (allocated.size === 0) process.once("exit", removeAllocatedStorage);
+  allocated.set(directory, identity);
   return directory;
 }
 

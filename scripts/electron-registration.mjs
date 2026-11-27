@@ -33,33 +33,46 @@ export function discoverRegistrations(files, { shard, patterns = [] } = {}) {
 
   const directory = mkdtempSync(join(tmpdir(), "foom-electron-registration-"));
   try {
-    const request = join(directory, "request.json");
-    const resultFile = join(directory, "result.json");
     const setupHash = digest(setupFile);
     const setup =
       setupHash === null ? [] : ["--require", `./${relative(process.cwd(), setupFile)}`];
-    const pending = files.map((file) => resolve(file));
-    const discovered = new Map();
     const fingerprints = new Map([
       [setupFile, setupHash],
       [worker, digest(worker)],
     ]);
-    for (let offset = 0; offset < pending.length; ) {
-      rmSync(resultFile, { force: true });
-      writeFileSync(request, JSON.stringify({ files: pending.slice(offset), resultFile }));
-      const result = spawnSync(
-        process.execPath,
-        ["--expose-internals", ...setup, "--test", "--test-concurrency=1", ...args, worker],
-        { env: { ...env, ELECTRON_REGISTRATION_REQUEST: request }, stdio: "ignore" },
+    const bridges = files.map((file, index) => {
+      const entry = join(directory, `${index}.cjs`);
+      const result = join(directory, `${index}.json`);
+      writeFileSync(
+        entry,
+        `require(${JSON.stringify(worker)})(${JSON.stringify(resolve(file))}, ${JSON.stringify(result)});\n`,
       );
-      if (result.status !== 0) break;
-      const batch = JSON.parse(readFileSync(resultFile, "utf8"));
-      if (batch.entries.length === 0) break;
-      for (const [file, entry] of batch.entries) discovered.set(file, entry);
-      for (const [file, hash] of batch.fingerprints) fingerprints.set(file, hash);
-      offset += batch.entries.length;
+      return { file, entry, result };
+    });
+    spawnSync(
+      process.execPath,
+      [
+        "--expose-internals",
+        ...setup,
+        "--test",
+        // Discovery has no windows or test bodies, so workers can register in parallel.
+        "--test-concurrency=4",
+        ...args,
+        ...bridges.map(({ entry }) => entry),
+      ],
+      { env, stdio: "ignore" },
+    );
+
+    const inventory = new Map();
+    for (const { file, result } of bridges) {
+      try {
+        const discovered = JSON.parse(readFileSync(result, "utf8"));
+        inventory.set(file, discovered.entry);
+        for (const [path, hash] of discovered.fingerprints) fingerprints.set(path, hash);
+      } catch {
+        inventory.set(file, undefined);
+      }
     }
-    const inventory = new Map(files.map((file) => [file, discovered.get(resolve(file))]));
     if ([...inventory.values()].every((entry) => entry?.registrations)) {
       if (cache.size >= 16) cache.delete(cache.keys().next().value);
       cache.set(key, { inventory, fingerprints: [...fingerprints] });

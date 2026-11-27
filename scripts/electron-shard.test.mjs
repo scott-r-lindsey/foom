@@ -235,7 +235,12 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
   }
   writeFileSync(
     path.join(suiteDirectory, "shard-plan.json"),
-    JSON.stringify({ shards: { 2: [{ first: [] }, { second: [] }] } }),
+    JSON.stringify({
+      shards: {
+        2: [{ first: [] }, { second: [] }],
+        4: [{ first: [] }, { second: [] }, {}, {}],
+      },
+    }),
   );
   const { selectSuiteFiles: select } = await import(pathToFileURL(selector).href);
   const { discoverRegistrations: discover, discoverPlannedTests: planTests } = await import(
@@ -269,7 +274,68 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     return { selected, output };
   }
 
+  await context.test("deferred top-level cases remain visible to the runner and planner", () => {
+    let lateName = "late target";
+    while (createHash("sha256").update(lateName).digest().readUInt32BE(0) % 4 !== 1)
+      lateName += "!";
+    writeFileSync(first, binding + 'test("second", () => {});');
+    writeFileSync(
+      second,
+      binding +
+        `test("first", () => {});
+      setImmediate(() => test(${JSON.stringify(lateName)}, () => { throw Error("late body failed"); }));`,
+    );
+    for (const [shard, patterns] of [
+      ["2/4", []],
+      ["1/1", ["^second$|^late target"]],
+    ]) {
+      const real = runWorker(shard, patterns, files, 1);
+      assert.deepEqual(real.selected, files);
+      assert.match(real.output, /late body failed/);
+    }
+    assert.equal(planTests(files).get(lateName), second);
+  });
+
+  await context.test("pending timers and lifecycle callbacks make registration uncertain", () => {
+    writeFileSync(first, binding + 'test("first", () => {});');
+    for (const source of [
+      'setTimeout(() => test("delayed", () => {}), 60_000).unref();',
+      'process.once("beforeExit", () => test("delayed", () => {}));',
+    ]) {
+      writeFileSync(second, binding + 'test("second", () => {});' + source);
+      assert.match(discover(files).get(second).error, /registration did not settle/);
+      assert.throws(() => planTests(files), /registration did not settle/);
+      assert.deepEqual(select(files, { patterns: ["^first$"] }), files);
+    }
+  });
+
+  await context.test("each suite sees its own process globals", () => {
+    writeFileSync(
+      first,
+      binding +
+        `
+      globalThis.generatedFixtureNames = ["unrelated"];
+      test("target A", () => {});
+    `,
+    );
+    writeFileSync(
+      second,
+      binding +
+        `
+      globalThis.generatedFixtureNames ??= ["target B"];
+      for (const name of globalThis.generatedFixtureNames)
+        test(name, () => { throw Error("isolated body failed"); });
+    `,
+    );
+    const focused = runWorker("1/1", ["^target"], files, 1);
+    assert.deepEqual(focused.selected, files);
+    assert.match(focused.output, /isolated body failed/);
+    assert.equal(planTests(files).get("target B"), second);
+  });
+
   await context.test("generated worker names are assigned exactly once", () => {
+    writeFileSync(first, binding + 'test("first", () => {});');
+    writeFileSync(second, binding + 'test("second", () => {});');
     const workerOnlyName = "worker-only case";
     const bucket = createHash("sha256").update(workerOnlyName).digest().readUInt32BE(0) % 2;
     const otherFile = files[1 - bucket];
@@ -277,7 +343,10 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     writeFileSync(
       path.join(suiteDirectory, "cases.cjs"),
       `const { basename } = require("node:path");
-      module.exports = process.env.NODE_TEST_CONTEXT && basename(process.argv[1] ?? "") === ${JSON.stringify(path.basename(otherFile))}
+      module.exports = process.env.NODE_TEST_CONTEXT === "child-v8"
+        && process.env.NODE_TEST_WORKER_ID === "1"
+        && process.execArgv.includes("--test-concurrency=1")
+        && basename(process.argv[1] ?? "") === ${JSON.stringify(path.basename(otherFile))}
         ? [${JSON.stringify(workerOnlyName)}] : [];`,
     );
     writeFileSync(

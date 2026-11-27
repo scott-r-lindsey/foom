@@ -69,11 +69,14 @@ within each job, preserving native desktop/focus behavior. Shards within a
 platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
 The runner, shard planner and inventory audit share registration discovery.
-A Node test worker loads suite modules and their helpers, builds synchronous
-`describe` groups and records the resulting test tree. Node resolves argument
+A separate Node test worker loads each suite and its helpers, builds
+`describe` groups and records the resulting test tree. Discovery workers can
+run concurrently because they suppress test bodies and hooks. They collect
+registrations from queued microtasks and immediates and retain the suite if
+asynchronous work is still pending. Node resolves argument
 overloads, validates registration options and applies name patterns to tests
-and their ancestry. Discovery suppresses test bodies and hooks. It keeps
-a content-hash cache for repeated queries within the same process.
+and their ancestry. Discovery keeps a content-hash cache for repeated queries
+within the same process.
 
 The selector retains files with uncertain discovery results, including suite
 load and registration errors. Measured shards retain the full inventory when
