@@ -230,6 +230,70 @@ test("a read-only eligibility review leaves a newly available cleanup command us
   await review.promise;
 });
 
+test("eligibility can return while a hidden cleanup checklist is still available", async () => {
+  const view = setup();
+  let mergedCount = 1;
+  let progress: SidebarRepository["cleanup"];
+  view.source.getSidebar = () => [
+    {
+      ...repository,
+      canDeleteMerged: mergedCount > 0,
+      mergedCount,
+      ...(progress ? { cleanup: progress } : {}),
+    },
+  ];
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const actions = view.getByRole("button", { name: "Actions for Foom" });
+  fireEvent.click(actions);
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: /Delete merged worktrees…/ }));
+    await Promise.resolve();
+  });
+  act(() => {
+    progress = {
+      total: 1,
+      done: 0,
+      phase: "remove",
+      stopped: false,
+      items: [{ id: "1", path: "/removed", branch: "removed", state: "removing" }],
+    };
+    view.base.update("a", { state: "working" });
+  });
+  fireEvent.click(actions);
+  expect(view.getByRole("menuitem", { name: /Deleting merged worktrees/ })).toBeTruthy();
+  act(() => {
+    mergedCount = 0;
+    progress = {
+      total: 1,
+      done: 1,
+      phase: "finished",
+      stopped: false,
+      items: [{ id: "1", path: "/removed", branch: "removed", state: "removed" }],
+    };
+    view.base.update("a", { state: "quiet_ok" });
+  });
+  expect(view.getByRole("menuitem", { name: "Cleanup results" })).toBeTruthy();
+  expect(view.queryByRole("menuitem", { name: /Delete merged worktrees…/ })).toBeNull();
+  act(() => {
+    mergedCount = 1;
+    view.base.update("a", { state: "working" });
+  });
+  expect(view.getByRole("menuitem", { name: "Cleanup results" })).toBeTruthy();
+  const deleteAction = view.getByRole("menuitem", { name: /Delete merged worktrees…/ });
+  expect(deleteAction.textContent).toBe("Delete merged worktrees…1");
+  await act(async () => {
+    fireEvent.click(deleteAction);
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenLastCalledWith({
+    kind: "delete-merged-worktrees",
+    repository: "/foom",
+    startNew: true,
+  });
+});
+
 test("worktree menus offer only enabled launchers and deletion with an agent running", async () => {
   const view = setup();
   await act(async () => {

@@ -1131,7 +1131,7 @@ async function lockedMergedWorktree(context, withEligibleCheckout = false) {
 }
 
 test("zero eligibility reviews current worktrees and preserves hidden cleanup results", async (context) => {
-  const { app, page, addLocked } = await lockedMergedWorktree(context, true);
+  const { app, page, unlock, addLocked } = await lockedMergedWorktree(context, true);
   fixtureCleanup(context).apps.unshift(async () => {
     await app.evaluate(() => globalThis.releaseCleanupBranches?.()).catch(() => {});
   });
@@ -1173,6 +1173,16 @@ test("zero eligibility reviews current worktrees and preserves hidden cleanup re
   await expect(kept).toContainText("mergedunavailable");
   await expect(confirmation.getByRole("button", { name: /Delete/ })).toHaveCount(0);
   await confirmation.getByRole("button", { name: "Close", exact: true }).click();
+
+  await panel.click();
+  await expect(results).toBeVisible();
+  unlock();
+  const deleteAction = page.getByRole("menuitem", { name: /Delete merged worktrees…/ });
+  await expect(deleteAction).toHaveText("Delete merged worktrees…1");
+  await expect(results).toBeVisible();
+  await deleteAction.click();
+  await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
 
   await panel.click();
   await expect(results).toBeVisible();

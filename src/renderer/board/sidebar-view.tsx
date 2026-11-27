@@ -316,6 +316,22 @@ export function Sidebar(props: SidebarProps) {
                 const machines = repositoryMachines(source.getMachines?.() ?? []);
                 const cleanup = repo.repository.cleanup;
                 const deleting = cleanup && cleanup.phase !== "finished";
+                const cleanupResults = cleanup?.phase === "finished";
+                const mergedCount = repo.repository.mergedCount;
+                const canStartCleanup =
+                  !deleting &&
+                  (mergedCount === undefined
+                    ? !cleanupResults &&
+                      (repo.repository.canDeleteMerged ||
+                        repo.repository.worktrees.some(
+                          (tree) => tree.path !== repo.repository.path && !tree.bare,
+                        ))
+                    : mergedCount > 0);
+                const openCleanup = () =>
+                  command({
+                    kind: "delete-merged-worktrees",
+                    repository: repo.repository.path,
+                  });
                 return (
                   <SidebarRepositorySection
                     key={rid}
@@ -414,31 +430,31 @@ export function Sidebar(props: SidebarProps) {
                           });
                         },
                       },
-                      ...(cleanup ||
-                      (repo.repository.mergedCount !== 0 &&
-                        (repo.repository.canDeleteMerged ||
-                          repo.repository.worktrees.some(
-                            (tree) => tree.path !== repo.repository.path && !tree.bare,
-                          )))
+                      ...(cleanup || canStartCleanup ? [null] : []),
+                      ...(canStartCleanup
                         ? [
-                            null,
                             {
-                              label: deleting
-                                ? "Deleting merged worktrees"
-                                : cleanup
-                                  ? "Cleanup results"
-                                  : "Delete merged worktrees…",
+                              label: "Delete merged worktrees…",
                               glyph: "trash" as const,
-                              hint: deleting
-                                ? `${String(cleanup.done)}/${String(cleanup.total)}`
-                                : cleanup
-                                  ? ""
-                                  : String(repo.repository.mergedCount ?? ""),
+                              hint: String(mergedCount ?? ""),
                               run: () =>
                                 command({
                                   kind: "delete-merged-worktrees",
                                   repository: repo.repository.path,
+                                  ...(cleanupResults ? { startNew: true } : {}),
                                 }),
+                            },
+                          ]
+                        : []),
+                      ...(cleanup
+                        ? [
+                            {
+                              label: deleting ? "Deleting merged worktrees" : "Cleanup results",
+                              glyph: "trash" as const,
+                              hint: deleting
+                                ? `${String(cleanup.done)}/${String(cleanup.total)}`
+                                : "",
+                              run: openCleanup,
                             },
                           ]
                         : []),

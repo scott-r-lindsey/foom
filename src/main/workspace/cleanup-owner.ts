@@ -651,17 +651,21 @@ export class CleanupOwner {
     }));
   }
 
-  async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
+  async deleteMerged(
+    repository: string,
+    confirm: ConfirmWorkspace,
+    startNew = false,
+  ): Promise<void> {
     this.deps.known(repository);
     const existing = this.cleanupRuns.get(repository);
-    if (existing && (existing.pending || existing.current().stage === "run")) {
+    if (existing && (existing.pending || !startNew)) {
       await confirm({
         kind: "merged-worktrees",
         subject: basename(repository),
         worktrees: [],
         feed: existing,
       });
-      if (!existing.pending) {
+      if (!existing.pending && this.cleanupRuns.get(repository) === existing) {
         this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
@@ -784,8 +788,10 @@ export class CleanupOwner {
       const reviewed = run.current().stage === "run" && !run.pending;
       // Hide resolves presentation, but the repository reservation lasts through the run.
       await run.settled();
-      if (reviewed || run.current().stage !== "run") {
-        this.cleanupRuns.delete(repository);
+      const canceled = run.current().stage !== "run";
+      if (this.cleanupRuns.get(repository) === run && (reviewed || canceled)) {
+        if (canceled && existing) this.cleanupRuns.set(repository, existing);
+        else this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
     });

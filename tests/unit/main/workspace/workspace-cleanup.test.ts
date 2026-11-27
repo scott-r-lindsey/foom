@@ -469,12 +469,17 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
   await workspace.dispose();
 });
 
-test("hidden finished cleanup reopens its retained results without another fetch", async () => {
+test("a canceled new cleanup preserves the hidden checklist and reopening it needs no fetch", async () => {
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
   workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
   await cleanupCommand(workspace, command, () => Promise.resolve(true));
+  await workspace.sidebarCommand({ ...command, startNew: true }, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    expect(request.feed.current().stage).not.toBe("run");
+    return Promise.resolve(false);
+  });
   const fetches = vi.mocked(deps.worktrees.mergedDefault).mock.calls.length;
   await workspace.sidebarCommand(command, (request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
