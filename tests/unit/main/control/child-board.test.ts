@@ -114,6 +114,7 @@ describe("child event board integration", () => {
     const text = await h.text(result.resultId ?? "");
     expect(text).toContain('"automatic":true');
     expect(text).toContain("Review PR #7");
+    expect(h.host.launch.mock.lastCall?.[6]).toMatchObject({ reviewer: true });
     expect(h.orchestration.reviews.view(result.resultId ?? "")).toBeUndefined();
   });
   it.each(["explicit", "credential", "provider", "state-credential"])(

@@ -779,6 +779,25 @@ export function wake(v: unknown, p: string) {
     reject: array(shortText, 32, 1)(d["reject"], `${p}.reject`),
   };
 }
+const permissionArgv = array(text, 32, 1);
+function permissionLevels(v: unknown, p: string) {
+  const d = object(
+    v,
+    p,
+    ["ask", "full", "conflicts"],
+    ["workspace", "minimum", "helpTokens", "when"],
+  );
+  return {
+    ask: permissionArgv(d["ask"], `${p}.ask`),
+    workspace: optional(permissionArgv)(d["workspace"], `${p}.workspace`),
+    full: permissionArgv(d["full"], `${p}.full`),
+    conflicts: array(argumentMatcher, 32)(d["conflicts"], `${p}.conflicts`),
+    minimum: optional(minimum)(d["minimum"], `${p}.minimum`),
+    helpTokens: defaulted(array(shortText, 8), [])(d["helpTokens"], `${p}.helpTokens`),
+    when: optional(condition)(d["when"], `${p}.when`),
+  };
+}
+
 export function v2(v: unknown, p: string) {
   const d = object(
     v,
@@ -800,7 +819,7 @@ export function v2(v: unknown, p: string) {
       "attention",
       "execution",
     ],
-    ["files", "hooks", "health", "setup", "hostSetup", "wake"],
+    ["files", "hooks", "health", "setup", "hostSetup", "wake", "permissionLevels"],
   );
   return {
     kind: literal("agent")(d["kind"], `${p}.kind`),
@@ -816,6 +835,7 @@ export function v2(v: unknown, p: string) {
     reservedArguments: array(argumentMatcher, 64)(d["reservedArguments"], `${p}.reservedArguments`),
     bypassArguments: array(argumentMatcher, 64)(d["bypassArguments"], `${p}.bypassArguments`),
     bypassEnvironment: array(environment, 16)(d["bypassEnvironment"], `${p}.bypassEnvironment`),
+    permissionLevels: optional(permissionLevels)(d["permissionLevels"], `${p}.permissionLevels`),
     conversation: conversation(d["conversation"], `${p}.conversation`),
     resumePaste: array(paste, 8)(d["resumePaste"], `${p}.resumePaste`),
     attention: attention(d["attention"], `${p}.attention`),

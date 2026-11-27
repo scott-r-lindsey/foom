@@ -147,6 +147,114 @@
     }
   ],
   "bypassEnvironment": [],
+  "permissionLevels": {
+    "ask": [
+      "--sandbox",
+      "workspace-write",
+      "--ask-for-approval",
+      "on-request",
+      "-c",
+      "approvals_reviewer=\"user\"",
+      "-c",
+      "sandbox_workspace_write.network_access=false",
+      "-c",
+      "sandbox_workspace_write.writable_roots=[]"
+    ],
+    "workspace": [
+      "--sandbox",
+      "workspace-write",
+      "--ask-for-approval",
+      "never",
+      "-c",
+      "approvals_reviewer=\"user\"",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
+      "-c",
+      "sandbox_workspace_write.writable_roots=[]"
+    ],
+    "full": ["--sandbox", "danger-full-access", "--ask-for-approval", "never"],
+    "conflicts": [
+      {
+        "flag": "--sandbox",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--ask-for-approval",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--auto-review",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--approve-for-me",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--full-auto",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--add-dir",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--cd",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--worktree",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--profile",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "--remote",
+        "forms": ["exact", "equals"]
+      },
+      {
+        "flag": "-s",
+        "forms": ["exact", "equals", "attached-short"]
+      },
+      {
+        "flag": "-a",
+        "forms": ["exact", "equals", "attached-short"]
+      },
+      {
+        "flag": "-C",
+        "forms": ["exact", "equals", "attached-short"]
+      },
+      {
+        "flag": "-p",
+        "forms": ["exact", "equals", "attached-short"]
+      },
+      {
+        "override": {
+          "flags": ["-c", "--config"],
+          "keys": [
+            "sandbox_mode",
+            "sandbox_workspace_write",
+            "approval_policy",
+            "approvals_reviewer",
+            "default_permissions",
+            "permissions",
+            "profiles",
+            "workspace_roots"
+          ]
+        }
+      },
+      {
+        "override": {
+          "flags": ["-c", "--config"],
+          "keys": ["profile"]
+        }
+      }
+    ],
+    "minimum": [0, 167, 0],
+    "helpTokens": ["--sandbox", "--ask-for-approval", "-c"]
+  },
   "conversation": {
     "resumePin": "requested-on-paste",
     "restoreControl": true

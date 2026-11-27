@@ -4,6 +4,7 @@ import type { StoredSession } from "./session-restore.d";
 import type { Hosts } from "../setup/hosts";
 import { builtinAgent } from "../../shared/providers/catalog";
 import { imagePasteRecipient } from "../../shared/image-paste";
+import { locationId } from "../control/metadata";
 import { homeDirectory } from "./home-shell";
 
 /** Only this profile's daemon inventory is eligible; discovery never restores grants. */
@@ -11,23 +12,48 @@ export async function discoverRemoteSessions(
   hosts: Pick<Hosts, "registered"> & Partial<Pick<Hosts, "sessions" | "placement">>,
 ): Promise<StoredSession[]> {
   const sessions = (await hosts.sessions?.()) ?? [];
-  return sessions.map(({ host, session }) => {
+  const recovered: StoredSession[] = [];
+  for (const { host, session } of sessions) {
     const context = session.context;
+    // Refuse the inconsistent row before it can invalidate the saved session file.
+    if (context?.reviewer && session.permissionLevel === "full") continue;
     const placed = context && hosts.placement?.(context.worktree);
-    const agent =
-      context && (placed || context.machine) && builtinAgent(context.agent)
-        ? context.agent
-        : "shell";
-    return {
+    const provider = context && builtinAgent(context.agent);
+    const checkoutPath =
+      session.checkout?.path ??
+      (context?.branch === "Main checkout" ? context.repository : undefined);
+    // A matching daemon checkout identifies the live process for display and reattachment.
+    const remoteRepository =
+      !placed &&
+      context &&
+      !context.machine &&
+      provider &&
+      checkoutPath &&
+      context.worktree === `/foom-remote/${locationId(JSON.stringify([host, checkoutPath]))}`
+        ? (session.checkout?.repository ?? context.repository)
+        : undefined;
+    const located = placed || remoteRepository;
+    const agent = provider && (located || context.machine) ? provider.id : "shell";
+    const permissionLevel = agent === "shell" ? undefined : session.permissionLevel;
+    recovered.push({
       id: session.id,
       agent,
       kind: agent === "shell" ? "shell" : "agent",
       repository:
-        placed?.localRepository ?? (context?.machine ? context.repository : homeDirectory),
-      worktree: context && (placed || context.machine) ? context.worktree : homeDirectory,
-      branch: placed ? `${placed.branch} · ${host}` : null,
-      ...(placed ? {} : { home: true }),
+        placed?.localRepository ??
+        remoteRepository ??
+        (context?.machine ? context.repository : homeDirectory),
+      worktree: context && (located || context.machine) ? context.worktree : homeDirectory,
+      branch: placed
+        ? `${placed.branch} · ${host}`
+        : remoteRepository
+          ? (context?.branch ?? null)
+          : null,
+      ...(located ? {} : { home: true }),
+      ...(remoteRepository ? { reattachOnly: true } : {}),
       ...(context?.machine ? { machine: true } : {}),
+      ...(context?.reviewer && agent !== "shell" ? { reviewer: true } : {}),
+      ...(permissionLevel ? { permissionLevel, bypass: permissionLevel === "full" } : {}),
       ...(placed
         ? {
             remoteCheckout: {
@@ -46,8 +72,9 @@ export async function discoverRemoteSessions(
       dormant: true,
       running: true,
       recovered: true,
-    };
-  });
+    });
+  }
+  return recovered;
 }
 
 export class RemoteSessionExit extends Error {
@@ -72,7 +99,7 @@ export async function reattachRemoteSession(
   const unavailable = (code: number) => {
     exitCode = code;
   };
-  const checkout = hosts.placement?.(entry.worktree);
+  const checkout = entry.reattachOnly ? undefined : hosts.placement?.(entry.worktree);
   const validate = () => {
     hosts.registered(placement.host);
     return Promise.resolve();

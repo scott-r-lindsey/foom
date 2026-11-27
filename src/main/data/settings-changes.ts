@@ -16,6 +16,7 @@ export function settingsChanged(before: Settings, after: Settings): void {
       "agentHooks",
       "hooks",
       "agentBypassIdentities",
+      "agentPermissions",
     ])
   )
     views.push("agents");

@@ -1,3 +1,9 @@
+import {
+  agentPermissionLabels,
+  agentPermissionLevel,
+} from "../../shared/agent-permission-arguments";
+import type { AgentPermissionLevel } from "../../shared/agent-permissions";
+import { message } from "./message";
 import { useHostsView, useConfigView, useMachineAgentsView } from "../data/view-hooks";
 import { AgentStatus } from "./agent-status";
 import { AgentReload } from "./agent-reload";
@@ -37,10 +43,15 @@ function status(agent: ReturnType<typeof remoteAgent>) {
 export function AgentsScopes(
   props: ComponentProps<typeof AgentsStep> & {
     scope: string;
+    savePermission: (
+      scope: string,
+      agent: string,
+      level: AgentPermissionLevel | null,
+    ) => Promise<void>;
     selectScope: (scope: string) => void;
   },
 ) {
-  const { scope: requestedScope, selectScope, headingRef, ...cardProps } = props;
+  const { scope: requestedScope, selectScope, headingRef, savePermission, ...cardProps } = props;
   const { state, report, source, scanning, scan, save, saveArguments } = cardProps;
   const [lastMachine, setLastMachine] = useState("local");
   const api = source?.hosts;
@@ -135,6 +146,67 @@ export function AgentsScopes(
         !builtinAgent(plugin.id) && !agentChoices(report).some((agent) => agent.id === plugin.id),
     ),
   ].sort((left, right) => left.name.localeCompare(right.name));
+  const permission = (id: string, name: string, supported?: readonly AgentPermissionLevel[]) => {
+    const value = state.settings.agentPermissions?.[scope]?.[id]?.level ?? "";
+    if (!supported?.length && !value) return null;
+    const unavailable = value !== "" && !supported?.includes(value);
+    const global = state.settings.agentPermissions?.["global"]?.[id]?.level;
+    const key = `permission:${scope}:${id}`;
+    const note = unavailable
+      ? "The agent no longer declares this level. Reset the selection to launch again."
+      : (value || global) === "workspace"
+        ? "Git fetch and commit are blocked in Workspace. Managed agent policy may limit this setting."
+        : "Managed agent policy may limit this setting.";
+    return (
+      <label className="agent-permission">
+        <span className="agent-label">Permission level</span>
+        <select
+          aria-label={`${name} permission level`}
+          aria-description={note}
+          title={note}
+          value={value}
+          disabled={pending.has(key) || (scope.startsWith("host:") && !hostsReady)}
+          onChange={(event) => {
+            const level = event.currentTarget.value;
+            if (level !== "" && !agentPermissionLevel(level)) return;
+            setPending((previous) => new Set(previous).add(key));
+            setError("");
+            void savePermission(scope, id, level || null)
+              .catch((error: unknown) => {
+                setError(message(error));
+              })
+              .finally(() => {
+                setPending((previous) => {
+                  const next = new Set(previous);
+                  next.delete(key);
+                  return next;
+                });
+              });
+          }}
+        >
+          <option value="">
+            {scope === "global"
+              ? "Agent default"
+              : `Use Global · ${global ? agentPermissionLabels[global] : "Agent default"}`}
+          </option>
+          {unavailable && (
+            <option value={value} disabled>
+              {agentPermissionLabels[value]} (unavailable)
+            </option>
+          )}
+          {supported?.map((level) => (
+            <option
+              key={level}
+              value={level}
+              title={level === "workspace" ? "Git fetch and commit are blocked" : undefined}
+            >
+              {agentPermissionLabels[level]}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  };
   const machines: { id: string; name: string; host?: HostRow }[] = [
     { id: "local", name: "This computer" },
     ...hosts.map((host) => ({ id: `host:${host.host}`, name: hostDisplayName(host), host })),
@@ -285,15 +357,23 @@ export function AgentsScopes(
                         )}
                       </span>
                     </label>
-                    <AgentArguments
-                      id={choice.id}
-                      name={choice.name}
-                      value={state.settings.agentArguments[choice.id] ?? []}
-                      bypass={agent?.bypassArguments ?? []}
-                      save={async (args) => {
-                        await saveArguments(choice.id, args);
-                      }}
-                    />
+                    <div className="agent-global-preferences">
+                      <AgentArguments
+                        id={choice.id}
+                        name={choice.name}
+                        value={state.settings.agentArguments[choice.id] ?? []}
+                        bypass={agent?.bypassArguments ?? []}
+                        save={async (args) => {
+                          await saveArguments(choice.id, args);
+                        }}
+                      />
+                      {!plugin?.reason &&
+                        permission(
+                          choice.id,
+                          choice.name,
+                          agent?.permissionLevels || builtinAgent(choice.id)?.permissionLevels,
+                        )}
+                    </div>
                   </div>
                 );
               })}
@@ -354,6 +434,14 @@ export function AgentsScopes(
                   headingRef={headingRef}
                   machine
                   actionsDisabled={!hostsReady}
+                  permissionControl={(id, name) =>
+                    permission(
+                      id,
+                      name,
+                      report?.agents.find((agent) => agent.id === id)?.permissionLevels ||
+                        builtinAgent(id)?.permissionLevels,
+                    )
+                  }
                 />
               </>
             ) : selected ? (
@@ -426,6 +514,11 @@ export function AgentsScopes(
                             />
                           </div>
 
+                          {permission(
+                            choice.id,
+                            choice.name,
+                            builtinAgent(choice.id)?.permissionLevels,
+                          )}
                           {agent?.details && (
                             <code className="agent-path agent-remote-path">
                               {agent.details.path}

@@ -1,3 +1,4 @@
+import type { AgentPermissionLevel } from "../../shared/agent-permissions";
 import { imagePasteRecipient } from "../../shared/image-paste";
 import { randomUUID } from "node:crypto";
 import type { AgentLaunch, AgentLaunched, HookHealthState } from "../../shared/agents";
@@ -25,6 +26,7 @@ export async function launchRemoteChild(
   control: ControlLaunch,
   validate: () => Promise<void>,
   observer?: RemoteHooks,
+  permission?: { level: AgentPermissionLevel | undefined; validate(): void },
 ): Promise<{ result: AgentLaunched; dispose(): void }> {
   if (!request.control || !("parentId" in request.control) || !control.remoteCall)
     throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
@@ -89,16 +91,19 @@ export async function launchRemoteChild(
           worktree: request.worktree,
           branch: request.remoteCheckout?.branch ?? null,
           agent: request.agent,
+          ...(request.reviewer ? { reviewer: true } : {}),
         },
         agent: {
           ...(request.pressure ? { pressure: request.pressure } : {}),
           spec: {
             ...(request.pressure ? { childPressure: true } : {}),
             agent: request.agent,
+            ...(request.reviewer ? { reviewer: true } : {}),
             repository: mapping.repository,
             worktree: mapping.worktree,
             defaults: [...defaults],
             hooks,
+            ...(permission?.level ? { permissionLevel: permission.level } : {}),
             ...(request.remoteCheckout
               ? {
                   checkoutIdentity: request.remoteCheckout.identity,
@@ -120,6 +125,7 @@ export async function launchRemoteChild(
           },
           start: () => {
             if (!live() || !prepared || authorized) throw new Error("Remote launch unavailable");
+            permission?.validate();
             beforeSpawn();
             authorized = true;
           },
@@ -129,6 +135,8 @@ export async function launchRemoteChild(
               : Promise.resolve({ type: "error", error: "unavailable" }),
           ready: (value) => {
             if (!live()) return;
+            if (!request.reattach && value.permissionLevel !== permission?.level)
+              throw new Error("Remote agent did not acknowledge the permission level.");
             if (request.reattach) beforeSpawn();
             if (!authorized) throw new Error("Remote launch was not authorized");
             if (conversation && value.conversationId && conversation !== value.conversationId)
@@ -200,7 +208,10 @@ export async function launchRemoteChild(
         providerOrigin: "bundled",
         attention: ready.hooks ? "hooks" : "evaluator",
         ...(conversation ? { conversationId: conversation } : {}),
-        bypass: false,
+        bypass: !request.reattach && ready.permissionLevel === "full",
+        ...(!request.reattach && ready.permissionLevel
+          ? { permissionLevel: ready.permissionLevel }
+          : {}),
       },
       dispose,
     };

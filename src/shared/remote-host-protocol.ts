@@ -1,3 +1,4 @@
+import { agentPermissionLevel } from "./agent-permission-arguments";
 import { hostPressure } from "./host-pressure";
 import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
@@ -37,6 +38,7 @@ function hello(value: object): boolean {
   return (
     "type" in value &&
     value.type === "hello" &&
+    (!("inventoryPermissions" in value) || value.inventoryPermissions === 1) &&
     (!("startupTheme" in value) || value.startupTheme === 1) &&
     (!("originTrust" in value) || value.originTrust === 1) &&
     (!("agentSettings" in value) || value.agentSettings === 1) &&
@@ -72,7 +74,8 @@ export function profileTag(value: unknown): value is string {
 export function sessionContext(value: unknown): boolean {
   return (
     record(value) &&
-    keys(value, ["repository", "worktree", "branch", "agent", "machine"]) &&
+    keys(value, ["repository", "worktree", "branch", "agent", "machine", "reviewer"]) &&
+    (value["reviewer"] === undefined || value["reviewer"] === true) &&
     (value["machine"] === undefined || value["machine"] === true) &&
     remotePath(value["repository"]) &&
     remotePath(value["worktree"]) &&
@@ -195,7 +198,20 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
           value["recipe"] === undefined &&
           value["trustOrigin"] === undefined &&
           record(value["machine"]) &&
-          keys(value["machine"], ["codeFolder", "agent", "defaults", "repository"]) &&
+          keys(value["machine"], [
+            "codeFolder",
+            "agent",
+            "defaults",
+            "repository",
+            "permissionLevel",
+            "reviewer",
+          ]) &&
+          (value["machine"]["reviewer"] === undefined ||
+            (value["machine"]["reviewer"] === true &&
+              typeof value["machine"]["agent"] === "string")) &&
+          (value["machine"]["permissionLevel"] === undefined ||
+            (typeof value["machine"]["agent"] === "string" &&
+              agentPermissionLevel(value["machine"]["permissionLevel"]))) &&
           (value["machine"]["repository"] === undefined ||
             (value["checkout"] === undefined &&
               record(value["machine"]["repository"]) &&
@@ -244,8 +260,10 @@ export function remoteResponse(value: unknown): value is RemoteResponse {
       value["own"].every(
         (entry: unknown) =>
           record(entry) &&
-          keys(entry, ["id", "context", "checkout"]) &&
+          keys(entry, ["id", "context", "checkout", "permissionLevel"]) &&
           remoteId(entry["id"]) &&
+          (entry["permissionLevel"] === undefined ||
+            agentPermissionLevel(entry["permissionLevel"])) &&
           (entry["context"] === undefined || sessionContext(entry["context"])) &&
           (entry["checkout"] === undefined ||
             (record(entry["checkout"]) &&
