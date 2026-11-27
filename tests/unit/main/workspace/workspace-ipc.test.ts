@@ -1143,3 +1143,47 @@ test("the disclosure distinguishes launch restoration from exited-tile Resume re
     "Until Foom restarts, Resume in this exited tile can restore its role and children without asking again. Revoke cancels this.",
   );
 });
+
+test("dispatcher elevation stays on the requesting board and rejects foreign or forged requests", async () => {
+  const select = vi.fn();
+  const elevation = vi.fn(
+    async (
+      _id: string,
+      choose: (
+        directory: string,
+        repos: { name: string; running: boolean }[],
+      ) => Promise<readonly string[] | undefined>,
+    ) => {
+      select(await choose("/fixture/source", [{ name: "project", running: true }]));
+    },
+  );
+  const demote = vi.fn();
+  Object.assign(workspace, { elevateDispatcher: elevation, demoteDispatcher: demote });
+  const channel = "workspace:sidebar-command";
+  expect(() => invoke(channel, [{ kind: "elevate-dispatcher", id: "foreign" }])).toThrow();
+  expect(() => invoke(channel, [{ kind: "elevate-dispatcher", id: "t1", repos: [] }])).toThrow();
+  requestDialog.mockImplementationOnce((content) => {
+    content.selectDispatcherRepositories?.(["project"]);
+    return Promise.resolve(true);
+  });
+  await invoke(channel, [{ kind: "elevate-dispatcher", id: "t1" }]);
+  expect(contents.send).toHaveBeenCalledWith("confirmation:dialog");
+  expect(requestDialog).toHaveBeenCalledWith(
+    expect.objectContaining({
+      userAction: true,
+      glyph: "dispatcher",
+      dispatcherRepositories: [{ name: "project", running: true }],
+    }),
+  );
+  expect(select).toHaveBeenLastCalledWith(["project"]);
+  requestDialog.mockImplementationOnce((content) => {
+    content.selectDispatcherRepositories?.(["project"]);
+    contents.isDestroyed.mockReturnValue(true);
+    return Promise.resolve(true);
+  });
+  await invoke(channel, [{ kind: "elevate-dispatcher", id: "t1" }]);
+  expect(select).toHaveBeenLastCalledWith(undefined);
+  contents.isDestroyed.mockReturnValue(false);
+  await invoke(channel, [{ kind: "demote-dispatcher", id: "t1" }]);
+  expect(demote).toHaveBeenCalledExactlyOnceWith("t1");
+});

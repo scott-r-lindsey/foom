@@ -32,7 +32,7 @@ import {
   threadState,
 } from "../../shared/message-board-validation";
 import { ControlError, exact, identifier, object } from "../../shared/control-validation";
-import { MCP_ID_LIMIT, MCP_RESPONSE_LIMIT, mcpToolResponse } from "../../node-common/mcp-response";
+import { fitsMcpToolResponse } from "../../node-common/mcp-response";
 
 export type DecisionForge = (
   repository: string,
@@ -93,17 +93,13 @@ function pageRows<T extends { id: string }, R>(
 ): R {
   const next = (page: T[]) =>
     rows.length > start + page.length ? (page.at(-1)?.id ?? null) : null;
-  // A control character uses six JSON bytes: reserve the largest accepted ID.
-  const fits = (value: R) =>
-    Buffer.byteLength(JSON.stringify(mcpToolResponse("\u0000".repeat(MCP_ID_LIMIT), value))) <=
-    MCP_RESPONSE_LIMIT;
   let page: T[] = [];
   let value = response(page, next(page));
-  if (!fits(value)) throw new ControlError("capacity");
+  if (!fitsMcpToolResponse(value)) throw new ControlError("capacity");
   for (const row of rows.slice(start, start + maximum)) {
     const candidate = [...page, row];
     const proposed = response(candidate, next(candidate));
-    if (!fits(proposed)) {
+    if (!fitsMcpToolResponse(proposed)) {
       if (!page.length) throw new ControlError("capacity");
       break;
     }

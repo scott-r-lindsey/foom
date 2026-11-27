@@ -1,4 +1,4 @@
-import { repositoryKey, worktreeKey } from "./sidebar-model";
+import { repositoryKey, sourceDirectoryKey, worktreeKey } from "./sidebar-model";
 import type { SidebarPreferences, SidebarRepository } from "./sidebar.d";
 const key = "foom.sidebar.v1";
 export function emptyPreferences(): SidebarPreferences {
@@ -181,6 +181,7 @@ export function mergeExpansion(
 export function pruneExpansion(
   expanded: Record<string, boolean>,
   repositories: readonly SidebarRepository[],
+  sourceDirectories?: readonly string[],
 ): Record<string, boolean> {
   const known = new Set(
     repositories.flatMap((repo) => [
@@ -190,9 +191,13 @@ export function pruneExpansion(
   );
   // Keys do not retain repository ownership; worktrees may live outside repository paths.
   const membershipUnknown = repositories.some((repo) => repo.unavailable === true);
+  const sources = sourceDirectories && new Set(sourceDirectories.map(sourceDirectoryKey));
   const entries = Object.entries(expanded).filter(
     ([key]) =>
-      key === "home" || known.has(key) || (membershipUnknown && key.startsWith("worktree:")),
+      key === "home" ||
+      known.has(key) ||
+      (key.startsWith("source-directory:") && (sources === undefined || sources.has(key))) ||
+      (membershipUnknown && key.startsWith("worktree:")),
   );
   return entries.length === Object.keys(expanded).length ? expanded : Object.fromEntries(entries);
 }

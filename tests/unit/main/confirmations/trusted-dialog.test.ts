@@ -1905,3 +1905,36 @@ test("an explicitly opened queue fails closed when its trusted page never become
   expect(window().show).not.toHaveBeenCalled();
   dialog.dispose();
 });
+
+test("dispatcher elevation accepts only a unique selection displayed by the trusted dialog", async () => {
+  const dialog = setup();
+  const selectDispatcherRepositories = vi.fn();
+  const elevation = {
+    title: "Elevate to dispatcher",
+    accept: "Elevate",
+    dispatcherRepositories: [{ name: "project", running: true }],
+    selectDispatcherRepositories,
+  };
+  const approved = dialog.request(elevation);
+  const firstId = await shown();
+  for (const invalid of [true, ["missing"], ["project", "project"], [null]]) {
+    answer(firstId, invalid);
+  }
+  expect(selectDispatcherRepositories).not.toHaveBeenCalled();
+  answer(firstId, ["project"], { sender: parent.webContents });
+  expect(selectDispatcherRepositories).not.toHaveBeenCalled();
+  answer(firstId, ["project"]);
+  await expect(approved).resolves.toBe(true);
+  expect(selectDispatcherRepositories).toHaveBeenCalledExactlyOnceWith(["project"]);
+  const declined = dialog.request({ ...elevation, title: "Elevate another session" });
+  await vi.waitFor(() => {
+    expect(window().webContents.send.mock.calls.at(-1)?.[1]).toHaveProperty(
+      "title",
+      "Elevate another session",
+    );
+  });
+  answer(await shown(), false);
+  await expect(declined).resolves.toBe(false);
+  expect(selectDispatcherRepositories).toHaveBeenCalledTimes(1);
+  dialog.dispose();
+});

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ControlHttp } from "../../../../src/main/control/http";
 import { ControlService } from "../../../../src/main/control/service";
 import { Operations } from "../../../../src/main/control/operations";
+import { mcpTools } from "../../../../src/shared/control-tools";
 let service: ControlService;
 let http: ControlHttp;
 let token: string;
@@ -70,6 +71,30 @@ async function init() {
   expect(session).not.toBe("");
   expect((await send({ jsonrpc: "2.0", method: "notifications/initialized" })).status).toBe(202);
 }
+it("describes different prompt and wait arguments for dispatchers and repository orchestrators", () => {
+  const dispatcher = mcpTools(4, ["claude"], true);
+  const orchestrator = mcpTools(4, ["claude"]);
+  const schema = (tools: typeof dispatcher, name: string) =>
+    tools.find((tool) => tool.name === name)?.inputSchema.properties;
+  expect(Object.keys(schema(dispatcher, "prompt") ?? {}).sort()).toEqual([
+    "id",
+    "idempotencyKey",
+    "text",
+  ]);
+  expect(schema(orchestrator, "prompt")).toHaveProperty("sensitive");
+  expect(schema(orchestrator, "prompt")).toHaveProperty("automatic");
+  expect(schema(dispatcher, "wait_for")).toMatchObject({
+    ids: { minItems: 1, maxItems: 16, uniqueItems: true },
+  });
+  expect(schema(dispatcher, "wait_for")).not.toHaveProperty("boardAfter");
+  expect(schema(orchestrator, "wait_for")).toMatchObject({
+    ids: { minItems: 0, maxItems: 4 },
+    boardAfter: { type: "string" },
+  });
+  expect(schema(dispatcher, "session_state")).not.toHaveProperty("host");
+  expect(schema(dispatcher, "stop")).toEqual(schema(orchestrator, "stop"));
+});
+
 it("authenticates initialization, listing, calls, reconnects and deletion", async () => {
   expect((await send(initialize, { Authorization: "Bearer bad" })).status).toBe(401);
   await init();

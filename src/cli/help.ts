@@ -23,7 +23,15 @@ const commandHelp = [
     suffix: "",
   },
   {
-    prefix: "Orchestrators only: ",
+    prefix: "Dispatchers: ",
+    commands: [
+      "repos [--after REPO] [--limit N]",
+      "launch-orchestrator REPO --agent PROVIDER [--host HOST] --prompt TEXT [--reason TEXT] --idempotency-key KEY",
+    ],
+    suffix: "",
+  },
+  {
+    prefix: "Orchestrators: ",
     commands: [
       "read-handoff ID [--seq N]",
       "create-worktree BRANCH|--pull-request N [--review] [--host HOST] --idempotency-key KEY",
