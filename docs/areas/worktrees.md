@@ -58,7 +58,8 @@ Requests for the same repository share one queued or open review.
 It joins any matching eligibility scan and refreshes an expired cached plan
 through the same inventory path. If a newer scan supersedes the one it joined,
 the review waits for current eligibility. At presentation, a queued review uses
-the reasons and fetch time from the same completed scan. If that scan found
+the reasons and fetch time from the same completed scan. Main skips the review
+if the repository is no longer registered or no completed scan is available. If that scan found
 eligible worktrees, main skips the queued review and the panel shows the updated
 count. If a replacement scan is pending when the review opens, the open feed
 updates its reasons and fetch time together when that scan or its replacement

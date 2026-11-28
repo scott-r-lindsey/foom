@@ -497,7 +497,7 @@ it("shares a kept-worktree review while it is queued or open", async () => {
   expect(duplicate).toHaveBeenCalledOnce();
 });
 
-it.each(["still kept", "eligible", "pending", "failed"] as const)(
+it.each(["still kept", "eligible", "pending", "failed", "removed", "no snapshot"] as const)(
   "checks the completed eligibility scan when a queued kept review opens (%s)",
   async (outcome) => {
     const f = fixture();
@@ -527,15 +527,28 @@ it.each(["still kept", "eligible", "pending", "failed"] as const)(
         fetchedAt: 500,
         progress: { items: [{ branch: "feature", reason: "uncommitted changes" }] },
       });
-      f.worktrees.changes.mockResolvedValue("");
-      f.worktrees.mergedCommit.mockResolvedValue(outcome === "eligible");
-      f.worktrees.mergedFetchTime.mockReturnValue(61_000);
-      if (outcome === "failed")
-        f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
-      f.advance();
-      const scan = await f.scan();
-      if (outcome === "failed") expect(scan.mergedError).toBe("offline");
-      else expect(scan.mergedCount).toBe(outcome === "eligible" ? 1 : 0);
+      if (outcome === "removed") {
+        f.worktrees.removeRepository.mockImplementationOnce(() => {
+          f.deps.known.mockImplementation(() => {
+            throw new Error("Repository has not been added");
+          });
+          return Promise.resolve();
+        });
+        await f.owner.removeRepository(repository);
+      } else if (outcome === "no snapshot") {
+        f.trees([]);
+        expect(f.inventory().mergedCount).toBeUndefined();
+      } else {
+        f.worktrees.changes.mockResolvedValue("");
+        f.worktrees.mergedCommit.mockResolvedValue(outcome === "eligible");
+        f.worktrees.mergedFetchTime.mockReturnValue(61_000);
+        if (outcome === "failed")
+          f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
+        f.advance();
+        const scan = await f.scan();
+        if (outcome === "failed") expect(scan.mergedError).toBe("offline");
+        else expect(scan.mergedCount).toBe(outcome === "eligible" ? 1 : 0);
+      }
       if (outcome === "pending") {
         f.worktrees.cleanupStatus.mockReturnValueOnce(pendingStatus.promise);
         f.worktrees.mergedFetchTime.mockReturnValue(121_000);
@@ -555,7 +568,9 @@ it.each(["still kept", "eligible", "pending", "failed"] as const)(
       }
     }
 
-    if (outcome === "eligible") {
+    if (outcome === "removed" || outcome === "no snapshot") {
+      expect(presented).not.toHaveBeenCalled();
+    } else if (outcome === "eligible") {
       expect(presented).not.toHaveBeenCalled();
       expect(f.inventory().mergedCount).toBe(1);
     } else if (outcome === "failed") {

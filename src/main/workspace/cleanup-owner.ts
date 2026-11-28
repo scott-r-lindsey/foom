@@ -815,11 +815,16 @@ export class CleanupOwner {
       fetchedAt: () => displayed?.fetchedAt,
       changed: () => {},
       preparePresentation: () => {
+        try {
+          this.deps.known(repository);
+        } catch {
+          return false;
+        }
         const entry = this.mergeEligibility.get(repository);
         const snapshot = entry?.completed;
-        if (snapshot?.plan?.some((item) => !item.reason)) return false;
-        if (snapshot !== displayed && (displayed !== null || !entry?.pending)) show(snapshot);
-        if (entry?.pending) void followEligibility();
+        if (!snapshot || snapshot.plan?.some((item) => !item.reason)) return false;
+        if (snapshot !== displayed) show(snapshot);
+        if (entry.pending) void followEligibility();
         return true;
       },
     });
