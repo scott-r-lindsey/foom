@@ -174,7 +174,15 @@ async function elevate(app, page, row, takeScreenshot) {
     await expect(confirm.getByRole("checkbox", { name: path.join("teams", name) })).toBeVisible();
   }
   const option = confirm.getByRole("checkbox", { name: path.join("teams", "billing") });
+  const heading = confirm.getByRole("heading", { name: /Pre-approved repositories/ });
+  await expect(heading).toHaveText(/Pre-approved repositories\s*0$/);
   await option.check();
+  await expect(heading).toHaveText(/Pre-approved repositories\s*1$/);
+  const second = confirm.getByRole("checkbox", { name: path.join("teams", "infra") });
+  await second.check();
+  await expect(heading).toHaveText(/Pre-approved repositories\s*2$/);
+  await second.uncheck();
+  await expect(heading).toHaveText(/Pre-approved repositories\s*1$/);
   await takeScreenshot?.(confirm);
   await confirm.getByRole("button", { name: "Elevate", exact: true }).click();
   await expect(row).toContainText("Dispatcher");

@@ -94,6 +94,23 @@ test("dispatcher admission refuses redirected folders, Git markers and non-repos
   await expect(sourceRepositories(() => entries, source)).resolves.toEqual([]);
 });
 
+test("a registered checkout loses dispatcher access when its Git marker is removed", async () => {
+  const { source, external } = await fixture();
+  const path = await repository(source, "project");
+  const registration = { name: "project", path };
+  const registry = () => [registration];
+  await expect(sourceRepositories(registry, source)).resolves.toEqual([
+    expect.objectContaining({ path }),
+  ]);
+
+  await rename(join(path, ".git"), join(external, "marker"));
+
+  await expect(sourceRepository(registry, source, path)).rejects.toMatchObject({
+    code: "not_found",
+  });
+  await expect(sourceRepositories(registry, source)).resolves.toEqual([]);
+});
+
 test("dispatcher admission rechecks the checkout and registry after verifying Git", async () => {
   const { source, external } = await fixture();
   const path = await repository(source, "race");

@@ -856,10 +856,7 @@ export function ConfirmationCard({
               </>
             )}
             {request.dispatcherRepositories && (
-              <Section
-                label="Pre-approved repositories"
-                count={request.dispatcherRepositories.length}
-              >
+              <Section label="Pre-approved repositories" count={selected.length}>
                 <ul className="well" aria-label="Pre-approved repositories">
                   {request.dispatcherRepositories.map(({ path, name, running }) => (
                     <li key={path}>

@@ -8,6 +8,7 @@ import { ControlRuntime } from "../../../../src/main/control/runtime";
 import { expect, test, vi } from "vitest";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
 import type { AgentLaunch } from "../../../../src/shared/agents";
+import { ControlError } from "../../../../src/shared/control-validation";
 import type { DispatcherLaunch } from "../../../../src/shared/dispatcher";
 import {
   confirm,
@@ -301,9 +302,22 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
   let prepareControl: Parameters<typeof factory>[1];
   let sourceEnv: Readonly<Record<string, string>> | undefined;
   let projectIdentity = "";
+  const hostRegistration = vi.fn((host: string) => {
+    if (host !== "worker") throw new ControlError("not_found");
+    return { host, codeFolder: "/fixture/approved" };
+  });
+  const prepareCheckout = vi.fn();
+  const requireAgent = vi.fn();
   const workspace = createWorkspace({
     ...deps,
     control: () => startRuntime(),
+    hosts: {
+      registered: hostRegistration,
+      repositoryTarget: prepareCheckout,
+      requireAgent,
+      worktree: vi.fn(),
+      fleet: vi.fn(() => Promise.resolve([])),
+    },
     worktrees: {
       ...deps.worktrees,
       listRepositories: () => [registered],
@@ -377,6 +391,43 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
         idempotencyKey: "unrelated",
       }),
     ).rejects.toThrow("not_found");
+    const endpoint = sourceEnv?.["FOOM_CONTROL_URL"];
+    if (!endpoint) throw new Error("Missing source endpoint");
+    const request = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${sourceEnv?.["FOOM_CONTROL_TOKEN"] ?? ""}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          version: 1,
+          instanceId: sourceEnv?.["FOOM_CONTROL_INSTANCE"],
+          method,
+          params,
+        }),
+      });
+      return response.json();
+    };
+    const rejectedKey = "unregistered-host";
+    await expect(
+      request("launch_orchestrator", {
+        ...launchRequest,
+        repo: project,
+        host: "unregistered",
+        idempotencyKey: rejectedKey,
+      }),
+    ).resolves.toEqual({ error: "not_found" });
+    expect(hostRegistration).toHaveBeenCalledExactlyOnceWith("unregistered");
+    expect(prepareCheckout).not.toHaveBeenCalled();
+    expect(requireAgent).not.toHaveBeenCalled();
+    expect(workspace.orchestration.active(project)).toBeUndefined();
+    await expect(request("operation_status", { idempotencyKey: rejectedKey })).resolves.toEqual({
+      error: "not_found",
+    });
+    await expect(workspace.messageBoard("decisions", { watch: [] })).resolves.toMatchObject({
+      questions: [],
+    });
     projectIdentity = (await workspace.dispatcherHost.repository(source, project)).identity;
     let orchestratorId: string | undefined;
     launch.mockImplementationOnce(async (request) => {
@@ -406,22 +457,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
       expect(result.payload).toContain('"seq":1');
       return { id, attention: "evaluator" };
     });
-    const endpoint = sourceEnv?.["FOOM_CONTROL_URL"];
-    if (!endpoint) throw new Error("Missing source endpoint");
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${sourceEnv?.["FOOM_CONTROL_TOKEN"] ?? ""}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        version: 1,
-        instanceId: sourceEnv?.["FOOM_CONTROL_INSTANCE"],
-        method: "launch_orchestrator",
-        params: { ...launchRequest, repo: project },
-      }),
-    });
-    const receipt: unknown = await response.json();
+    const receipt = await request("launch_orchestrator", { ...launchRequest, repo: project });
     if (!orchestratorId) throw new Error("Missing launched orchestrator ID");
     expect(receipt).toMatchObject({ result: { status: "succeeded", resultId: orchestratorId } });
     expect(workspace.orchestration.handoffs.latest(orchestratorId)).toMatchObject({ seq: 1 });
