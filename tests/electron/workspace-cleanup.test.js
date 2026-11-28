@@ -294,7 +294,11 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   await expect(page.getByRole("button", { name: "Actions for repo", exact: true })).toBeVisible();
   await page.evaluate((repo) => {
-    void window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository: repo });
+    void window.desktop.sidebarCommand({
+      kind: "delete-merged-worktrees",
+      repository: repo,
+      startNew: true,
+    });
   }, repo);
   const confirmation = await confirmationPage(app);
   const reportCleanup = async (stage) => {
@@ -738,6 +742,7 @@ for (const { front, queued, sameBoard, checking, background } of [
             window.desktop.sidebarCommand({
               kind: "delete-merged-worktrees",
               repository: repo,
+              startNew: true,
             }),
           repo,
         );
@@ -1154,6 +1159,17 @@ test("zero merged cleanup eligibility opens the kept review and refreshes while 
   await expect(zero).toBeVisible();
   await expect(deletion).toHaveCount(0);
   const review = await reviewKept();
+  let duplicateSettled = false;
+  const duplicate = page
+    .evaluate(
+      (repository) => window.desktop.sidebarCommand({ kind: "review-kept-worktrees", repository }),
+      repository,
+    )
+    .then(() => {
+      duplicateSettled = true;
+    });
+  void duplicate.catch(() => {});
+  await expect.poll(() => duplicateSettled).toBe(true);
   await review.getByRole("button", { name: "Close", exact: true }).click();
   await expect(review.getByRole("alertdialog")).toHaveCount(0);
 
@@ -1297,7 +1313,12 @@ test("closing a board declines its queued cleanup and releases its repository be
   await native.evaluate((window) => window.focus());
   await native.dispose();
   const front = first.evaluate(
-    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    (repository) =>
+      window.desktop.sidebarCommand({
+        kind: "delete-merged-worktrees",
+        repository,
+        startNew: true,
+      }),
     repos[0],
   );
   void front.catch(() => {});
@@ -1307,7 +1328,12 @@ test("closing a board declines its queued cleanup and releases its repository be
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
   const queued = second.evaluate(
-    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    (repository) =>
+      window.desktop.sidebarCommand({
+        kind: "delete-merged-worktrees",
+        repository,
+        startNew: true,
+      }),
     repos[1],
   );
   // Closing the board rejects its IPC call; the main-owned request must still settle.

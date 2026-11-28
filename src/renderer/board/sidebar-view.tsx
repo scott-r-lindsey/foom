@@ -529,6 +529,7 @@ export function Sidebar(props: SidebarProps) {
                                 command({
                                   kind: "delete-merged-worktrees",
                                   repository: repo.repository.path,
+                                  ...(cleanup.id ? { cleanupId: cleanup.id } : {}),
                                 }),
                             },
                           ]

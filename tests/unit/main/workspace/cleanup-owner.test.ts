@@ -165,6 +165,8 @@ function fixture() {
     now: () => time,
   } satisfies CleanupOwnerDependencies;
   const owner = new CleanupOwner(deps);
+  const startCleanup = (confirm: ConfirmWorkspace) =>
+    owner.deleteMerged(repository, confirm, { startNew: true });
   const inventory = () => owner.inventory(repository, trees);
   const scan = async () => {
     const calls = deps.onChange.mock.calls.length;
@@ -175,7 +177,7 @@ function fixture() {
     return inventory();
   };
   const run = async (during?: (feed: CleanupFeed) => void | Promise<void>) => {
-    await owner.deleteMerged(repository, async (request) => {
+    await startCleanup(async (request) => {
       if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
       const feed = request.feed;
       await vi.waitFor(() => {
@@ -190,6 +192,7 @@ function fixture() {
   };
   return {
     owner,
+    startCleanup,
     acquireWorktree,
     releaseRepository,
     deps,
@@ -458,6 +461,40 @@ it("reviews kept worktrees without deletion authority and reuses a fresh eligibi
   expect(f.worktrees.mergedDefault).toHaveBeenCalledOnce();
   expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
   expect(f.worktrees.deleteMergedBranches).not.toHaveBeenCalled();
+});
+
+it("shares a kept-worktree review while it is queued or open", async () => {
+  const f = fixture();
+  f.worktrees.mergedCommit.mockResolvedValue(false);
+  await f.scan();
+  const presentations = new RemovalPresentations();
+  const blocker = Promise.withResolvers<boolean>();
+  const blocked = presentations.run(() => blocker.promise);
+  const opened = Promise.withResolvers<undefined>();
+  const close = Promise.withResolvers<boolean>();
+  const confirm = vi.fn<ConfirmWorkspace>(() =>
+    presentations.run(() => {
+      opened.resolve(undefined);
+      return close.promise;
+    }),
+  );
+  const review = f.owner.reviewMerged(repository, confirm);
+  const duplicate = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
+  try {
+    await f.owner.reviewMerged(repository, duplicate);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(duplicate).not.toHaveBeenCalled();
+    blocker.resolve(false);
+    await opened.promise;
+    await f.owner.reviewMerged(repository, duplicate);
+    expect(duplicate).not.toHaveBeenCalled();
+  } finally {
+    blocker.resolve(false);
+    close.resolve(false);
+    await Promise.all([blocked, review]);
+  }
+  await f.owner.reviewMerged(repository, duplicate);
+  expect(duplicate).toHaveBeenCalledOnce();
 });
 
 it.each(["still kept", "eligible", "pending", "failed"] as const)(
@@ -809,7 +846,7 @@ it("plans fixed skip reasons for protected and unavailable checkouts", async () 
     ]);
     return Promise.resolve(false);
   };
-  await f.owner.deleteMerged(repository, confirm);
+  await f.startCleanup(confirm);
   expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
 });
 
@@ -835,13 +872,51 @@ it("reuses a fresh plan, fetches on approval, retains locks through branch delet
   await work;
   expect(f.locks.size).toBe(0);
   const fetches = f.worktrees.mergedDefault.mock.calls.length;
-  await f.owner.deleteMerged(repository, (request) => {
-    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
-    expect(request.feed.current().progress.phase).toBe("finished");
-    return Promise.resolve(true);
-  });
+  const cleanupId = f.inventory().cleanup?.id;
+  if (!cleanupId) throw new Error("Missing cleanup ID");
+  await f.owner.deleteMerged(
+    repository,
+    (request) => {
+      if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+      expect(request.feed.current().progress.phase).toBe("finished");
+      return Promise.resolve(true);
+    },
+    { cleanupId },
+  );
   expect(f.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
   expect(f.inventory().cleanup).toBeUndefined();
+});
+
+it("ignores a board's stale cleanup results after another board dismisses the run", async () => {
+  const f = fixture();
+  await f.run();
+  const cleanupId = f.inventory().cleanup?.id;
+  if (!cleanupId) throw new Error("Missing cleanup ID");
+  const boardB = { cleanupId };
+  let feed: CleanupFeed | undefined;
+  const boardA = vi.fn<ConfirmWorkspace>((request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    expect(request.feed.current().progress.phase).toBe("finished");
+    feed = request.feed;
+    expect(feed.preparePresentation?.()).toBe(true);
+    return Promise.resolve(true);
+  });
+  await f.owner.deleteMerged(repository, boardA, { cleanupId });
+  expect(boardA).toHaveBeenCalledOnce();
+  expect(feed?.preparePresentation?.()).toBe(false);
+  expect(f.inventory().cleanup).toBeUndefined();
+
+  const stale = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
+  const fetches = f.worktrees.mergedDefault.mock.calls.length;
+  await f.owner.deleteMerged(repository, stale, boardB);
+  expect(stale).not.toHaveBeenCalled();
+  expect(f.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
+  await f.run();
+  const replacement = f.inventory().cleanup?.id;
+  expect(replacement).toBeDefined();
+  await f.owner.deleteMerged(repository, stale, boardB);
+  expect(stale).not.toHaveBeenCalled();
+  expect(f.inventory().cleanup?.id).toBe(replacement);
 });
 
 it.each([
@@ -900,7 +975,7 @@ it("drains superseded scans before deletion, suppresses new scans while pending,
     f.advance();
     f.inventory();
     expect(f.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
-    await f.owner.deleteMerged(repository, (request) => {
+    await f.startCleanup((request) => {
       expect(request.kind === "merged-worktrees" && request.feed).toBe(feed);
       return Promise.resolve(false);
     });
@@ -931,7 +1006,7 @@ it.each(["preparation", "approval"] as const)(
     const f = fixture();
     if (stage === "approval") await f.scan();
     f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
-    await f.owner.deleteMerged(repository, async (request) => {
+    await f.startCleanup(async (request) => {
       if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
       await vi.waitFor(() => {
         expect(request.feed?.current().stage).not.toBe("checking");
@@ -1006,7 +1081,7 @@ it("refuses an untracked snapshot that changes before group approval", async () 
   f.worktrees.changes.mockResolvedValue("?? first.png\0");
   f.worktrees.cleanupChanges.mockResolvedValue("?? first.png\0");
   await f.scan();
-  await f.owner.deleteMerged(repository, (request) => {
+  await f.startCleanup((request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
     f.worktrees.changes.mockResolvedValue("?? second.png\0");
     f.worktrees.cleanupChanges.mockResolvedValue("?? second.png\0");

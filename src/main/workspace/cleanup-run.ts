@@ -25,7 +25,7 @@ interface CleanupActions {
 
 /** Main owns the lifetime; closing a presentation only unsubscribes it. */
 export class CleanupRun implements CleanupFeed {
-  private readonly id = randomUUID();
+  readonly id = randomUUID();
   private stage: CleanupDialog["stage"] = "checking";
   private listeners = new Set<() => void>();
   private plan: readonly CleanupCandidate[] = [];
@@ -41,10 +41,13 @@ export class CleanupRun implements CleanupFeed {
       checkingCount?: number | undefined;
       fetchedAt?(): number | undefined;
       changed(): void;
-    } & (CleanupActions | { reviewOnly: true; preparePresentation(): boolean }),
+    } & (
+      | (CleanupActions & { preparePresentation?(): boolean })
+      | { reviewOnly: true; preparePresentation(): boolean }
+    ),
   ) {}
   preparePresentation(): boolean {
-    return "reviewOnly" in this.deps ? this.deps.preparePresentation() : true;
+    return this.deps.preparePresentation?.() ?? true;
   }
   get pending(): boolean {
     return this.phase !== "finished";

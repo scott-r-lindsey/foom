@@ -54,6 +54,7 @@ workspaces cannot publish late results. Git status reads use `--no-optional-lock
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
 it opens checking before awaiting the fresh plan. Approval always fetches afresh.
 The zero-count fact opens a read-only cleanup feed that lists kept worktrees.
+Requests for the same repository share one queued or open review.
 It joins any matching eligibility scan and refreshes an expired cached plan
 through the same inventory path. If a newer scan supersedes the one it joined,
 the review waits for current eligibility. At presentation, a queued review uses
@@ -106,7 +107,10 @@ Every removal rechecks this evidence. Automatic removal uses this verified PR pa
 alongside its existing ancestry/no-unpushed-commits path, preserving clean status,
 identity, session and authority guards. A failed post-confirmation fetch prevents every removal.
 Main owns one `CleanupRun` per repository. While it is pending, inventory does not
-start background eligibility scans. Before deletion begins, cleanup drains all
+start background eligibility scans. Reopening a checklist requires the run ID
+from the board's inventory, and main checks that the run is still current when
+the trusted window presents it. Only an explicit start request can create a run.
+Before deletion begins, cleanup drains all
 existing scans, including superseded scans whose results will be discarded, so
 Windows directory handles held by their Git processes cannot block removal.
 Four workers run the existing removal

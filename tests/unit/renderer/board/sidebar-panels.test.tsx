@@ -208,7 +208,7 @@ test("a new cleanup and undismissed results are independent menu commands", asyn
     {
       ...repository,
       mergedCount: 1,
-      cleanup: { total: 1, done: 1, phase: "finished", stopped: false, items: [] },
+      cleanup: { id: "cleanup", total: 1, done: 1, phase: "finished", stopped: false, items: [] },
     },
   ];
   await act(async () => {
@@ -234,6 +234,7 @@ test("a new cleanup and undismissed results are independent menu commands", asyn
   expect(view.command).toHaveBeenLastCalledWith({
     kind: "delete-merged-worktrees",
     repository: "/foom",
+    cleanupId: "cleanup",
   });
 });
 
@@ -372,6 +373,7 @@ test("removed subjects release pinned intent; Escape works outside and the opene
 test("cleanup progress and finished results remain reachable without folding recreated live rows", async () => {
   const view = setup();
   let progress: NonNullable<SidebarRepository["cleanup"]> = {
+    id: "running",
     total: 1,
     done: 0,
     phase: "remove",
@@ -389,6 +391,7 @@ test("cleanup progress and finished results remain reachable without folding rec
   expect(view.command).toHaveBeenLastCalledWith({
     kind: "delete-merged-worktrees",
     repository: "/foom",
+    cleanupId: "running",
   });
   progress = {
     ...progress,

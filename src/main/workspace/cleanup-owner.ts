@@ -103,6 +103,7 @@ export class CleanupOwner {
     }
   >();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
+  private readonly keptWorktreeReviews = new Set<string>();
   private readonly mergeScans = new Map<string, Set<Promise<void>>>();
   private readonly mergeEligibility = new Map<string, MergeEligibility>();
   private mergeGeneration = 0;
@@ -615,11 +616,11 @@ export class CleanupOwner {
   async deleteMerged(
     repository: string,
     confirm: ConfirmWorkspace,
-    startNew = false,
+    { startNew, cleanupId }: { startNew?: true; cleanupId?: string } = {},
   ): Promise<void> {
     this.deps.known(repository);
     const existing = this.cleanupRuns.get(repository);
-    if (existing && (existing.pending || !startNew)) {
+    if (existing && (startNew ? existing.pending : existing.id === cleanupId)) {
       await confirm({
         kind: "merged-worktrees",
         subject: basename(repository),
@@ -632,9 +633,11 @@ export class CleanupOwner {
       }
       return;
     }
+    if (!startNew) return;
     return this.deps.withRepository(repository, async () => {
       const releases = new Set<() => void>();
       const run = new CleanupRun({
+        preparePresentation: (): boolean => this.cleanupRuns.get(repository) === run,
         checkingCount: this.mergeEligibility.get(repository)?.count,
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
         fetch: async () => {
@@ -766,6 +769,7 @@ export class CleanupOwner {
 
   async reviewMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
     this.deps.known(repository);
+    if (this.keptWorktreeReviews.has(repository)) return;
     const cached = this.mergeEligibility.get(repository);
     // Null denotes a review that is still checking. Undefined is a completed empty review.
     let displayed: MergeEligibilitySnapshot | undefined | null = null;
@@ -814,17 +818,19 @@ export class CleanupOwner {
         return true;
       },
     });
-    const answer = confirm({
-      kind: "merged-worktrees",
-      subject: basename(repository),
-      worktrees: [],
-      feed: review,
-    });
-    void followEligibility(true);
+    this.keptWorktreeReviews.add(repository);
     try {
+      const answer = confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: review,
+      });
+      void followEligibility(true);
       await answer;
     } finally {
       dismissed = true;
+      this.keptWorktreeReviews.delete(repository);
     }
   }
 
