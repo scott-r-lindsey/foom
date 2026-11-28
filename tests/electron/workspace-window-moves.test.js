@@ -406,26 +406,28 @@ test("long repository hints leave the window move trigger clickable", {
     .toMatchObject([{ label: "Lovelace", repositories: [name] }]);
 
   await sizeTileBoard(app, source, 900, 700);
+  await waitForMenuFrame(source);
   await source.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
   const trigger = source.getByRole("menuitem", { name: "Move to window", exact: true });
-  const choice = source.getByRole("menuitem", { name: `Lovelace · ${name}`, exact: true });
+  const picker = source.getByRole("menu", { name: "Move to window", exact: true });
+  const choice = picker.getByRole("menuitem", { name: `Lovelace · ${name}`, exact: true });
   await expect(trigger).toBeVisible();
   const bounds = await trigger.boundingBox();
   assert.ok(bounds);
   const x = bounds.x + bounds.width / 2;
   const y = bounds.y + bounds.height / 2;
   await source.mouse.move(x, y);
-  await expect(choice).toBeVisible();
-  const panel = await source.getByRole("dialog", { name: "Tile 1 menu" }).boundingBox();
-  const flyout = await source
-    .getByRole("menu", { name: "Move to window", exact: true })
-    .boundingBox();
-  assert.ok(panel && flyout);
-  assert.ok(flyout.x + flyout.width <= panel.x || panel.x + panel.width <= flyout.x);
-  // Keep the pointer stationary; a locator click would recheck its target.
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(picker).toHaveCount(0);
+  // Click at the existing pointer position to catch changes to the hit target.
   await source.mouse.down();
   await source.mouse.up();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(choice).toBeVisible();
+  const panel = await source.getByRole("dialog", { name: "Tile 1 menu" }).boundingBox();
+  const flyout = await picker.boundingBox();
+  assert.ok(panel && flyout);
+  assert.ok(flyout.x + flyout.width <= panel.x || panel.x + panel.width <= flyout.x);
   await expect(choice).toBeFocused();
   await expect(source.locator(occupied)).toHaveCount(1);
   await expect(destination.locator(occupied)).toHaveCount(1);
