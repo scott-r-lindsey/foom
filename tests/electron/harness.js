@@ -2,7 +2,6 @@ const { clickApproval } = require("./approval-actions.js");
 const { fixtureEnvironment } = require("../helpers/environment.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
-const { AxeBuilder } = require("@axe-core/playwright");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const {
@@ -15,7 +14,6 @@ const {
   writeFile,
 } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
-const { _electron: electron } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
 const { isolatedEnvironment } = require("./agent-isolation.js");
@@ -428,6 +426,7 @@ async function boardCommand(app, keyCode, shift = true) {
 }
 
 async function assertAccessible(page) {
+  const { AxeBuilder } = require("@axe-core/playwright");
   // Electron does not support Target.createTarget. This app has no cross-origin frames.
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
@@ -848,6 +847,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     },
     args: [],
   });
+  const { _electron: electron } = require("@playwright/test");
   const app = await electron
     .launch({
       chromiumSandbox: true,

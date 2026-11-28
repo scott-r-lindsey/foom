@@ -47,7 +47,7 @@ function boards(
         },
       },
       {
-        label: `Window ${String(window)}`,
+        repositoryNames: () => [],
         owns: () => owns(window),
         send,
         move: (_item, _target, committed) => move(committed),

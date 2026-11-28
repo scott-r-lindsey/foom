@@ -111,7 +111,8 @@ running-agent count, validated by preload; it never contains remote text or URLs
 ## Window move IPC (#950)
 
 Registered board main frames use `windows:list` (no arguments → bounded live
-window ID/label list), `windows:begin-drag` (terminal/preview kind and ID → opaque
+window IDs, pioneer labels and repository names), `windows:tile-repositories`
+(up to 256 repository IDs, one per occupied repository tile), `windows:begin-drag` (terminal/preview kind and ID → opaque
 UUID), `windows:end-drag` (token), `windows:drop` (token and nullable tile/edge
 placement), and `windows:move` (kind/ID and existing target window number).
 Main sends `windows:drag` with only a token or null. `windows:prepare-move` carries

@@ -638,7 +638,15 @@ export async function buildWindow(
     },
   );
   const disposeMoves = wiring.moves.attach(window.id, ipc, {
-    label: `Window ${String(window.id)}`,
+    repositoryNames: (ids) => {
+      const names = new Map(
+        wiring.worktrees.listRepositories().map(({ path, name }) => [path, name]),
+      );
+      return ids.flatMap((id) => {
+        const name = names.get(id);
+        return name ? [name] : [];
+      });
+    },
     owns: (content) =>
       content.kind === "preview"
         ? previewHost.registry.records.has(content.id)

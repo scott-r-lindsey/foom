@@ -252,16 +252,16 @@ test("restores document selections and tolerates an edit target removed while th
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-const rect = (left: number, right: number) =>
+const rect = (left: number, right: number, top = 50) =>
   ({
     left,
     right,
-    top: 50,
-    bottom: 80,
+    top,
+    bottom: top + 30,
     width: right - left,
     height: 30,
     x: left,
-    y: 50,
+    y: top,
   }) as DOMRect;
 test("Settings opens a submenu by keyboard, click or hover and returns focus on Left or Escape", async () => {
   const f = fixture();
@@ -338,13 +338,13 @@ test("Settings opens a submenu by keyboard, click or hover and returns focus on 
   fireEvent.pointerDown(document.body);
   expect(screen.queryByRole("menu")).toBeNull();
 });
-test("the submenu sits beside Settings and flips left without room on the right", async () => {
+test("the submenu opens beside the whole menu or replaces its commands", async () => {
   const f = fixture();
   render(<AppMenu api={f.api} />);
   fireEvent.click(screen.getByRole("button", { name: "Foom menu" }));
-  await screen.findByRole("menu", { name: "Foom" });
+  const menu = await screen.findByRole("menu", { name: "Foom" });
   const settings = screen.getByRole("menuitem", { name: "Settings" });
-  const bounds = vi.spyOn(settings, "getBoundingClientRect").mockReturnValue(rect(100, 300));
+  const bounds = vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(rect(100, 300));
   fireEvent.click(settings);
   expect(screen.getByRole("menu", { name: "Settings" }).style.left).toBe("310px");
   fireEvent.keyDown(document.activeElement ?? settings, { key: "Escape" });
@@ -353,6 +353,23 @@ test("the submenu sits beside Settings and flips left without room on the right"
   expect(screen.getByRole("menu", { name: "Settings" }).style.left).toBe(
     `${String(window.innerWidth - 130)}px`,
   );
+  fireEvent.keyDown(document.activeElement ?? settings, { key: "Escape" });
+  bounds.mockReturnValue(rect(20, window.innerWidth - 20));
+  fireEvent.pointerEnter(settings);
+  expect(screen.queryByRole("menu", { name: "Settings" })).toBeNull();
+  fireEvent.click(settings);
+  expect(menu.contains(screen.getByRole("menu", { name: "Settings" }))).toBe(true);
+  expect(screen.queryByRole("menuitem", { name: "Settings" })).toBeNull();
+  const back = screen.getByRole("menuitem", { name: "Back" });
+  expect(document.activeElement).toBe(back);
+  fireEvent.keyDown(back, { key: "Escape" });
+  expect(document.activeElement).toBe(settings);
+  expect(screen.queryByRole("menu", { name: "Settings" })).toBeNull();
+  fireEvent.click(settings);
+  expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Back" }));
+  fireEvent.resize(window);
+  expect(document.activeElement).toBe(settings);
+  expect(screen.queryByRole("menu", { name: "Settings" })).toBeNull();
 });
 test("the Size row is one stop, steps without closing and shows main's size", async () => {
   const f = fixture();

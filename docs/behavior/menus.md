@@ -21,10 +21,11 @@ menu is the same everywhere and lists app-wide commands, the sidebar toggle and 
 Items whose issue hasn't landed are present but disabled, with no explanation.
 Arrows, Home/End, Enter and Escape navigate the menu; disabled items are skipped.
 Right or Enter on a submenu opens it and focuses the first enabled
-item; Left or Escape returns to its parent, and hovering opens it without moving
-focus. Scrolling within a sidebar panel closes its open submenus and keeps the
-panel open, so submenus cannot remain detached from scrolled commands. The submenu
-flips left when the window has no room on its right. Up and
+item; Left or Escape returns to its parent. A flyout opens beside the parent
+menu, wrapping long labels to fit the available space. Hovering opens the flyout
+without moving focus. When neither side has room, click, Right or Enter replaces
+the menu body with the submenu and focuses its **Back** row. Scrolling within a
+sidebar panel closes its flyout and keeps the panel open. Up and
 Down treat the Size row as one stop; Left and Right move between − and +.
 Escape at the top level returns focus to the wordmark. The menu uses the same
 surface and motion as row actions, with a scrollable list on short windows. Opening

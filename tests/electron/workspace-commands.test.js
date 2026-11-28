@@ -208,6 +208,36 @@ test("application menu uses the command registry and supports native keyboard ac
     );
 });
 
+test("resizing a drilled-in application menu returns focus to its trigger", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 300 }));
+  const native = await app.browserWindow(page);
+  try {
+    await native.evaluate((window) => {
+      window.setMinimumSize(1, 1);
+      window.setContentSize(1280, 1024);
+    });
+  } finally {
+    await native.dispose();
+  }
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThanOrEqual(427);
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await page.getByRole("button", { name: "Foom menu", exact: true }).click();
+  const view = page.getByRole("menuitem", { name: "View", exact: true });
+  await view.press("ArrowRight");
+  await expect(page.getByRole("menuitem", { name: "Back", exact: true })).toBeFocused();
+
+  await page.evaluate(() => window.desktop.appMenu.execute("zoom-out"));
+  const menu = page.getByRole("menu", { name: "Foom", exact: true });
+  await expect(menu).toBeVisible();
+  await expect(view).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: "Smaller interface" })).toBeFocused();
+});
+
 test("commands removed from the wordmark menu keep their shortcuts", {
   timeout: deadline(45000),
   skip: process.platform === "darwin",

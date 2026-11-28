@@ -1,7 +1,6 @@
 const { measureClose, closeTiming } = require("./close-timing.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
-const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -110,6 +109,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   );
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
   await confirmation.screenshot({ path: evidencePath("foom-122-confirmation.png") });
+  const { AxeBuilder } = require("@axe-core/playwright");
   const results = await new AxeBuilder({ page: confirmation }).setLegacyMode().analyze();
   assert.deepEqual(
     results.violations.filter((v) => ["serious", "critical"].includes(v.impact)),
@@ -520,6 +520,7 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
       animations: "disabled",
     });
   }
+  const { AxeBuilder } = require("@axe-core/playwright");
   const accessibility = await new AxeBuilder({ page: confirmation }).setLegacyMode().analyze();
   assert.deepEqual(
     accessibility.violations.filter((violation) =>

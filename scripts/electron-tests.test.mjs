@@ -30,6 +30,9 @@ function fixture(context, { timeout } = {}) {
   }
   for (const name of [
     "electron-tests.mjs",
+    "electron-selection.mjs",
+    "electron-registration.mjs",
+    "electron-registration-worker.cjs",
     "electron-summary.mjs",
     "validation-fingerprint.mjs",
     "build-inputs.mjs",
@@ -39,7 +42,12 @@ function fixture(context, { timeout } = {}) {
   ]) {
     cpSync(new URL(name, import.meta.url), join(root, "scripts", name));
   }
-  for (const name of ["test-shard.js", "test-suites.js", "shard-plan.json"]) {
+  for (const name of [
+    "test-shard.js",
+    "test-suites.js",
+    "shard-assignment.js",
+    "shard-plan.json",
+  ]) {
     cpSync(
       new URL(`../tests/electron/${name}`, import.meta.url),
       join(root, "tests/electron", name),
@@ -55,6 +63,11 @@ function fixture(context, { timeout } = {}) {
   writeFileSync(join(root, "src/input.ts"), "original");
   writeFileSync(join(root, "node_modules/types.d.ts"), "original declaration");
   writeFileSync(join(root, "node_modules/.modules.yaml"), "fixture install state");
+  mkdirSync(join(root, "node_modules/typescript"));
+  writeFileSync(
+    join(root, "node_modules/typescript/index.js"),
+    `module.exports = require(${JSON.stringify(fileURLToPath(import.meta.resolve("typescript")))});`,
+  );
   mkdirSync(join(root, "node_modules/electron"));
   writeFileSync(
     join(root, "node_modules/electron/index.js"),
@@ -173,11 +186,73 @@ test("wrapper forwards both filter forms, reports executed tests and preserves s
         require('node:assert/strict').ok(process.execArgv.includes('--test-concurrency=1'));
       });`,
   );
-  const multiple = run(["--reuse-build", "--test-name-pattern=^selected"]);
+  const single = run(["--reuse-build", "--test-name-pattern=/^SELECTED CASE$/i"]);
+  assert.equal(single.status, 0, single.output);
+  assert.match(single.output, /1 of 2 suite files/);
+  assert.doesNotMatch(single.output, /two\.test\.js/);
+  const multiple = run([
+    "--reuse-build",
+    "--test-name-pattern=^selected case$",
+    "--test-name-pattern=^selected second$",
+  ]);
   assert.equal(multiple.status, 0, multiple.output);
   assert.match(multiple.output, /2 selected tests passed/);
+
+  const missing = run(["--reuse-build", "--test-name-pattern=^missing$"]);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.output, /No selected tests passed/);
+  assert.match(missing.output, /one\.test\.js/);
+  assert.match(missing.output, /two\.test\.js/);
+
+  writeFileSync(
+    join(root, "tests/electron/two.test.js"),
+    `const { test } = require('./test-shard.js');
+      if (process.env.NODE_TEST_CONTEXT) test('selected case', () => {});`,
+  );
+  const uncertain = run(["--reuse-build", "--test-name-pattern=^selected case$"]);
+  assert.equal(uncertain.status, 0, uncertain.output);
+  assert.match(uncertain.output, /2 selected tests passed/);
+
   const packaged = run(["--packaged", "--test-name-pattern=^selected case$"]);
   assert.equal(packaged.status, 0, packaged.output);
+});
+
+test("the wrapper loads every inventory file once in CI and in shard runs", (context) => {
+  const { root, run } = fixture(context);
+  const directory = join(root, "tests/electron");
+  writeFileSync(
+    join(directory, "shard-plan.json"),
+    JSON.stringify({ shards: { 2: [{ "first case": [] }, { "second case": [] }] } }),
+  );
+  for (const [file, name] of [
+    ["one", "first"],
+    ["two", "second"],
+  ]) {
+    writeFileSync(
+      join(directory, `${file}.test.js`),
+      `const { test } = require('./test-shard.js');
+        require('node:fs').appendFileSync('test-results/suites-loaded', ${JSON.stringify(name + "\n")});
+        test('${name} case', () => {});`,
+    );
+  }
+  const filter = "--test-name-pattern=^second case$";
+  const inventory = "first\nsecond\n";
+  for (const [args, env, expectedLoads] of [
+    [[], { FOOM_ELECTRON_SHARD: "2/2" }, inventory],
+    [[filter], { FOOM_ELECTRON_SHARD: "2/2" }, inventory],
+    [[filter], { CI: "true", FOOM_ELECTRON_SHARD: "2/2" }, inventory],
+    [[filter], { CI: "true" }, inventory],
+    [[filter], { CI: "" }, inventory],
+    [[filter, "--suite=two.test.js"], { CI: "true", FOOM_ELECTRON_SHARD: "2/2" }, "second\n"],
+  ]) {
+    const result = run(args, env);
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /second case/);
+    assert.doesNotMatch(result.output, /first case|Electron test selection:/);
+    const loaded = join(root, "test-results/suites-loaded");
+    assert.equal(readFileSync(loaded, "utf8"), expectedLoads);
+    rmSync(loaded);
+  }
 });
 
 test("wrapper rejects invalid options, invalid regexes, zero matches, and propagates failures", (context) => {
@@ -261,7 +336,7 @@ test("local runs reuse a matching build and rebuild when its receipt, inputs or 
 
 function installFixtureCompiler(root, { compile = true } = {}) {
   const compiler = fileURLToPath(import.meta.resolve("typescript"));
-  mkdirSync(join(root, "node_modules/typescript"));
+  mkdirSync(join(root, "node_modules/typescript"), { recursive: true });
   cpSync(dirname(compiler), join(root, "node_modules/typescript/lib"), { recursive: true });
   cpSync(
     join(dirname(compiler), "../package.json"),

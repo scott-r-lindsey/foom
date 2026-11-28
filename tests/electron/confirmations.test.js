@@ -1,7 +1,6 @@
 const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
-const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -865,6 +864,7 @@ test("trusted quit dialog isolates answers, passes axe in every theme and surviv
       true,
       "State labels remain on one line beside long locations",
     );
+    const { AxeBuilder } = require("@axe-core/playwright");
     const scan = await new AxeBuilder({ page: dialog }).setLegacyMode().analyze();
     assert.deepEqual(scan.violations, []);
     await dialog.keyboard.press("Tab");
@@ -1195,6 +1195,7 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
           .evaluate((element) => element.scrollHeight > element.clientHeight),
       )
       .toBe(true);
+    const { AxeBuilder } = require("@axe-core/playwright");
     const longScan = await new AxeBuilder({ page: acceptPage }).setLegacyMode().analyze();
     assert.deepEqual(longScan.violations, []);
     await assertConfirmationFocus(

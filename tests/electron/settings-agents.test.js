@@ -2,7 +2,6 @@ const { codexFixture } = require("./agent-fixture.js");
 const { publishFixtureRecord } = require("./fixture-records.js");
 const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
-const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -146,6 +145,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
     "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine.",
   );
   await expect(disclosure.getByRole("button", { name: "Cancel" })).toBeFocused();
+  const { AxeBuilder } = require("@axe-core/playwright");
   const disclosureScan = await new AxeBuilder({ page: disclosure }).setLegacyMode().analyze();
   assert.deepEqual(disclosureScan.violations, []);
   await disclosure.keyboard.press("Enter");

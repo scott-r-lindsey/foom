@@ -1,28 +1,14 @@
 const { test: register } = require("node:test");
-const { createHash } = require("node:crypto");
-const { shards } = require("./shard-plan.json");
+const { parseShard, shardAssignments, hashBucket } = require("./shard-assignment.js");
 
 // Node's built-in sharding partitions files. Partition named top-level tests
 // across every feature suite so measured assignments survive file moves.
-const shard = process.env.FOOM_ELECTRON_SHARD;
-let index = 0;
-let count = 1;
-if (shard !== undefined) {
-  const match = /^(\d+)\/(\d+)$/.exec(shard);
-  if (!match) throw new Error("FOOM_ELECTRON_SHARD must be index/count");
-  index = Number(match[1]) - 1;
-  count = Number(match[2]);
-  if (!Number.isSafeInteger(count) || count < 1 || count > 16 || index < 0 || index >= count)
-    throw new Error("FOOM_ELECTRON_SHARD is outside the supported range");
-}
-const assignments = new Map(
-  (shards[count] ?? []).flatMap((tests, index) => Object.keys(tests).map((name) => [name, index])),
-);
+const { index, count } = parseShard(process.env.FOOM_ELECTRON_SHARD);
+const assignments = shardAssignments(count);
 function test(name, ...args) {
   // Use the measured plan for each measured shard count. New/renamed tests and
   // other shard counts retain deterministic hashing until the next rebalance.
-  const bucket =
-    assignments.get(name) ?? createHash("sha256").update(name).digest().readUInt32BE(0) % count;
+  const bucket = assignments.get(name) ?? hashBucket(name, count);
   if (bucket === index) return register(name, ...args);
 }
 module.exports = { test };
