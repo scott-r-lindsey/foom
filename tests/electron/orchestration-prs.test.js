@@ -58,10 +58,9 @@ for (const scenario of [
       });
     git("init", "-q", "-b", "main");
     git("commit", "-q", "--allow-empty", "-m", "init");
-    git("branch", "child-one");
     const remote = path.join(root, "remote.git");
     git("clone", "--bare", repo, remote);
-    git("branch", "-D", "child-one");
+    git("--git-dir", remote, "branch", "child-one", "main");
     git("remote", "add", "origin", "https://github.com/fixture/offline.git");
     git("config", `url.${remote}.insteadOf`, "https://github.com/fixture/offline.git");
     git("config", "remote.pushDefault", "elsewhere");
@@ -218,9 +217,10 @@ for (const scenario of [
       }).trim(),
       "origin/child-one",
     );
+    const authorHead = git("rev-parse", "origin/child-one").trim();
     assert.equal(
       isolatedGit(["rev-parse", "HEAD"], { cwd: childRow.worktree, encoding: "utf8" }).trim(),
-      git("rev-parse", "origin/child-one").trim(),
+      authorHead,
     );
     if (scenario.review) {
       await page.evaluate(() => window.desktop.saveSetup({ autoRemoveMergedWorktrees: false }));
@@ -253,7 +253,7 @@ for (const scenario of [
         );
         assert.equal(
           isolatedGit(["rev-parse", "HEAD"], { cwd: reviewRow.worktree, encoding: "utf8" }).trim(),
-          git("rev-parse", "origin/child-one").trim(),
+          authorHead,
         );
         if (dirty)
           await writeFile(
@@ -330,6 +330,7 @@ for (const scenario of [
           false,
         );
       }
+      assert.equal(git("rev-parse", "origin/child-one").trim(), authorHead);
       await page.locator(`[data-drag-session="${parentId}"]`).click();
     }
     const closed = await tool("stop", { id: child.resultId, idempotencyKey: "stop-child" });

@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdtemp, rename } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
+const { waitForFixtureRecord } = require("./fixture-records.js");
 const { deadline, expect } = require("./test-policy.js");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
@@ -231,19 +232,43 @@ process.stdout.write("FOOM_AGENT_READY`,
   }, repo);
   const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
   const claude = await page.evaluate(async () =>
-    (await window.desktop.scanAgents(true)).agents.find((agent) => agent.id === "claude"),
+    (await window.desktop.scanAgents(false)).agents.find((agent) => agent.id === "claude"),
   );
   assert.equal(claude.mcp, true, `Fake agent lacks MCP: ${JSON.stringify(claude)}`);
   const read = async (name) => JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
+
+  if (phase === "attachment" && !cliOnly) {
+    await app.evaluate((_electron, fixture) => {
+      const load = process.getBuiltinModule("module").createRequire(fixture);
+      const { captureTimers } = load(fixture);
+      const { ControlService } = load("../../build/main/control/service.js");
+      const prepare = ControlService.prototype.prepare;
+      ControlService.prototype.prepare = function (...args) {
+        const grant = prepare.apply(this, args);
+        const bind = grant.bind;
+        grant.bind = (terminalId, mcp) => {
+          if (!mcp) return bind(terminalId, mcp);
+          const timers = new Map();
+          const result = captureTimers(() => bind(terminalId, mcp), timers);
+          ControlService.prototype.prepare = prepare;
+          globalThis.attachmentTimers = [...timers.values()];
+          return result;
+        };
+        return grant;
+      };
+    }, require.resolve("./main-timer-fixture.js"));
+  }
 
   await page.evaluate(
     ({ repository, run }) =>
       window.desktop.sidebarCommand({ kind: "launch", repository, worktree: repository, run }),
     { repository, run: cliOnly ? "agy" : "claude" },
   );
-  await expect
-    .poll(() => existsSync(`${credentials}.app`), { timeout: deadline(15000) })
-    .toBe(true);
+  await waitForFixtureRecord(
+    `${credentials}.app`,
+    [],
+    AbortSignal.any([context.signal, AbortSignal.timeout(deadline(15000))]),
+  );
   const parent = await read("app");
   // Per-launch MCP with an environment-sourced header; no token in argv or the file.
   if (cliOnly) {
@@ -300,7 +325,11 @@ process.stdout.write("FOOM_AGENT_READY`,
       const expires = Date.now() + deadline(40000);
       const remaining = () => Math.max(1, expires - Date.now());
       // The fixture renames a fully written response into place after the CLI exits.
-      await expect.poll(() => existsSync(file), { timeout: remaining() }).toBe(true);
+      await waitForFixtureRecord(
+        file,
+        [],
+        AbortSignal.any([context.signal, AbortSignal.timeout(remaining())]),
+      );
       const result = JSON.parse(await readFile(file, "utf8"));
       const response = {
         status: result.code === 0 ? 200 : result.code === 3 ? 403 : 400,
@@ -1184,6 +1213,11 @@ process.stdout.write("FOOM_AGENT_READY`,
     if (!cliOnly) {
       // The fake client never calls MCP. CLI traffic cannot prove attachment.
       assert.equal(await connection(parentId), "connecting");
+      assert.deepEqual(
+        await app.evaluate(() => globalThis.attachmentTimers.map(({ delay }) => delay)),
+        [30_000],
+      );
+      await app.evaluate(() => globalThis.attachmentTimers.pop().fire());
       await expect
         .poll(() => connection(parentId), { timeout: deadline(35000) })
         .toBe("not-connected");
@@ -1439,6 +1473,41 @@ process.stdout.write("FOOM_AGENT_READY`,
           async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
         )
         .toBe(childId);
+      await app.evaluate((_electron, fixture) => {
+        const load = process.getBuiltinModule("module").createRequire(fixture);
+        const { captureTimers } = load(fixture);
+        const { UnreadChildEvents } = load("../../build/main/control/unread-child-events.js");
+        const sync = UnreadChildEvents.prototype.sync;
+        const schedule = UnreadChildEvents.prototype.schedule;
+        const timers = new WeakMap();
+        const clock = { now: Date.now() };
+        let originalNow;
+        UnreadChildEvents.prototype.sync = function (observations) {
+          // Sync timestamps new unread events before calling schedule.
+          if (!clock.owner) {
+            clock.owner = this;
+            originalNow = this.now;
+            this.now = () => clock.now;
+          }
+          return sync.call(this, observations);
+        };
+        UnreadChildEvents.prototype.schedule = function () {
+          return captureTimers(() => schedule.call(this), timers);
+        };
+        clock.delay = () => timers.get(clock.owner?.timer)?.delay;
+        clock.advance = (elapsed) => {
+          const timer = timers.get(clock.owner.timer);
+          clock.now += elapsed;
+          timer.fire();
+        };
+        clock.restore = () => {
+          UnreadChildEvents.prototype.sync = sync;
+          UnreadChildEvents.prototype.schedule = schedule;
+          if (clock.owner) clock.owner.now = originalNow;
+          delete globalThis.unreadReminderClock;
+        };
+        globalThis.unreadReminderClock = clock;
+      }, require.resolve("./main-timer-fixture.js"));
       const stopped = await call(parent.controlToken, "stop", {
         id: childId,
         idempotencyKey: "unread-stop",
@@ -1450,6 +1519,11 @@ process.stdout.write("FOOM_AGENT_READY`,
           async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
         )
         .toBe(childId);
+      await expect
+        .poll(() => app.evaluate(() => globalThis.unreadReminderClock.delay()))
+        .toBe(60_000);
+      await expect(parentBoard).toHaveAttribute("data-state", "working");
+      await app.evaluate(() => globalThis.unreadReminderClock.advance(60_000));
       try {
         await expect
           .poll(() => parentBoard.getAttribute("data-state"), { timeout: deadline(75000) })
@@ -1491,6 +1565,7 @@ process.stdout.write("FOOM_AGENT_READY`,
       await expect(parentBoard).toHaveAttribute("data-state", "working");
       await expect(parentTile).toHaveCount(0);
       await expect(page.getByText("Unable to record feedback. Try again.")).toHaveCount(0);
+      await app.evaluate(() => globalThis.unreadReminderClock.restore());
       return;
     }
     if (phase === "waiting") {
@@ -2175,10 +2250,10 @@ process.stdout.write("FOOM_AGENT_READY`,
                 ).body.result.status,
             )
             .toBe(approve ? "succeeded" : "declined");
-          assert.equal(
-            String(git("worktree", "list", "--porcelain")).includes(`refs/heads/${tree.branch}`),
-            !approve,
-          );
+        }
+        const inventory = String(git("worktree", "list", "--porcelain"));
+        for (const { branch } of batch) {
+          assert.equal(inventory.includes(`refs/heads/${branch}`), !approve);
         }
       }
 

@@ -2349,6 +2349,45 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   await captureHosts(app, page, "1062/install-failed");
 });
 
+test("Hosts updates Git install availability before the capability snapshot arrives", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const gitRow = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload git", exact: true }),
+  });
+  const githubSignIn = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload gh sign-in", exact: true }),
+  });
+  await expect(install).toBeEnabled();
+  await expect(githubSignIn).toContainText("Signed out");
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({
+      facts: {
+        requirements: { distro: "debian", libc: "supported", packageManager: "none" },
+        tools: [
+          { id: "git", state: "missing", signIn: "unknown" },
+          { id: "gh", state: "ready", signIn: "signed-in" },
+        ],
+      },
+    });
+    await check.click();
+    await expect(githubSignIn).toContainText("Pass · Signed in");
+    await expect(check).toBeEnabled();
+    await expect(gitRow).toContainText("Not found");
+    await expect(install).toHaveCount(0);
+  } finally {
+    await releaseHostsView();
+  }
+  await updateScenario({});
+  await check.click();
+  await expect(install).toBeEnabled();
+});
+
 test("Hosts does not repeat Git install after a rejected post-install list", {
   skip: process.platform === "win32",
   timeout: deadline(60000),

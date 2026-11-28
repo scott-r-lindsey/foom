@@ -1747,7 +1747,7 @@ export function HostsSettings({
                   }
                   enabledAgents={agents}
                   openAgents={openAgents}
-                  entry={entry}
+                  entry={checklistEntry}
                   preflight={preflight}
                   progress={progress?.find((item) => item.host === entry.host)}
                   checking={checkingHosts.has(entry.host)}
