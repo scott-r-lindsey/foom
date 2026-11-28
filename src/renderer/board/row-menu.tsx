@@ -131,14 +131,25 @@ export function RowMenu({
     const position = () => {
       const button = anchor.getBoundingClientRect();
       if (isNested) {
-        // Beside its item, flipping left when the window has no room on the right.
-        const width = menu.offsetWidth;
-        const left =
-          button.right + 10 + width > window.innerWidth - 8
-            ? button.left - width - 10
-            : button.right + 10;
-        menu.style.left = `${String(Math.max(8, left))}px`;
-        menu.style.top = `${String(Math.max(8, Math.min(button.top - 7, window.innerHeight - menu.offsetHeight - 8)))}px`;
+        // Keep the trigger's hit area clear, even when labels need to wrap.
+        const leftSpace = button.left - 18;
+        const rightSpace = window.innerWidth - button.right - 18;
+        menu.style.removeProperty("--submenu-max-width");
+        menu.style.removeProperty("max-height");
+        if (Math.max(leftSpace, rightSpace) >= 120) {
+          const opensRight = menu.offsetWidth <= rightSpace || rightSpace >= leftSpace;
+          const width = opensRight ? rightSpace : leftSpace;
+          menu.style.setProperty("--submenu-max-width", `${String(width)}px`);
+          menu.style.left = `${String(opensRight ? button.right + 10 : button.left - menu.offsetWidth - 10)}px`;
+          menu.style.top = `${String(Math.max(8, Math.min(button.top - 7, window.innerHeight - menu.offsetHeight - 8)))}px`;
+        } else {
+          const above = button.top - 18;
+          const below = window.innerHeight - button.bottom - 18;
+          const opensBelow = below >= above;
+          menu.style.maxHeight = `${String(opensBelow ? below : above)}px`;
+          menu.style.left = `${String(Math.max(8, Math.min(button.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+          menu.style.top = `${String(opensBelow ? button.bottom + 10 : button.top - menu.offsetHeight - 10)}px`;
+        }
         return;
       }
       const right = isPanel

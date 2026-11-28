@@ -252,16 +252,16 @@ test("restores document selections and tolerates an edit target removed while th
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-const rect = (left: number, right: number) =>
+const rect = (left: number, right: number, top = 50) =>
   ({
     left,
     right,
-    top: 50,
-    bottom: 80,
+    top,
+    bottom: top + 30,
     width: right - left,
     height: 30,
     x: left,
-    y: 50,
+    y: top,
   }) as DOMRect;
 test("Settings opens a submenu by keyboard, click or hover and returns focus on Left or Escape", async () => {
   const f = fixture();
@@ -338,7 +338,7 @@ test("Settings opens a submenu by keyboard, click or hover and returns focus on 
   fireEvent.pointerDown(document.body);
   expect(screen.queryByRole("menu")).toBeNull();
 });
-test("the submenu sits beside Settings and flips left without room on the right", async () => {
+test("the submenu uses available space without covering Settings", async () => {
   const f = fixture();
   render(<AppMenu api={f.api} />);
   fireEvent.click(screen.getByRole("button", { name: "Foom menu" }));
@@ -352,6 +352,16 @@ test("the submenu sits beside Settings and flips left without room on the right"
   fireEvent.click(settings);
   expect(screen.getByRole("menu", { name: "Settings" }).style.left).toBe(
     `${String(window.innerWidth - 130)}px`,
+  );
+  fireEvent.keyDown(document.activeElement ?? settings, { key: "Escape" });
+  bounds.mockReturnValue(rect(20, window.innerWidth - 20));
+  fireEvent.click(settings);
+  expect(screen.getByRole("menu", { name: "Settings" }).style.top).toBe("90px");
+  fireEvent.keyDown(document.activeElement ?? settings, { key: "Escape" });
+  bounds.mockReturnValue(rect(20, window.innerWidth - 20, window.innerHeight - 80));
+  fireEvent.click(settings);
+  expect(screen.getByRole("menu", { name: "Settings" }).style.top).toBe(
+    `${String(window.innerHeight - 90)}px`,
   );
 });
 test("the Size row is one stop, steps without closing and shows main's size", async () => {

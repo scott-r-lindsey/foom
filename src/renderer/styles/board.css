@@ -983,7 +983,9 @@
   transform: rotate(180deg);
 }
 .row-submenu {
-  min-width: min(240px, calc(100vw - 16px));
+  width: max-content;
+  min-width: min(240px, var(--submenu-max-width, calc(100vw - 16px)));
+  max-width: var(--submenu-max-width, calc(100vw - 16px));
   overflow-y: auto;
   overflow-wrap: anywhere;
   animation-name: submenu-open;

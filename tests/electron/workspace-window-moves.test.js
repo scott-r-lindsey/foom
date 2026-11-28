@@ -4,8 +4,10 @@ const path = require("node:path");
 const { mkdir, writeFile } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
 const { evidencePath } = require("../helpers/evidence.js");
+const { git } = require("../helpers/git.js");
 const { assertAccessible, boardPage, confirmationPage, launchApp } = require("./harness.js");
 const { pollPreviewContents, previewViewState } = require("./preview-fixture.js");
+const { sizeTileBoard } = require("./tile-fixture.js");
 
 async function newBoard(app, source) {
   const before = app.windows();
@@ -214,6 +216,55 @@ test("pioneer window names remain stable, reuse the lowest free name and show re
     await third.keyboard.press("Escape");
     await third.keyboard.press("Escape");
   }
+});
+
+test("long repository hints leave the window move trigger clickable", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const source = await boardPage(app);
+  const destination = await newBoard(app, source);
+  const name = "W".repeat(120);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const repository = path.join(profile, name);
+  await git(["init", "-q", repository]);
+  await app.evaluate(({ dialog }, repository) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+  }, repository);
+  await destination.getByRole("button", { name: "Add repository", exact: true }).press("Enter");
+  const repo = destination.getByRole("treeitem", { name, exact: true });
+  const expand = repo.getByRole("button", { name: `Expand ${name}`, exact: true });
+  await expect(repo).toBeVisible();
+  if (await expand.count()) await expand.press("Enter");
+  await repo.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
+  await destination.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  const occupied = '.terminal-tile[data-empty="false"]';
+  await expect(destination.locator(occupied)).toHaveCount(1);
+  await expect
+    .poll(() => source.evaluate(() => window.desktop.windows.moves.list()))
+    .toMatchObject([{ label: "Lovelace", repositories: [name] }]);
+
+  await sizeTileBoard(app, source, 900, 700);
+  await source.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  const trigger = source.getByRole("menuitem", { name: "Move to window", exact: true });
+  const choice = source.getByRole("menuitem", { name: `Lovelace · ${name}`, exact: true });
+  await expect(trigger).toBeVisible();
+  const bounds = await trigger.boundingBox();
+  assert.ok(bounds);
+  const x = bounds.x + bounds.width / 2;
+  const y = bounds.y + bounds.height / 2;
+  await source.mouse.move(x, y);
+  await expect(choice).toBeVisible();
+  // Keep the pointer stationary; a locator click would recheck its target.
+  await source.mouse.down();
+  await source.mouse.up();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(choice).toBeFocused();
+  await expect(source.locator(occupied)).toHaveCount(1);
+  await expect(destination.locator(occupied)).toHaveCount(1);
+  await choice.click();
+  await expect(source.locator(occupied)).toHaveCount(0);
+  await expect(destination.locator(occupied)).toHaveCount(2);
 });
 
 test("previews move to existing boards at drop edges with identity, network reset and live reload", {
