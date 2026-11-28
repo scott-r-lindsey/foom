@@ -1101,8 +1101,13 @@ registration, with connection reuse disabled. Main opens the local tile only
 if that check connects. Closing the requesting window cancels pending origin
 discovery and SSH checks. It releases the setup reservation until the agent
 reaches its spawn guard, including while agent discovery is pending.
-An SSH refusal updates the checklist's SSH row and the dialog shows **Unable to
-start setup agent**. The tile opens in the background and Settings stays open.
+An SSH refusal updates the checklist's SSH row. The dialog stays open with one
+message below the buttons explaining the refusal and the available fix. Key
+refusals lead back to the host's SSH row. Connection failures can recheck the
+host. The fresh SSH connection and local launch admission govern setup even when
+the machine picker shows Unavailable, the code folder is missing, or remote tool,
+agent and Git access checks fail. On success the tile opens in the background
+and Settings stays open.
 The card shows **Setting up · AGENT** while the invocation runs.
 **Show agent** opens the tile on explicit request. Questions use the tile's
 ordinary **Needs you** state. Main permits one active setup invocation per registration

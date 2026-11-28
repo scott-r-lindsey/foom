@@ -34,3 +34,24 @@ export class LaunchFailure extends Error {
     super(launchReasons[reason]);
   }
 }
+
+export type LocalLaunchRefusalReason =
+  | "setup-cancelled"
+  | "agent-prompt-unsupported"
+  | "agent-provider-changed"
+  | "agent-discovery-failed"
+  | "agent-permission-changed"
+  | "agent-environment-conflict"
+  | "agent-bypass-cancelled"
+  | "agent-hooks-conflict";
+
+/** Admission errors from local agent launch, distinct from the remote wire protocol. */
+export class LocalLaunchRefusal extends Error {
+  constructor(
+    readonly reason: LocalLaunchRefusalReason,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}

@@ -302,6 +302,13 @@ The agent uses the user's SSH client and credentials. Foom adds no credentials,
 forwarding, repository control grant or remote agent dependency. Foom never
 interprets the agent's output as setup instructions or observations.
 
+Setup revalidates the registration, repository selection, enabled agent and
+initial-prompt capability before spawn. A local launch can refuse during
+discovery, provider or hook preparation, permission admission, bypass
+confirmation, or terminal startup. Host setup projects a closed refusal code to
+the requesting dialog. Provider text, paths, credentials and underlying process
+errors stay private.
+
 ### Settings installation on hosts (#1070)
 
 A registered host's Antigravity card may explicitly offer Install plugin. Main's

@@ -124,7 +124,9 @@ test("a setup brief uses registered origins and rechecks exactly once even on an
     return start.promise;
   });
   const starting = hosts.startSetupAgent(input, launch);
-  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Setup agent unavailable");
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toMatchObject({
+    reason: "setup-running",
+  });
   const id = await spawned.promise;
   expect(hosts.setupAgentId("worker")).toBeUndefined();
   expect(run).not.toHaveBeenCalled();
@@ -151,12 +153,14 @@ test("setup refuses stale selections and unsafe origins and releases failed star
   const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>().mockResolvedValue(undefined);
   await expect(
     hosts.startSetupAgent({ ...input, repositories: ["/other"] }, launch),
-  ).rejects.toThrow("Setup agent unavailable");
-  await expect(hosts.startSetupAgent({ ...input, agent: "no-provider" }, launch)).rejects.toThrow(
-    "Setup agent unavailable",
-  );
+  ).rejects.toMatchObject({ reason: "repositories-changed" });
+  await expect(
+    hosts.startSetupAgent({ ...input, agent: "no-provider" }, launch),
+  ).rejects.toMatchObject({ reason: "agent-provider-changed" });
   mock.execute.mockResolvedValueOnce({ stdout: "https://secret@forge.test/me/repo.git\n" });
-  await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Origin unavailable");
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toMatchObject({
+    reason: "origin-unavailable",
+  });
   expect(launch).not.toHaveBeenCalled();
   launch.mockRejectedValueOnce(new Error("Spawn failed"));
   await expect(hosts.startSetupAgent(input, launch)).rejects.toThrow("Spawn failed");
@@ -165,6 +169,51 @@ test("setup refuses stale selections and unsafe origins and releases failed star
   expect(hosts.state().hosts[0]?.setupAgent).toEqual({ id, name: "Codex" });
   await hosts.setupAgentExited(id, false);
   expect(run).not.toHaveBeenCalled();
+});
+
+test("setup distinguishes an invalid host, disabled agent, cancellation and oversized brief", async () => {
+  const input = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "codex",
+    repositories: ["/local/repo"],
+  };
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>();
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toMatchObject({
+    reason: "host-changed",
+  });
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  await expect(hosts.startSetupAgent(input, launch, AbortSignal.abort())).rejects.toMatchObject({
+    reason: "setup-cancelled",
+  });
+  settings.agents = { ...settings.agents, codex: false };
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toMatchObject({
+    reason: "agent-disabled",
+  });
+  settings.agents = ENABLED_AGENTS;
+  repositories[0] = { path: "/local/repo", name: "x".repeat(16384) };
+  await expect(hosts.startSetupAgent(input, launch)).rejects.toMatchObject({
+    reason: "brief-too-long",
+  });
+  expect(checkSetupSsh).not.toHaveBeenCalled();
+  expect(launch).not.toHaveBeenCalled();
+});
+
+test.each([
+  ["host-key-unknown", "host-key-unknown"],
+  ["login-rejected", "ssh-login-rejected"],
+  ["unreachable", "ssh-unreachable"],
+] as const)("setup maps SSH failure %s to %s", async (reason, code) => {
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  checkSetupSsh.mockResolvedValueOnce({ state: "fail", reason });
+  const launch = vi.fn<Parameters<Hosts["startSetupAgent"]>[1]>();
+  await expect(
+    hosts.startSetupAgent(
+      { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
+      launch,
+    ),
+  ).rejects.toMatchObject({ reason: code });
+  expect(launch).not.toHaveBeenCalled();
 });
 
 const changedKey = {
@@ -230,7 +279,7 @@ test.each([true, false])(
       await expect(starting).resolves.toBeTypeOf("string");
       expect(launch).toHaveBeenCalledTimes(1);
     } else {
-      const rejected = expect(starting).rejects.toThrow("Setup agent unavailable");
+      const rejected = expect(starting).rejects.toMatchObject({ reason: "host-key-changed" });
       fresh.resolve(refusal);
       await rejected;
       expect(launch).not.toHaveBeenCalled();
@@ -251,7 +300,7 @@ test("a launch SSH refusal remains visible and retries saving the completed row"
       { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/local/repo"] },
       () => Promise.reject(new Error("unexpected launch")),
     ),
-  ).rejects.toThrow("Setup agent unavailable");
+  ).rejects.toMatchObject({ reason: "host-key-changed" });
   expect(hosts.state(undefined, true).hosts[0]?.checklist).toMatchObject({
     preflight: { ssh: changedKey.connection.ssh },
     saveFailed: true,
@@ -332,7 +381,7 @@ test("destroying the IPC sender cancels setup SSH and prevents agent dispatch", 
     const signal = await probing.promise;
     contents.emit("destroyed");
     ssh.resolve({ state: "pass" });
-    await expect(launching).rejects.toThrow("Setup agent unavailable");
+    await expect(launching).resolves.toMatchObject({ setupAgentFailure: "setup-cancelled" });
     expect(signal.aborted).toBe(true);
     expect(launch).not.toHaveBeenCalled();
     expect(place).not.toHaveBeenCalled();
@@ -362,7 +411,7 @@ test("setup cancellation during Git origin discovery stops the remaining lookups
   const starting = hosts.startSetupAgent(input, launch, window.signal);
   const signal = await reading.promise;
   window.abort();
-  await expect(starting).rejects.toThrow("Setup agent unavailable");
+  await expect(starting).rejects.toMatchObject({ reason: "setup-cancelled" });
   expect(signal.aborted).toBe(true);
   expect(checkSetupSsh).not.toHaveBeenCalled();
 
@@ -406,7 +455,7 @@ test("closing the setup window releases the reservation while scanAgents is stil
   const starting = hosts.startSetupAgent(input, first, window.signal);
   await scanning.promise;
   window.abort();
-  await expect(starting).rejects.toThrow("Setup agent unavailable");
+  await expect(starting).rejects.toMatchObject({ reason: "setup-cancelled" });
 
   const replacement = await hosts.startSetupAgent(input, (id, _agent, _prompt, validate) => {
     validate(true);

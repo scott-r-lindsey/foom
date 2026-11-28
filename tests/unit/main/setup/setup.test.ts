@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import { DEFAULT_SETTINGS, SettingsStore } from "../../../../src/main/setup/settings";
 import { Setup } from "../../../../src/main/setup/setup";
+import { ApplicationError } from "../../../../src/shared/application-errors";
+import { ControlError } from "../../../../src/shared/control-validation";
+import { LaunchFailure, LocalLaunchRefusal } from "../../../../src/shared/launch-failure";
+import { AgentArgumentsError } from "../../../../src/shared/providers/arguments";
 import { bypassConsentIdentity } from "../../../../src/main/agents/default-arguments";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
@@ -609,9 +613,14 @@ test("setup agent IPC places the owned tile in the background and reveals it onl
   const running = vi.spyOn(hosts, "setupAgentId").mockReturnValue(undefined);
   const place = vi.fn();
   const input = { action: "setup-agent", host: "worker", agent: "codex", repositories: ["/repo"] };
-  await expect(new Setup({ ...deps, hosts }).hosts(input)).rejects.toThrow(
-    "Setup agent unavailable",
-  );
+  await expect(new Setup(deps).hosts(input)).resolves.toEqual({
+    hosts: [],
+    locations: [],
+    setupAgentFailure: "setup-unavailable",
+  });
+  await expect(new Setup({ ...deps, hosts }).hosts(input)).resolves.toMatchObject({
+    setupAgentFailure: "setup-unavailable",
+  });
   const setup = new Setup({
     ...deps,
     hosts,
@@ -630,6 +639,43 @@ test("setup agent IPC places the owned tile in the background and reveals it onl
   expect(place).toHaveBeenCalledTimes(1);
   await setup.hosts({ action: "show-setup-agent", host: "worker", id: "setup-id" });
   expect(place).toHaveBeenLastCalledWith("setup-id", false);
+});
+
+test.each([
+  [new LaunchFailure("agent_disabled"), "agent-disabled"],
+  [new LaunchFailure("agent_unavailable"), "agent-missing"],
+  [new LaunchFailure("host_busy"), "launch-failed"],
+  [
+    new LocalLaunchRefusal("agent-bypass-cancelled", "private launch text"),
+    "agent-bypass-cancelled",
+  ],
+  [new ApplicationError("agent-permission-conflict"), "agent-permission-conflict"],
+  [new ApplicationError("agent-permission-acknowledgement"), "agent-permission-acknowledgement"],
+  [new ApplicationError("agent-permission-unavailable"), "agent-permission-unavailable"],
+  [new ControlError("forbidden"), "agent-permission-unavailable"],
+  [new ControlError("not_found"), "launch-failed"],
+  [new ApplicationError("operation-failed"), "launch-failed"],
+  [new AgentArgumentsError("private argv"), "agent-arguments-invalid"],
+  [new Error("agent-bypass-cancelled"), "launch-failed"],
+  [new Error("/private/path"), "launch-failed"],
+])("setup agent sanitizes the launch refusal %#", async (error, reason) => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  const hosts = new Hosts(deps.store, () => [], "0.1.0");
+  vi.spyOn(hosts, "startSetupAgent").mockRejectedValue(error);
+  const place = vi.fn();
+  const setup = new Setup({
+    ...deps,
+    hosts,
+    launchHostSetupAgent: vi.fn(),
+    placeHostSetupAgent: place,
+  });
+  await expect(
+    setup.hosts({ action: "setup-agent", host: "worker", agent: "codex", repositories: ["/repo"] }),
+  ).resolves.toEqual({ ...hosts.state(), setupAgentFailure: reason });
+  await expect(setup.hosts({ action: "progress" })).resolves.not.toHaveProperty(
+    "setupAgentFailure",
+  );
+  expect(place).not.toHaveBeenCalled();
 });
 
 test("local install delegation has no fallback when the capability is absent", async () => {

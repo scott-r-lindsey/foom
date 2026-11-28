@@ -208,6 +208,13 @@ Settings → Hosts and Repositories locations follow the [host contract](hosts.m
 Host registration is profile-only and may retain incomplete preflight checks. Folder
 creation is explicit; checkout operations still require a canonical approved folder.
 
+The **Set up with an agent…** dialog shows a single refusal message below its
+buttons. Where applicable the message opens local or global Agents settings,
+focuses the agent picker, shows the SSH row or rechecks the host. Main returns a
+fixed refusal code to the setup action only. The sandboxed preload allowlists
+the code and the renderer validates it before choosing display text. See
+[host setup](hosts.md#set-up-with-an-agent-1263).
+
 ## Agent scopes (#1070)
 
 Settings → Agents has exactly two views, Global and Machines. Global opens first

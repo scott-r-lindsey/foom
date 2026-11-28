@@ -1,3 +1,4 @@
+import { hostSetupFailurePresentation } from "../../../../src/renderer/preflight/host-setup-dialog";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 import { viewStream } from "../../../fixtures/view-stream";
 import type { TerminalViewSource } from "../../../../src/renderer/terminal/terminal-view-source.d";
@@ -14,6 +15,7 @@ import {
 } from "../../../../src/renderer/preflight/hosts-settings";
 import type {
   HostFacts,
+  HostSetupFailureReason,
   HostFailure,
   HostCheckProgress,
   HostPreflight,
@@ -108,6 +110,50 @@ const scrollIntoView = vi.fn();
 Element.prototype.scrollIntoView = scrollIntoView;
 afterEach(cleanup);
 
+test("host setup maps every refusal to distinct fixed copy and validates unknown replies", () => {
+  const recovery = {
+    "setup-unavailable": undefined,
+    "setup-cancelled": undefined,
+    "setup-running": undefined,
+    "host-changed": undefined,
+    "repositories-changed": undefined,
+    "origin-unavailable": undefined,
+    "brief-too-long": undefined,
+    "host-key-unknown": "show-host",
+    "host-key-changed": "show-host",
+    "ssh-login-rejected": undefined,
+    "ssh-unreachable": "refresh-host",
+    "agent-disabled": "local",
+    "agent-missing": "local",
+    "agent-prompt-unsupported": "choose-agent",
+    "agent-discovery-failed": "local",
+    "agent-provider-changed": "local",
+    "agent-arguments-invalid": "global",
+    "agent-permission-conflict": "global",
+    "agent-permission-unavailable": "local",
+    "agent-permission-acknowledgement": "local",
+    "agent-permission-changed": undefined,
+    "agent-environment-conflict": undefined,
+    "agent-bypass-cancelled": "choose-agent",
+    "agent-hooks-conflict": "local",
+    "launch-failed": undefined,
+  } satisfies Record<
+    HostSetupFailureReason,
+    ReturnType<typeof hostSetupFailurePresentation>["recovery"]
+  >;
+  const rendered = Object.entries(recovery).map(([code, action]) => {
+    const message = hostSetupFailurePresentation(code);
+    expect(message.recovery).toBe(action);
+    expect(message.text).toMatch(/^[^\r\n]+\.$/u);
+    return message.text;
+  });
+  expect(new Set(rendered).size).toBe(rendered.length);
+  for (const invalid of ["/private/path", "constructor", "host-key-changed\nsecret", null, {}])
+    expect(hostSetupFailurePresentation(invalid).text).toBe(
+      "The local agent failed to start. Try again.",
+    );
+});
+
 test("host setup filters repositories, keeps selected entries and surfaces launch failures in the dialog", async () => {
   const launch = Promise.withResolvers<HostsState>();
   const state = saved(initial);
@@ -170,7 +216,9 @@ test("host setup filters repositories, keeps selected entries and surfaces launc
     launch.reject(new Error("Fixture failure"));
     await launch.promise.catch(() => undefined);
   });
-  expect(within(dialog).getByRole("alert").textContent).toBe("Unable to start setup agent");
+  expect(within(dialog).getByRole("alert").textContent).toBe(
+    "The local agent failed to start. Try again.",
+  );
   fireEvent.change(agent, { target: { value: "claude" } });
   fireEvent.click(project);
   expect(project.isConnected).toBe(false);
@@ -193,6 +241,70 @@ test("host setup filters repositories, keeps selected entries and surfaces launc
   await waitFor(() => {
     expect(dialog.isConnected).toBe(false);
   });
+});
+
+test.each([
+  ["agent-permission-conflict", "Open Agents settings"],
+  ["agent-prompt-unsupported", "Choose another agent"],
+  ["agent-bypass-cancelled", "Open Agents settings"],
+  ["ssh-unreachable", "Refresh host"],
+  ["host-key-changed", "Review host key"],
+] as const)("host setup offers recovery for %s", async (failure, action) => {
+  const state = saved(initial);
+  const api = vi.fn((request: HostsAction) =>
+    Promise.resolve(
+      request.action === "setup-agent" ? { ...state, setupAgentFailure: failure } : state,
+    ),
+  );
+  const openLocalAgents = vi.fn();
+  const claude = {
+    id: "claude",
+    path: "/fixture/claude",
+    version: "2.1.285",
+    initialPrompt: true,
+    hooks: false,
+    reason: "Fixture",
+  };
+  render(
+    <HostsSettings
+      source={{ hosts: api }}
+      headingRef={createRef()}
+      openLocalAgents={openLocalAgents}
+      agents={{ claude: true, codex: true }}
+      setupAgents={
+        failure === "agent-bypass-cancelled"
+          ? [claude]
+          : [claude, { ...claude, id: "codex", path: "/fixture/codex" }]
+      }
+      repositories={[{ path: "/repo", name: "Project" }]}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Set up with an agent…" }));
+  const dialog = screen.getByRole("dialog");
+  const start = within(dialog).getByRole("button", { name: "Start agent" });
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Project" }));
+  fireEvent.click(start);
+  const alert = await within(dialog).findByRole("alert");
+  expect(alert.previousElementSibling?.tagName).toBe("FOOTER");
+  fireEvent.click(within(alert).getByRole("button", { name: action }));
+  if (failure === "agent-prompt-unsupported") {
+    expect(document.activeElement).toBe(within(dialog).getByRole("combobox"));
+  } else {
+    expect(dialog.isConnected).toBe(false);
+  }
+  if (failure === "agent-permission-conflict")
+    expect(openLocalAgents).toHaveBeenCalledWith("global");
+  if (failure === "agent-bypass-cancelled") expect(openLocalAgents).toHaveBeenCalledWith("local");
+  if (failure === "ssh-unreachable")
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith({
+        action: "preflight",
+        host: "worker",
+        codeFolder: facts.codeFolder,
+      });
+    });
+  if (failure === "host-key-changed")
+    expect(screen.getByRole("button", { name: "Collapse worker" })).toBeTruthy();
 });
 
 test("an empty setup dialog stays open on an interior click and closes on backdrop or Escape", async () => {

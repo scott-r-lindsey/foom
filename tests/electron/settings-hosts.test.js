@@ -69,7 +69,7 @@ async function captureHosts(
       await selectTheme(page, mode);
       await area.screenshot({
         path: evidencePath(
-          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1261|1262|1263|1264)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
+          `${/^(?:1059|1061|1062|1067|1074|1131|1259|1260|1261|1262|1263|1264|1378)\//u.test(name) ? name : `1074/${name}`}-${mode}.png`,
         ),
       });
     }
@@ -358,6 +358,7 @@ process.stdin.on('data', bytes => {
   if(result.ok && message.operation==='list-worktrees') result.inventory={own:[],other:0};
   if(result.ok) { if(settings.facts) Object.assign(result.facts,settings.facts); if(!message.codexApprovalCheck) result.facts.agents = result.facts.agents.map(({codexApprovals, ...agent})=>agent); if(message.operation==='origin' && settings.origin) result={ok:false,reason:settings.origin}; if(message.operation==='repository' && settings.checkout && result.ok) { result.checkout.state=settings.checkout; } }
   if(message.operation==='inspect' && message.target?.kind==='facts' && settings.factsFailure) result={ok:false,reason:settings.factsFailure};
+  if(message.operation==='inspect' && !message.partial && settings.inventoryFailure) result={ok:false,reason:settings.inventoryFailure};
   if(message.operation==='inspect' && !message.target && settings.inspectFailure) result={ok:false,reason:settings.inspectFailure};
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
@@ -608,7 +609,7 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
         ...extra,
       });
     }, extra);
-  await assert.rejects(request(), /foom-error:operation-failed/u);
+  assert.equal((await request()).setupAgentFailure, "setup-running");
   await assert.rejects(request({ prompt: "renderer text" }), /foom-error:operation-failed/u);
   await card.getByRole("button", { name: "Expand fixture-cloud" }).click();
   const show = card.getByRole("button", { name: "Show agent" });
@@ -664,10 +665,13 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
   await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
   await expect(action).toBeVisible();
   await action.click();
+  await picker.selectOption("claude");
   await repo.check();
   await start.click();
-  await expect(dialog.getByRole("alert")).toHaveText("Unable to start setup agent");
-  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("The SSH host key changed.");
+  await captureHosts(app, page, "1378/setup-refusal", dialog);
+  await dialog.getByRole("button", { name: "Review host key" }).click();
+  await expect(dialog).toBeHidden();
   await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
   await expect(action).toHaveCount(0);
 
@@ -698,10 +702,100 @@ test("Hosts setup agent dialog launches locally, keeps Settings open and recheck
   assert.equal(refreshed.hosts[0].result.ok, true);
 
   await updateScenario({ sshFailure: "unknown" });
-  await assert.rejects(request(), /foom-error:operation-failed/u);
+  assert.equal((await request()).setupAgentFailure, "host-key-unknown");
   await expect(ssh.getByText("Host key not trusted", { exact: true })).toBeVisible();
   await expect(ssh.getByRole("button", { name: "Trust host key…", exact: true })).toBeEnabled();
   await expect(action).toHaveCount(0);
+});
+
+test("Hosts setup can start local Claude Code for an unavailable remote machine", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const scenario = {
+    inventoryFailure: "folder-missing",
+    origin: "origin-auth",
+    facts: {
+      folder: { state: "fail", reason: "folder-missing" },
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "missing", signIn: "unknown" },
+      ],
+      agents: ["claude", "codex", "agy", "copilot", "opencode", "pi"].map((id) => ({
+        id,
+        state: "missing",
+      })),
+    },
+  };
+  const { page, card, setupArguments, updateScenario } = await hostsFixture(
+    context,
+    false,
+    {},
+    { setupAgent: true },
+  );
+  const { repositories } = await page.evaluate(() => window.desktop.workspace());
+  for (const [name, url] of [
+    ["shell-fixture", "git@github.com:fixtures/project.git"],
+    ["app", "https://gitlab.com/fixtures/app.git"],
+  ]) {
+    const repository = repositories.find((repo) => repo.name === name);
+    gitSync(["remote", "set-url", "origin", url], { cwd: repository.path });
+  }
+  await updateScenario(scenario);
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(card.getByText("Code folder does not exist", { exact: true })).toBeVisible();
+  await expect(
+    card
+      .locator(".host-check-row")
+      .filter({ hasText: "GitHub" })
+      .getByText("SSH · key not accepted"),
+  ).toBeVisible();
+  await expect(
+    card
+      .locator(".host-check-row")
+      .filter({ hasText: "GitLab" })
+      .getByText("HTTPS · authentication failed"),
+  ).toBeVisible();
+  await expect(card.locator(".host-checks")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(() =>
+    window.desktop.saveSetup({
+      agents: { claude: true, codex: true, agy: true, copilot: true, opencode: true, pi: true },
+    }),
+  );
+  await expect(
+    card.locator(".host-check-row").filter({ hasText: "GitHub CLI" }).getByText("Not found"),
+  ).toBeVisible();
+  await expect(card.getByText("0 of 6 ready", { exact: true })).toBeVisible();
+  const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+  assert.equal(inventory.machines.find(({ host }) => host === "fixture-cloud").available, false);
+  const action = card.getByRole("button", { name: "Set up with an agent…" });
+  const dialog = page.getByRole("dialog", { name: "Set up fixture-cloud with an agent" });
+  await action.click();
+  await dialog.getByRole("combobox", { name: "Agent" }).selectOption("claude");
+  await dialog.getByRole("checkbox", { name: "shell-fixture" }).check();
+  const start = dialog.getByRole("button", { name: "Start agent" });
+  const project = repositories.find(({ name }) => name === "shell-fixture");
+  gitSync(["remote", "remove", "origin"], { cwd: project.path });
+  await start.click();
+  await expect(dialog.getByRole("alert")).toHaveText(
+    "Local Git origin unavailable. Check the selected repositories.",
+  );
+  await assert.rejects(access(setupArguments), { code: "ENOENT" });
+  gitSync(["remote", "add", "origin", "git@github.com:fixtures/project.git"], {
+    cwd: project.path,
+  });
+  await start.click();
+  await expect(dialog).toBeHidden();
+  await expect
+    .poll(async () => JSON.parse(await readFile(setupArguments, "utf8").catch(() => "{}")).agent)
+    .toBe("claude");
+  await updateScenario({ ...scenario, finishSetup: true });
+  await expect
+    .poll(async () => {
+      const { terminals } = await page.evaluate(() => window.desktop.workspace());
+      return terminals.find(({ agent }) => agent === "claude")?.exited;
+    })
+    .toBe(true);
 });
 
 test("Hosts repository reloads bypass the SSH master and update the completed SSH row", {
