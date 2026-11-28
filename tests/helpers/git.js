@@ -1,6 +1,5 @@
-const { execFile, execFileSync } = require("node:child_process");
+const childProcess = require("node:child_process");
 const { promisify } = require("node:util");
-const execute = promisify(execFile);
 // Reflog writes also need an identity. Without one Git can resolve the host's
 // name, making even local branch and worktree operations depend on DNS.
 const identity = {
@@ -24,12 +23,17 @@ function gitEnvironment(source = process.env) {
 
 /** @param {string[]} args @param {import("node:child_process").ExecFileSyncOptions} [options] */
 function gitSync(args, options = {}) {
-  return execFileSync("git", args, { ...options, env: gitEnvironment(options.env) });
+  // Electron discovery installs its process guard after the test setup preload.
+  return childProcess.execFileSync("git", args, { ...options, env: gitEnvironment(options.env) });
 }
 
 /** @param {string[]} args @param {import("node:child_process").ExecFileOptions} [options] */
 function git(args, options = {}) {
-  return execute("git", args, { ...options, encoding: "utf8", env: gitEnvironment(options.env) });
+  return promisify(childProcess.execFile)("git", args, {
+    ...options,
+    encoding: "utf8",
+    env: gitEnvironment(options.env),
+  });
 }
 
 // Production deliberately strips inherited GIT_* settings. Enforce test config
@@ -49,12 +53,12 @@ function optionsFor(file, options) {
   };
 }
 function isolatedGitExecFile(file, args, options, callback) {
-  if (file !== "git") return execFile.apply(null, arguments);
-  return execFile(file, args, optionsFor(file, options), callback);
+  if (file !== "git") return childProcess.execFile.apply(null, arguments);
+  return childProcess.execFile(file, args, optionsFor(file, options), callback);
 }
 // Native promisified execFile also exposes .child, used to close/write stdin.
 // Retain it by returning the native promise rather than an async wrapper.
 isolatedGitExecFile[promisify.custom] = (file, args, options) =>
-  execute(file, args, optionsFor(file, options));
+  promisify(childProcess.execFile)(file, args, optionsFor(file, options));
 
 module.exports = { git, gitSync, gitEnvironment, isolatedGitExecFile };

@@ -304,6 +304,8 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     const result = spawnSync(
       process.execPath,
       [
+        "--require",
+        `./${path.relative(process.cwd(), path.join(helpers, "setup.js"))}`,
         "--test",
         "--test-concurrency=1",
         "--test-reporter=tap",
@@ -316,6 +318,70 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     assert.equal(result.status, expectedStatus, output);
     return { selected, output };
   }
+
+  await context.test("an empty inventory never runs Node's default discovery", () => {
+    const cwd = path.join(directory, "empty-inventory");
+    mkdirSync(cwd);
+    writeFileSync(
+      path.join(cwd, "unrelated.test.cjs"),
+      `require("node:test").test("unrelated", () => {
+        require("node:fs").writeFileSync("body-marker", "test body ran");
+      });`,
+    );
+    const registration = pathToFileURL(path.join(scripts, "electron-registration.mjs")).href;
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `import { discoverPlannedTests } from ${JSON.stringify(registration)};
+        if (discoverPlannedTests([]).size !== 0) throw Error("Nonempty inventory");`,
+      ],
+      { cwd, env, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readdirSync(cwd), ["unrelated.test.cjs"]);
+  });
+
+  await context.test(
+    "focused registration sees the real preload and name pattern arguments",
+    () => {
+      writeFileSync(first, binding + 'test("target passes", () => {});');
+      writeFileSync(
+        second,
+        binding +
+          `const name = process.execArgv.includes("--require") &&
+          process.execArgv.includes("--test-name-pattern=^target") ? "target fails" : "other";
+        test(name, () => { throw Error("matching failure"); });`,
+      );
+      const run = runWorker(undefined, ["^target"], files, 1);
+      assert.deepEqual(run.selected, files);
+      assert.match(run.output, /matching failure/);
+    },
+  );
+
+  await context.test("a stalled discovery worker is stopped before the real tests run", () => {
+    const marker = path.join(directory, "blocked-registration-returned");
+    writeFileSync(first, binding + 'test("first", () => {});');
+    writeFileSync(
+      second,
+      binding +
+        `const { before } = require("node:test");
+        let ready = false;
+        before(() => { ready = true; });
+        test("second", () => {});
+        queueMicrotask(() => {
+          if (ready) return;
+          process.once("SIGTERM", () => {});
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30_000);
+          require("node:fs").writeFileSync(${JSON.stringify(marker)}, "registration was not stopped");
+        });`,
+    );
+    const run = runWorker(undefined, ["^first$|^second$"]);
+    assert.deepEqual(run.selected, files);
+    assert.match(run.output, /ok \d+ - second/);
+    assert.ok(!readdirSync(directory).includes(path.basename(marker)));
+  });
 
   await context.test("selection reads updated registration data on each call", () => {
     const cases = path.join(suiteDirectory, "cases.json");

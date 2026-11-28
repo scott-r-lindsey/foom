@@ -232,6 +232,8 @@ discovery pass. It fails if tracked, untracked or ignored entries change in the
 status output. The audit runs separately from CI policy tests that create
 fixtures in the worktree. The check observes Git status and cannot detect
 changes that leave that output identical.
+If discovery exceeds its 15-second deadline, the runner cancels discovery
+workers and retains the input suite list for normal execution.
 
 Electron steps allow 14 minutes on Linux and Windows and 20 minutes on macOS.
 The macOS Electron job allows 26 minutes for the step and surrounding work.

@@ -1,44 +1,68 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const worker = fileURLToPath(new URL("./electron-registration-worker.cjs", import.meta.url));
 const setupFile = fileURLToPath(new URL("../tests/helpers/setup.js", import.meta.url));
+const discoveryTimeoutMs = 15_000;
 
 export function discoverRegistrations(files, { shard, patterns = [] } = {}) {
+  if (files.length === 0) return new Map();
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   delete env.NODE_TEST_WORKER_ID;
   if (shard === undefined) delete env.FOOM_ELECTRON_SHARD;
   else env.FOOM_ELECTRON_SHARD = shard;
-  const args = patterns.map((pattern) => `--test-name-pattern=${pattern}`);
 
   const directory = mkdtempSync(join(tmpdir(), "foom-electron-registration-"));
   try {
-    const setup = existsSync(setupFile) ? setupFile : null;
+    const setup = existsSync(setupFile)
+      ? ["--require", `./${relative(process.cwd(), setupFile)}`]
+      : [];
     const bridges = files.map((file, index) => {
       const entry = join(directory, `${index}.cjs`);
       const result = join(directory, `${index}.json`);
       writeFileSync(
         entry,
-        `require(${JSON.stringify(worker)})(${JSON.stringify(resolve(file))}, ${JSON.stringify(result)}, ${JSON.stringify(setup)});\n`,
+        `require(${JSON.stringify(worker)})(${JSON.stringify(resolve(file))}, ${JSON.stringify(result)}, ${JSON.stringify(patterns)});\n`,
       );
       return { file, entry, result };
     });
-    spawnSync(
+    const launcher = join(directory, "run.cjs");
+    writeFileSync(
+      launcher,
+      `const { ChildProcess } = require("node:child_process");
+const { run } = require("node:test");
+// A stalled worker cannot run a signal listener. The runner's abort must stop it.
+const kill = ChildProcess.prototype.kill;
+ChildProcess.prototype.kill = function (signal = "SIGKILL") {
+  return kill.call(this, signal);
+};
+const signal = AbortSignal.timeout(${discoveryTimeoutMs});
+signal.addEventListener("abort", () => { process.exitCode = 1; }, { once: true });
+run({
+  files: ${JSON.stringify(bridges.map(({ entry }) => entry))},
+  concurrency: 4,
+  testNamePatterns: ${JSON.stringify(patterns)},
+  signal,
+}).resume();
+`,
+    );
+    const outcome = spawnSync(
       process.execPath,
       [
         "--expose-internals",
-        "--test",
+        ...setup,
         // Discovery has no windows or test bodies, so workers can register in parallel.
         "--test-concurrency=4",
-        ...args,
-        ...bridges.map(({ entry }) => entry),
+        launcher,
       ],
       { env, stdio: "ignore" },
     );
+    // The test runner cancels its own children before returning from a timeout.
+    if (outcome.status !== 0) return new Map();
 
     const inventory = new Map();
     for (const { file, result } of bridges) {

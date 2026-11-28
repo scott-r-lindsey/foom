@@ -10,14 +10,22 @@ const { createTestTree } = require("internal/test_runner/harness");
 const { Test } = require("internal/test_runner/test");
 const { parseCommandLine } = require("internal/test_runner/utils");
 
-module.exports = (file, resultFile, setupFile) => {
+module.exports = (file, resultFile, patterns) => {
   process.argv[1] = file;
   // Match the visible controls in the serial runner, independently of how
   // many discovery processes the parent can start at once.
   process.env.NODE_TEST_WORKER_ID = "1";
+  let patternIndex = 0;
   process.execArgv = process.execArgv
     .filter((arg) => arg !== "--expose-internals")
-    .map((arg) => (arg.startsWith("--test-concurrency=") ? "--test-concurrency=1" : arg));
+    .map((arg) => {
+      if (arg.startsWith("--test-concurrency=")) return "--test-concurrency=1";
+      // The programmatic runner serializes patterns as regular expressions.
+      if (arg.startsWith("--test-name-pattern=")) {
+        return `--test-name-pattern=${patterns[patternIndex++]}`;
+      }
+      return arg;
+    });
 
   let guardHits = 0;
   function guard(target, methods) {
@@ -149,8 +157,6 @@ module.exports = (file, resultFile, setupFile) => {
 
   try {
     hook.enable();
-    // Setup imports the Git helper, which captures the process APIs at load time.
-    if (setupFile) require(setupFile);
     Module._load(file, null, true);
     checkLoad();
     afterTurn(() => afterTurn(finish));

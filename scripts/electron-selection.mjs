@@ -10,6 +10,7 @@ export function selectSuiteFiles(files, { shard, patterns }) {
     if (count > 1 && assignments.size === 0 && patterns.length === 0) return files;
 
     const inventory = discoverRegistrations(files, { shard, patterns });
+    if (inventory.size === 0) return files;
     // The shard helper can suppress validation on a shard that is assigned
     // other tests. Keep failures in the unsharded baseline on every shard.
     const unsharded = shard === undefined ? inventory : discoverRegistrations(files);
