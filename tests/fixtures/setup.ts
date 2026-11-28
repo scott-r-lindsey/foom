@@ -41,7 +41,6 @@ export function setupState(
       terminalTheme: "follow",
       sound: DEFAULT_SOUND,
       codeFolder: null,
-      sourceDirectory: null,
       ...settings,
     },
     worktreeRoot: "/home/me/.foom/worktrees",

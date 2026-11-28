@@ -1,6 +1,7 @@
 import type { AgentId } from "./agents";
 
 export interface DispatcherRepository {
+  path: string;
   name: string;
   running: boolean;
 }

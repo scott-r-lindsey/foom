@@ -94,8 +94,8 @@ export interface DialogContent {
   removalFeed?: RemovalFeed;
   removals?: readonly RemovalItem[];
   dispatcherRepositories?: readonly DispatcherRepository[];
-  /** Main-only callback. The trusted dialog validates the selected names. */
-  selectDispatcherRepositories?: (names: readonly string[]) => void;
+  /** Main-only callback. The trusted dialog validates the selected repository paths. */
+  selectDispatcherRepositories?: (paths: readonly string[]) => void;
   reply?: { context: string; text: string };
   cleanup?: CleanupDialog;
   /** Main-only; stripped before rendering. */

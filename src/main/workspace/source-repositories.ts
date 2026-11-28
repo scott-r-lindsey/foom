@@ -1,11 +1,11 @@
-import { lstat, opendir, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { ControlError } from "../../shared/control-validation";
-import { sourceRepositoryName } from "../../shared/dispatcher-validation";
-import { git, worktreeIdentity } from "./worktree-operations";
+import { dispatcherRepositoryPath } from "../../shared/dispatcher-validation";
+import type { Repository } from "../../shared/worktrees";
+import { git, within, worktreeIdentity } from "./worktree-operations";
 
-const ENTRY_LIMIT = 4096;
-const REPOSITORY_LIMIT = 128;
+type Registry = () => readonly Repository[];
 
 /** Pin the directory itself as well as the canonical path. */
 export async function sourceDirectoryIdentity(path: string): Promise<string> {
@@ -15,11 +15,11 @@ export async function sourceDirectoryIdentity(path: string): Promise<string> {
   return [entry.dev, entry.ino, entry.birthtimeNs].map(String).join(":");
 }
 
-export async function sourceRepository(directory: string, value: unknown) {
-  const name = sourceRepositoryName(value);
-  const path = join(directory, name);
+export async function sourceRepository(registry: Registry, directory: string, value: unknown) {
+  const path = dispatcherRepositoryPath(value);
+  const registered = registry().find((row) => row.path === path);
+  if (!registered) throw new ControlError("not_found");
   const marker = join(path, ".git");
-  const parent = await sourceDirectoryIdentity(directory);
   const before = await sourceDirectoryIdentity(path);
   if (!(await lstat(marker).catch(() => undefined))?.isDirectory())
     throw new ControlError("not_found");
@@ -32,34 +32,26 @@ export async function sourceRepository(directory: string, value: unknown) {
     identity === undefined ||
     (await realpath(marker).catch(() => undefined)) !== marker ||
     before !== (await sourceDirectoryIdentity(path)) ||
-    parent !== (await sourceDirectoryIdentity(directory))
+    // The registry retains its row object until the registration changes.
+    !registry().includes(registered)
   )
     throw new ControlError("conflict");
+  const name = within(directory, path) ? relative(directory, path) || "." : path;
   return { name, path, identity };
 }
 
-export async function sourceRepositories(directory: string) {
-  const handle = await opendir(directory);
-  const entries: string[] = [];
-  let count = 0;
-  for await (const entry of handle) {
-    if (++count > ENTRY_LIMIT) throw new ControlError("capacity");
-    if (!entry.isDirectory()) continue;
-    try {
-      entries.push(sourceRepositoryName(entry.name));
-    } catch {
-      // Hidden directories and names that cannot be passed to launch are excluded.
-    }
-  }
+export async function sourceRepositories(registry: Registry, directory: string) {
   const repositories: Awaited<ReturnType<typeof sourceRepository>>[] = [];
-  for (const name of entries.sort()) {
-    const repo = await sourceRepository(directory, name).catch((error: unknown) => {
-      if (error instanceof ControlError && error.code === "not_found") return undefined;
+  for (const { path } of registry()) {
+    const repo = await sourceRepository(registry, directory, path).catch((error: unknown) => {
+      if (
+        error instanceof ControlError &&
+        (error.code === "not_found" || error.code === "invalid_request")
+      )
+        return undefined;
       throw error;
     });
-    if (!repo) continue;
-    if (repositories.length >= REPOSITORY_LIMIT) throw new ControlError("capacity");
-    repositories.push(repo);
+    if (repo) repositories.push(repo);
   }
-  return repositories;
+  return repositories.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path));
 }

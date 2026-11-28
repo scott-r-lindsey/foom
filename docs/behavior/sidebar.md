@@ -4,10 +4,12 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 
 ## Terminal sidebar
 
-When General → Source directory is set, the directory appears above the
-repositories. Its actions menu launches local agents in that directory. These
-sessions run outside the repository checkout inventory and are grouped by
-their original directory, including after it changes in Settings.
+The code folder chosen in repository setup appears above the repositories.
+Its actions menu launches local agents in that folder. These sessions run
+outside the repository checkout inventory and stay grouped by their launch
+directory. A running session in the current code folder offers **Elevate to
+dispatcher…** with the registered local repository list. When no code folder
+is set, default local agent sessions start in the home directory.
 
 The sidebar is a repository → worktree → session tree beside the terminal tiles.
 The header shows the wordmark, needs-you and working counts, and a filter.

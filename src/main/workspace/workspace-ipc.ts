@@ -520,8 +520,8 @@ export function attachWorkspace(
               glyph: "dispatcher",
               userAction: true,
               dispatcherRepositories: repositories,
-              selectDispatcherRepositories: (names) => {
-                selected = names;
+              selectDispatcherRepositories: (paths) => {
+                selected = paths;
               },
             });
             return accepted && reachable() ? selected : undefined;

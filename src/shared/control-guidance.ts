@@ -13,7 +13,7 @@ export function roleGuidance(actor: {
   if (actor.parentId !== null) return CHILD_GUIDANCE;
   if (actor.role === "orchestrator") return ORCHESTRATOR_GUIDANCE;
   if (actor.role === "dispatcher")
-    return "Use repos to discover repositories and their orchestrators. Only the human approves launches into additional repositories and answers decisions. Use whoami for your current tools and CLI fallbacks.";
+    return "Use repos to discover registered repositories, their launch paths and their orchestrators. Only the human approves launches into additional repositories and answers decisions. Use whoami for your current tools and CLI fallbacks.";
   if (actor.source)
     return "You are a source-directory session. The human can elevate you to dispatcher. Use whoami after a role change for your current tools and CLI fallbacks.";
   if (actor.role === "cli")

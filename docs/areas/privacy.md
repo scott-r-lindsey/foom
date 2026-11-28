@@ -248,6 +248,6 @@ keeps its existing CSP.
 
 ## Dispatcher inventory (#1300)
 
-The dispatcher can read direct repository names and their orchestrator and
+The dispatcher can read registered local repository paths and their orchestrator and
 decision metadata. The data returned to the agent is described in the
 [dispatcher privacy contract](../contracts/control-privacy.md#dispatcher-inventory-1300).

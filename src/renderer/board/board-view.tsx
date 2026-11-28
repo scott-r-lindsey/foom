@@ -321,7 +321,7 @@ function BoardContents({
         (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
     );
     const sources = options && [
-      ...(options.sourceDirectory ? [options.sourceDirectory] : []),
+      ...(options.codeFolder ? [options.codeFolder] : []),
       ...rows.filter((row) => row.sourceSession).map((row) => row.repository),
     ];
     const expanded = pruneExpansion(current.sidebarExpanded ?? {}, repositories, sources);

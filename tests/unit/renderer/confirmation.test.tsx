@@ -1300,8 +1300,8 @@ test("dispatcher repository choices start empty, mark running orchestrators, and
     presented: true,
     theme: resolveInterfaceTheme("follow", false),
     dispatcherRepositories: [
-      { name: "project", running: true },
-      { name: "other", running: false },
+      { path: "/fixture/source/team/project", name: "team/project", running: true },
+      { path: "/code/other", name: "other", running: false },
     ],
   };
   act(() => {

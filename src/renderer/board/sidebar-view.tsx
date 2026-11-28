@@ -89,9 +89,9 @@ export function Sidebar(props: SidebarProps) {
     panel,
     matchingPreviews,
   } = useSidebar(props);
-  const sourceDirectory = options?.sourceDirectory;
+  const codeFolder = options?.codeFolder;
   const sourceDirectories = new Set([
-    ...(sourceDirectory ? [sourceDirectory] : []),
+    ...(codeFolder ? [codeFolder] : []),
     ...sourceRows.map((row) => row.repository),
   ]);
   const sourceFilter = filter.trim().toLocaleLowerCase();
@@ -294,7 +294,7 @@ export function Sidebar(props: SidebarProps) {
                 >
                   <div
                     className="tree-row home-row"
-                    {...(directory === sourceDirectory ? rowEvents(id) : {})}
+                    {...(directory === codeFolder ? rowEvents(id) : {})}
                   >
                     <button
                       type="button"
@@ -306,7 +306,7 @@ export function Sidebar(props: SidebarProps) {
                     >
                       {expanded ? "▾" : "▸"}
                     </button>
-                    {directory === sourceDirectory ? (
+                    {directory === codeFolder ? (
                       <>
                         <button
                           type="button"

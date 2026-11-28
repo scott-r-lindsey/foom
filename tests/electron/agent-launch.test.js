@@ -17,7 +17,7 @@ const {
   removeAfterApps,
 } = require("./harness.js");
 
-test("source directory settings place new local agents above repositories", {
+test("code folder places new local agents above repositories", {
   timeout: deadline(60_000),
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
@@ -32,14 +32,10 @@ process.stdin.resume();
 `,
   });
   const directory = await realpath(root);
+  await page.evaluate((codeFolder) => window.desktop.saveSetup({ codeFolder }), directory);
   await openSettingsScreen(page);
-  await page.getByRole("textbox", { name: "Source directory" }).fill(directory);
-  await page.getByRole("button", { name: "Save source directory" }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(async () => (await window.desktop.setupState()).settings.sourceDirectory),
-    )
-    .toBe(directory);
+  await expect(page.getByRole("heading", { name: "General", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Source directory" })).toHaveCount(0);
   await page.getByRole("button", { name: "Close settings (Esc)" }).click();
   const section = page.getByRole("treeitem", {
     name: `Source directory ${directory}`,

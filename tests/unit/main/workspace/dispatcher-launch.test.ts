@@ -289,7 +289,8 @@ test("dispatcher revalidates the approved checkout before remote preparation dis
 test("workspace wires the source session, trusted elevation, and live dispatcher board through control runtime", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "foom-dispatcher-runtime-")));
   const source = join(root, "source");
-  const project = join(source, "project");
+  const project = join(source, "team", "project");
+  const registered = { ...repo, path: project };
   await mkdir(project, { recursive: true });
   await git(["init", "-q"], { cwd: project });
   let startRuntime: () => ReturnType<typeof ControlRuntime.start> = () => {
@@ -305,7 +306,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
     control: () => startRuntime(),
     worktrees: {
       ...deps.worktrees,
-      listRepositories: () => [{ ...repo, path: project }],
+      listRepositories: () => [registered],
       launchIdentity: () => Promise.resolve(projectIdentity),
     },
     agents: (hooks, control) => {
@@ -330,7 +331,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
     ));
   try {
     await expect(workspace.demoteDispatcher("missing")).rejects.toThrow("unavailable");
-    workspace.configure({ hooks: true, agents: ENABLED_AGENTS, sourceDirectory: source });
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS, codeFolder: source });
     scans.current = {
       ...scans.current,
       agents: scans.current.agents.map((agent) => ({ ...agent, initialPrompt: true })),
@@ -353,9 +354,15 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
     await expect(
       workspace.sidebarCommand({ kind: "elevate-dispatcher", id: "dispatcher" }, confirm),
     ).rejects.toThrow("trusted window");
-    const select = vi.fn(() => Promise.resolve(["project"]));
+    const select = vi.fn(() => Promise.resolve([project]));
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS, codeFolder: null });
+    await expect(workspace.elevateDispatcher("dispatcher", select)).rejects.toThrow("not_found");
+    expect(select).not.toHaveBeenCalled();
+    workspace.configure({ hooks: true, agents: ENABLED_AGENTS, codeFolder: source });
     await workspace.elevateDispatcher("dispatcher", select);
-    expect(select).toHaveBeenCalledWith(source, [{ name: "project", running: false }]);
+    expect(select).toHaveBeenCalledWith(source, [
+      { name: join("team", "project"), path: project, running: false },
+    ]);
     expect(workspace.snapshot().terminals).toEqual([
       expect.objectContaining({ dispatcher: { orchestrators: 0, repositories: 1 } }),
     ]);
@@ -370,7 +377,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
         idempotencyKey: "unrelated",
       }),
     ).rejects.toThrow("not_found");
-    projectIdentity = (await workspace.dispatcherHost.repository(source, "project")).identity;
+    projectIdentity = (await workspace.dispatcherHost.repository(source, project)).identity;
     let orchestratorId: string | undefined;
     launch.mockImplementationOnce(async (request) => {
       const id = request.terminalId;
@@ -411,7 +418,7 @@ test("workspace wires the source session, trusted elevation, and live dispatcher
         version: 1,
         instanceId: sourceEnv?.["FOOM_CONTROL_INSTANCE"],
         method: "launch_orchestrator",
-        params: { ...launchRequest, repo: "project" },
+        params: { ...launchRequest, repo: project },
       }),
     });
     const receipt: unknown = await response.json();
@@ -501,10 +508,8 @@ test.each([false, true])("source restart checks recovery (%s)", async (authorize
         directory,
         identity: "source-proof",
         ...(authorized ? { restoreConversation: "dispatcher-conversation" } : {}),
-        approved: [{ name: "project", identity: "project-proof" }],
-        adopted: [
-          { id: orchestratorId, name: "project", identity: "project-proof", launched: true },
-        ],
+        approved: [{ path: project, identity: "project-proof" }],
+        adopted: [{ id: orchestratorId, path: project, identity: "project-proof", launched: true }],
       },
     ],
   );

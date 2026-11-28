@@ -156,12 +156,12 @@ export class TrustedDialog {
         this.finish(false, true, "declined");
         return;
       }
-      const names = new Set(this.pending.request.dispatcherRepositories?.map((row) => row.name));
+      const paths = new Set(this.pending.request.dispatcherRepositories?.map((row) => row.path));
       if (
         !Array.isArray(accepted) ||
-        accepted.length > names.size ||
+        accepted.length > paths.size ||
         new Set(accepted).size !== accepted.length ||
-        accepted.some((name: unknown) => typeof name !== "string" || !names.has(name))
+        accepted.some((path: unknown) => typeof path !== "string" || !paths.has(path))
       )
         return;
       this.pending.selectDispatcherRepositories(accepted);

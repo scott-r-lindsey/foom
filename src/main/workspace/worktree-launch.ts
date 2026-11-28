@@ -478,7 +478,7 @@ export async function startMachine(
       host === null && run !== "shell" && !location && !setup
         ? restoreId
           ? previous?.sourceSession && previous.worktree
-          : this.sourceDirectory
+          : this.codeFolder
         : undefined;
     let launchHome = source || homeDirectory;
     let command = shellPath();

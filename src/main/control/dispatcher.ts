@@ -8,10 +8,11 @@ import { ControlError, exact, identifier, object } from "../../shared/control-va
 import { conversationId } from "../../shared/conversation";
 import type {
   DispatcherLaunch,
+  DispatcherRepository,
   DispatcherLaunchLifecycle,
   DispatcherView,
 } from "../../shared/dispatcher";
-import { dispatcherLaunch, sourceRepositoryName } from "../../shared/dispatcher-validation";
+import { dispatcherLaunch, dispatcherRepositoryPath } from "../../shared/dispatcher-validation";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { ChildInput } from "../../shared/child-input-types";
 import { isChildInput } from "../../shared/child-input";
@@ -36,7 +37,7 @@ interface RepositoryProof {
 }
 interface Adopted {
   id: string;
-  name: string;
+  path: string;
   identity: string;
   launched?: true;
 }
@@ -45,7 +46,7 @@ interface Scope {
   directory: string;
   identity: string;
   restoreConversation?: string;
-  approved: { name: string; identity: string }[];
+  approved: { path: string; identity: string }[];
   adopted: Adopted[];
 }
 interface GrantRequest {
@@ -79,8 +80,9 @@ const GRANT_OPTIONS = [
 
 export interface DispatcherHost {
   directoryIdentity(path: string): Promise<string>;
-  repository(directory: string, name: string): Promise<RepositoryProof>;
+  repository(directory: string, path: string): Promise<RepositoryProof>;
   repositories(directory: string): Promise<RepositoryProof[]>;
+  validateHost(host: string): void;
   agentName(id: DispatcherLaunch["agent"]): string | undefined;
   launch(
     request: DispatcherLaunch,
@@ -104,6 +106,27 @@ function proof(value: unknown): string {
   if (typeof value !== "string" || !value || value.length > 4096 || value.includes("\0"))
     throw new ControlError("invalid_request");
   return value;
+}
+
+/** Old scopes stored direct child names. Preserve the saved checkout proof. */
+function savedRepositoryPath(data: Record<string, unknown>, directory: string): string {
+  if (data["name"] === undefined) {
+    const path = dispatcherRepositoryPath(data["path"]);
+    if (!isAbsolute(path)) throw new ControlError("invalid_request");
+    return path;
+  }
+  const name = data["name"];
+  if (
+    data["path"] !== undefined ||
+    typeof name !== "string" ||
+    !name.trim() ||
+    name.length > 255 ||
+    name.startsWith(".") ||
+    /[ .]$/u.test(name) ||
+    /[\\/:\p{Cc}\p{Cf}\p{Cs}]/u.test(name)
+  )
+    throw new ControlError("invalid_request");
+  return dispatcherRepositoryPath(join(directory, name));
 }
 
 function savedScope(value: unknown): Scope {
@@ -130,24 +153,24 @@ function savedScope(value: unknown): Scope {
     ...(restoreConversation === undefined ? {} : { restoreConversation }),
     approved: approved.map((entry: unknown) => {
       const data = object(entry);
-      exact(data, ["name", "identity"]);
-      return { name: sourceRepositoryName(data["name"]), identity: proof(data["identity"]) };
+      exact(data, ["path", "name", "identity"]);
+      return { path: savedRepositoryPath(data, directory), identity: proof(data["identity"]) };
     }),
     adopted: adopted.map((entry: unknown) => {
       const data = object(entry);
-      exact(data, ["id", "name", "identity", "launched"]);
+      exact(data, ["id", "path", "name", "identity", "launched"]);
       if (data["launched"] !== undefined && data["launched"] !== true)
         throw new ControlError("invalid_request");
       return {
         id: identifier(data["id"]),
-        name: sourceRepositoryName(data["name"]),
+        path: savedRepositoryPath(data, directory),
         identity: proof(data["identity"]),
         ...(data["launched"] === true ? { launched: true } : {}),
       };
     }),
   };
   if (
-    new Set(scope.approved.map(({ name }) => name)).size !== scope.approved.length ||
+    new Set(scope.approved.map(({ path }) => path)).size !== scope.approved.length ||
     new Set(scope.adopted.map(({ id }) => id)).size !== scope.adopted.length
   )
     throw new ControlError("invalid_request");
@@ -295,9 +318,7 @@ export class Dispatcher {
         : role?.role === "orchestrator" && role.active;
       return (
         eligible &&
-        scope.adopted.some(
-          (target) => target.id === row.id && join(scope.directory, target.name) === row.repository,
-        )
+        scope.adopted.some((target) => target.id === row.id && target.path === row.repository)
       );
     });
   }
@@ -308,7 +329,7 @@ export class Dispatcher {
     if (!scope) return undefined;
     const owned = this.owned(scope, rows);
     const managed = new Set([
-      ...scope.approved.map(({ name }) => join(scope.directory, name)),
+      ...scope.approved.map(({ path }) => path),
       ...owned.map((row) => row.repository),
     ]);
     return { orchestrators: owned.length, repositories: managed.size };
@@ -330,9 +351,7 @@ export class Dispatcher {
         this.live.has(scope.id) &&
         scope.adopted.some(
           (entry) =>
-            entry.launched &&
-            entry.id === actor.terminalId &&
-            join(scope.directory, entry.name) === actor.repository,
+            entry.launched && entry.id === actor.terminalId && entry.path === actor.repository,
         ),
     );
   }
@@ -341,13 +360,15 @@ export class Dispatcher {
     id: string,
     select: (
       directory: string,
-      repositories: readonly { name: string; running: boolean }[],
+      repositories: readonly DispatcherRepository[],
     ) => Promise<readonly string[] | undefined>,
     setRole: (id: string, role: "agent" | "dispatcher") => void,
+    checkSource: () => void = () => {},
   ): Promise<void> {
     const directory = this.row(id).worktree;
     const elevation = { directory, exited: false };
     const validate = () => {
+      checkSource();
       if (elevation.exited) throw new ControlError("not_found");
       if (this.quitRecovery) throw new ControlError("unavailable");
       if (
@@ -374,28 +395,28 @@ export class Dispatcher {
         directory,
         repositories.map(({ name, path }) => ({
           name,
+          path,
           running: current.some(
             (row) =>
               row.repository === path &&
               row.orchestration?.role === "orchestrator" &&
-              row.orchestration.active,
+              row.orchestration.active &&
+              !row.exited,
           ),
         })),
       );
       validate();
       if (chosen === undefined) return;
-      const verified = await this.host.directoryIdentity(directory);
-      validate();
-      if (identity !== verified) throw new ControlError("conflict");
+      if (chosen.length > REPOSITORY_LIMIT) throw new ControlError("capacity");
       const approved: Scope["approved"] = [];
       const adopted: Adopted[] = [];
-      for (const name of chosen) {
-        const previous = repositories.find((repo) => repo.name === name);
+      for (const path of chosen) {
+        const previous = repositories.find((repo) => repo.path === path);
         if (!previous) throw new ControlError("invalid_request");
-        const repository = await this.host.repository(directory, name);
+        const repository = await this.host.repository(directory, path);
         validate();
         if (repository.identity !== previous.identity) throw new ControlError("conflict");
-        approved.push({ name, identity: repository.identity });
+        approved.push({ path, identity: repository.identity });
         for (const candidate of this.rows()) {
           if (
             candidate.repository !== repository.path ||
@@ -404,9 +425,11 @@ export class Dispatcher {
             candidate.exited
           )
             continue;
-          adopted.push({ id: candidate.id, name, identity: repository.identity });
+          adopted.push({ id: candidate.id, path, identity: repository.identity });
         }
       }
+      if ((await this.host.directoryIdentity(directory)) !== identity)
+        throw new ControlError("conflict");
       await this.write(
         (current) => [
           ...current.filter((scope) => scope.directory !== directory),
@@ -549,10 +572,13 @@ export class Dispatcher {
     }
   >();
 
-  private async currentRepository(scope: Scope, name: string) {
+  private async currentRepository(scope: Scope, path: string) {
     if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
       throw new ControlError("conflict");
-    return this.host.repository(scope.directory, name);
+    const repository = await this.host.repository(scope.directory, path);
+    if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
+      throw new ControlError("conflict");
+    return repository;
   }
 
   async call(
@@ -576,20 +602,20 @@ export class Dispatcher {
       if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 16)
         throw new ControlError("invalid_request");
       const after =
-        params["after"] === undefined ? undefined : sourceRepositoryName(params["after"]);
+        params["after"] === undefined ? undefined : dispatcherRepositoryPath(params["after"]);
       if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
         throw new ControlError("conflict");
       const repos = await this.host.repositories(scope.directory);
       if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
         throw new ControlError("conflict");
       authorize();
-      const start = after === undefined ? 0 : repos.findIndex(({ name }) => name === after) + 1;
+      const start = after === undefined ? 0 : repos.findIndex(({ path }) => path === after) + 1;
       if (after !== undefined && start === 0) throw new ControlError("not_found");
       const rows = this.rows();
       const project = (repository: RepositoryProof) => {
         const id = locationId(repository.path);
         const preApproved = scope.approved.some(
-          (item) => item.name === repository.name && item.identity === repository.identity,
+          (item) => item.path === repository.path && item.identity === repository.identity,
         );
         const decisions = board?.decisions({ repository: id, watch: [] });
         const related = rows.filter((row) => row.repository === repository.path);
@@ -621,7 +647,7 @@ export class Dispatcher {
         );
         return {
           name: metadataName(repository.name),
-          repo: repository.name,
+          repo: repository.path,
           preApproved,
           pullRequests: [...pullRequests.values()].slice(0, 16),
           orchestrators: targets.map((row) => {
@@ -667,6 +693,7 @@ export class Dispatcher {
       if (replay) return replay;
       const repository = await this.currentRepository(scope, input.repo);
       authorize();
+      if (input.host !== undefined) this.host.validateHost(input.host);
       const operation = await operations.begin(
         actor,
         "launch",
@@ -682,7 +709,7 @@ export class Dispatcher {
         const current = authorize();
         if (
           current.approved.some(
-            (entry) => entry.name === repository.name && entry.identity === repository.identity,
+            (entry) => entry.path === repository.path && entry.identity === repository.identity,
           )
         )
           return await this.launch(request, false);
@@ -708,7 +735,7 @@ export class Dispatcher {
       const current = authorize();
       const candidate = current.adopted.find((target) => target.id === id);
       if (!candidate) throw new ControlError("not_found");
-      const repository = await this.currentRepository(current, candidate.name);
+      const repository = await this.currentRepository(current, candidate.path);
       if (repository.identity !== candidate.identity) throw new ControlError("not_found");
       const row = this.owned(authorize(), undefined, includeExited).find((row) => row.id === id);
       if (!row || row.repository !== repository.path) throw new ControlError("not_found");
@@ -810,6 +837,7 @@ export class Dispatcher {
       if ((await this.currentRepository(scope, input.repo)).identity !== repository.identity)
         throw new ControlError("conflict");
       authorize();
+      if (input.host !== undefined) this.host.validateHost(input.host);
     };
     const id = randomUUID();
     const effects = { spawnDispatched: false, atCapacity: false };
@@ -826,7 +854,7 @@ export class Dispatcher {
             (entry) =>
               retained.has(entry.id) ||
               this.launching.has(entry.id) ||
-              (!entry.launched && entry.name !== repository.name),
+              (!entry.launched && entry.path !== repository.path),
           );
           if (adopted.length >= REPOSITORY_LIMIT) {
             effects.atCapacity = true;
@@ -834,13 +862,13 @@ export class Dispatcher {
           }
           const approved = add
             ? [
-                ...scope.approved.filter(({ name }) => name !== repository.name),
-                { name: repository.name, identity: repository.identity },
+                ...scope.approved.filter(({ path }) => path !== repository.path),
+                { path: repository.path, identity: repository.identity },
               ]
             : scope.approved;
           adopted.push({
             id,
-            name: repository.name,
+            path: repository.path,
             identity: repository.identity,
             launched: true,
           });
