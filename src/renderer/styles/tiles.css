@@ -946,7 +946,7 @@
     .tile-exit-status,
     .preview-glyph,
     .preview-network,
-    .tile-identity > :not(.visually-hidden),
+    .tile-identity > :not(.visually-hidden, .board-agent, .host-chip),
     .tile-number,
     .tile-controls
   ) {
@@ -967,7 +967,7 @@
 }
 .terminal-tile:not(:hover, :focus-within, [data-focused="true"])
   .tile-title:has(> .theme-art)
-  .tile-controls
+  .tile-controls:not(:has(.preview-reload))
   button {
   opacity: 0;
 }
