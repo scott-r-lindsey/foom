@@ -78,8 +78,11 @@ overloads, validates registration options and applies name patterns to tests
 and their ancestry. Discovery keeps a content-hash cache for repeated queries
 within the same process.
 
-The selector retains files with uncertain discovery results, including suite
-load and registration errors. Measured shards retain the full inventory when
+Discovery can omit a suite only when it registered cleanly, touched no guarded
+APIs, has no file-scope hooks and has no matching test. A suite load error, a
+nonzero exit code or a guard hit makes discovery uncertain, even if the suite
+catches the guard error. File-scope hooks keep their suite in every shard and
+focused run. Measured shards retain the full inventory when
 they receive a hash-assigned case. For each full CI shard layout, the audit
 checks that at least one shard loads each suite file. A locally narrowed run
 can skip unrelated suite files, so CI provides coverage of loading the full

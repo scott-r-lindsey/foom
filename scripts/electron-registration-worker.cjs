@@ -21,6 +21,7 @@ module.exports = (file, resultFile) => {
     .filter((arg) => arg !== "--expose-internals")
     .map((arg) => (arg.startsWith("--test-concurrency=") ? "--test-concurrency=1" : arg));
 
+  let guardHits = 0;
   const childProcess = require("node:child_process");
   for (const method of [
     "spawn",
@@ -32,11 +33,14 @@ module.exports = (file, resultFile) => {
     "fork",
   ]) {
     childProcess[method] = () => {
+      guardHits++;
       throw new Error("Process launch during Electron suite registration");
     };
   }
   Module.syncBuiltinESMExports();
   Test.prototype.start = () => {};
+  // Node can run a file-level before hook as soon as it is registered.
+  Test.prototype.run = async () => {};
 
   const fingerprints = new Map();
   Module.registerHooks({
@@ -74,10 +78,19 @@ module.exports = (file, resultFile) => {
     for (const listener of process.rawListeners("exit")) {
       if (!originalExitListeners.has(listener)) process.removeListener("exit", listener);
     }
-    exit(0);
+    exit();
   }
   process.on("uncaughtExceptionMonitor", (error) => report({ error: String(error) }));
   process.on("unhandledRejection", (error) => report({ error: String(error) }));
+
+  function checkLoad() {
+    if (process.exitCode) {
+      throw new Error(`Electron suite set exit code ${process.exitCode} during registration`);
+    }
+    if (guardHits > 0) {
+      throw new Error(`Electron suite hit the registration guard ${guardHits} time(s)`);
+    }
+  }
 
   function collect(parent, tests, nativePromises) {
     if (parent.error) throw parent.error;
@@ -99,6 +112,7 @@ module.exports = (file, resultFile) => {
 
   function finish() {
     try {
+      checkLoad();
       const registrations = [];
       const nativePromises = new Set();
       collect(root, registrations, nativePromises);
@@ -111,7 +125,10 @@ module.exports = (file, resultFile) => {
       ) {
         throw new Error("Deferred Electron suite registration did not settle");
       }
-      report({ registrations });
+      const fileHooks = ["before", "after", "beforeEach", "afterEach"].some(
+        (name) => root.hooks[name].length > 0,
+      );
+      report({ registrations, fileHooks });
     } catch (error) {
       report({ error: String(error) });
     }
@@ -128,6 +145,7 @@ module.exports = (file, resultFile) => {
   try {
     hook.enable();
     Module._load(file, null, true);
+    checkLoad();
     afterTurn(() => afterTurn(finish));
   } catch (error) {
     report({ error: String(error) });

@@ -20,6 +20,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
     // cases, without invoking a test body or launching Electron/agent fixtures.
     const inventory = suiteFiles();
     const registrations = discoverPlannedTests(inventory);
+    const baseline = discoverRegistrations(inventory);
     for (const [name, file] of [
       ["agent discovery uses the fixture login shell and controlled PATH", "harness.test.js"],
       [
@@ -30,7 +31,9 @@ test("Electron shards register every test exactly once, preserve filtering and r
     ]) {
       assert.deepEqual(
         selectSuiteFiles(inventory, { patterns: [`^${name}$`] }).map((file) => path.basename(file)),
-        [file],
+        inventory
+          .filter((suite) => path.basename(suite) === file || baseline.get(suite)?.fileHooks)
+          .map((suite) => path.basename(suite)),
       );
     }
     const suiteNames = [...registrations.keys()];
@@ -307,6 +310,58 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
       assert.throws(() => planTests(files), /registration did not settle/);
       assert.deepEqual(select(files, { patterns: ["^first$"] }), files);
     }
+  });
+
+  await context.test("file-scope hooks retain suites in focused runs and on every shard", () => {
+    writeFileSync(first, binding + 'test("first", () => {});');
+    for (const name of ["before", "after", "beforeEach", "afterEach"]) {
+      writeFileSync(
+        second,
+        binding +
+          `const { ${name} } = require("node:test");
+          ${name}(() => { throw Error("file hook ran"); });
+          test("second", () => {});`,
+      );
+      assert.equal(discover(files).get(second).fileHooks, true, name);
+      assert.deepEqual(select(files, { patterns: ["^first$"] }), files, name);
+      assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files, name);
+      assert.deepEqual(select(files, { shard: "2/2", patterns: [] }), [second], name);
+      if (name === "after") {
+        const focused = runWorker("1/1", ["^first$"], files, 1);
+        assert.match(focused.output, /file hook ran/);
+      }
+    }
+  });
+
+  await context.test("a nonzero suite exit code survives discovery and name filtering", () => {
+    writeFileSync(first, binding + 'test("first", () => {});');
+    for (const source of [
+      "process.exitCode = 7;",
+      "queueMicrotask(() => { process.exitCode = 7; });",
+    ]) {
+      writeFileSync(second, binding + 'test("second", () => {});' + source);
+      assert.match(discover(files).get(second).error, /exit code 7/);
+      assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files);
+      const focused = runWorker("1/1", ["^first$"], files, 1);
+      assert.deepEqual(focused.selected, files);
+      assert.match(focused.output, /exitCode: 7/);
+    }
+  });
+
+  await context.test("caught registration guard errors keep a suite uncertain", () => {
+    writeFileSync(first, binding + 'test("first", () => {});');
+    writeFileSync(
+      second,
+      binding +
+        `const childProcess = require("node:child_process");
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try { childProcess.spawnSync(process.execPath, ["--version"]); } catch {}
+        }
+        test("second", () => {});`,
+    );
+    assert.match(discover(files).get(second).error, /registration guard 2 time/);
+    assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files);
+    assert.deepEqual(runWorker("1/1", ["^first$"]).selected, files);
   });
 
   await context.test("each suite sees its own process globals", () => {

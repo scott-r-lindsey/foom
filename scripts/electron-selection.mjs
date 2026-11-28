@@ -29,6 +29,8 @@ export function selectSuiteFiles(files, { shard, patterns }) {
       return (
         !baseline?.registrations?.length ||
         !entry?.registrations ||
+        baseline.fileHooks ||
+        entry.fileHooks ||
         entry.registrations.some(({ matches }) => matches)
       );
     });
