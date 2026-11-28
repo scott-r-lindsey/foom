@@ -2709,6 +2709,30 @@ test("a rejected recipe launch releases the slot for another Git install", async
   }
 });
 
+test("a Git reload reply uses the same recipes as the Hosts snapshot after a failed install inspection", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const host = "mac-fixture";
+    fixture.run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+    await expect(
+      fixture.hosts.action({ action: "recipe", host, tool: "git", operation: "install" }),
+    ).resolves.toMatchObject({ recipeFailure: "recipe-unavailable" });
+
+    const reply = await fixture.hosts.action({
+      action: "reload",
+      host,
+      target: { kind: "tool", tool: "git" },
+    });
+    const snapshot = fixture.hosts.state(undefined, true, true);
+    expect(reply.preflight?.result.ok).toBe(true);
+    expect(reply.viewRevision).toBe(snapshot.viewRevision);
+    expect(reply.hosts[0]?.recipes).toEqual(snapshot.hosts[0]?.recipes);
+    expect(reply.hosts[0]?.recipes).toContainEqual({ tool: "git", install: true, signIn: false });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("freshly ready Git skips every recipe step and saves the observed tool row", async () => {
   const fixture = await restartedBrewHost();
   try {
@@ -2738,6 +2762,44 @@ test("freshly ready Git skips every recipe step and saves the observed tool row"
     expect(
       resultAfterInstall?.ok && resultAfterInstall.facts.tools?.find((tool) => tool.id === "git"),
     ).toEqual({ id: "git", state: "ready", signIn: "unknown" });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("an already-ready Git install fails when the scoped result cannot update the checklist", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const entry = fixture.checked.hosts[0];
+    const inspected = entry?.observation?.preflight.result;
+    if (!entry || !inspected?.ok) throw new Error("Missing fixture facts");
+    fixture.run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+    const failed = await fixture.hosts.action({
+      action: "preflight",
+      host: entry.host,
+      codeFolder: entry.codeFolder,
+    });
+    expect(failed.preflight?.result.ok).toBe(false);
+    fixture.run.mockResolvedValueOnce({
+      ok: true,
+      facts: {
+        ...inspected.facts,
+        tools: [{ id: "git", state: "ready", signIn: "unknown" }],
+      },
+    });
+
+    const launch = vi.fn(() => Promise.resolve("unexpected-install"));
+    await expect(
+      fixture.hosts.action(
+        { action: "recipe", host: entry.host, tool: "git", operation: "install" },
+        undefined,
+        launch,
+      ),
+    ).rejects.toThrow("Unable to update host tool");
+    expect(launch).not.toHaveBeenCalled();
+    expect(fixture.store.get().registeredHosts?.[0]?.observation).toEqual(
+      failed.hosts[0]?.observation,
+    );
   } finally {
     await fixture.dispose();
   }

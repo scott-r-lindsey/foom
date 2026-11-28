@@ -1176,6 +1176,7 @@ export class Hosts {
   }
   private async checkQueuedRows(host: string, rows: readonly PendingHostRow[]) {
     const retained = new Set<PendingHostRow>();
+    let checked = 0;
     if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
       for (const row of rows) {
         try {
@@ -1183,6 +1184,7 @@ export class Hosts {
           this.registeredRow(host, row.target);
           if (row.retry) await row.retry();
           else await this.reloadRow(host, row.target);
+          checked++;
         } catch (error) {
           if (error instanceof HostRowUnavailable) continue;
           if (error instanceof HostRowSaveFailed) {
@@ -1198,6 +1200,7 @@ export class Hosts {
     );
     if (remaining.length) this.pendingRows.set(host, remaining);
     else this.pendingRows.delete(host);
+    return checked === rows.length;
   }
   private registeredRow(host: string, target: HostCheckTarget) {
     const registration = this.registered(host);
@@ -1559,7 +1562,7 @@ export class Hosts {
       .then((state) => {
         if (input.action !== "reload" && input.action !== "preflight") return state;
         // The command's preflight may predate another observation already published.
-        return { ...state, hosts: this.state().hosts, viewRevision: viewChanges.current("hosts") };
+        return { ...state, ...this.state(undefined, true, true) };
       });
   }
   private performAction(
@@ -1789,9 +1792,9 @@ export class Hosts {
                 this.applyRowCheck(input.host, current, target, inspected, {
                   preserveUncheckedApproval: true,
                 });
-              await this.checkQueuedRows(input.host, [row]);
+              if (await this.checkQueuedRows(input.host, [row])) return this.state();
             }
-            return this.state();
+            throw new Error("Unable to update host tool");
           }
           const recipe = this.recipe(input.host, input.tool, input.operation, inspected);
           if (!recipe || !launchRecipe || !this.profile)

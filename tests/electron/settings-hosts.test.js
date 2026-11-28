@@ -2388,6 +2388,75 @@ test("Hosts updates Git install availability before the capability snapshot arri
   await expect(install).toBeEnabled();
 });
 
+test("Hosts Git reload reply matches the subscribed recipes after a failed install inspection", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, updateScenario } = await hostsFixture(context);
+  await updateScenario({ inspectFailure: "facts-unavailable" });
+  const refused = await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "recipe",
+      host: "fixture-cloud",
+      tool: "git",
+      operation: "install",
+    }),
+  );
+  assert.equal(refused.recipeFailure, "recipe-unavailable");
+
+  await updateScenario({});
+  const { reply, snapshot } = await page.evaluate(async () => {
+    const reply = await window.desktop.hosts({
+      action: "reload",
+      host: "fixture-cloud",
+      target: { kind: "tool", tool: "git" },
+    });
+    const snapshot = await new Promise((resolve) => {
+      const off = window.desktop.subscribeView("hosts", {}, (snapshot) => {
+        off();
+        resolve(snapshot);
+      });
+    });
+    return { reply, snapshot };
+  });
+  assert.equal(reply.preflight?.result.ok, true);
+  assert.equal(reply.viewRevision, snapshot.data?.viewRevision);
+  assert.deepEqual(reply.hosts[0].recipes, snapshot.data.hosts[0].recipes);
+  assert.equal(reply.hosts[0].recipes.find((recipe) => recipe.tool === "git")?.install, true);
+});
+
+test("Hosts reports when an already-ready Git install cannot update the checklist", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, recipeCalls, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const reload = card.getByRole("button", { name: "Reload git", exact: true });
+  const gitRow = card.locator(".host-check-row").filter({ has: reload });
+  await expect(install).toBeEnabled();
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({ inspectFailure: "facts-unavailable" });
+    const failed = await page.evaluate(async () => {
+      const { hosts } = await window.desktop.hosts({ action: "progress" });
+      const { host, codeFolder } = hosts[0];
+      return window.desktop.hosts({ action: "preflight", host, codeFolder });
+    });
+    assert.equal(failed.preflight?.result.ok, false);
+    await updateScenario({
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    await install.click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(reload).toBeEnabled();
+    assert.equal(await readFile(recipeCalls, "utf8"), "");
+  } finally {
+    await releaseHostsView();
+  }
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(gitRow).toContainText("Pass · Installed");
+});
+
 test("Hosts does not repeat Git install after a rejected post-install list", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
