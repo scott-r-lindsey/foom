@@ -2431,7 +2431,7 @@ test("Hosts reports when an already-ready Git install cannot update the checklis
 }, async (context) => {
   const { app, page, card, recipeCalls, updateScenario } = await hostsFixture(context);
   const install = card.getByRole("button", { name: "Install git", exact: true });
-  const reload = card.getByRole("button", { name: "Reload git", exact: true });
+  const reload = page.getByRole("button", { name: "Reload git", exact: true });
   const gitRow = card.locator(".host-check-row").filter({ has: reload });
   await expect(install).toBeEnabled();
   const releaseHostsView = await holdHostsView(app);
