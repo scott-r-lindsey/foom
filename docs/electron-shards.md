@@ -75,8 +75,9 @@ run concurrently because they suppress test bodies and hooks. They collect
 registrations from queued microtasks and immediates and retain the suite if
 asynchronous work is still pending. Node resolves argument
 overloads, validates registration options and applies name patterns to tests
-and their ancestry. Discovery keeps a content-hash cache for repeated queries
-within the same process.
+and their ancestry. Every discovery call runs fresh workers because suites may
+read data outside the module loader when registering tests. An inherited
+`NODE_OPTIONS` keeps the full suite list because it can load startup code.
 
 Discovery can omit a suite only when it registered cleanly, touched no guarded
 APIs, has no file-scope hooks and has no matching test. A suite load error, a

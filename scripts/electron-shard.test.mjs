@@ -11,7 +11,16 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-test("Electron shards register every test exactly once, preserve filtering and reject invalid shards", () => {
+function isolateNodeOptions(context) {
+  const inherited = process.env.NODE_OPTIONS;
+  delete process.env.NODE_OPTIONS;
+  context.after(() => {
+    if (inherited !== undefined) process.env.NODE_OPTIONS = inherited;
+  });
+}
+
+test("Electron shards register every test exactly once, preserve filtering and reject invalid shards", (context) => {
+  isolateNodeOptions(context);
   const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-#-"));
   try {
     for (const name of ["test-shard.js", "shard-assignment.js", "shard-plan.json"])
@@ -224,6 +233,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
 });
 
 test("uncertain Electron registration preserves worker-only and ancestor-qualified tests", async (context) => {
+  isolateNodeOptions(context);
   const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-worker-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const suiteDirectory = path.join(directory, "tests/electron");
@@ -257,6 +267,13 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
   writeFileSync(second, binding + 'test("second", () => {});');
   assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), [first]);
 
+  await context.test("inherited Node options keep the full suite list", (context) => {
+    process.env.NODE_OPTIONS = "--max-old-space-size=4096";
+    context.after(() => delete process.env.NODE_OPTIONS);
+    assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files);
+    assert.deepEqual(select(files, { patterns: ["^first$"] }), files);
+  });
+
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   function runWorker(shard, patterns, inventory = files, expectedStatus = 0) {
@@ -276,6 +293,27 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     assert.equal(result.status, expectedStatus, output);
     return { selected, output };
   }
+
+  await context.test("selection reads updated registration data on each call", () => {
+    const cases = path.join(suiteDirectory, "cases.json");
+    writeFileSync(first, binding + 'test("target passes", () => {});');
+    writeFileSync(
+      second,
+      binding +
+        `const { readFileSync } = require("node:fs");
+        const { join } = require("node:path");
+        for (const name of JSON.parse(readFileSync(join(__dirname, "cases.json"), "utf8"))) {
+          test(name, () => { throw Error("generated test failed"); });
+        }`,
+    );
+    writeFileSync(cases, JSON.stringify(["other case"]));
+    const patterns = ["^target"];
+    assert.deepEqual(runWorker("1/1", patterns).selected, [first]);
+    writeFileSync(cases, JSON.stringify(["target fails"]));
+    const focused = runWorker("1/1", patterns, files, 1);
+    assert.deepEqual(focused.selected, files);
+    assert.match(focused.output, /generated test failed/);
+  });
 
   await context.test("deferred top-level cases remain visible to the runner and planner", () => {
     let lateName = "late target";

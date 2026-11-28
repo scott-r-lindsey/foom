@@ -1,13 +1,11 @@
 // Each bridge runs in its own Node 24 test worker. Use Node's registration
 // logic, but suppress the execution phase so bodies and hooks never run.
 const { createHook } = require("node:async_hooks");
-const { createHash } = require("node:crypto");
-const { readFileSync, writeFileSync } = require("node:fs");
+const { writeFileSync } = require("node:fs");
 const { basename } = require("node:path");
 const Module = require("node:module");
 const process = require("node:process");
 const { setImmediate } = require("node:timers");
-const { fileURLToPath } = require("node:url");
 const { createTestTree } = require("internal/test_runner/harness");
 const { Test } = require("internal/test_runner/test");
 const { parseCommandLine } = require("internal/test_runner/utils");
@@ -65,19 +63,6 @@ module.exports = (file, resultFile) => {
   // Node can run a file-level before hook as soon as it is registered.
   Test.prototype.run = async () => {};
 
-  const fingerprints = new Map();
-  Module.registerHooks({
-    load(url, context, nextLoad) {
-      if (url.startsWith("file:")) {
-        const path = fileURLToPath(url);
-        if (!fingerprints.has(path)) {
-          fingerprints.set(path, createHash("sha256").update(readFileSync(path)).digest("hex"));
-        }
-      }
-      return nextLoad(url, context);
-    },
-  });
-
   const root = createTestTree({ entryFile: file }, { ...parseCommandLine(), cwd: process.cwd() });
   const originalExitListeners = new Set(process.rawListeners("exit"));
   const originalBeforeExitListeners = new Set(process.rawListeners("beforeExit"));
@@ -97,7 +82,7 @@ module.exports = (file, resultFile) => {
   const exit = process.exit.bind(process);
   function report(entry) {
     hook.disable();
-    writeFileSync(resultFile, JSON.stringify({ entry, fingerprints: [...fingerprints] }));
+    writeFileSync(resultFile, JSON.stringify(entry));
     for (const listener of process.rawListeners("exit")) {
       if (!originalExitListeners.has(listener)) process.removeListener("exit", listener);
     }
