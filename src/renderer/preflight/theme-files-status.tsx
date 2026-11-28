@@ -17,7 +17,7 @@ export function ThemeFilesStatus({
   const diagnostics = catalog?.errors.filter((entry) => entry.kind === kind) ?? [];
   const warnings = diagnostics.filter((entry) => entry.severity === "warning");
   const rejections = diagnostics.filter((entry) => entry.severity !== "warning");
-  const rejectedFiles = new Set(rejections.map(({ file }) => file)).size;
+  const rejectedFiles = new Set(rejections.map(({ fileId }, index) => fileId ?? index)).size;
   const omittedRejections = rejections.length - rejectionDetailLimit;
   const themes = kind === "theme" ? catalog?.interface : undefined;
   return (
@@ -74,12 +74,14 @@ export function ThemeFilesStatus({
             {rejectedFiles} {rejectedFiles === 1 ? "file" : "files"} rejected
           </summary>
           <ul>
-            {rejections.slice(0, rejectionDetailLimit).map(({ file, path, reason }, index) => (
-              <li key={`${file}-${String(index)}`}>
-                <code>{file}</code> <code>{path}</code> ·{" "}
-                <span className="theme-warning-reason">{reason}</span>
-              </li>
-            ))}
+            {rejections
+              .slice(0, rejectionDetailLimit)
+              .map(({ file, fileId, path, reason }, index) => (
+                <li key={`${fileId ?? ""}-${String(index)}`}>
+                  <code>{file}</code> <code>{path}</code> ·{" "}
+                  <span className="theme-warning-reason">{reason}</span>
+                </li>
+              ))}
             {omittedRejections > 0 && <li>and {omittedRejections} more</li>}
           </ul>
         </details>

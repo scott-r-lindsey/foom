@@ -741,8 +741,10 @@ test("Appearance retains known artwork warnings when a theme is deselected", asy
   await expectThemeRejection(settings, "illustrated.json $ · malformed-json");
   await expect(row).toHaveCount(0);
   assert.deepEqual(
-    (await catalog()).errors.filter(({ file }) => file === "illustrated.json"),
-    [{ kind: "theme", file: "illustrated.json", path: "$", reason: "malformed-json" }],
+    (await catalog()).errors
+      .filter(({ file }) => file === "illustrated.json")
+      .map(({ reason }) => reason),
+    ["malformed-json"],
   );
 
   await writeFile(image, await png("#000000"));
@@ -754,6 +756,23 @@ test("Appearance retains known artwork warnings when a theme is deselected", asy
     .poll(async () => (await catalog()).activeInterfaceTheme)
     .toBe("user:illustrated.json");
   await expect(row).toHaveCount(0);
+
+  const board = (await catalog()).activeBitmaps?.slots.board?.id;
+  assert.ok(board);
+  await rm(image);
+  const rejections = settings.locator("details.theme-rejections");
+  const rejectionItems = rejections.getByRole("listitem");
+  await expectThemeRejection(settings, "illustrated.json $.images.board · image-unavailable");
+  await writeFile(file, "{");
+  await expect(rejectionItems).toHaveText([
+    "illustrated.json $ · malformed-json",
+    "illustrated.json $.images.board · image-unavailable",
+  ]);
+  await expect(rejections.locator("summary")).toHaveText("1 file rejected");
+  await writeFile(image, await png("#000000"));
+  await expect(rejectionItems).toHaveText(["illustrated.json $ · malformed-json"]);
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "board");
+  assert.equal((await catalog()).activeBitmaps?.slots.board?.id, board);
 });
 
 test("Appearance keeps applied theme warnings visible and counts truncated details", async (context) => {
@@ -844,6 +863,15 @@ test("Appearance keeps applied theme warnings visible and counts truncated detai
       animations: "disabled",
     });
   }
+
+  const truncatedName = "a".repeat(100);
+  await writeFile(path.join(themes, `${truncatedName}-1.json`), "{");
+  await writeFile(path.join(themes, `${truncatedName}-2.json`), "{");
+  await expect(rejectedSummary).toHaveText("114 files rejected");
+  await rejectedSummary.press("Enter");
+  await expect(rejectionItems.nth(0)).toHaveText(`${truncatedName} $ · unsafe-file`);
+  await expect(rejectionItems.nth(1)).toHaveText(`${truncatedName} $ · unsafe-file`);
+  await expect(rejectionItems.last()).toHaveText("and 14 more");
 });
 
 test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {

@@ -642,6 +642,7 @@ export class ConfigService {
         digest?: string;
         bitmaps?: ActiveThemeBitmaps["slots"];
         warnings: readonly ThemeDiagnostic[];
+        imageErrors?: readonly ThemeDiagnostic[];
       }
     | undefined {
     const id = effective(this.deps.defaults, this.applied.values).interfaceTheme;
@@ -658,11 +659,15 @@ export class ConfigService {
       ...(palette.parsed.warnings ?? []),
       ...(palette.bitmaps?.diagnostics.filter(({ severity }) => severity === "warning") ?? []),
     ];
+    const imageErrors = palette.bitmaps?.diagnostics.filter(
+      ({ severity }) => severity !== "warning",
+    );
     return {
       id,
       theme: palette.parsed.theme,
       digest: palette.digest,
       ...(Object.keys(bitmaps).length > 0 && { bitmaps }),
+      ...(imageErrors?.length && { imageErrors }),
       warnings,
     };
   }
@@ -1069,9 +1074,10 @@ export class ConfigService {
     if (this.closed) return;
     this.deps.onStatus?.(this.status());
     const active = this.activePalette();
-    const projected = active?.bitmaps
-      ? JSON.stringify([active.id, active.bitmaps, active.warnings])
-      : undefined;
+    const projected =
+      active?.bitmaps || active?.imageErrors
+        ? JSON.stringify([active.id, active.bitmaps, active.warnings, active.imageErrors])
+        : undefined;
     if (projected !== this.publishedBitmaps) {
       this.publishedBitmaps = projected;
       this.deps.onThemeBitmapsChanged?.();

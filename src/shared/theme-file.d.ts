@@ -55,5 +55,9 @@ export interface ThemeCatalog {
     warningCount?: number;
   }[];
   terminal: readonly { id: UserThemeId; name: string; theme: TerminalTheme }[];
-  errors: readonly (ThemeDiagnostic & { kind: ThemeKind })[];
+  errors: readonly (ThemeDiagnostic & {
+    kind: ThemeKind;
+    /** Opaque identity for rejections, independent of the displayed filename. */
+    fileId?: string;
+  })[];
 }

@@ -82,6 +82,7 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
       theme: base,
       bitmaps: { board, gutter },
       warnings: result.diagnostics.filter(({ severity }) => severity === "warning"),
+      imageErrors: result.diagnostics.filter(({ severity }) => severity === "error"),
     }),
   );
   disposers.push(() => {
@@ -249,12 +250,14 @@ test("a deterministic refusal is reused and the directory scan is bounded indepe
   for (let i = 0; i < themeDirectoryEntryLimit - 1; i++)
     await writeFile(join(directory, `unrelated-${String(i)}.tmp`), "");
   await library.reload();
-  expect(library.snapshot().errors).toContainEqual({
-    kind: "theme",
-    file: "(folder)",
-    path: "$",
-    reason: "too-many-files",
-  });
+  expect(library.snapshot().errors).toContainEqual(
+    expect.objectContaining({
+      kind: "theme",
+      file: "(folder)",
+      path: "$",
+      reason: "too-many-files",
+    }),
+  );
   expect(library.snapshot().interface).toHaveLength(1);
   expect((await bitmaps.load(parsed)).diagnostics[0]?.reason).toBe("too-many-files");
   expect(normalize).toHaveBeenCalledOnce();

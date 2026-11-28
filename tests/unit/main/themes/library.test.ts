@@ -176,6 +176,7 @@ test("unavailable folders report a fixed error and recover", async () => {
   expect(library.snapshot().errors).toContainEqual({
     kind: "theme",
     file: "(folder)",
+    fileId: digest("(folder)"),
     path: "$",
     reason: "unreadable",
   });
@@ -265,7 +266,7 @@ test("warning diagnostics stay bounded and the active warnings come from the app
   await writeFile(join(library.folder("terminal-theme"), "bad.json"), "{");
   await library.reload();
   expect(library.snapshot().errors.filter((entry) => entry.file === file)).toEqual([
-    { kind: "theme", file, path: "$", reason: "malformed-json" },
+    { kind: "theme", file, fileId: digest(file), path: "$", reason: "malformed-json" },
     {
       kind: "theme",
       file,
@@ -277,6 +278,7 @@ test("warning diagnostics stay bounded and the active warnings come from the app
   expect(library.snapshot().errors).toContainEqual({
     kind: "terminal-theme",
     file: "bad.json",
+    fileId: digest("bad.json"),
     path: "$",
     reason: "malformed-json",
   });
@@ -327,7 +329,7 @@ test("caps warnings independently and puts the applied diagnostics before a crow
   );
 });
 
-test("rejected files publish last-good artwork diagnostics only for the applied theme", async () => {
+test("applied artwork diagnostics follow bitmap recovery while the theme file remains rejected", async () => {
   const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
   roots.push(root);
   const theme = interfaceThemes["eclipse-dark"];
@@ -335,7 +337,10 @@ test("rejected files publish last-good artwork diagnostics only for the applied 
     { file: "", path: "$.images.board", reason: "image-status-color", severity: "warning" },
   ];
   const imageError = { file: "", path: "$.images.sidebar", reason: "image-unavailable" } as const;
+  const file = "art.json";
+  const fileId = digest(file);
   let active = true;
+  let imageErrors: ThemeDiagnostic[] = [imageError];
   const library = new ThemeLibrary(
     root,
     undefined,
@@ -345,25 +350,50 @@ test("rejected files publish last-good artwork diagnostics only for the applied 
         digest: digest(text),
         imageDiagnostics: [...warnings, imageError],
       }),
-    () => (active ? { id: "user:art.json", theme, warnings } : undefined),
+    () => (active ? { id: "user:art.json", theme, warnings, imageErrors } : undefined),
   );
   libraries.push(library);
   await library.initialize();
-  const file = "art.json";
   const target = join(library.folder("theme"), file);
   await writeFile(target, JSON.stringify(valid()));
   await library.reload();
+  const artworkRejection = { ...imageError, kind: "theme", file, fileId };
+  active = false;
+  expect(library.snapshot().errors).toContainEqual(artworkRejection);
+  active = true;
+  imageErrors = [];
+  expect(library.snapshot().errors).not.toContainEqual(artworkRejection);
+  imageErrors = [imageError];
   await writeFile(target, "{");
   await library.reload();
-  const rejection = { kind: "theme", file, path: "$", reason: "malformed-json" };
+  const rejection = { kind: "theme", file, fileId, path: "$", reason: "malformed-json" };
   expect(library.snapshot().errors).toEqual([
     rejection,
-    { ...imageError, kind: "theme", file },
+    artworkRejection,
     { ...warnings[0], kind: "theme", file },
   ]);
+  imageErrors = [];
+  expect(library.snapshot().errors).toEqual([rejection, { ...warnings[0], kind: "theme", file }]);
   active = false;
   expect(library.snapshot().errors).toEqual([rejection]);
   expect(library.snapshot().interface.map(({ id }) => id)).toEqual(["user:art.json"]);
+});
+
+test("keeps distinct rejection identities when displayed filenames are truncated", async () => {
+  const { folder, library } = await fixture();
+  const file = "a".repeat(100);
+  const names = [`${file}-1.json`, `${file}-2.json`];
+  for (const name of names) await writeFile(join(folder, name), "{");
+  await library.reload();
+  expect(library.snapshot().errors).toEqual(
+    names.map((name) => ({
+      kind: "theme",
+      file,
+      fileId: digest(name),
+      path: "$",
+      reason: "unsafe-file",
+    })),
+  );
 });
 
 test("closes the theme descriptor before waiting for config approval", async () => {

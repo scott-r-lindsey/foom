@@ -93,12 +93,14 @@ test("a replacement during a descriptor read cannot supply an uninspected palett
     await writeFile(path, theme);
   };
   await library.reload();
-  expect(library.snapshot().errors).toContainEqual({
-    kind: "theme",
-    file: "race.json",
-    path: "$",
-    reason: "unsafe-file",
-  });
+  expect(library.snapshot().errors).toContainEqual(
+    expect.objectContaining({
+      kind: "theme",
+      file: "race.json",
+      path: "$",
+      reason: "unsafe-file",
+    }),
+  );
   expect(library.snapshot().interface).toHaveLength(1);
 });
 test("growth after stat stays bounded and cannot replace a last-good palette", async () => {

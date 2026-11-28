@@ -429,6 +429,10 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
     shape({
       severity: either(absent, literal("error", "warning")),
       file: text,
+      fileId: either(
+        absent,
+        (value): value is string => text(value) && /^[a-f0-9]{64}$/u.test(value),
+      ),
       path: text,
       reason: validThemeReason,
       detail: either(absent, text),

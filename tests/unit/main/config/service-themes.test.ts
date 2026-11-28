@@ -1226,6 +1226,10 @@ test("restart preserves the palette and other slot when an approved bitmap was d
   expect(service.activePalette()).toEqual({
     ...previous,
     bitmaps: { sidebar: previous?.bitmaps?.sidebar },
+    imageErrors: [
+      { file: "", path: "$.images.board", reason: "image-unavailable", severity: "error" },
+      ...(previous?.imageErrors ?? []),
+    ],
   });
   expect(f.themeBaselines.get(f.file)).toEqual(baseline);
 

@@ -152,3 +152,25 @@ test("counts every rejected file and limits the details", () => {
   expect(within(details).getAllByRole("listitem")).toHaveLength(101);
   expect(within(details).getByText("and 2 more")).toBeTruthy();
 });
+
+test("counts filenames that look identical and groups multiple diagnostics for each file", () => {
+  const file = "a".repeat(100);
+  render(
+    <ThemeFilesStatus
+      kind="theme"
+      catalog={{
+        interface: [],
+        terminal: [],
+        errors: [
+          { kind: "theme", file, fileId: "1", path: "$", reason: "unsafe-file" },
+          { kind: "theme", file, fileId: "2", path: "$", reason: "unsafe-file" },
+          { kind: "theme", file, fileId: "2", path: "$.images.board", reason: "image-unavailable" },
+        ],
+      }}
+    />,
+  );
+  const details = screen.getByText("2 files rejected").closest("details");
+  if (!details) throw new Error("Expected a rejection disclosure");
+  details.open = true;
+  expect(within(details).getAllByRole("listitem")).toHaveLength(3);
+});

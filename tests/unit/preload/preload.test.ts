@@ -2420,3 +2420,19 @@ test("theme catalog validates and projects full warning counts", async () => {
     await expect(api.listThemes()).rejects.toThrow();
   }
 });
+
+test("theme catalog validates opaque rejection file identities", async () => {
+  const api = await bridge();
+  const response = (fileId: unknown) => ({
+    interface: [],
+    terminal: [],
+    errors: [{ kind: "theme", file: "bad.json", path: "$", reason: "unsafe-file", fileId }],
+  });
+  const fileId = "a".repeat(64);
+  mock.invoke.mockResolvedValueOnce(response(fileId));
+  expect((await api.listThemes()).errors[0]?.fileId).toBe(fileId);
+  for (const invalid of [1, "bad.json", "a".repeat(65)]) {
+    mock.invoke.mockResolvedValueOnce(response(invalid));
+    await expect(api.listThemes()).rejects.toThrow();
+  }
+});
