@@ -327,6 +327,45 @@ test("caps warnings independently and puts the applied diagnostics before a crow
   );
 });
 
+test("rejected files publish last-good artwork diagnostics only for the applied theme", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
+  roots.push(root);
+  const theme = interfaceThemes["eclipse-dark"];
+  const warnings: ThemeDiagnostic[] = [
+    { file: "", path: "$.images.board", reason: "image-status-color", severity: "warning" },
+  ];
+  const imageError = { file: "", path: "$.images.sidebar", reason: "image-unavailable" } as const;
+  let active = true;
+  const library = new ThemeLibrary(
+    root,
+    undefined,
+    (_file, text, parsed) =>
+      Promise.resolve({
+        parsed,
+        digest: digest(text),
+        imageDiagnostics: [...warnings, imageError],
+      }),
+    () => (active ? { id: "user:art.json", theme, warnings } : undefined),
+  );
+  libraries.push(library);
+  await library.initialize();
+  const file = "art.json";
+  const target = join(library.folder("theme"), file);
+  await writeFile(target, JSON.stringify(valid()));
+  await library.reload();
+  await writeFile(target, "{");
+  await library.reload();
+  const rejection = { kind: "theme", file, path: "$", reason: "malformed-json" };
+  expect(library.snapshot().errors).toEqual([
+    rejection,
+    { ...imageError, kind: "theme", file },
+    { ...warnings[0], kind: "theme", file },
+  ]);
+  active = false;
+  expect(library.snapshot().errors).toEqual([rejection]);
+  expect(library.snapshot().interface.map(({ id }) => id)).toEqual(["user:art.json"]);
+});
+
 test("closes the theme descriptor before waiting for config approval", async () => {
   const { folder } = await fixture();
   await writeFile(join(folder, "personal.json"), JSON.stringify(valid()));

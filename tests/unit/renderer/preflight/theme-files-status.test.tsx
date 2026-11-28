@@ -25,8 +25,13 @@ test("shows fixed diagnostic text for the relevant kind and handles folder failu
     ],
   };
   const view = render(<ThemeFilesStatus catalog={catalog} kind="theme" openFolder={open} />);
-  expect(screen.getByRole("status").textContent).toContain(
-    "Rejected bad.json · $.colors.accent: reserved-color",
+  const summary = screen.getByText("1 file rejected");
+  const rejections = summary.closest("details");
+  if (!rejections) throw new Error("Expected a rejection disclosure");
+  expect(rejections.open).toBe(false);
+  rejections.open = true;
+  expect(within(rejections).getByRole("listitem").textContent).toBe(
+    "bad.json $.colors.accent · reserved-color",
   );
   fireEvent.click(screen.getByRole("button"));
   await waitFor(() => {
@@ -39,7 +44,7 @@ test("shows fixed diagnostic text for the relevant kind and handles folder failu
   });
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   view.rerender(<ThemeFilesStatus kind="terminal-theme" />);
-  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.queryByText("1 file rejected")).toBeNull();
   expect(screen.queryByRole("button")).toBeNull();
 });
 
@@ -99,13 +104,14 @@ test("groups warnings by theme file and keeps rejected edits visible separately"
     />,
   );
   const disclosures = Array.from(container.querySelectorAll("details"));
-  expect(disclosures.map((details) => details.open)).toEqual([false, false]);
+  expect(disclosures.map((details) => details.open)).toEqual([false, false, false]);
   expect(disclosures.map((details) => details.querySelector("summary")?.textContent)).toEqual([
     "Personal · Applied · 3 warnings",
     "Other · 1 warning",
+    "1 file rejected",
   ]);
-  const [personal, other] = disclosures;
-  if (!personal || !other) throw new Error("Expected both theme disclosures");
+  const [personal, other, rejected] = disclosures;
+  if (!personal || !other || !rejected) throw new Error("Expected all three disclosures");
   personal.open = true;
   expect(
     within(personal)
@@ -117,5 +123,32 @@ test("groups warnings by theme file and keeps rejected edits visible separately"
     "and 1 more",
   ]);
   expect(other.textContent).toContain("other.json $.base · base-luminance");
-  expect(screen.getByRole("status").textContent).toBe("Rejected personal.json · $: malformed-json");
+  rejected.open = true;
+  expect(within(rejected).getByRole("listitem").textContent).toBe(
+    "personal.json $ · malformed-json",
+  );
+});
+
+test("counts every rejected file and limits the details", () => {
+  render(
+    <ThemeFilesStatus
+      kind="theme"
+      catalog={{
+        interface: [],
+        terminal: [],
+        errors: Array.from({ length: 102 }, (_, index) => ({
+          kind: "theme",
+          file: `bad-${String(index)}.json`,
+          path: "$",
+          reason: "malformed-json",
+        })),
+      }}
+    />,
+  );
+  const details = screen.getByText("102 files rejected").closest("details");
+  if (!details) throw new Error("Expected a rejection disclosure");
+  expect(details.open).toBe(false);
+  details.open = true;
+  expect(within(details).getAllByRole("listitem")).toHaveLength(101);
+  expect(within(details).getByText("and 2 more")).toBeTruthy();
 });

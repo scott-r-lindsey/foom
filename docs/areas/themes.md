@@ -95,8 +95,9 @@ and warning count. Main identifies the active user theme in the catalog for the
 Applied warnings follow the approved palette and the artwork currently displayed
 while an edit waits for approval. The catalog lists the applied theme's
 diagnostics first. It reports file rejections from the bounded directory scan
-and keeps up to 100 warning details per admitted theme. Each truncated list
-reports its full warning count and how many details it omits.
+and groups them in a separate collapsed disclosure. An inactive theme whose file
+is rejected shows only its file rejection. The disclosures show up to 100 details
+each, with the full count in the summary and the omitted detail count in the list.
 The offline CLI still prints its warnings with exit status 0.
 Parser exceptions and file contents never travel to the renderer.
 

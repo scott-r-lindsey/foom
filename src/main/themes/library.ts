@@ -25,6 +25,7 @@ const kinds = ["theme", "terminal-theme"] as const;
 // The bounded directory scan limits file rejections, and admission limits
 // how many themes can each contribute warning details.
 const warningLimit = 100;
+type CatalogDiagnostic = ThemeCatalog["errors"][number];
 function appendWarnings(
   errors: ThemeCatalog["errors"][number][],
   file: string,
@@ -43,7 +44,12 @@ function catalogTheme(theme: ThemeCatalog["interface"][number]["theme"]) {
 }
 /** Owns bounded reads and session-only last-good versions. No raw contents escape main. */
 export class ThemeLibrary {
-  private catalog: ThemeCatalog = { interface: [], terminal: [], errors: [] };
+  private catalog: ThemeCatalog & { retainedImageErrors: readonly CatalogDiagnostic[] } = {
+    interface: [],
+    terminal: [],
+    errors: [],
+    retainedImageErrors: [],
+  };
   private good = new Map<string, ThemeSnapshot>();
   private queue: Promise<void> = Promise.resolve();
   private watchers: FSWatcher[] = [];
@@ -71,16 +77,18 @@ export class ThemeLibrary {
     return join(this.root, kind === "theme" ? "themes" : "terminal-themes");
   }
   snapshot(): ThemeCatalog {
+    const { retainedImageErrors, ...catalog } = this.catalog;
     const active = this.activePalette?.();
-    if (!active) return structuredClone(this.catalog);
+    if (!active) return structuredClone(catalog);
     // The independent catalog reload may still have an older inactive palette.
     // Always substitute the snapshot approved for the active selection.
-    const entries = [...this.catalog.interface];
+    const entries = [...catalog.interface];
     const index = entries.findIndex(({ id }) => id === active.id);
     const file = active.id.slice("user:".length);
-    const errors = this.catalog.errors.filter(
+    const errors = catalog.errors.filter(
       (entry) => entry.kind === "theme" && entry.file === file && entry.severity !== "warning",
     );
+    errors.push(...retainedImageErrors.filter((entry) => entry.file === file));
     if (active.theme) {
       const entry = {
         id: active.id,
@@ -91,11 +99,9 @@ export class ThemeLibrary {
       if (index === -1) entries.push(entry);
       else entries[index] = entry;
     } else if (index !== -1) entries.splice(index, 1);
-    errors.push(
-      ...this.catalog.errors.filter((entry) => entry.kind !== "theme" || entry.file !== file),
-    );
+    errors.push(...catalog.errors.filter((entry) => entry.kind !== "theme" || entry.file !== file));
     return structuredClone({
-      ...this.catalog,
+      ...catalog,
       interface: entries,
       errors,
       ...(active.theme && { activeInterfaceTheme: active.id }),
@@ -151,8 +157,9 @@ export class ThemeLibrary {
       const next: {
         interface: ThemeCatalog["interface"][number][];
         terminal: ThemeCatalog["terminal"][number][];
-        errors: ThemeCatalog["errors"][number][];
-      } = { interface: [], terminal: [], errors: [] };
+        errors: CatalogDiagnostic[];
+        retainedImageErrors: CatalogDiagnostic[];
+      } = { interface: [], terminal: [], errors: [], retainedImageErrors: [] };
       const retained = new Map<string, ThemeSnapshot>();
       for (const kind of kinds) {
         let names: string[];
@@ -227,10 +234,14 @@ export class ThemeLibrary {
           retained.set(key, snapshot);
           const { parsed: theme, digest } = snapshot;
           if (theme.kind === "theme") {
-            const warnings = [...(theme.warnings ?? [])];
-            for (const diagnostic of snapshot.imageDiagnostics ?? []) {
-              if (diagnostic.severity === "warning") warnings.push(diagnostic);
-              else next.errors.push({ ...diagnostic, file, kind });
+            const warnings = diagnostic ? [] : [...(theme.warnings ?? [])];
+            for (const image of snapshot.imageDiagnostics ?? []) {
+              if (diagnostic) {
+                // Only the applied theme still represents the rejected file's last-good artwork.
+                if (image.severity !== "warning")
+                  next.retainedImageErrors.push({ ...image, file, kind });
+              } else if (image.severity === "warning") warnings.push(image);
+              else next.errors.push({ ...image, file, kind });
             }
             next.interface.push({
               id: `user:${file}`,

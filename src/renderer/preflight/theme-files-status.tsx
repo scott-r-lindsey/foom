@@ -1,6 +1,9 @@
 import { ActionError } from "../board/error-presentation";
 import { useState } from "react";
 import type { ThemeCatalog, ThemeKind } from "../../shared/theme-file";
+
+const rejectionDetailLimit = 100;
+
 export function ThemeFilesStatus({
   catalog,
   kind,
@@ -13,6 +16,9 @@ export function ThemeFilesStatus({
   const [error, setError] = useState(false);
   const diagnostics = catalog?.errors.filter((entry) => entry.kind === kind) ?? [];
   const warnings = diagnostics.filter((entry) => entry.severity === "warning");
+  const rejections = diagnostics.filter((entry) => entry.severity !== "warning");
+  const rejectedFiles = new Set(rejections.map(({ file }) => file)).size;
+  const omittedRejections = rejections.length - rejectionDetailLimit;
   const themes = kind === "theme" ? catalog?.interface : undefined;
   return (
     <div className="theme-files-status">
@@ -62,13 +68,22 @@ export function ThemeFilesStatus({
           }}
         />
       )}
-      {diagnostics
-        .filter((entry) => entry.severity !== "warning")
-        .map((entry, index) => (
-          <p className="preflight-error" role="status" key={`${entry.file}-${String(index)}`}>
-            Rejected {entry.file} · {entry.path}: {entry.reason}
-          </p>
-        ))}
+      {rejectedFiles > 0 && (
+        <details className="theme-rejections">
+          <summary>
+            {rejectedFiles} {rejectedFiles === 1 ? "file" : "files"} rejected
+          </summary>
+          <ul>
+            {rejections.slice(0, rejectionDetailLimit).map(({ file, path, reason }, index) => (
+              <li key={`${file}-${String(index)}`}>
+                <code>{file}</code> <code>{path}</code> ·{" "}
+                <span className="theme-warning-reason">{reason}</span>
+              </li>
+            ))}
+            {omittedRejections > 0 && <li>and {omittedRejections} more</li>}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

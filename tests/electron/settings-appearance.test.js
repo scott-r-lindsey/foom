@@ -33,6 +33,13 @@ async function chooseTheme(page, name, label = "Theme") {
     .click();
 }
 
+async function expectThemeRejection(scope, entry) {
+  const rejection = scope.locator("details.theme-rejections");
+  await expect(rejection.locator("summary")).toHaveText("1 file rejected");
+  await rejection.locator("summary").press("Enter");
+  await expect(rejection.getByRole("listitem")).toHaveText(entry);
+}
+
 test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
   const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
@@ -460,9 +467,7 @@ test("custom theme files appear live, update selected colors and retain rejected
     file,
     JSON.stringify({ ...theme, colors: { ...theme.colors, accent: "url(https://example.org)" } }),
   );
-  await expect(page.getByRole("status").filter({ hasText: "Rejected custom.json" })).toContainText(
-    "$.colors.accent: not-a-color",
-  );
+  await expectThemeRejection(page, "custom.json $.colors.accent · not-a-color");
   assert.equal(
     await page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")),
     theme.colors.bg,
@@ -509,12 +514,10 @@ test("custom theme files appear live, update selected colors and retain rejected
     )
     .toBe("#101010");
   await writeFile(terminalFile, "{");
-  await expect(
-    page
-      .locator(".terminal-theme-picker-column")
-      .getByRole("status")
-      .filter({ hasText: "Rejected custom.json" }),
-  ).toContainText("malformed-json");
+  await expectThemeRejection(
+    page.locator(".terminal-theme-picker-column"),
+    "custom.json $ · malformed-json",
+  );
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
     "background-color",
     "rgb(16, 16, 16)",
@@ -705,15 +708,14 @@ test("Appearance retains known artwork warnings when a theme is deselected", asy
       .png()
       .toBuffer();
   await writeFile(image, await png(theme.colors.attention));
-  await writeFile(
-    path.join(themes, "illustrated.json"),
-    JSON.stringify({
-      ...theme,
-      name: "Illustrated",
-      version: 2,
-      images: { board: { file: "board.png" } },
-    }),
-  );
+  const file = path.join(themes, "illustrated.json");
+  const text = JSON.stringify({
+    ...theme,
+    name: "Illustrated",
+    version: 2,
+    images: { board: { file: "board.png" } },
+  });
+  await writeFile(file, text);
 
   await openSettingsScreen(page);
   const settings = page.getByRole("region", { name: "Settings", exact: true });
@@ -734,7 +736,18 @@ test("Appearance retains known artwork warnings when a theme is deselected", asy
     "illustrated.json $.images.board · image-status-color",
   );
 
+  await writeFile(file, "{");
+  await rm(image);
+  await expectThemeRejection(settings, "illustrated.json $ · malformed-json");
+  await expect(row).toHaveCount(0);
+  assert.deepEqual(
+    (await catalog()).errors.filter(({ file }) => file === "illustrated.json"),
+    [{ kind: "theme", file: "illustrated.json", path: "$", reason: "malformed-json" }],
+  );
+
   await writeFile(image, await png("#000000"));
+  await writeFile(file, text);
+  await expect(settings.locator("details.theme-rejections")).toHaveCount(0);
   await expect(row).toHaveCount(0);
   await chooseTheme(page, "Illustrated");
   await expect
@@ -801,13 +814,23 @@ test("Appearance keeps applied theme warnings visible and counts truncated detai
   await expect(summary).toHaveText("Many Warnings · 227 warnings");
   await chooseTheme(page, "Many Warnings");
 
-  for (let index = 0; index < 100; index++)
+  for (let index = 0; index < 112; index++)
     await writeFile(path.join(themes, `bad-${String(index)}.json`), "{");
-  await expect(settings.getByText(/^Rejected bad-/)).toHaveCount(100);
+  const rejected = settings.locator("details.theme-rejections");
+  const rejectedSummary = rejected.locator("summary");
+  await expect(rejectedSummary).toHaveText("112 files rejected");
+  await expect(rejected.getByRole("list")).toHaveCount(0);
   await expect(summary).toHaveText("Many Warnings · Applied · 227 warnings");
   const catalog = await page.evaluate(() => window.desktop.listThemes());
-  assert.equal(catalog.errors.length, 200);
+  assert.equal(catalog.errors.length, 212);
   assert.ok(catalog.errors.slice(0, 100).every(({ file }) => file === "warned.json"));
+  await rejectedSummary.press("Enter");
+  const rejectionItems = rejected.getByRole("listitem");
+  await expect(rejectionItems).toHaveCount(101);
+  await expect(rejectionItems.first()).toHaveText("bad-0.json $ · malformed-json");
+  await expect(rejectionItems.last()).toHaveText("and 12 more");
+  await rejectedSummary.press("Enter");
+  await expect(rejected.getByRole("list")).toHaveCount(0);
   await summary.press("Enter");
   const items = row.getByRole("listitem");
   await expect(items).toHaveText([
@@ -815,7 +838,7 @@ test("Appearance keeps applied theme warnings visible and counts truncated detai
     "and 127 more",
   ]);
   if (process.env.FOOM_SCREENSHOTS === "1") {
-    await items.last().scrollIntoViewIfNeeded();
+    await rejectedSummary.scrollIntoViewIfNeeded();
     await settings.screenshot({
       path: evidencePath("screenshots-1366/appearance-warning-overflow.png"),
       animations: "disabled",
@@ -1364,9 +1387,7 @@ test("extended user themes apply through both bridges and reject malformed theme
   await writeFile(file, JSON.stringify({ ...theme, type: { scale: 2 } }));
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
-  await expect(
-    page.getByRole("status").filter({ hasText: "Rejected extended.json" }),
-  ).toContainText("invalid-value");
+  await expectThemeRejection(page, "extended.json $.type.scale · invalid-value");
   assert.deepEqual(
     await page.evaluate(
       async () =>
