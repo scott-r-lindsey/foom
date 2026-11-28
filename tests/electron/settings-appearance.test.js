@@ -1701,8 +1701,11 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
       });
     }
   };
-  const opaque = (target) =>
-    target.evaluate((element) => /^rgb\(/u.test(getComputedStyle(element).backgroundColor));
+  const opaque = (target, pseudo = null) =>
+    target.evaluate(
+      (element, part) => /^rgb\(/u.test(getComputedStyle(element, part).backgroundColor),
+      pseudo,
+    );
 
   for (const base of ["light", "dark"]) {
     if (base === "dark") await select(base);
@@ -1818,8 +1821,9 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
       `url("${source(images["tile-header"][0])}")`,
     );
     await expect(titleArt).toHaveCSS("pointer-events", "none");
-    for (const selector of [".tile-number", ".tile-controls", ".tile-light-backing"])
+    for (const selector of [".tile-number", ".tile-controls"])
       assert.equal(await opaque(header.locator(selector)), true);
+    assert.equal(await opaque(header.locator(".tile-light-backing"), "::before"), true);
 
     await expect(terminal).toHaveCount(1);
     await expect
@@ -1854,9 +1858,11 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
     version: 2,
     name: "Narrow artwork",
     areas: { tiles: { attention } },
+    type: { scale: 1.25 },
     images: { empty: { file: "dark-sidebar.png" }, "tile-header": { file: statusBitmap } },
   };
-  await writeFile(path.join(themes, "narrow-artwork.json"), JSON.stringify(narrowTheme));
+  const narrowThemeFile = path.join(themes, "narrow-artwork.json");
+  await writeFile(narrowThemeFile, JSON.stringify(narrowTheme));
   await apply(narrowTheme.name);
   await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "empty tile-header");
   await sizeTileBoard(app, page, 900, 640);
@@ -1931,6 +1937,33 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
       ),
     )
     .toBe(true);
+
+  await terminal.locator(".xterm-helper-textarea").press("Enter");
+  const exitedTile = tileArea.locator('.terminal-tile[data-exited="true"]');
+  await expect(exitedTile).toHaveCount(1);
+  // Exercise the narrow header independently of the terminal font's split minimum.
+  const narrowWidth = await page.addStyleTag({
+    content: '.tile-area .terminal-tile[data-exited="true"] { width: 72px !important; }',
+  });
+  const exitedHeader = exitedTile.locator(".tile-title");
+  const measureHeader = () =>
+    exitedHeader.evaluate((element) => {
+      const { height, width } = element.getBoundingClientRect();
+      return { height, width };
+    });
+  await expect(exitedHeader.locator(".tile-exit-status svg")).toBeVisible();
+  await expect(exitedHeader.locator('[data-theme-art="tile-header"]')).toHaveCount(1);
+  const decoratedHeader = await measureHeader();
+  await capture(exitedHeader, "narrow-exited-dark");
+  await writeFile(
+    narrowThemeFile,
+    JSON.stringify({ ...narrowTheme, images: { empty: narrowTheme.images.empty } }),
+  );
+  await expect(exitedHeader.locator('[data-theme-art="tile-header"]')).toHaveCount(0);
+  assert.deepEqual(await measureHeader(), decoratedHeader);
+  assert.deepEqual(decoratedHeader, { height: 30, width: 64 });
+  await narrowWidth.evaluate((style) => style.remove());
+
   await apply("Eclipse Dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "");
   assert.deepEqual(await widths(), decoratedWidths);

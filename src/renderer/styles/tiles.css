@@ -938,11 +938,12 @@
   z-index: -1;
 }
 .tile-light-backing {
-  display: contents;
+  position: relative;
+  display: flex;
+  flex: none;
 }
 .tile-title:has(> .theme-art)
   :is(
-    .tile-light-backing,
     .tile-exit-status,
     .preview-glyph,
     .preview-network,
@@ -952,13 +953,14 @@
   ) {
   background-color: var(--surface);
 }
-.tile-title:has(> .theme-art) .tile-light-backing {
-  display: flex;
-  align-items: center;
-  flex: none;
-  min-height: 20px;
-  padding-inline: 3px 6px;
-  margin-inline: -3px -6px;
+.tile-title:has(> .theme-art) .tile-light-backing::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset-block: -5px;
+  inset-inline: -3px -6px;
+  background-color: var(--surface);
+  pointer-events: none;
 }
 .terminal-tile:not(:hover, :focus-within, [data-focused="true"])
   .tile-title:has(> .theme-art)
