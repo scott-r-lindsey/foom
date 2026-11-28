@@ -140,7 +140,7 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
   await page.getByRole("tab", { name: "Global", exact: true }).click();
   const defaults = page.getByRole("textbox", { name: "OpenCode default arguments" });
   await expect(defaults).toHaveValue("--auto");
-  await defaults.fill("--auto\n--model\nreviewed");
+  await defaults.fill("--dangerouslySkipPermissions\n--model\nreviewed");
   await expect(
     page.locator(".agent-global-row").filter({ has: defaults }).locator(".agent-bypass"),
   ).toContainText("Bypass approvals");
@@ -149,7 +149,7 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
   await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
     "Save bypass defaults for OpenCode?",
   );
-  await expect(disclosure.getByRole("alertdialog")).toContainText("--auto");
+  await expect(disclosure.getByRole("alertdialog")).toContainText("--dangerouslySkipPermissions");
   await disclosure.screenshot({ path: evidencePath("opencode-review-defaults.png") });
   await disclosure.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(defaults).toBeEnabled();

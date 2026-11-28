@@ -158,7 +158,7 @@ test("the previous settings schema remains refreshable after adding close finish
   ).toBe(true);
 });
 
-function priorAgentSchema() {
+function agentSchemaWithoutDispatcherTools() {
   const previous = structuredClone(generated);
   const names = previous.$defs.tools.properties.names;
   names.items.enum = names.items.enum.filter(
@@ -168,15 +168,18 @@ function priorAgentSchema() {
   return previous;
 }
 
-test("the previous agent schema remains refreshable after adding dispatcher tools", () => {
+test("both parent agent schemas remain refreshable after merging dispatcher tools and bypass matchers", () => {
   const file = "schemas/agent.schema.json";
-  const bytes = `${JSON.stringify(priorAgentSchema(), null, 2)}\n`;
-  expect(refreshable(file, new TextEncoder().encode(bytes))).toBe(true);
+  for (const previous of [agentSchemaWithoutDispatcherTools(), agentSchemaWithoutBypassFields()]) {
+    const bytes = `${JSON.stringify(previous, null, 2)}\n`;
+    expect(refreshable(file, new TextEncoder().encode(bytes))).toBe(true);
+    expect(refreshable(file, new TextEncoder().encode(`${bytes} `))).toBe(false);
+  }
 });
 
 test("the previous agent schema remains refreshable after adding bundled-only installers", () => {
   const file = "schemas/agent.schema.json";
-  const previous = priorAgentSchema();
+  const previous = agentSchemaBeforeApprovalOnly();
   const definitions = themeRecord(previous["$defs"], "$.$defs");
   delete themeRecord(themeRecord(definitions["v2"], "$")["properties"], "$")["wake"];
   delete definitions["wake"];
@@ -211,7 +214,7 @@ test.each(["claude", "codex", "agy", "copilot", "opencode", "pi", "custom-agent"
 );
 
 test("the previous agent schema remains refreshable after adding installer environment", () => {
-  const previous = priorAgentSchema();
+  const previous = agentSchemaBeforeApprovalOnly();
   Reflect.deleteProperty(previous.$defs.v2.properties, "wake");
   Reflect.deleteProperty(previous.$defs, "wake");
   removePermissionSchema(previous.$defs);
@@ -237,10 +240,45 @@ function removePermissionSchema(definitions: Record<string, unknown>) {
   delete definitions["permissionArgv"];
 }
 
-test("the agent schema preceding permission declarations remains refreshable", () => {
+function agentSchemaBeforeFailClosedKeys() {
+  const previous = agentSchemaWithoutDispatcherTools();
+  Reflect.deleteProperty(previous.$defs.override.properties, "failClosedKeys");
+  return previous;
+}
+
+test("the agent schema preceding fail-closed override keys remains refreshable", () => {
   const file = "schemas/agent.schema.json";
-  const previous = themeRecord(JSON.parse(OWNED_FILES[file] ?? ""), "$");
-  removePermissionSchema(themeRecord(previous["$defs"], "$.$defs"));
+  const previous = agentSchemaBeforeFailClosedKeys();
+  const previousBytes = `${JSON.stringify(previous, null, 2)}\n`;
+  expect(refreshable(file, new TextEncoder().encode(previousBytes))).toBe(true);
+  expect(refreshable(file, new TextEncoder().encode(`${previousBytes} `))).toBe(false);
+});
+
+function removeApprovalOnly(previous: typeof generated) {
+  for (const { properties } of previous.$defs.argumentMatcher.oneOf)
+    Reflect.deleteProperty(properties, "approvalOnly");
+}
+
+function agentSchemaWithoutBypassFields() {
+  const previous = structuredClone(generated);
+  Reflect.deleteProperty(previous.$defs.override.properties, "failClosedKeys");
+  removeApprovalOnly(previous);
+  return previous;
+}
+
+function agentSchemaBeforeApprovalOnly() {
+  const previous = agentSchemaBeforeFailClosedKeys();
+  removeApprovalOnly(previous);
+  return previous;
+}
+
+test("the agent schemas preceding approval-only matchers and permission declarations remain refreshable", () => {
+  const file = "schemas/agent.schema.json";
+  const previous = agentSchemaBeforeApprovalOnly();
+  const previousBytes = `${JSON.stringify(previous, null, 2)}\n`;
+  expect(refreshable(file, new TextEncoder().encode(previousBytes))).toBe(true);
+  expect(refreshable(file, new TextEncoder().encode(`${previousBytes} `))).toBe(false);
+  removePermissionSchema(previous.$defs);
   expect(
     refreshable(
       file,

@@ -70,9 +70,14 @@ function statusProbe(v: unknown, p: string) {
   return v === "observed-health" ? v : argv(v, p);
 }
 export function argumentMatcher(v: unknown, p: string) {
-  const d = object(v, p, [], ["flag", "forms", "value", "word", "prefix", "override"]);
+  const d = object(
+    v,
+    p,
+    [],
+    ["flag", "forms", "value", "word", "prefix", "override", "approvalOnly"],
+  );
   if (d["flag"] !== undefined) {
-    object(v, p, ["flag", "forms"], ["value"]);
+    object(v, p, ["flag", "forms"], ["value", "approvalOnly"]);
     return {
       flag: flag(d["flag"], `${p}.flag`),
       forms: array(
@@ -81,6 +86,7 @@ export function argumentMatcher(v: unknown, p: string) {
         1,
       )(d["forms"], `${p}.forms`),
       value: optional(shortText)(d["value"], `${p}.value`),
+      approvalOnly: optional(boolean)(d["approvalOnly"], `${p}.approvalOnly`),
     };
   }
   if (d["word"] !== undefined) {
@@ -91,8 +97,11 @@ export function argumentMatcher(v: unknown, p: string) {
     object(v, p, ["prefix"]);
     return { prefix: eventText(d["prefix"], `${p}.prefix`) };
   }
-  object(v, p, ["override"]);
-  return { override: override(d["override"], `${p}.override`) };
+  object(v, p, ["override"], ["approvalOnly"]);
+  return {
+    override: override(d["override"], `${p}.override`),
+    approvalOnly: optional(boolean)(d["approvalOnly"], `${p}.approvalOnly`),
+  };
 }
 const versionPrefix = (v: unknown, p: string) => text(v, p, 4096, 0);
 export function selector(v: unknown, p: string) {
@@ -509,11 +518,14 @@ export function hooks(v: unknown, p: string) {
   };
 }
 export function override(v: unknown, p: string) {
-  const d = object(v, p, ["flags", "keys"], ["value"]);
+  const d = object(v, p, ["flags", "keys"], ["value", "failClosedKeys"]);
+  if (d["failClosedKeys"] !== undefined && d["value"] === undefined)
+    fail(`${p}.failClosedKeys`, "incompatible-combination");
   return {
     flags: array(flag, 8, 1)(d["flags"], `${p}.flags`),
     keys: array(keySegment, 8, 1)(d["keys"], `${p}.keys`),
     value: optional(shortText)(d["value"], `${p}.value`),
+    failClosedKeys: optional(array(keySegment, 8, 1))(d["failClosedKeys"], `${p}.failClosedKeys`),
   };
 }
 export function environment(v: unknown, p: string) {

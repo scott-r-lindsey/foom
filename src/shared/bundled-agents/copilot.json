@@ -234,6 +234,10 @@
   ],
   "bypassArguments": [
     {
+      "flag": "--no-sandbox",
+      "forms": ["exact"]
+    },
+    {
       "flag": "--yolo",
       "forms": ["exact", "equals"]
     },

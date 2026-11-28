@@ -1668,12 +1668,12 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   await sections.getByRole("button", { name: "Foom config", exact: true }).click();
   const file = path.join(home, ".foom/config/settings.json");
   const original = await readFile(file, "utf8");
+  const approvalBypass = ["-c", 'profiles.fixture={approval_policy="never"}'];
   const args = [
     "--eval",
     `const publish = ${publishFixtureRecord.toString().replaceAll("\n", " ")}; publish(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); process.stdin.resume()`,
     "fixture",
-    "--ask-for-approval",
-    "never",
+    ...approvalBypass,
   ];
   const proposal = JSON.stringify({
     ...JSON.parse(original),
@@ -1699,10 +1699,13 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   await expect(disclosure.getByRole("button", { name: "Cancel" })).toBeFocused();
   await expect(disclosure.getByRole("alertdialog")).toContainText("Codex before");
   await expect(disclosure.getByRole("alertdialog")).toContainText("Codex after");
-  assert.deepEqual(
-    await disclosure.locator(".argument-lines").last().locator("code").allTextContents(),
-    args,
-  );
+  const argumentLines = (label) =>
+    disclosure
+      .locator(".section")
+      .filter({ has: disclosure.getByRole("heading", { name: label, exact: true }) })
+      .locator(".argument-lines code");
+  assert.deepEqual(await argumentLines("Codex after").allTextContents(), args);
+  await expect(argumentLines("Codex bypass")).toHaveText(approvalBypass);
   await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(banner).toHaveCount(0);
   assert.deepEqual(
@@ -1752,7 +1755,7 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
     "Allow agent launch arguments?",
   );
   await expect(disclosure.getByRole("alertdialog")).toContainText("Codex bypass");
-  await expect(disclosure.locator(".argument-lines").last()).toHaveText(bypass);
+  await expect(argumentLines("Codex bypass")).toHaveText([...approvalBypass, bypass]);
   await assertAccessible(disclosure);
   await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(banner).toHaveCount(0);
