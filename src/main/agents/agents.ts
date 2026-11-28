@@ -22,6 +22,7 @@ import { hasBypassArgument, parseAgentArguments } from "./default-arguments";
 import {
   availablePermissionLevels,
   checkPermissionConflicts,
+  sandboxBypassMatchers,
 } from "../../shared/agent-permission-arguments";
 import type { AgentPermissionSettings } from "../../shared/agent-permissions";
 import { bypassConsentIdentity } from "./default-arguments";
@@ -561,7 +562,11 @@ export class AgentService {
         finalEnvironment,
         process.platform === "win32",
       );
-      const argumentMatches = provider.model.bypassArguments
+      const bypassMatchers =
+        permission?.level === "workspace"
+          ? sandboxBypassMatchers(provider.model)
+          : provider.model.bypassArguments;
+      const argumentMatches = bypassMatchers
         .filter((matcher) => matchesArguments([matcher], args))
         .map((matcher) => JSON.stringify(matcher));
       const argumentBypass = argumentMatches.length > 0;

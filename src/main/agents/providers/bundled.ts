@@ -32,18 +32,18 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     codex,
     "codex",
-    "d62be08934e43deb03b1576321adcd6d25f48d75712d2c7565b539639573d99f",
+    "25a831ec8aafcb2ecb583b22fa0bd91c41fdf013e96ae6a37b63387d5885b606",
   ),
   bundledProvider(agy, "agy", "f5ca8ccb1d4c1b41280cf58d231fc672ad0c857a050e0e0e906d2f132942b53d"),
   bundledProvider(
     copilot,
     "copilot",
-    "8d70772a101f8218d32ab3b53fbb1f8e0569761c7f790d2bb00b9106ffe37283",
+    "ffdaa3e576ad802c97c5cb06bbfee07b64df7b7d934843202ea27968020d3841",
   ),
   bundledProvider(
     opencode,
     "opencode",
-    "c527a81f2f5994f900cb71b6416a4eb0f50bf56bdecf464ed55a26440167d6e1",
+    "9ced5d88e626bbe000a9d6e4d78cf630aec4872fb0de14f576a5a9850a8e98c3",
   ),
   bundledProvider(pi, "pi", "ae24e1b71a95436084cee548fda9c3babb5d873217e5bd9d6223a44a0d00ad80"),
 ];

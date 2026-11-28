@@ -1477,12 +1477,21 @@ process.stdout.write("FOOM_AGENT_READY`,
         const load = process.getBuiltinModule("module").createRequire(fixture);
         const { captureTimers } = load(fixture);
         const { UnreadChildEvents } = load("../../build/main/control/unread-child-events.js");
+        const sync = UnreadChildEvents.prototype.sync;
         const schedule = UnreadChildEvents.prototype.schedule;
         const timers = new WeakMap();
         const clock = { now: Date.now() };
+        let originalNow;
+        UnreadChildEvents.prototype.sync = function (observations) {
+          // Sync timestamps new unread events before calling schedule.
+          if (!clock.owner) {
+            clock.owner = this;
+            originalNow = this.now;
+            this.now = () => clock.now;
+          }
+          return sync.call(this, observations);
+        };
         UnreadChildEvents.prototype.schedule = function () {
-          this.now = () => clock.now;
-          clock.owner = this;
           return captureTimers(() => schedule.call(this), timers);
         };
         clock.delay = () => timers.get(clock.owner?.timer)?.delay;
@@ -1492,8 +1501,9 @@ process.stdout.write("FOOM_AGENT_READY`,
           timer.fire();
         };
         clock.restore = () => {
+          UnreadChildEvents.prototype.sync = sync;
           UnreadChildEvents.prototype.schedule = schedule;
-          clock.owner.now = Date.now;
+          if (clock.owner) clock.owner.now = originalNow;
           delete globalThis.unreadReminderClock;
         };
         globalThis.unreadReminderClock = clock;
