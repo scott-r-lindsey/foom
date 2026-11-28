@@ -135,6 +135,7 @@ export function RowMenu({
         const leftSpace = button.left - 18;
         const rightSpace = window.innerWidth - button.right - 18;
         menu.style.removeProperty("--submenu-max-width");
+        menu.style.removeProperty("--submenu-anchor-width");
         menu.style.removeProperty("max-height");
         if (Math.max(leftSpace, rightSpace) >= 120) {
           const opensRight = menu.offsetWidth <= rightSpace || rightSpace >= leftSpace;
@@ -143,12 +144,15 @@ export function RowMenu({
           menu.style.left = `${String(opensRight ? button.right + 10 : button.left - menu.offsetWidth - 10)}px`;
           menu.style.top = `${String(Math.max(8, Math.min(button.top - 7, window.innerHeight - menu.offsetHeight - 8)))}px`;
         } else {
-          const above = button.top - 18;
-          const below = window.innerHeight - button.bottom - 18;
+          // Span the trigger and meet its edge so the pointer can travel
+          // directly into the submenu without entering another command.
+          const above = button.top - 8;
+          const below = window.innerHeight - button.bottom - 8;
           const opensBelow = below >= above;
+          menu.style.setProperty("--submenu-anchor-width", `${String(button.width)}px`);
           menu.style.maxHeight = `${String(opensBelow ? below : above)}px`;
           menu.style.left = `${String(Math.max(8, Math.min(button.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
-          menu.style.top = `${String(opensBelow ? button.bottom + 10 : button.top - menu.offsetHeight - 10)}px`;
+          menu.style.top = `${String(opensBelow ? button.bottom : button.top - menu.getBoundingClientRect().height)}px`;
         }
         return;
       }

@@ -356,12 +356,16 @@ test("the submenu uses available space without covering Settings", async () => {
   fireEvent.keyDown(document.activeElement ?? settings, { key: "Escape" });
   bounds.mockReturnValue(rect(20, window.innerWidth - 20));
   fireEvent.click(settings);
-  expect(screen.getByRole("menu", { name: "Settings" }).style.top).toBe("90px");
+  const below = screen.getByRole("menu", { name: "Settings" });
+  expect(below.style.top).toBe("80px");
+  expect(below.style.getPropertyValue("--submenu-anchor-width")).toBe(
+    `${String(window.innerWidth - 40)}px`,
+  );
   fireEvent.keyDown(document.activeElement ?? settings, { key: "Escape" });
   bounds.mockReturnValue(rect(20, window.innerWidth - 20, window.innerHeight - 80));
   fireEvent.click(settings);
   expect(screen.getByRole("menu", { name: "Settings" }).style.top).toBe(
-    `${String(window.innerHeight - 90)}px`,
+    `${String(window.innerHeight - 80)}px`,
   );
 });
 test("the Size row is one stop, steps without closing and shows main's size", async () => {

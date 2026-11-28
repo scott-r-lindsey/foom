@@ -25,7 +25,8 @@ item; Left or Escape returns to its parent, and hovering opens it without moving
 focus. Scrolling within a sidebar panel closes its open submenus and keeps the
 panel open, so submenus cannot remain detached from scrolled commands. The submenu
 opens beside its trigger, wrapping long labels to fit the available space. On
-very narrow layouts it opens above or below to keep the trigger clickable. Up and
+very narrow layouts it opens flush above or below its trigger, so the pointer can
+reach it without passing over another command. Up and
 Down treat the Size row as one stop; Left and Right move between − and +.
 Escape at the top level returns focus to the wordmark. The menu uses the same
 surface and motion as row actions, with a scrollable list on short windows. Opening

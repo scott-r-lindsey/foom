@@ -267,6 +267,47 @@ test("long repository hints leave the window move trigger clickable", {
   await expect(destination.locator(occupied)).toHaveCount(2);
 });
 
+test("narrow window move menus keep the hovered destination under the pointer", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const source = await boardPage(app);
+  const destination = await newBoard(app, source);
+  await sizeTileBoard(app, source, 1280, 1024);
+  // A resize can dismiss the tile menu after innerWidth has already changed.
+  const resized = await source.evaluateHandle(() => {
+    const state = { complete: false };
+    window.addEventListener("resize", () => (state.complete = true), { once: true });
+    return state;
+  });
+  const native = await app.browserWindow(source);
+  await native.evaluate((window) => window.webContents.setZoomFactor(3));
+  await native.dispose();
+  await expect.poll(() => resized.evaluate((state) => state.complete)).toBe(true);
+  await resized.dispose();
+  await expect.poll(() => source.evaluate(() => innerWidth)).toBeLessThanOrEqual(427);
+
+  await source.getByRole("button", { name: "Tile 1 menu", exact: true }).press("Enter");
+  const trigger = source.getByRole("menuitem", { name: "Move to window", exact: true });
+  await trigger.evaluate((button) => button.scrollIntoView({ block: "end" }));
+  await trigger.hover();
+  const choice = source.getByRole("menuitem", { name: "Lovelace", exact: true });
+  await expect(choice).toBeVisible();
+  const bounds = await choice.boundingBox();
+  assert.ok(bounds);
+  const x = bounds.x + bounds.width / 2;
+  const y = bounds.y + bounds.height / 2;
+  // Use pointer movement and a coordinate click so a vanished submenu cannot
+  // turn into a locator retry that conceals the actual hit target.
+  await source.mouse.move(x, y, { steps: 30 });
+  await source.mouse.down();
+  await source.mouse.up();
+  const occupied = '.terminal-tile[data-empty="false"]';
+  await expect(destination.locator(occupied)).toHaveCount(1);
+  await expect(source.locator(occupied)).toHaveCount(0);
+  assert.equal(app.windows().filter((page) => page.url() === source.url()).length, 2);
+});
+
 test("previews move to existing boards at drop edges with identity, network reset and live reload", {
   timeout: deadline(60000),
 }, async (context) => {

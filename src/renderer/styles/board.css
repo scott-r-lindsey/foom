@@ -984,7 +984,10 @@
 }
 .row-submenu {
   width: max-content;
-  min-width: min(240px, var(--submenu-max-width, calc(100vw - 16px)));
+  min-width: min(
+    max(240px, var(--submenu-anchor-width, 0px)),
+    var(--submenu-max-width, calc(100vw - 16px))
+  );
   max-width: var(--submenu-max-width, calc(100vw - 16px));
   overflow-y: auto;
   overflow-wrap: anywhere;
