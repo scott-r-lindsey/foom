@@ -22,7 +22,19 @@ import { readThemeFile } from "./files";
 export { ThemeBitmaps, themeBitmapResponse } from "./bitmaps";
 
 const kinds = ["theme", "terminal-theme"] as const;
-const diagnosticLimit = 100;
+// The bounded directory scan limits file rejections, and admission limits
+// how many themes can each contribute warning details.
+const warningLimit = 100;
+function appendWarnings(
+  errors: ThemeCatalog["errors"][number][],
+  file: string,
+  warnings: readonly ThemeDiagnostic[],
+): { warningCount?: number } {
+  for (const warning of warnings.slice(0, warningLimit))
+    errors.push({ ...warning, file, kind: "theme" });
+  return warnings.length > warningLimit ? { warningCount: warnings.length } : {};
+}
+
 function catalogTheme(theme: ThemeCatalog["interface"][number]["theme"]) {
   const collision = Object.values(interfaceThemes).some(
     (builtin) => builtin.name.toLowerCase() === theme.name.toLowerCase(),
@@ -65,34 +77,27 @@ export class ThemeLibrary {
     // Always substitute the snapshot approved for the active selection.
     const entries = [...this.catalog.interface];
     const index = entries.findIndex(({ id }) => id === active.id);
+    const file = active.id.slice("user:".length);
+    const errors = this.catalog.errors.filter(
+      (entry) => entry.kind === "theme" && entry.file === file && entry.severity !== "warning",
+    );
     if (active.theme) {
       const entry = {
         id: active.id,
         theme: catalogTheme(active.theme),
         ...(active.digest && { digest: active.digest }),
+        ...appendWarnings(errors, file, active.warnings),
       };
       if (index === -1) entries.push(entry);
       else entries[index] = entry;
     } else if (index !== -1) entries.splice(index, 1);
-    const file = active.id.slice("user:".length);
-    const interfaceDiagnostics = this.catalog.errors.filter(({ kind }) => kind === "theme");
-    const rejections = interfaceDiagnostics.filter(({ severity }) => severity !== "warning");
-    const activeWarnings = active.warnings.map((warning) => ({
-      ...warning,
-      kind: "theme" as const,
-      file,
-    }));
-    const otherWarnings = interfaceDiagnostics.filter(
-      (entry) => entry.severity === "warning" && entry.file !== file,
+    errors.push(
+      ...this.catalog.errors.filter((entry) => entry.kind !== "theme" || entry.file !== file),
     );
-    const terminalDiagnostics = this.catalog.errors.filter(({ kind }) => kind === "terminal-theme");
     return structuredClone({
       ...this.catalog,
       interface: entries,
-      errors: [
-        ...[...rejections, ...activeWarnings, ...otherWarnings].slice(0, diagnosticLimit),
-        ...terminalDiagnostics,
-      ],
+      errors,
       ...(active.theme && { activeInterfaceTheme: active.id }),
       ...(active.bitmaps && { activeBitmaps: { theme: active.id, slots: active.bitmaps } }),
     });
@@ -150,8 +155,6 @@ export class ThemeLibrary {
       } = { interface: [], terminal: [], errors: [] };
       const retained = new Map<string, ThemeSnapshot>();
       for (const kind of kinds) {
-        const rejections: ThemeCatalog["errors"][number][] = [];
-        const warnings: ThemeCatalog["errors"][number][] = [];
         let names: string[];
         const regular = new Set<string>();
         const aliases = new Set<string>();
@@ -171,7 +174,7 @@ export class ThemeLibrary {
             );
         } catch (error) {
           const reason = error instanceof ThemeValidationError ? error.reason : "unreadable";
-          rejections.push({ kind, file: "(folder)", path: "$", reason });
+          next.errors.push({ kind, file: "(folder)", path: "$", reason });
           // An inaccessible directory is not evidence that its files were deleted.
           names = [...this.good.keys()]
             .filter((key) => key.startsWith(`${kind}/`))
@@ -212,12 +215,11 @@ export class ThemeLibrary {
           }
           if (diagnostic) {
             // Diagnostic text is bounded too, even for enormous directories or unsafe names.
-            if (rejections.length < diagnosticLimit)
-              rejections.push({
-                ...diagnostic,
-                file: file.replace(/[\p{Cc}\p{Cf}]/gu, "�").slice(0, 100),
-                kind,
-              });
+            next.errors.push({
+              ...diagnostic,
+              file: file.replace(/[\p{Cc}\p{Cf}]/gu, "�").slice(0, 100),
+              kind,
+            });
             snapshot = this.good.get(key);
           }
           if (!snapshot) continue;
@@ -225,14 +227,17 @@ export class ThemeLibrary {
           retained.set(key, snapshot);
           const { parsed: theme, digest } = snapshot;
           if (theme.kind === "theme") {
-            for (const diagnostic of [
-              ...(theme.warnings ?? []),
-              ...(snapshot.imageDiagnostics ?? []),
-            ]) {
-              const target = diagnostic.severity === "warning" ? warnings : rejections;
-              if (target.length < diagnosticLimit) target.push({ ...diagnostic, file, kind });
+            const warnings = [...(theme.warnings ?? [])];
+            for (const diagnostic of snapshot.imageDiagnostics ?? []) {
+              if (diagnostic.severity === "warning") warnings.push(diagnostic);
+              else next.errors.push({ ...diagnostic, file, kind });
             }
-            next.interface.push({ id: `user:${file}`, theme: catalogTheme(theme.theme), digest });
+            next.interface.push({
+              id: `user:${file}`,
+              theme: catalogTheme(theme.theme),
+              digest,
+              ...appendWarnings(next.errors, file, warnings),
+            });
           } else {
             const collision = terminalThemeOptions.some(
               (builtin) => builtin.name.toLowerCase() === theme.name.toLowerCase(),
@@ -244,7 +249,6 @@ export class ThemeLibrary {
             });
           }
         }
-        next.errors.push(...[...rejections, ...warnings].slice(0, diagnosticLimit));
       }
       if (this.isDisposed()) return;
       const changed = JSON.stringify(next) !== JSON.stringify(this.catalog);

@@ -50,7 +50,11 @@ test("groups warnings by theme file and keeps rejected edits visible separately"
       catalog={{
         activeInterfaceTheme: "user:personal.json",
         interface: [
-          { id: "user:personal.json", theme: { ...interfaceThemes.graphite, name: "Personal" } },
+          {
+            id: "user:personal.json",
+            theme: { ...interfaceThemes.graphite, name: "Personal" },
+            warningCount: 3,
+          },
           { id: "user:other.json", theme: { ...interfaceThemes.graphite, name: "Other" } },
           { id: "user:clean.json", theme: { ...interfaceThemes.graphite, name: "Clean" } },
         ],
@@ -97,7 +101,7 @@ test("groups warnings by theme file and keeps rejected edits visible separately"
   const disclosures = Array.from(container.querySelectorAll("details"));
   expect(disclosures.map((details) => details.open)).toEqual([false, false]);
   expect(disclosures.map((details) => details.querySelector("summary")?.textContent)).toEqual([
-    "Personal · Applied · 2 warnings",
+    "Personal · Applied · 3 warnings",
     "Other · 1 warning",
   ]);
   const [personal, other] = disclosures;
@@ -110,6 +114,7 @@ test("groups warnings by theme file and keeps rejected edits visible separately"
   ).toEqual([
     "personal.json $.colors.ink · reserved-color",
     "personal.json $.images.board · image-status-color",
+    "and 1 more",
   ]);
   expect(other.textContent).toContain("other.json $.base · base-luminance");
   expect(screen.getByRole("status").textContent).toBe("Rejected personal.json · $: malformed-json");

@@ -16,15 +16,17 @@ export function ThemeFilesStatus({
   const themes = kind === "theme" ? catalog?.interface : undefined;
   return (
     <div className="theme-files-status">
-      {themes?.map(({ id, theme }) => {
+      {themes?.map(({ id, theme, warningCount }) => {
         const file = id.slice("user:".length);
         const entries = warnings.filter((entry) => entry.file === file);
+        const count = warningCount ?? entries.length;
+        const omitted = count - entries.length;
         return (
           entries.length > 0 && (
             <details className="theme-warnings" key={id}>
               <summary>
                 {theme.name} · {id === catalog?.activeInterfaceTheme && "Applied · "}
-                {entries.length} {entries.length === 1 ? "warning" : "warnings"}
+                {count} {count === 1 ? "warning" : "warnings"}
               </summary>
               <ul>
                 {entries.map(({ path, reason }, index) => (
@@ -33,6 +35,7 @@ export function ThemeFilesStatus({
                     <span className="theme-warning-reason">{reason}</span>
                   </li>
                 ))}
+                {omitted > 0 && <li>and {omitted} more</li>}
               </ul>
             </details>
           )

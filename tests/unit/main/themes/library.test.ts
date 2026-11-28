@@ -249,7 +249,7 @@ test("warning diagnostics stay bounded and the active warnings come from the app
   await library.reload();
   const catalog = library.snapshot();
   expect(catalog.interface).toHaveLength(20);
-  expect(catalog.errors).toHaveLength(100);
+  expect(catalog.errors.length).toBeGreaterThan(100);
   expect(catalog.errors.every((entry) => entry.severity === "warning")).toBe(true);
   expect(catalog.errors.filter((entry) => entry.file === file)).toEqual([
     {
@@ -282,13 +282,13 @@ test("warning diagnostics stay bounded and the active warnings come from the app
   });
 });
 
-test("keeps rejected files visible when active warnings compete for the last catalog entries", async () => {
+test("caps warnings independently and puts the applied diagnostics before a crowded folder", async () => {
   const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
   roots.push(root);
   const theme = interfaceThemes["eclipse-dark"];
-  const warnings: ThemeDiagnostic[] = ["hole", "line", "accent", "ink"].map((token) => ({
+  const warnings: ThemeDiagnostic[] = Array.from({ length: 227 }, () => ({
     file: "",
-    path: `$.colors.${token}`,
+    path: "$.colors.hole",
     reason: "reserved-color",
     severity: "warning",
   }));
@@ -296,32 +296,35 @@ test("keeps rejected files visible when active warnings compete for the last cat
   const library = new ThemeLibrary(
     root,
     undefined,
-    (file, text, parsed) =>
+    (_file, text, parsed) =>
       Promise.resolve({
-        parsed,
         digest: digest(text),
-        imageDiagnostics: file.startsWith("themes/a-") ? warnings : warnings.slice(0, 2),
+        parsed: parsed.kind === "theme" ? { ...parsed, warnings } : parsed,
       }),
-    () => (active ? { id: "user:z.json", theme, warnings: warnings.slice(0, 2) } : undefined),
+    () => (active ? { id: "user:z.json", theme, warnings } : undefined),
   );
   libraries.push(library);
   await library.initialize();
   const folder = library.folder("theme");
   const text = JSON.stringify(valid());
-  for (let index = 0; index < 24; index++)
-    await writeFile(join(folder, `a-${String(index)}.json`), text);
   await writeFile(join(folder, "b.json"), text);
-  await writeFile(join(folder, "c-broken.json"), "{");
   await writeFile(join(folder, "z.json"), text);
   await library.reload();
-  const rejection = { kind: "theme", file: "c-broken.json", path: "$", reason: "malformed-json" };
-  expect(library.snapshot().errors).toContainEqual(rejection);
+  const inactive = library.snapshot();
+  expect(inactive.interface.map(({ warningCount }) => warningCount)).toEqual([227, 227]);
+  expect(inactive.errors).toHaveLength(200);
   active = true;
+  for (let index = 0; index < 100; index++)
+    await writeFile(join(folder, `a-${String(index)}.json`), "{");
+  await library.reload();
   const catalog = library.snapshot();
-  expect(catalog.errors).toHaveLength(100);
-  expect(catalog.errors).toContainEqual(rejection);
+  expect(catalog.errors).toHaveLength(300);
+  expect(catalog.errors.filter(({ severity }) => severity !== "warning")).toHaveLength(100);
   expect(catalog.activeInterfaceTheme).toBe("user:z.json");
-  expect(catalog.errors.filter(({ file }) => file === "z.json")).toHaveLength(2);
+  expect(catalog.interface.find(({ id }) => id === "user:z.json")?.warningCount).toBe(227);
+  expect(catalog.errors.slice(0, 100)).toEqual(
+    inactive.errors.filter(({ file }) => file === "z.json"),
+  );
 });
 
 test("closes the theme descriptor before waiting for config approval", async () => {

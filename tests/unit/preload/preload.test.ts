@@ -1,5 +1,6 @@
 import type { ViewSnapshot } from "../../../src/shared/data-views";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
+import { interfaceThemes } from "../../../src/shared/interface-themes";
 import { malformedValues, withUndeclaredFields } from "./malformed-values";
 import {
   replies,
@@ -2400,6 +2401,22 @@ test("theme catalog accepts only a validated user theme ID for the active interf
   expect((await api.listThemes()).activeInterfaceTheme).toBe("user:gallery.json");
   for (const activeInterfaceTheme of ["eclipse-dark", "user:", 1]) {
     mock.invoke.mockResolvedValueOnce({ ...themes, activeInterfaceTheme });
+    await expect(api.listThemes()).rejects.toThrow();
+  }
+});
+
+test("theme catalog validates and projects full warning counts", async () => {
+  const api = await bridge();
+  const entry = { id: "user:gallery.json", theme: interfaceThemes.graphite };
+  const response = (warningCount: unknown) => ({
+    interface: [{ ...entry, warningCount }],
+    terminal: [],
+    errors: [],
+  });
+  mock.invoke.mockResolvedValueOnce(response(227));
+  expect((await api.listThemes()).interface[0]?.warningCount).toBe(227);
+  for (const count of ["227", 0, -1, 100.5, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    mock.invoke.mockResolvedValueOnce(response(count));
     await expect(api.listThemes()).rejects.toThrow();
   }
 });

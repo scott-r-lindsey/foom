@@ -412,6 +412,10 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
       id: userThemeId,
       theme: validInterfaceTheme,
       digest: either(absent, text),
+      warningCount: either(
+        absent,
+        (value): value is number => finite(value) && Number.isSafeInteger(value) && value > 0,
+      ),
     }),
   ),
   terminal: array(

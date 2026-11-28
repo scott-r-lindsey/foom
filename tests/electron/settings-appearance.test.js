@@ -3,7 +3,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const { link, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { hostname, tmpdir } = require("node:os");
 const { afterEach } = require("node:test");
 const { deadline, expect } = require("./test-policy.js");
@@ -595,8 +595,9 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
     await expect(row.getByRole("list")).toHaveCount(0);
     if (base === "light") {
       const lock = path.join(themes, "..", ".foom-settings.lock");
+      const fixtureLock = path.join(home, "busy-settings-lock");
       await writeFile(
-        lock,
+        fixtureLock,
         JSON.stringify({
           pid: process.pid,
           hostname: hostname(),
@@ -605,6 +606,19 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
           timestamp: Date.now(),
         }),
       );
+      // The first selection can publish its palette before releasing its lock.
+      // Acquire the fixture lock exclusively so that release cannot remove it.
+      await expect
+        .poll(async () => {
+          try {
+            await link(fixtureLock, lock);
+            return true;
+          } catch (error) {
+            if (error.code !== "EEXIST") throw error;
+            return false;
+          }
+        })
+        .toBe(true);
       const observed = await settings.evaluateHandle((region) => {
         const applied = new Set();
         const read = () => {
@@ -673,6 +687,86 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
     await expect(
       settings.getByText(/\d+ warnings|reserved-color|hole-color|image-status-color/),
     ).toHaveCount(0);
+  }
+});
+
+test("Appearance keeps applied theme warnings visible and counts truncated details", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-theme-warning-limit-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const { parseThemeFile } = require("../../build/shared/theme-files.js");
+  const themes = path.join(home, ".foom/config/themes");
+  const dark = "#402600";
+  const light = "#ffb23e";
+  const darkTokens = [
+    "bg",
+    "surface",
+    "line",
+    "hole",
+    "attention",
+    "accent-deep",
+    "highlight-deep",
+    "failed",
+    "done",
+    "badge-label-fill",
+    "badge-fill",
+  ];
+  const base = interfaceThemes["eclipse-dark"];
+  const gradient = (positions) => ({
+    bg: dark,
+    gradient: { angle: 0, stops: positions.map((percent) => [dark, percent]) },
+  });
+  const text = JSON.stringify({
+    ...base,
+    version: 2,
+    name: "Many Warnings",
+    colors: Object.fromEntries(
+      Object.keys(base.colors).map((token) => [token, darkTokens.includes(token) ? dark : light]),
+    ),
+    areas: {
+      sidebar: gradient([0, 30, 60, 100]),
+      tiles: {},
+      panels: {},
+      dialogs: {},
+      menus: {},
+      titlebar: {},
+      "tile-headers": {},
+      board: gradient([0, 50, 100]),
+      badges: {},
+    },
+  });
+  const warnings = parseThemeFile(text, "theme").warnings;
+  assert.equal(warnings.length, 227);
+  await writeFile(path.join(themes, "warned.json"), text);
+  await openSettingsScreen(page);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  await settings.getByRole("button", { name: "Appearance", exact: true }).click();
+  const row = settings.locator("details.theme-warnings").filter({ hasText: "Many Warnings" });
+  const summary = row.locator("summary");
+  await expect(summary).toHaveText("Many Warnings · 227 warnings");
+  await chooseTheme(page, "Many Warnings");
+
+  for (let index = 0; index < 100; index++)
+    await writeFile(path.join(themes, `bad-${String(index)}.json`), "{");
+  await expect(settings.getByText(/^Rejected bad-/)).toHaveCount(100);
+  await expect(summary).toHaveText("Many Warnings · Applied · 227 warnings");
+  const catalog = await page.evaluate(() => window.desktop.listThemes());
+  assert.equal(catalog.errors.length, 200);
+  assert.ok(catalog.errors.slice(0, 100).every(({ file }) => file === "warned.json"));
+  await summary.press("Enter");
+  const items = row.getByRole("listitem");
+  await expect(items).toHaveText([
+    ...warnings.slice(0, 100).map(({ path, reason }) => `warned.json ${path} · ${reason}`),
+    "and 127 more",
+  ]);
+  if (process.env.FOOM_SCREENSHOTS === "1") {
+    await items.last().scrollIntoViewIfNeeded();
+    await settings.screenshot({
+      path: evidencePath("screenshots-1366/appearance-warning-overflow.png"),
+      animations: "disabled",
+    });
   }
 });
 

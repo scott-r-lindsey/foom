@@ -232,7 +232,8 @@ names matching a built-in receive “(custom)”. See the [file formats and limi
 In Appearance, each user theme with palette or artwork warnings has one
 collapsed row below the Theme picker and preview. The theme currently in use has
 “Applied · N warnings” in its row. Expand a row to see the filename, JSON path
-and reason for each warning. Rejected files stay visible when warnings fill the list.
+and reason for up to 100 warnings, followed by the number of omitted warnings
+if there are more. The summary counts all warnings. File rejections appear separately.
 
 Under each Settings picker, one quiet line reads: “Want something else? Ask a
 config agent for any theme you can describe.” **config agent** opens the sidebar's
