@@ -748,9 +748,13 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
     loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode),
     onThemeBitmapsChanged: changed,
   });
-  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), () =>
+  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), (bytes) =>
     // All versions have the same normalized image, even when their source bytes differ.
-    Promise.resolve({ png: Uint8Array.of(1, 2, 3), colors: [palette.colors.attention] }),
+    Promise.resolve({
+      png: Uint8Array.of(1, 2, 3),
+      colors:
+        Buffer.from(bytes).toString() === "proposed metadata" ? [] : [palette.colors.attention],
+    }),
   );
   const file = "themes/art.json";
   const image = "themes/private.png";
@@ -791,6 +795,9 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
   const pending = f.service.status().pending;
   expect(pending?.detail).toBe("theme-images");
   expect(f.service.activePalette()).toEqual(active);
+  expect(
+    (await f.service.reviewTheme(file, text, parseThemeFile(text, "theme")))?.imageDiagnostics,
+  ).toMatchObject([{ reason: "image-status-color" }]);
   await f.write(image, "new revision before approval");
   await expect(f.service.decide("allow", pending?.id)).rejects.toThrow("changed");
   expect(f.service.status().pending?.id).not.toBe(pending?.id);
@@ -805,6 +812,7 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
   await f.service.refresh();
   expect(f.service.activePalette()).toMatchObject({ id: "user:art.json" });
   expect(f.service.activePalette()?.bitmaps).toBeUndefined();
+  expect(f.service.activePalette()?.warnings).toEqual([]);
   expect(f.service.activeThemeImage(replacement)).toBeUndefined();
   expect(f.service.status().pending).toBeNull();
   expect(changed).toHaveBeenCalledTimes(3);
@@ -920,6 +928,44 @@ const illustrated = (name: string, file: string) =>
     version: 2,
     images: { board: { file } },
   });
+
+test("inactive artwork warnings survive palette scans and require matching source bytes and JSON", async () => {
+  const f = await fixture({ loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode) });
+  const decode = vi.fn((png: Uint8Array) =>
+    Promise.resolve({ png, colors: [palette.colors.attention] }),
+  );
+  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), decode);
+  const file = "themes/illustrated.json";
+  const image = "themes/board.png";
+  const text = illustrated("Illustrated", "board.png");
+  const review = (json = text) => f.service.reviewTheme(file, json, parseThemeFile(json, "theme"));
+  const warning = { path: "$.images.board", reason: "image-status-color", severity: "warning" };
+  try {
+    await f.service.initialize();
+    await f.write(image, "original artwork");
+    await f.write(file, text);
+    const offer = await review();
+    expect(offer?.imageDiagnostics).toEqual([]);
+    await f.service.write({ interfaceTheme: "user:illustrated.json" }, offer?.digest);
+    expect(f.service.activePalette()?.warnings).toMatchObject([warning]);
+
+    await f.service.write({ interfaceTheme: "eclipse-dark" });
+    await f.service.refresh();
+    expect(f.service.activePalette()).toBeUndefined();
+    expect((await review())?.imageDiagnostics).toMatchObject([warning]);
+    await f.write(image, "replacement artwork");
+    expect((await review())?.imageDiagnostics).toEqual([]);
+    await f.write(image, "original artwork");
+    expect((await review())?.imageDiagnostics).toMatchObject([warning]);
+
+    const edited = illustrated("Edited", "board.png");
+    await f.write(file, edited);
+    expect((await review(edited))?.imageDiagnostics).toEqual([]);
+    expect(decode).toHaveBeenCalledOnce();
+  } finally {
+    bitmaps.dispose();
+  }
+});
 
 test.each(["available", "missing"] as const)(
   "startup applies safe non-theme edits before decoding a selection with %s artwork",
@@ -1152,11 +1198,28 @@ test("a missing-file edit is held and Keep restores the original bitmap declarat
   await f.write(f.file, f.original.replace("board.png", "missing.png"));
   await f.service.refresh();
   expect(f.service.status().pending?.detail).toBe("theme-images");
-  expect(f.service.activePalette()).toEqual(previous);
+  const imageError = {
+    file: "",
+    path: "$.images.board",
+    reason: "image-unavailable",
+    severity: "error",
+  };
+  expect(f.service.activePalette()).toEqual({
+    ...previous,
+    imageErrors: [...(previous?.imageErrors ?? []), imageError],
+  });
   expect(f.themeBaselines.get(f.file)).toEqual(baseline);
 
+  await rm(path.join(f.directory, "board.png"));
+  await f.service.refresh();
+  expect(f.service.activePalette()?.imageErrors).toEqual([
+    imageError,
+    ...(previous?.imageErrors ?? []),
+  ]);
+  await f.image("board.png", "#6633bb");
   await f.image("missing.png", "#336688");
   await f.service.refresh();
+  expect(f.service.activePalette()).toEqual(previous);
   await f.decide("keep");
   expect(await f.read(f.file)).toBe(f.original);
   expect(f.service.activePalette()).toEqual(previous);
@@ -1180,6 +1243,10 @@ test("restart preserves the palette and other slot when an approved bitmap was d
   expect(service.activePalette()).toEqual({
     ...previous,
     bitmaps: { sidebar: previous?.bitmaps?.sidebar },
+    imageErrors: [
+      { file: "", path: "$.images.board", reason: "image-unavailable", severity: "error" },
+      ...(previous?.imageErrors ?? []),
+    ],
   });
   expect(f.themeBaselines.get(f.file)).toEqual(baseline);
 

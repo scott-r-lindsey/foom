@@ -229,6 +229,15 @@ colors for the current session. A missing or invalid saved choice at startup use
 Default while retaining the choice; fixing its file restores the selection. Custom
 names matching a built-in receive “(custom)”. See the [file formats and limits](../areas/themes.md#custom-theme-files-205).
 
+In Appearance, each user theme with palette or artwork warnings has one
+collapsed row below the Theme picker and preview. The theme currently in use has
+“Applied · N warnings” in its row. Expand a row to see the filename, JSON path
+and reason for up to 100 warnings, followed by the number of omitted warnings
+if there are more. The summary counts all warnings. A separate collapsed disclosure
+counts rejected files and shows up to 100 details with the filename, JSON path and
+reason, followed by the number of omitted details if there are more. A folder scan
+failure appears on its own line outside the rejected-file count.
+
 Under each Settings picker, one quiet line reads: “Want something else? Ask a
 config agent for any theme you can describe.” **config agent** opens the sidebar's
 Foom config launcher panel, like the gear. This line is absent from first run.
@@ -291,7 +300,7 @@ projector, bells, percussion and short refusal sounds.
 
 ### Foom config
 
-User themes may apply with brand warnings, shown by the CLI; file changes that make needs-you hard to distinguish wait for approval.
+File changes that make needs-you hard to distinguish wait for approval.
 
 Settings → Foom config shows the config folder (`~/.foom/config`) with **Open
 folder**. Agents configure Foom by editing that folder: `settings.json`, theme

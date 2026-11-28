@@ -395,6 +395,7 @@ const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
 } satisfies Contract<ThemeBitmapPaint>);
 
 const validThemeCatalog: Validator<ThemeCatalog> = shape({
+  activeInterfaceTheme: either(absent, userThemeId),
   activeBitmaps: either(
     absent,
     shape({
@@ -411,6 +412,10 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
       id: userThemeId,
       theme: validInterfaceTheme,
       digest: either(absent, text),
+      warningCount: either(
+        absent,
+        (value): value is number => finite(value) && Number.isSafeInteger(value) && value > 0,
+      ),
     }),
   ),
   terminal: array(
@@ -424,6 +429,11 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
     shape({
       severity: either(absent, literal("error", "warning")),
       file: text,
+      fileId: either(
+        absent,
+        (value): value is string => text(value) && /^(?:active|0|[1-9][0-9]{0,2})$/u.test(value),
+      ),
+      folder: either(absent, literal(true)),
       path: text,
       reason: validThemeReason,
       detail: either(absent, text),

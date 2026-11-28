@@ -20,6 +20,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 import { SOUND_KINDS } from "../../shared/sounds";
 import type {
   ParsedThemeFile,
+  ThemeDiagnostic,
   ThemeKind,
   ThemeSnapshot,
   UserThemeId,
@@ -28,6 +29,7 @@ import type {
   ActiveThemeBitmaps,
   ThemeApproval,
   ThemeBitmapApproval,
+  ThemeBitmapSlot,
   ThemeBitmapSnapshot,
 } from "../../shared/theme-bitmap";
 import { themeBitmapSlots } from "../../shared/theme-bitmaps";
@@ -100,6 +102,11 @@ interface Palette {
   digest: string;
   approval: ThemeApproval;
   bitmaps?: ThemeBitmapSnapshot;
+  knownBitmapWarnings?: readonly {
+    slot: ThemeBitmapSlot;
+    source: string;
+    warning: ThemeDiagnostic;
+  }[];
 }
 
 function bitmapApproval(
@@ -158,14 +165,37 @@ function retainUnavailableSources(candidate: Palette, previous?: Palette): Palet
 function availablePalette(approved: Palette, observed: Palette): Palette {
   if (!approved.bitmaps || typeof approved.approval === "string") return approved;
   const slots: ThemeBitmapSnapshot["slots"] = {};
+  const diagnostics =
+    observed.bitmaps?.diagnostics.filter(({ severity }) => severity !== "warning") ?? [];
   for (const slot of themeBitmapSlots) {
     const current = observed.bitmaps?.slots[slot];
     if (!current) continue;
-    const allowed =
-      current.source === approved.approval.sources[slot] ? current : approved.bitmaps.slots[slot];
-    if (allowed) slots[slot] = allowed;
+    const matchingSource = current.source === approved.approval.sources[slot];
+    const available = matchingSource ? current : approved.bitmaps.slots[slot];
+    if (!available) continue;
+    slots[slot] = available;
+    // Keep each warning with the decoded version that will actually paint.
+    const snapshot = matchingSource ? observed.bitmaps : approved.bitmaps;
+    const warning = snapshot?.diagnostics.find(
+      ({ path, severity }) => path === `$.images.${slot}` && severity === "warning",
+    );
+    if (warning) diagnostics.push(warning);
   }
-  return { ...approved, bitmaps: { ...approved.bitmaps, slots } };
+  return { ...approved, bitmaps: { ...approved.bitmaps, slots, diagnostics } };
+}
+
+/** Keep the warning and the bytes it describes without retaining decoded artwork. */
+function knownBitmapWarnings(palette: Palette): NonNullable<Palette["knownBitmapWarnings"]> {
+  return (
+    palette.knownBitmapWarnings ??
+    themeBitmapSlots.flatMap((slot) => {
+      const asset = palette.bitmaps?.slots[slot];
+      const warning = palette.bitmaps?.diagnostics.find(
+        ({ path, severity }) => path === `$.images.${slot}` && severity === "warning",
+      );
+      return asset && warning ? [{ slot, source: asset.source, warning }] : [];
+    })
+  );
 }
 
 function persistedPalette(candidate: Palette, approval: ThemeApproval | null): Palette | undefined {
@@ -611,23 +641,39 @@ export class ConfigService {
         theme: Extract<ParsedThemeFile, { kind: "theme" }>["theme"] | undefined;
         digest?: string;
         bitmaps?: ActiveThemeBitmaps["slots"];
+        warnings: readonly ThemeDiagnostic[];
+        imageErrors?: readonly ThemeDiagnostic[];
       }
     | undefined {
     const id = effective(this.deps.defaults, this.applied.values).interfaceTheme;
     if (!isUserThemeId(id)) return undefined;
     const file = `themes/${id.slice(5)}`;
     const palette = this.appliedThemes.get(file);
-    if (palette?.parsed.kind !== "theme") return { id, theme: undefined };
+    if (palette?.parsed.kind !== "theme") return { id, theme: undefined, warnings: [] };
     const bitmaps: ActiveThemeBitmaps["slots"] = {};
     for (const slot of themeBitmapSlots) {
       const asset = palette.bitmaps?.slots[slot];
       if (asset) bitmaps[slot] = asset.paint;
+    }
+    const warnings = [
+      ...(palette.parsed.warnings ?? []),
+      ...(palette.bitmaps?.diagnostics.filter(({ severity }) => severity === "warning") ?? []),
+    ];
+    const imageErrors = new Map<string, ThemeDiagnostic>();
+    for (const diagnostic of [
+      ...(palette.bitmaps?.diagnostics ?? []),
+      ...(this.heldThemes.get(file)?.proposal.bitmaps?.diagnostics ?? []),
+    ]) {
+      if (diagnostic.severity !== "warning")
+        imageErrors.set(`${diagnostic.path}:${diagnostic.reason}`, diagnostic);
     }
     return {
       id,
       theme: palette.parsed.theme,
       digest: palette.digest,
       ...(Object.keys(bitmaps).length > 0 && { bitmaps }),
+      ...(imageErrors.size > 0 && { imageErrors: [...imageErrors.values()] }),
+      warnings,
     };
   }
 
@@ -681,25 +727,31 @@ export class ConfigService {
       // have reviewed a newer edit, so an old snapshot must not clear its hold
       // or replace the profile's approval baseline.
       const bytes = await settle(this.files.read(file), null);
+      let candidate: Palette | undefined;
       if (bytes && decode(bytes) === text) {
-        const candidate = await this.themeCandidate(file, text, parsed, true);
+        candidate = await this.themeCandidate(file, text, parsed, true);
         await this.reviewThemeValue(file, candidate);
         this.publish();
-        const snapshot = this.appliedThemes.get(file);
-        return (
-          snapshot && {
-            parsed: snapshot.parsed,
-            digest: this.isActiveTheme(file) ? snapshot.digest : appearanceOffer(snapshot),
-            ...(candidate.bitmaps && { imageDiagnostics: candidate.bitmaps.diagnostics }),
-          }
-        );
       }
       const snapshot = this.appliedThemes.get(file);
-      if (snapshot)
-        return {
-          parsed: snapshot.parsed,
-          digest: this.isActiveTheme(file) ? snapshot.digest : appearanceOffer(snapshot),
-        };
+      if (!snapshot) return undefined;
+      const rejectedImages = candidate?.bitmaps?.diagnostics ?? [];
+      const active = this.isActiveTheme(file);
+      const imageWarnings = active
+        ? (snapshot.bitmaps?.diagnostics.filter(({ severity }) => severity === "warning") ?? [])
+        : (snapshot.knownBitmapWarnings?.flatMap(({ slot, source, warning }) =>
+            snapshot.bitmaps?.sources[slot] === source ? [warning] : [],
+          ) ?? []);
+      return {
+        parsed: snapshot.parsed,
+        digest: active ? snapshot.digest : appearanceOffer(snapshot),
+        ...((candidate?.bitmaps || snapshot.bitmaps) && {
+          imageDiagnostics: [
+            ...imageWarnings,
+            ...rejectedImages.filter(({ severity }) => severity !== "warning"),
+          ],
+        }),
+      };
     });
   }
 
@@ -765,7 +817,15 @@ export class ConfigService {
       return;
     }
     if (!this.isActiveTheme(file)) {
-      await this.acceptTheme(file, candidate, false);
+      const previous = this.appliedThemes.get(file);
+      // Palette-only scans have no source observations. Carry the known warnings
+      // forward and check their fingerprints when building the Appearance offer.
+      const warnings = previous?.text === candidate.text ? knownBitmapWarnings(previous) : [];
+      await this.acceptTheme(
+        file,
+        warnings.length ? { ...candidate, knownBitmapWarnings: warnings } : candidate,
+        false,
+      );
       return;
     }
     if (this.deferThemeDecoding && candidate.bitmaps) {
@@ -807,9 +867,10 @@ export class ConfigService {
         reasons,
       });
       if (previous) {
-        const observed = sameImages
-          ? candidate
-          : await this.readPalette(previous.text, previous.parsed);
+        const observed =
+          candidate.text === previous.text
+            ? candidate
+            : await this.readPalette(previous.text, previous.parsed);
         this.appliedThemes.set(file, availablePalette(previous, observed));
       }
       return;
@@ -1018,7 +1079,10 @@ export class ConfigService {
     if (this.closed) return;
     this.deps.onStatus?.(this.status());
     const active = this.activePalette();
-    const projected = active?.bitmaps ? JSON.stringify([active.id, active.bitmaps]) : undefined;
+    const projected =
+      active?.bitmaps || active?.imageErrors
+        ? JSON.stringify([active.id, active.bitmaps, active.warnings, active.imageErrors])
+        : undefined;
     if (projected !== this.publishedBitmaps) {
       this.publishedBitmaps = projected;
       this.deps.onThemeBitmapsChanged?.();

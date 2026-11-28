@@ -88,7 +88,6 @@ export function InterfaceThemePicker({
           }}
         />
         {!compact && <CustomThemeHint />}
-        {!compact && <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />}
       </div>
       {!compact && (
         <section
@@ -117,6 +116,7 @@ export function InterfaceThemePicker({
           </div>
         </section>
       )}
+      {!compact && <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />}
     </div>
   );
 }

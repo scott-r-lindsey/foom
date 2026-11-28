@@ -71,12 +71,19 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
     { file: "", path: "$.images.sidebar", severity: "error", reason: "image-unavailable" },
   ]);
   const board = result.slots.board?.paint;
-  if (!board) throw new Error("Board bitmap fixture missing");
+  const gutter = result.slots.gutter?.paint;
+  if (!board || !gutter) throw new Error("Bitmap fixture missing");
   const library = new ThemeLibrary(
     root,
     undefined,
     () => Promise.resolve({ parsed, digest: "fixture", imageDiagnostics: result.diagnostics }),
-    () => ({ id: "user:sample.json", theme: base, bitmaps: { board } }),
+    () => ({
+      id: "user:sample.json",
+      theme: base,
+      bitmaps: { board, gutter },
+      warnings: result.diagnostics.filter(({ severity }) => severity === "warning"),
+      imageErrors: result.diagnostics.filter(({ severity }) => severity === "error"),
+    }),
   );
   disposers.push(() => {
     library.dispose();
@@ -243,12 +250,14 @@ test("a deterministic refusal is reused and the directory scan is bounded indepe
   for (let i = 0; i < themeDirectoryEntryLimit - 1; i++)
     await writeFile(join(directory, `unrelated-${String(i)}.tmp`), "");
   await library.reload();
-  expect(library.snapshot().errors).toContainEqual({
-    kind: "theme",
-    file: "(folder)",
-    path: "$",
-    reason: "too-many-files",
-  });
+  expect(library.snapshot().errors).toContainEqual(
+    expect.objectContaining({
+      kind: "theme",
+      file: "(folder)",
+      path: "$",
+      reason: "too-many-files",
+    }),
+  );
   expect(library.snapshot().interface).toHaveLength(1);
   expect((await bitmaps.load(parsed)).diagnostics[0]?.reason).toBe("too-many-files");
   expect(normalize).toHaveBeenCalledOnce();

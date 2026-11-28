@@ -35,7 +35,7 @@ redirected theme directories are refused. Only eligible regular files count
 toward the 50-file budget. The scan inspects up to 512 entries plus an overflow
 check and refuses an over-limit folder without admitting a partial catalog. The library bounds its published catalog separately, reserving space
 for retained palettes and admitting in-folder JSON aliases after regular files. Previously loaded files are considered first so added files cannot
-evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics.
+evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics shown separately from file rejections.
 The read descriptor closes before parsing or waiting for the config approval queue,
 so a queued restore never waits behind a reader holding its rename target open.
 The folder watcher debounces changes for 250 ms, reloads serially and closes on
@@ -87,8 +87,21 @@ Contrast below 4.5:1 rejects the whole file, retaining the last good theme. It i
 checked globally and against every area's effective bg/surface for ink, muted,
 accent, highlight and status inks, plus badge and space-ink pairs. Brand hue,
 reserved-color, color-distance, base-luminance and hole deviations are warnings.
-Warnings contain a filename, fixed JSON path, fixed reason and warning severity;
-Settings lists Applied · N warnings and the CLI prints them with exit status 0.
+Warnings contain a filename, fixed JSON path, fixed reason and warning severity.
+Settings → Appearance groups palette and bitmap warnings by theme filename in
+one collapsed disclosure per warned theme. Its summary shows the theme name
+and warning count. Main identifies the active user theme in the catalog for the
+“Applied” marker. Each expanded entry shows the filename, JSON path and reason.
+Applied warnings follow the approved palette and the artwork currently displayed
+while an edit waits for approval. The catalog also shows artwork errors from the held
+proposal. Applied artwork errors follow the current bitmap state when the theme JSON
+is rejected. The catalog lists the applied theme's
+diagnostics first. It reports file rejections from the bounded directory scan
+and groups them in a separate collapsed disclosure. An inactive theme whose file
+is rejected shows only its file rejection. The disclosures show up to 100 details
+each, with the full count in the summary and the omitted detail count in the list.
+Rejected files are identified by scan position and count separately even when their displayed names coincide.
+The offline CLI still prints its warnings with exit status 0.
 Parser exceptions and file contents never travel to the renderer.
 
 Both the config scanner and theme library pass through a serialized main-owned
@@ -227,7 +240,9 @@ bytes. A timeout or premature exit can retry on a later refresh after a
 one-second cooldown. The loader schedules no automatic retry.
 
 The catalog fingerprints source bytes for an Appearance choice without
-decoding inactive themes. Foom starts bitmap decoding after the first window
+decoding inactive themes. It retains known warnings from decoded artwork for
+the session while the theme JSON and the artwork bytes for that slot match.
+Foom starts bitmap decoding after the first window
 loads and decodes only the active theme or a theme being selected. Safe edits
 to other settings apply at startup while a theme selection waits for decoding
 and any settings weakenings still require approval. When a

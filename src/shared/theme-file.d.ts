@@ -45,8 +45,21 @@ export interface ThemeSnapshot {
   imageDiagnostics?: readonly ThemeDiagnostic[];
 }
 export interface ThemeCatalog {
+  activeInterfaceTheme?: UserThemeId;
   activeBitmaps?: ActiveThemeBitmaps;
-  interface: readonly { id: UserThemeId; theme: InterfaceTheme; digest?: string }[];
+  interface: readonly {
+    id: UserThemeId;
+    theme: InterfaceTheme;
+    digest?: string;
+    /** Full warning count when the catalog omits warning details. */
+    warningCount?: number;
+  }[];
   terminal: readonly { id: UserThemeId; name: string; theme: TerminalTheme }[];
-  errors: readonly (ThemeDiagnostic & { kind: ThemeKind })[];
+  errors: readonly (ThemeDiagnostic & {
+    kind: ThemeKind;
+    /** Position within this kind's scan, or the active theme outside the scan. */
+    fileId?: string;
+    /** The diagnostic applies to the folder itself. */
+    folder?: true;
+  })[];
 }

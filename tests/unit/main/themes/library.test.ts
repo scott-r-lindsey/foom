@@ -4,7 +4,7 @@ import type * as FileSystem from "node:fs/promises";
 import { mkdir, mkdtemp, open, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ParsedThemeFile } from "../../../../src/shared/theme-file";
+import type { ParsedThemeFile, ThemeDiagnostic } from "../../../../src/shared/theme-file";
 import { ThemeLibrary } from "../../../../src/main/themes/library";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { ansiNames, terminalThemes } from "../../../../src/shared/terminal-themes";
@@ -176,6 +176,7 @@ test("unavailable folders report a fixed error and recover", async () => {
   expect(library.snapshot().errors).toContainEqual({
     kind: "theme",
     file: "(folder)",
+    folder: true,
     path: "$",
     reason: "unreadable",
   });
@@ -221,8 +222,21 @@ test("retained unsafe replacements still consume a registry slot", async () => {
   );
 });
 
-test("warning diagnostics stay bounded while every valid theme remains available", async () => {
-  const { folder, library } = await fixture();
+test("warning diagnostics stay bounded and the active warnings come from the approved snapshot", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
+  roots.push(root);
+  const theme = interfaceThemes["eclipse-dark"];
+  let file = "warn-9.json";
+  const library = new ThemeLibrary(root, undefined, undefined, () => ({
+    id: `user:${file}`,
+    theme,
+    warnings: [
+      { file: "", path: "$.images.board", reason: "image-status-color", severity: "warning" },
+    ],
+  }));
+  libraries.push(library);
+  await library.initialize();
+  const folder = library.folder("theme");
   for (let index = 0; index < 20; index++)
     await writeFile(
       join(folder, `warn-${String(index)}.json`),
@@ -234,10 +248,172 @@ test("warning diagnostics stay bounded while every valid theme remains available
       }),
     );
   await library.reload();
-  expect(library.snapshot().interface).toHaveLength(20);
-  expect(library.snapshot().errors).toHaveLength(100);
-  expect(library.snapshot().errors.every((entry) => entry.severity === "warning")).toBe(true);
+  const catalog = library.snapshot();
+  expect(catalog.interface).toHaveLength(20);
+  expect(catalog.errors.length).toBeGreaterThan(100);
+  expect(catalog.errors.every((entry) => entry.severity === "warning")).toBe(true);
+  expect(catalog.errors.filter((entry) => entry.file === file)).toEqual([
+    {
+      kind: "theme",
+      file,
+      path: "$.images.board",
+      reason: "image-status-color",
+      severity: "warning",
+    },
+  ]);
+  file = "warn-0.json";
+  await writeFile(join(folder, file), "{");
+  await writeFile(join(library.folder("terminal-theme"), "bad.json"), "{");
+  await library.reload();
+  expect(library.snapshot().errors.filter((entry) => entry.file === file)).toEqual([
+    { kind: "theme", file, fileId: "0", path: "$", reason: "malformed-json" },
+    {
+      kind: "theme",
+      file,
+      path: "$.images.board",
+      reason: "image-status-color",
+      severity: "warning",
+    },
+  ]);
+  expect(library.snapshot().errors).toContainEqual({
+    kind: "terminal-theme",
+    file: "bad.json",
+    fileId: "0",
+    path: "$",
+    reason: "malformed-json",
+  });
 });
+
+test("caps warnings independently and puts the applied diagnostics before a crowded folder", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
+  roots.push(root);
+  const theme = interfaceThemes["eclipse-dark"];
+  const warnings: ThemeDiagnostic[] = Array.from({ length: 227 }, () => ({
+    file: "",
+    path: "$.colors.hole",
+    reason: "reserved-color",
+    severity: "warning",
+  }));
+  let active = false;
+  const library = new ThemeLibrary(
+    root,
+    undefined,
+    (_file, text, parsed) =>
+      Promise.resolve({
+        digest: digest(text),
+        parsed: parsed.kind === "theme" ? { ...parsed, warnings } : parsed,
+      }),
+    () => (active ? { id: "user:z.json", theme, warnings } : undefined),
+  );
+  libraries.push(library);
+  await library.initialize();
+  const folder = library.folder("theme");
+  const text = JSON.stringify(valid());
+  await writeFile(join(folder, "b.json"), text);
+  await writeFile(join(folder, "z.json"), text);
+  await library.reload();
+  const inactive = library.snapshot();
+  expect(inactive.interface.map(({ warningCount }) => warningCount)).toEqual([227, 227]);
+  expect(inactive.errors).toHaveLength(200);
+  active = true;
+  for (let index = 0; index < 100; index++)
+    await writeFile(join(folder, `a-${String(index)}.json`), "{");
+  await library.reload();
+  const catalog = library.snapshot();
+  expect(catalog.errors).toHaveLength(300);
+  expect(catalog.errors.filter(({ severity }) => severity !== "warning")).toHaveLength(100);
+  expect(catalog.activeInterfaceTheme).toBe("user:z.json");
+  expect(catalog.interface.find(({ id }) => id === "user:z.json")?.warningCount).toBe(227);
+  expect(catalog.errors.slice(0, 100)).toEqual(
+    inactive.errors.filter(({ file }) => file === "z.json"),
+  );
+});
+
+test("applied artwork diagnostics follow bitmap recovery while the theme file remains rejected", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
+  roots.push(root);
+  const theme = interfaceThemes["eclipse-dark"];
+  const warnings: ThemeDiagnostic[] = [
+    { file: "", path: "$.images.board", reason: "image-status-color", severity: "warning" },
+  ];
+  const imageError = { file: "", path: "$.images.sidebar", reason: "image-unavailable" } as const;
+  const file = "art.json";
+  const fileId = "0";
+  let active = true;
+  let imageErrors: ThemeDiagnostic[] = [imageError];
+  const library = new ThemeLibrary(
+    root,
+    undefined,
+    (_file, text, parsed) =>
+      Promise.resolve({
+        parsed,
+        digest: digest(text),
+        imageDiagnostics: [...warnings, imageError],
+      }),
+    () => (active ? { id: "user:art.json", theme, warnings, imageErrors } : undefined),
+  );
+  libraries.push(library);
+  await library.initialize();
+  const target = join(library.folder("theme"), file);
+  await writeFile(target, JSON.stringify(valid()));
+  await library.reload();
+  const artworkRejection = { ...imageError, kind: "theme", file, fileId };
+  active = false;
+  expect(library.snapshot().errors).toContainEqual(artworkRejection);
+  active = true;
+  imageErrors = [];
+  expect(library.snapshot().errors).not.toContainEqual(artworkRejection);
+  imageErrors = [imageError];
+  await writeFile(target, "{");
+  await library.reload();
+  const rejection = { kind: "theme", file, fileId, path: "$", reason: "malformed-json" };
+  expect(library.snapshot().errors).toEqual([
+    rejection,
+    artworkRejection,
+    { ...warnings[0], kind: "theme", file },
+  ]);
+  imageErrors = [];
+  expect(library.snapshot().errors).toEqual([rejection, { ...warnings[0], kind: "theme", file }]);
+  active = false;
+  expect(library.snapshot().errors).toEqual([rejection]);
+  expect(library.snapshot().interface.map(({ id }) => id)).toEqual(["user:art.json"]);
+});
+
+test("keeps distinct rejection identities when displayed filenames are truncated", async () => {
+  const { folder, library } = await fixture();
+  const file = "a".repeat(100);
+  const names = [`${file}-1.json`, `${file}-2.json`];
+  for (const name of names) await writeFile(join(folder, name), "{");
+  await library.reload();
+  expect(library.snapshot().errors).toEqual(
+    names.map((_, index) => ({
+      kind: "theme",
+      file,
+      fileId: String(index),
+      path: "$",
+      reason: "unsafe-file",
+    })),
+  );
+});
+
+test.skipIf(process.platform !== "linux")(
+  "keeps separate identities for raw filenames with the same decoded name",
+  async () => {
+    const { folder, library } = await fixture();
+    for (const byte of [0xfe, 0xff])
+      await writeFile(
+        Buffer.concat([Buffer.from(`${folder}/bad-`), Buffer.from([byte]), Buffer.from(".json")]),
+        "{",
+      );
+    await library.reload();
+    const { errors } = library.snapshot();
+    expect(errors.map(({ file, reason }) => ({ file, reason }))).toEqual([
+      { file: "bad-�.json", reason: "unsafe-file" },
+      { file: "bad-�.json", reason: "unsafe-file" },
+    ]);
+    expect(errors.map(({ fileId }) => fileId)).toEqual(["0", "1"]);
+  },
+);
 
 test("closes the theme descriptor before waiting for config approval", async () => {
   const { folder } = await fixture();

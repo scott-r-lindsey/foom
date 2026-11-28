@@ -3,8 +3,8 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
+const { link, mkdtemp, readdir, readFile, rm, writeFile } = require("node:fs/promises");
+const { hostname, tmpdir } = require("node:os");
 const { afterEach } = require("node:test");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -31,6 +31,13 @@ async function chooseTheme(page, name, label = "Theme") {
       exact: true,
     })
     .click();
+}
+
+async function expectThemeRejection(scope, entry) {
+  const rejection = scope.locator("details.theme-rejections");
+  await expect(rejection.locator("summary")).toHaveText("1 file rejected");
+  await rejection.locator("summary").press("Enter");
+  await expect(rejection.getByRole("listitem")).toHaveText(entry);
 }
 
 test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
@@ -460,9 +467,7 @@ test("custom theme files appear live, update selected colors and retain rejected
     file,
     JSON.stringify({ ...theme, colors: { ...theme.colors, accent: "url(https://example.org)" } }),
   );
-  await expect(page.getByRole("status").filter({ hasText: "Rejected custom.json" })).toContainText(
-    "$.colors.accent: not-a-color",
-  );
+  await expectThemeRejection(page, "custom.json $.colors.accent · not-a-color");
   assert.equal(
     await page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")),
     theme.colors.bg,
@@ -509,12 +514,10 @@ test("custom theme files appear live, update selected colors and retain rejected
     )
     .toBe("#101010");
   await writeFile(terminalFile, "{");
-  await expect(
-    page
-      .locator(".terminal-theme-picker-column")
-      .getByRole("status")
-      .filter({ hasText: "Rejected custom.json" }),
-  ).toContainText("malformed-json");
+  await expectThemeRejection(
+    page.locator(".terminal-theme-picker-column"),
+    "custom.json $ · malformed-json",
+  );
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
     "background-color",
     "rgb(16, 16, 16)",
@@ -522,6 +525,366 @@ test("custom theme files appear live, update selected colors and retain rejected
   await page.screenshot({
     path: evidencePath("custom-theme.png"),
   });
+});
+
+test("Appearance shows palette and bitmap warnings only in each theme disclosure", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-theme-warnings-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const sharp = require("sharp");
+  const themes = path.join(home, ".foom/config/themes");
+  const modes = [
+    ["light", "Daybreak"],
+    ["dark", "Nightfall"],
+  ];
+  const themeText = (base, name, bitmap) =>
+    JSON.stringify({
+      version: 2,
+      name,
+      base,
+      colors: { ...interfaceThemes[`eclipse-${base}`].colors, line: "#402600", hole: "#100f15" },
+      images: { board: { file: bitmap } },
+    });
+  await sharp({
+    create: { width: 16, height: 16, channels: 3, background: "#000000" },
+  })
+    .png()
+    .toFile(path.join(themes, "unflagged.png"));
+  for (const [base, name] of modes) {
+    const { colors } = interfaceThemes[`eclipse-${base}`];
+    await sharp({
+      create: { width: 16, height: 16, channels: 3, background: colors.attention },
+    })
+      .png()
+      .toFile(path.join(themes, `${base}.png`));
+    await writeFile(path.join(themes, `${base}.json`), themeText(base, name, `${base}.png`));
+  }
+
+  const capture = process.env.FOOM_SCREENSHOTS === "1";
+  if (capture) await sizeTileBoard(app, page, 1200, 800);
+  await openSettingsScreen(page);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  const sections = settings.getByRole("navigation", { name: "Settings sections" });
+  await sections.getByRole("button", { name: "Appearance", exact: true }).click();
+  const disclosures = settings.locator("details.theme-warnings");
+  const reasons = settings.getByText(/reserved-color|hole-color|image-status-color/);
+  const visibleReasons = reasons.filter({ visible: true });
+  for (const [base, name] of modes) {
+    await chooseTheme(page, name);
+    const row = disclosures.filter({ hasText: name });
+    const summary = row.locator("summary");
+    await expect(disclosures).toHaveCount(2);
+    await expect(summary).toHaveText(`${name} · Applied · 3 warnings`);
+    await expect(row.getByRole("list")).toHaveCount(0);
+    await expect(reasons.and(settings.locator(":not(.theme-warnings *)"))).toHaveCount(0);
+    await expect(visibleReasons).toHaveCount(0);
+    await summary.press("Enter");
+    const items = row.getByRole("listitem");
+    await expect(items).toHaveText([
+      `${base}.json $.colors.hole · hole-color`,
+      `${base}.json $.colors.line · reserved-color`,
+      `${base}.json $.images.board · image-status-color`,
+    ]);
+    await expect(visibleReasons).toHaveCount(3);
+    if (capture) {
+      await settings.screenshot({
+        path: evidencePath(`screenshots-1366/appearance-${base}.png`),
+        animations: "disabled",
+      });
+    }
+    await summary.press("Enter");
+    await expect(row.getByRole("list")).toHaveCount(0);
+    if (base === "light") {
+      const lock = path.join(themes, "..", ".foom-settings.lock");
+      const fixtureLock = path.join(home, "busy-settings-lock");
+      await writeFile(
+        fixtureLock,
+        JSON.stringify({
+          pid: process.pid,
+          hostname: hostname(),
+          start: null,
+          token: "busy-settings-fixture",
+          timestamp: Date.now(),
+        }),
+      );
+      // The first selection can publish its palette before releasing its lock.
+      // Acquire the fixture lock exclusively so that release cannot remove it.
+      await expect
+        .poll(async () => {
+          try {
+            await link(fixtureLock, lock);
+            return true;
+          } catch (error) {
+            if (error.code !== "EEXIST") throw error;
+            return false;
+          }
+        })
+        .toBe(true);
+      const observed = await settings.evaluateHandle((region) => {
+        const applied = new Set();
+        const read = () => {
+          for (const row of region.querySelectorAll(".theme-warnings > summary")) {
+            if (row.textContent.includes(" · Applied · ")) applied.add(row.textContent);
+          }
+        };
+        const observer = new MutationObserver(read);
+        observer.observe(region, { subtree: true, childList: true, characterData: true });
+        read();
+        return { applied, observer };
+      });
+      try {
+        await chooseTheme(page, "Nightfall");
+        const failure = page.getByRole("dialog", { name: "Action failed" });
+        await expect(failure.getByRole("alert")).toHaveText("Settings are busy; try again.");
+        assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "light");
+        assert.deepEqual(await observed.evaluate(({ applied }) => [...applied]), [
+          "Daybreak · Applied · 3 warnings",
+        ]);
+        await expect(settings.getByRole("button", { name: "Theme Daybreak" })).toBeVisible();
+        await failure.getByRole("button", { name: "Dismiss", exact: true }).click();
+      } finally {
+        await observed.evaluate(({ observer }) => observer.disconnect());
+        await observed.dispose();
+        await rm(lock);
+      }
+    }
+  }
+
+  const catalog = () => page.evaluate(() => window.desktop.listThemes());
+  const pending = () => page.evaluate(async () => (await window.desktop.configStatus()).pending);
+  const darkRow = disclosures.filter({ hasText: "Nightfall" });
+  const darkFile = path.join(themes, "dark.json");
+  const expectArtwork = async (id, warned) => {
+    const themes = await catalog();
+    assert.equal(themes.activeBitmaps?.slots.board?.id, id);
+    assert.equal(
+      themes.errors.some(
+        ({ file, reason }) => file === "dark.json" && reason === "image-status-color",
+      ),
+      warned,
+    );
+    await expect(darkRow.locator("summary")).toHaveText(
+      `Nightfall · Applied · ${warned ? 3 : 2} warnings`,
+    );
+  };
+  const approved = (await catalog()).activeBitmaps?.slots.board?.id;
+  assert.ok(approved);
+  await writeFile(darkFile, themeText("dark", "Nightfall", "unflagged.png"));
+  await expect.poll(pending).toMatchObject({ detail: "theme-images" });
+  await expectArtwork(approved, true);
+  const hold = await pending();
+  assert.ok(hold);
+  await page.evaluate((id) => window.desktop.decideConfig("allow", id), hold.id);
+  const replacement = (await catalog()).activeBitmaps?.slots.board?.id;
+  assert.ok(replacement && replacement !== approved);
+  await expectArtwork(replacement, false);
+  await writeFile(darkFile, themeText("dark", "Nightfall", "dark.png"));
+  await expect.poll(pending).toMatchObject({ detail: "theme-images" });
+  await expectArtwork(replacement, false);
+  const nextHold = await pending();
+  assert.ok(nextHold);
+  await writeFile(darkFile, themeText("dark", "Nightfall", "missing.png"));
+  await expect.poll(async () => (await pending())?.id).not.toBe(nextHold.id);
+  await expectThemeRejection(settings, "dark.json $.images.board · image-unavailable");
+  await expect.poll(pending).toMatchObject({ detail: "theme-images" });
+  await expectArtwork(replacement, false);
+
+  for (const name of await sections.getByRole("button").allTextContents()) {
+    if (name === "Appearance") continue;
+    await sections.getByRole("button", { name, exact: true }).click();
+    await expect(
+      settings.getByText(/\d+ warnings|reserved-color|hole-color|image-status-color/),
+    ).toHaveCount(0);
+  }
+});
+
+test("Appearance retains known artwork warnings when a theme is deselected", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-inactive-artwork-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const sharp = require("sharp");
+  const themes = path.join(home, ".foom/config/themes");
+  const theme = interfaceThemes["eclipse-dark"];
+  const image = path.join(themes, "board.png");
+  const png = (background) =>
+    sharp({ create: { width: 16, height: 16, channels: 3, background } })
+      .png()
+      .toBuffer();
+  await writeFile(image, await png(theme.colors.attention));
+  const file = path.join(themes, "illustrated.json");
+  const text = JSON.stringify({
+    ...theme,
+    name: "Illustrated",
+    version: 2,
+    images: { board: { file: "board.png" } },
+  });
+  await writeFile(file, text);
+
+  await openSettingsScreen(page);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  await settings.getByRole("button", { name: "Appearance", exact: true }).click();
+  const row = settings.locator("details.theme-warnings").filter({ hasText: "Illustrated" });
+  const summary = row.locator("summary");
+  const catalog = () => page.evaluate(() => window.desktop.listThemes());
+  await chooseTheme(page, "Illustrated");
+  await expect(summary).toHaveText("Illustrated · Applied · 1 warning");
+  await chooseTheme(page, "Eclipse Dark");
+  await expect.poll(async () => (await catalog()).activeInterfaceTheme).toBeUndefined();
+  const inactive = await catalog();
+  assert.equal(inactive.activeBitmaps, undefined);
+  assert.ok(inactive.errors.some(({ reason }) => reason === "image-status-color"));
+  await expect(summary).toHaveText("Illustrated · 1 warning");
+  await summary.press("Enter");
+  await expect(row.getByRole("listitem")).toHaveText(
+    "illustrated.json $.images.board · image-status-color",
+  );
+
+  await writeFile(file, "{");
+  await rm(image);
+  await expectThemeRejection(settings, "illustrated.json $ · malformed-json");
+  await expect(row).toHaveCount(0);
+  assert.deepEqual(
+    (await catalog()).errors
+      .filter(({ file }) => file === "illustrated.json")
+      .map(({ reason }) => reason),
+    ["malformed-json"],
+  );
+
+  await writeFile(image, await png("#000000"));
+  await writeFile(file, text);
+  await expect(settings.locator("details.theme-rejections")).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+  await chooseTheme(page, "Illustrated");
+  await expect
+    .poll(async () => (await catalog()).activeInterfaceTheme)
+    .toBe("user:illustrated.json");
+  await expect(row).toHaveCount(0);
+
+  const board = (await catalog()).activeBitmaps?.slots.board?.id;
+  assert.ok(board);
+  await rm(image);
+  const rejections = settings.locator("details.theme-rejections");
+  const rejectionItems = rejections.getByRole("listitem");
+  await expectThemeRejection(settings, "illustrated.json $.images.board · image-unavailable");
+  await writeFile(file, "{");
+  await expect(rejectionItems).toHaveText([
+    "illustrated.json $ · malformed-json",
+    "illustrated.json $.images.board · image-unavailable",
+  ]);
+  await expect(rejections.locator("summary")).toHaveText("1 file rejected");
+  await writeFile(image, await png("#000000"));
+  await expect(rejectionItems).toHaveText(["illustrated.json $ · malformed-json"]);
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "board");
+  assert.equal((await catalog()).activeBitmaps?.slots.board?.id, board);
+});
+
+test("Appearance keeps applied theme warnings visible and counts truncated details", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-theme-warning-limit-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const { parseThemeFile } = require("../../build/shared/theme-files.js");
+  const themes = path.join(home, ".foom/config/themes");
+  const dark = "#402600";
+  const light = "#ffb23e";
+  const darkTokens = [
+    "bg",
+    "surface",
+    "line",
+    "hole",
+    "attention",
+    "accent-deep",
+    "highlight-deep",
+    "failed",
+    "done",
+    "badge-label-fill",
+    "badge-fill",
+  ];
+  const base = interfaceThemes["eclipse-dark"];
+  const gradient = (positions) => ({
+    bg: dark,
+    gradient: { angle: 0, stops: positions.map((percent) => [dark, percent]) },
+  });
+  const text = JSON.stringify({
+    ...base,
+    version: 2,
+    name: "Many Warnings",
+    colors: Object.fromEntries(
+      Object.keys(base.colors).map((token) => [token, darkTokens.includes(token) ? dark : light]),
+    ),
+    areas: {
+      sidebar: gradient([0, 30, 60, 100]),
+      tiles: {},
+      panels: {},
+      dialogs: {},
+      menus: {},
+      titlebar: {},
+      "tile-headers": {},
+      board: gradient([0, 50, 100]),
+      badges: {},
+    },
+  });
+  const warnings = parseThemeFile(text, "theme").warnings;
+  assert.equal(warnings.length, 227);
+  await writeFile(path.join(themes, "warned.json"), text);
+  await openSettingsScreen(page);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  await settings.getByRole("button", { name: "Appearance", exact: true }).click();
+  const row = settings.locator("details.theme-warnings").filter({ hasText: "Many Warnings" });
+  const summary = row.locator("summary");
+  await expect(summary).toHaveText("Many Warnings · 227 warnings");
+  await chooseTheme(page, "Many Warnings");
+
+  for (let index = 0; index < 112; index++)
+    await writeFile(path.join(themes, `bad-${String(index)}.json`), "{");
+  const rejected = settings.locator("details.theme-rejections");
+  const rejectedSummary = rejected.locator("summary");
+  await expect(rejectedSummary).toHaveText("112 files rejected");
+  await expect(rejected.getByRole("list")).toHaveCount(0);
+  await expect(summary).toHaveText("Many Warnings · Applied · 227 warnings");
+  const catalog = await page.evaluate(() => window.desktop.listThemes());
+  assert.equal(catalog.errors.length, 212);
+  assert.ok(catalog.errors.slice(0, 100).every(({ file }) => file === "warned.json"));
+  await rejectedSummary.press("Enter");
+  const rejectionItems = rejected.getByRole("listitem");
+  await expect(rejectionItems).toHaveCount(101);
+  await expect(rejectionItems.first()).toHaveText("bad-0.json $ · malformed-json");
+  await expect(rejectionItems.last()).toHaveText("and 12 more");
+  await rejectedSummary.press("Enter");
+  await expect(rejected.getByRole("list")).toHaveCount(0);
+  await summary.press("Enter");
+  const items = row.getByRole("listitem");
+  await expect(items).toHaveText([
+    ...warnings.slice(0, 100).map(({ path, reason }) => `warned.json ${path} · ${reason}`),
+    "and 127 more",
+  ]);
+  if (process.env.FOOM_SCREENSHOTS === "1") {
+    await rejectedSummary.scrollIntoViewIfNeeded();
+    await settings.screenshot({
+      path: evidencePath("screenshots-1366/appearance-warning-overflow.png"),
+      animations: "disabled",
+    });
+  }
+
+  const truncatedName = "a".repeat(100);
+  await writeFile(path.join(themes, `${truncatedName}-1.json`), "{");
+  await writeFile(path.join(themes, `${truncatedName}-2.json`), "{");
+  await expect(rejectedSummary).toHaveText("114 files rejected");
+  await rejectedSummary.press("Enter");
+  await expect(rejectionItems.nth(0)).toHaveText(`${truncatedName} $ · unsafe-file`);
+  await expect(rejectionItems.nth(1)).toHaveText(`${truncatedName} $ · unsafe-file`);
+  await expect(rejectionItems.last()).toHaveText("and 14 more");
+
+  const { themeDirectoryEntryLimit } = require("../../build/main/theme-directory.js");
+  for (let index = (await readdir(themes)).length; index <= themeDirectoryEntryLimit; index++)
+    await writeFile(path.join(themes, `unrelated-${String(index)}.tmp`), "");
+  await expect(settings.getByText("Themes folder: too many files", { exact: true })).toBeVisible();
+  await expect(rejected).toHaveCount(0);
 });
 
 test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {
@@ -1065,9 +1428,7 @@ test("extended user themes apply through both bridges and reject malformed theme
   await writeFile(file, JSON.stringify({ ...theme, type: { scale: 2 } }));
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
-  await expect(
-    page.getByRole("status").filter({ hasText: "Rejected extended.json" }),
-  ).toContainText("invalid-value");
+  await expectThemeRejection(page, "extended.json $.type.scale · invalid-value");
   assert.deepEqual(
     await page.evaluate(
       async () =>
