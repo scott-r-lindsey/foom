@@ -948,15 +948,13 @@ export function HostsSettings({
       [...rowFailed].filter(([key, failure]) => {
         const registration = state.hosts.find((entry) => entry.host === failure.host);
         if (!registration) return false;
-        const displayed = displayedChecklist(registration);
-        const { entry, revision } = displayed;
+        const { entry, revision } = displayedChecklist(registration);
         const preflight = completedHostCheck(entry, entry.checklist, checks.get(entry.host));
         if (!source.views) return preflight === failure.preflight;
         if (revision <= failure.revision) return true;
-        if (displayed === pendingChecklists.get(entry.host)) return false;
         if (entry.rowFailures?.some((row) => `${entry.host}:${rowKey(row.target)}` === key))
           return false;
-        // Hosts publications also acknowledge failed requests without changing the checklist.
+        // A higher publication revision can carry the same checklist.
         return replaceEqualDeep(failure.preflight, preflight) === failure.preflight;
       }),
     );

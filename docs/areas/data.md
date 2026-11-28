@@ -204,8 +204,8 @@ controls wait for their refreshed row. Row reloads and full checks return
 revisioned checklists, including observations that could not be saved. Each host
 displays its newest checklist and the associated recipe availability and row
 failures. A snapshot at the reply's revision or later takes over. A newer
-checklist supersedes a local row error. A publication of the same checklist
-can acknowledge a failed request and leaves its local error visible. If the
+checklist supersedes a local row error. Replies and snapshots that repeat the
+same checklist leave its local error visible. If the
 snapshot fails after the opening list settles, row reload can request a fresh
 snapshot.
 A failed snapshot also clears post-install row checking and keeps Install

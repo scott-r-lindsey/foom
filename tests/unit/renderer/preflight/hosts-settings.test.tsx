@@ -1737,11 +1737,14 @@ test("the subscribed checklist supersedes a local reload failure and a stale rep
   const stream = viewStream();
   stream.data.hosts = { ...saved(initial), viewRevision: 1 };
   const lateReply = Promise.withResolvers<HostsState>();
+  const unchangedReply = Promise.resolve({ ...saved(initial), viewRevision: 2 });
   const api = vi.fn((action: HostsAction): Promise<HostsState> => {
     if (action.action === "reload")
-      return action.target.kind === "tool"
-        ? Promise.reject(new Error("Unable to reload git"))
-        : lateReply.promise;
+      return action.target.kind !== "tool"
+        ? lateReply.promise
+        : action.target.tool === "git"
+          ? Promise.reject(new Error("Unable to reload git"))
+          : unchangedReply;
     return Promise.resolve(stream.data.hosts);
   });
   render(<HostsSettings source={{ hosts: api, views: stream.api }} headingRef={createRef()} />);
@@ -1751,6 +1754,11 @@ test("the subscribed checklist supersedes a local reload failure and a stale rep
   const git = screen.getByRole("button", { name: "Reload git" }).closest(".host-check-row");
   fireEvent.click(screen.getByRole("button", { name: "Reload git" }));
   await screen.findByText("Unable to check");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Reload gh" }));
+    await unchangedReply;
+  });
+  expect(git?.textContent).toContain("Unable to check");
   act(() => {
     stream.data.hosts = { ...saved(initial), viewRevision: 2 };
     stream.push("hosts");

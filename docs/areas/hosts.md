@@ -791,7 +791,10 @@ other queued rows from loading. Queued failures never reject the list read: save
 hosts remain visible, and failed profile writes show Unable to save in the affected
 row's existing failure state. Known row results are retained for persistence-only
 retry without another remote inspection; one row's failure never blocks another.
-An explicit row reload invalidates that target's older queued observation before
+A queued save from an install that finds the tool already ready is valid only
+while the checklist it inspected is current, including at profile replacement.
+A newer full check supersedes the queued save even if the full check cannot be
+saved. An explicit row reload invalidates that target's older queued observation before
 checking it. If saving an SSH observation fails, main publishes the observed
 result with its save failure and retries that save only while the observation
 is current. Other explicit reloads retain their existing row recheck on reopen.

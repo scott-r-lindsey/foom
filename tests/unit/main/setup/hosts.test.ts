@@ -2843,6 +2843,83 @@ test("an already-ready Git install fails when the scoped result cannot update th
   }
 });
 
+test.each(["before", "during"])(
+  "a newer unsaved full check supersedes a queued ready Git result %s its retry",
+  async (ordering) => {
+    const fixture = await restartedBrewHost();
+    const release = Promise.withResolvers<undefined>();
+    const gitState = (result: HostResult | undefined) =>
+      result?.ok ? result.facts.tools?.find((tool) => tool.id === "git")?.state : undefined;
+    try {
+      const entry = fixture.checked.hosts[0];
+      const missing = entry?.observation?.preflight.result;
+      if (!entry || !missing?.ok) throw new Error("Missing fixture facts");
+      const save = fixture.store.update.bind(fixture.store);
+      const writes = vi.spyOn(fixture.store, "update");
+      writes.mockRejectedValueOnce(new Error("Fixture refused the ready row"));
+      fixture.run.mockResolvedValueOnce({
+        ok: true,
+        facts: {
+          ...missing.facts,
+          tools: [{ id: "git", state: "ready", signIn: "unknown" }],
+        },
+      });
+      await expect(
+        fixture.hosts.action({
+          action: "recipe",
+          host: entry.host,
+          tool: "git",
+          operation: "install",
+        }),
+      ).rejects.toThrow("Unable to update host tool");
+
+      const entered = Promise.withResolvers<undefined>();
+      const list = () => fixture.hosts.action({ action: "list" });
+      const startRetry = async () => {
+        writes.mockImplementationOnce(async (patch, canCommit) => {
+          entered.resolve(undefined);
+          await release.promise;
+          return save(patch, canCommit);
+        });
+        return list();
+      };
+      const retrying = ordering === "during" ? startRetry() : undefined;
+      if (retrying) await entered.promise;
+
+      writes.mockRejectedValueOnce(new Error("Fixture refused the newer full check"));
+      const checking = fixture.hosts.action({
+        action: "preflight",
+        host: entry.host,
+        codeFolder: entry.codeFolder,
+      });
+      if (retrying) {
+        await vi.waitFor(() => {
+          expect(gitState(fixture.hosts.state().hosts[0]?.checklist?.preflight.result)).toBe(
+            "missing",
+          );
+        });
+        release.resolve(undefined);
+        await retrying;
+      }
+      const checked = await checking;
+      expect(checked.preflightSaveFailed).toBe(true);
+      expect(gitState(checked.preflight?.result)).toBe("missing");
+
+      fixture.run.mockClear();
+      writes.mockClear();
+      const listed = await list();
+      expect(fixture.run).not.toHaveBeenCalled();
+      expect(listed.hosts[0]?.rowFailures).toBeUndefined();
+      expect(listed.hosts[0]?.checklist).toEqual(checked.hosts[0]?.checklist);
+      expect(listed.hosts[0]?.observation).toEqual(entry.observation);
+      expect(writes).not.toHaveBeenCalled();
+    } finally {
+      release.resolve(undefined);
+      await fixture.dispose();
+    }
+  },
+);
+
 test("an already-ready Codex install preserves saved approvals and details from the prior check", async () => {
   const fixture = await restartedBrewHost();
   try {

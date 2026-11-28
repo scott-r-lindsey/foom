@@ -2464,7 +2464,7 @@ test("Hosts shows a changed key from a newer SSH reload while its snapshot is he
   }
 });
 
-test("Hosts clears a local tool reload failure when a newer checklist reply arrives", {
+test("Hosts clears a local tool reload failure only when its checklist changes", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
 }, async (context) => {
@@ -2485,6 +2485,12 @@ test("Hosts clears a local tool reload failure when a newer checklist reply arri
     await expect(install).toBeDisabled();
 
     await chmod(profile, 0o700);
+    const reloadGh = card.getByRole("button", { name: "Reload gh", exact: true });
+    await reloadGh.click();
+    await expect(reloadGh).toBeEnabled();
+    await expect(git.getByText("Unable to check", { exact: true })).toBeVisible();
+    await expect(install).toBeDisabled();
+
     await updateScenario({
       facts: { tools: [{ id: "gh", state: "ready", signIn: "signed-in" }] },
     });
@@ -2571,6 +2577,63 @@ test("Hosts reports when an already-ready Git install cannot update the checklis
   }
   await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
   await expect(gitRow).toContainText("Pass · Installed");
+});
+
+test("Hosts drops a queued ready Git save after a newer unsaved capabilities check", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const saved = () =>
+    page.evaluate(
+      async () => (await window.desktop.setupState()).settings.registeredHosts[0].observation,
+    );
+  const before = await saved();
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  await expect(install).toBeEnabled();
+  try {
+    await chmod(profile, 0o555);
+    await updateScenario({
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    await install.click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    assert.equal(await readFile(recipeCalls, "utf8"), "");
+
+    await updateScenario({});
+    const checked = await page.evaluate(async () => {
+      const {
+        hosts: [entry],
+      } = await window.desktop.hosts({ action: "progress" });
+      return window.desktop.hosts({
+        action: "preflight",
+        host: entry.host,
+        codeFolder: entry.codeFolder,
+      });
+    });
+    assert.equal(checked.preflightSaveFailed, true);
+    assert.equal(
+      checked.preflight.result.facts.tools.find(({ id }) => id === "git").state,
+      "missing",
+    );
+
+    await chmod(profile, 0o700);
+    const inspections = async () =>
+      (await readFile(calls, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .filter(({ message }) => message.operation === "inspect").length;
+    const previousInspections = await inspections();
+    const listed = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.equal(await inspections(), previousInspections);
+    assert.deepEqual(listed.hosts[0].checklist, checked.hosts[0].checklist);
+    assert.equal(listed.hosts[0].rowFailures, undefined);
+    assert.deepEqual(await saved(), before);
+  } finally {
+    await chmod(profile, 0o700);
+  }
 });
 
 test("Hosts does not repeat Git install after a rejected post-install list", {

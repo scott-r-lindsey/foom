@@ -173,6 +173,7 @@ class HostRowSaveFailed extends Error {
 interface PendingHostRow {
   target: HostCheckTarget;
   sshRevision?: number;
+  isCurrent?: () => boolean;
   retry?: () => Promise<HostPreflight | undefined>;
   reason?: "save-failed" | "check-failed";
 }
@@ -1107,7 +1108,10 @@ export class Hosts {
   private pendingRecipeRefreshes = 0;
   private readonly installing = new Map<string, symbol>();
   private currentRow(host: string, row: PendingHostRow): boolean {
-    return row.sshRevision === undefined || row.sshRevision >= this.checklistRevision(host);
+    return (
+      row.isCurrent?.() !== false &&
+      (row.sshRevision === undefined || row.sshRevision >= this.checklistRevision(host))
+    );
   }
   private checklistRevision(host: string): number {
     return this.checklists.get(host)?.preflight.sshRevision ?? 0;
@@ -1229,10 +1233,12 @@ export class Hosts {
     host: string,
     change: (previous: HostPreflight) => HostPreflight,
     sshRevision?: number,
+    isCurrent?: () => boolean,
   ) {
     const registration = this.registered(host);
     const superseded = () =>
-      sshRevision !== undefined && sshRevision < this.checklistRevision(host);
+      isCurrent?.() === false ||
+      (sshRevision !== undefined && sshRevision < this.checklistRevision(host));
     if (registration.observation)
       await this.updateRegistrations(
         (hosts) => {
@@ -1258,7 +1264,7 @@ export class Hosts {
             };
           });
         },
-        sshRevision === undefined ? undefined : () => !superseded(),
+        sshRevision === undefined && !isCurrent ? undefined : () => !superseded(),
       );
     const live = this.checklists.get(host)?.preflight;
     if (superseded()) return live;
@@ -1354,7 +1360,12 @@ export class Hosts {
     {
       originEndpoint,
       preserveUncheckedApproval = false,
-    }: { originEndpoint?: GitOriginEndpoint | undefined; preserveUncheckedApproval?: boolean } = {},
+      isCurrent,
+    }: {
+      originEndpoint?: GitOriginEndpoint | undefined;
+      preserveUncheckedApproval?: boolean;
+      isCurrent?: () => boolean;
+    } = {},
   ): Promise<HostPreflight | undefined> {
     const previous = this.checklists.get(host)?.preflight ?? registration.observation?.preflight;
     const displayed = previous?.result ?? this.results.get(host);
@@ -1507,7 +1518,7 @@ export class Hosts {
     const save = async () => {
       if (this.registeredRow(host, target).codeFolder !== registration.codeFolder)
         throw new HostRowUnavailable("Folder changed");
-      const updated = await this.updateChecklist(host, change, sshRevision);
+      const updated = await this.updateChecklist(host, change, sshRevision, isCurrent);
       if (connectionRow && result.ok && this.resourceResults.get(host)?.ok === false)
         this.resourceResults.delete(host);
       return updated;
@@ -1791,9 +1802,14 @@ export class Hosts {
             const current = this.registered(input.host);
             const row = this.queueRows(input.host, [target]).get(JSON.stringify(target));
             if (row) {
+              // The preliminary inspection belongs to the checklist it was applied to.
+              const checklist = this.checklists.get(input.host)?.preflight;
+              const isCurrent = () => checklist === this.checklists.get(input.host)?.preflight;
+              row.isCurrent = isCurrent;
               row.retry = () =>
                 this.applyRowCheck(input.host, current, target, inspected, {
                   preserveUncheckedApproval: true,
+                  isCurrent,
                 });
               if (await this.checkQueuedRows(input.host, [row])) return this.state();
             }
