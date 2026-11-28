@@ -2205,12 +2205,19 @@ test.each(recipeExitOutcomes)(
         };
         stream.push("hosts");
       });
-      await screen.findByRole("button", { name: "Rename Older view" });
+      expect(screen.getByRole("button", { name: "Rename worker" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
       act(() => {
-        stream.data.hosts = { ...saved(missing), viewRevision: 4 };
+        stream.data.hosts = {
+          ...saved({
+            ...missing,
+            hosts: missing.hosts.map((entry) => ({ ...entry, nickname: "Newer view" })),
+          }),
+          viewRevision: 4,
+        };
         stream.push("hosts");
       });
+      await screen.findByRole("button", { name: "Rename Newer view" });
       expect(
         (await screen.findByRole("button", { name: "Install git" })).matches(":disabled"),
       ).toBe(false);

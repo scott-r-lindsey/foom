@@ -1486,7 +1486,8 @@ export function HostsSettings({
             </section>
           ) : null,
         )}
-      {state.hosts.map((entry) => {
+      {state.hosts.map((registration) => {
+        const { entry, revision: checklistRevision } = displayedChecklist(registration);
         const recipe = recipes.get(entry.host);
         const recipeAction = recipe && source.installs?.hostActions?.().get(recipe.id);
         const originTerminals = new Map<string, { running: boolean; panel: ReactNode }>();
@@ -1509,12 +1510,7 @@ export function HostsSettings({
                 : {})}
             />
           ) : undefined;
-        const { entry: checklistEntry, revision: checklistRevision } = displayedChecklist(entry);
-        const latest = completedHostCheck(
-          checklistEntry,
-          checklistEntry.checklist,
-          checks.get(entry.host),
-        );
+        const latest = completedHostCheck(entry, entry.checklist, checks.get(entry.host));
         const preflight = buildPreflight(latest, state.remoteHostsAvailable);
         const hostProgress = progress?.find((item) => item.host === entry.host);
         const checkouts = (hostProgress?.repositories ?? preflight?.repositories ?? []).flatMap(
@@ -1699,7 +1695,7 @@ export function HostsSettings({
                       .map((failure) => toolRowKey(failure.tool)),
                   ),
                   saveFailed: new Set(
-                    (checklistEntry.rowFailures ?? [])
+                    (entry.rowFailures ?? [])
                       .filter((row) => row.reason === "save-failed")
                       .map((row) => rowKey(row.target)),
                   ),
@@ -1707,7 +1703,7 @@ export function HostsSettings({
                     ...[...rowFailed]
                       .filter(([, failure]) => failure.host === entry.host)
                       .map(([key]) => key.slice(entry.host.length + 1)),
-                    ...(checklistEntry.rowFailures ?? []).map((row) => rowKey(row.target)),
+                    ...(entry.rowFailures ?? []).map((row) => rowKey(row.target)),
                   ]),
                   pending: new Set([
                     ...[...rowPending, ...(snapshotFailed ? [] : pendingToolViews.keys())]
@@ -1765,7 +1761,7 @@ export function HostsSettings({
                   }
                   enabledAgents={agents}
                   openAgents={openAgents}
-                  entry={checklistEntry}
+                  entry={entry}
                   preflight={preflight}
                   progress={progress?.find((item) => item.host === entry.host)}
                   checking={checkingHosts.has(entry.host)}

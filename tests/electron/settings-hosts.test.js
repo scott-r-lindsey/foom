@@ -2356,6 +2356,7 @@ test("Hosts updates Git install availability before the capability snapshot arri
   const { app, page, card, updateScenario } = await hostsFixture(context);
   const install = card.getByRole("button", { name: "Install git", exact: true });
   const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const lastChecked = card.locator(".host-footer time");
   const gitRow = card.locator(".host-check-row").filter({
     has: page.getByRole("button", { name: "Reload git", exact: true }),
   });
@@ -2364,6 +2365,7 @@ test("Hosts updates Git install availability before the capability snapshot arri
   });
   await expect(install).toBeEnabled();
   await expect(githubSignIn).toContainText("Signed out");
+  const previousCheckedAt = await lastChecked.getAttribute("datetime");
   const releaseHostsView = await holdHostsView(app);
   try {
     await updateScenario({
@@ -2380,6 +2382,12 @@ test("Hosts updates Git install availability before the capability snapshot arri
     await expect(check).toBeEnabled();
     await expect(gitRow).toContainText("Not found");
     await expect(install).toHaveCount(0);
+    const checkedAt = await page.evaluate(async () => {
+      const { hosts } = await window.desktop.hosts({ action: "list" });
+      return new Date(hosts[0].observation.checkedAt).toISOString();
+    });
+    assert.notEqual(checkedAt, previousCheckedAt);
+    await expect(lastChecked).toHaveAttribute("datetime", checkedAt);
   } finally {
     await releaseHostsView();
   }
