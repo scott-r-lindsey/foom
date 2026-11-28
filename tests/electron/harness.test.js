@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdtemp, realpath } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
+const { clearTimeout: nativeClearTimeout } = require("node:timers");
+const { captureTimers } = require("./main-timer-fixture.js");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
   installQuitAcknowledgement,
@@ -12,6 +14,22 @@ const {
   removeAfterApps,
   fixtureCleanup,
 } = require("./harness.js");
+
+test("captured main timers honor native cancellation", () => {
+  const timers = new Map();
+  let fired = false;
+  const handle = captureTimers(
+    () =>
+      setTimeout(() => {
+        fired = true;
+      }, 30_000).unref(),
+    timers,
+  );
+  const timer = timers.get(handle);
+  nativeClearTimeout(handle);
+  assert.throws(() => timer.fire(), /Cannot fire an inactive captured timer/);
+  assert.equal(fired, false);
+});
 
 test("orchestrated fixture filenames signal complete credentials and console responses", async (context) => {
   const fs = require("node:fs");
