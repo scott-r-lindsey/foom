@@ -3,10 +3,40 @@ import type { WindowIpc } from "./window-ipc";
 import type { MoveContent, MovePlacement, WindowDestination } from "../../shared/windows";
 
 interface MovePort {
-  label: string;
+  repositoryNames(ids: readonly string[]): string[];
   owns(content: MoveContent): boolean;
   send(channel: string, ...args: unknown[]): void;
   move(content: MoveContent, target: number, committed: () => void): Promise<void>;
+}
+const pioneerNames = [
+  "Turing",
+  "Lovelace",
+  "Shannon",
+  "Hopper",
+  "Minsky",
+  "Bartik",
+  "McCarthy",
+  "Spärck Jones",
+  "Rosenblatt",
+  "Johnson",
+  "Weizenbaum",
+  "Clarke",
+  "Babbage",
+  "Sammet",
+  "Neumann",
+  "Licklider",
+  "Boole",
+  "Wiener",
+  "Church",
+  "Dijkstra",
+];
+
+function availableName(used: ReadonlySet<string>): string {
+  for (let round = 1; ; round += 1)
+    for (const name of pioneerNames) {
+      const label = round === 1 ? name : `${name} ${String(round)}`;
+      if (!used.has(label)) return label;
+    }
 }
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -33,7 +63,7 @@ function placement(value: unknown): value is MovePlacement {
 
 /** App-wide gesture authority. DataTransfer never supplies a token or an item ID. */
 export class WindowMoves {
-  private readonly ports = new Map<number, MovePort>();
+  private readonly ports = new Map<number, MovePort & { label: string; repositories: string[] }>();
   private drag:
     | { token: string; source: number; content: MoveContent; expires: number }
     | undefined;
@@ -119,12 +149,42 @@ export class WindowMoves {
     }
   }
   attach(window: number, ipc: WindowIpc, port: MovePort): () => void {
-    this.ports.set(window, port);
+    const board: MovePort & { label: string; repositories: string[] } = {
+      ...port,
+      label: availableName(new Set(Array.from(this.ports.values(), (entry) => entry.label))),
+      repositories: [],
+    };
+    this.ports.set(window, board);
     ipc.handle("windows:list", (_event, ...args): WindowDestination[] => {
       if (args.length) throw new Error("Invalid window request");
       return [...this.ports]
         .filter(([id]) => id !== window)
-        .map(([id, entry]) => ({ id, label: entry.label }));
+        .map(([id, entry]) => ({
+          id,
+          label: entry.label,
+          repositories: entry.repositoryNames(entry.repositories),
+        }));
+    });
+    ipc.handle("windows:tile-repositories", (_event, ...args) => {
+      const [ids] = args;
+      if (args.length !== 1 || !Array.isArray(ids) || ids.length > 256)
+        throw new Error("Invalid tile repositories");
+      const repositories = Array.from<unknown>(ids);
+      if (
+        !repositories.every(
+          (value: unknown): value is string =>
+            typeof value === "string" &&
+            value.length > 0 &&
+            value.length <= 4096 &&
+            !value.includes("\0"),
+        )
+      )
+        throw new Error("Invalid tile repositories");
+      const counts = new Map<string, number>();
+      for (const id of repositories) counts.set(id, (counts.get(id) ?? 0) + 1);
+      board.repositories = [...counts.keys()].sort(
+        (left, right) => (counts.get(right) ?? 0) - (counts.get(left) ?? 0),
+      );
     });
     ipc.handle("windows:begin-drag", (_event, ...args) => {
       const [item] = args;
@@ -185,6 +245,7 @@ export class WindowMoves {
         if (pending.target === window) pending.finish(false);
       for (const channel of [
         "windows:list",
+        "windows:tile-repositories",
         "windows:begin-drag",
         "windows:end-drag",
         "windows:drop",

@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import type { PreviewApi } from "../../../../src/shared/previews";
 import type { WindowsApi, MoveContent, MovePlacement } from "../../../../src/shared/windows";
+import { boardRows } from "../../../fixtures/board";
 import { registerTileAreaFixture, setup } from "./tile-area-fixture";
 registerTileAreaFixture();
 
@@ -15,10 +16,11 @@ function fixture(withPreview = false, overrides: Partial<BoardSource> = {}) {
   const moves = {
     list: vi.fn(() =>
       Promise.resolve([
-        { id: 2, label: "Window 2" },
-        { id: 3, label: "Window 3" },
+        { id: 2, label: "Lovelace", repositories: ["<foom>", "example"] },
+        { id: 3, label: "Shannon", repositories: [] },
       ]),
     ),
+    reportRepositories: vi.fn(async () => {}),
     beginDrag: vi.fn(() => Promise.resolve("token")),
     endDrag: vi.fn(async () => {}),
     drop: vi.fn(async () => {}),
@@ -207,11 +209,70 @@ test("Move to window lists stable labels and dispatches the chosen terminal", as
   await act(async () => {});
   fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {});
+  const trigger = f.screen.getByRole("menuitem", { name: "Move to window" });
+  const neighbor = f.screen.getByRole("menuitem", { name: /^Maximize/ });
+  fireEvent.pointerOver(trigger);
+  expect(f.moves.list).not.toHaveBeenCalled();
+  fireEvent.click(trigger);
+  expect(await f.screen.findByRole("menuitem", { name: "Shannon" })).toBeTruthy();
+  fireEvent.pointerOver(neighbor);
+  fireEvent.scroll(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  await f.screen.findByRole("menuitem", { name: "Shannon" });
+  act(() => {
+    neighbor.focus();
+  });
+  fireEvent.keyDown(neighbor, { key: "ArrowLeft" });
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  await f.screen.findByRole("menuitem", { name: "Shannon" });
+  fireEvent.click(neighbor);
+  expect(f.screen.queryByRole("menuitem", { name: "Shannon" })).toBeNull();
+  fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
-  expect(f.screen.getByRole("menuitem", { name: "Window 3" })).toBeTruthy();
-  fireEvent.click(f.screen.getByRole("menuitem", { name: "Window 2" }));
+  fireEvent.click(await f.screen.findByRole("menuitem", { name: "Lovelace · <foom>, example" }));
   expect(f.moves.move).toHaveBeenCalledExactlyOnceWith({ kind: "terminal", id: "permission" }, 2);
   await act(async () => {});
+});
+
+test("a committed replacement discards the previous occupant's window actions", async () => {
+  const f = fixture();
+  f.click(0);
+  await act(async () => {});
+  fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
+  const open = () => fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
+  open();
+  const destination = await f.screen.findByRole("menuitem", { name: "Shannon" });
+  const tile = f.tile().dataset["tile"];
+  if (!tile) throw new Error("Missing tile ID");
+  f.prepare("replacement", { tile, zone: "center" });
+  f.finish("replacement", { kind: "terminal", id: "check" });
+  expect(f.screen.queryByRole("menuitem", { name: "Shannon" })).toBeNull();
+  expect(destination.isConnected).toBe(false);
+  open();
+  fireEvent.click(await f.screen.findByRole("menuitem", { name: "Shannon" }));
+  expect(f.moves.move).toHaveBeenCalledExactlyOnceWith({ kind: "terminal", id: "check" }, 3);
+});
+
+test("repository reports follow occupied terminal tiles and retry on a later layout change", async () => {
+  const rows = boardRows(100)
+    .slice(0, 2)
+    .map((row) => ({ ...row, kind: "agent" as const, managed: true, repositoryPath: "/repo" }));
+  const f = fixture(false, { getSnapshot: () => rows });
+  expect(f.moves.reportRepositories).toHaveBeenLastCalledWith([]);
+  f.moves.reportRepositories.mockRejectedValueOnce(new Error("report failed"));
+  f.click(0);
+  await act(async () => {});
+  expect(f.moves.reportRepositories).toHaveBeenLastCalledWith(["/repo"]);
+  fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
+  fireEvent.click(f.screen.getByRole("menuitem", { name: /^Maximize/ }));
+  await act(async () => {});
+  expect(f.moves.reportRepositories.mock.calls).toEqual([[[]], [["/repo"]], [["/repo"]]]);
 });
 
 test("preview sidebar and title gestures register only the preview identity", async () => {
@@ -224,6 +285,7 @@ test("preview sidebar and title gestures register only the preview identity", as
   fireEvent.dragEnd(row);
   fireEvent.click(row);
   await act(async () => {});
+  expect(f.moves.reportRepositories).toHaveBeenLastCalledWith(["foom"]);
   const title = f.screen.container.querySelector(".tile-title");
   if (!title) throw new Error("preview title");
   fireEvent.dragStart(title, { dataTransfer: transfer() });
@@ -244,9 +306,45 @@ test("a menu move failure reports the operation through the tile's action error"
   fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {});
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
-  fireEvent.click(f.screen.getByRole("menuitem", { name: "Window 2" }));
+  await act(async () => {});
+  fireEvent.click(f.screen.getByRole("menuitem", { name: "Lovelace · <foom>, example" }));
   await act(async () => {});
   expect(f.screen.getByRole("alert").textContent).toBe("Unable to move tile to window.");
+});
+
+test("the window picker ignores a closed request and shows when no other windows are open", async () => {
+  const f = fixture();
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof f.moves.list>>>();
+  f.moves.list.mockReturnValueOnce(pending.promise).mockResolvedValueOnce([]);
+  f.click(0);
+  await act(async () => {});
+  fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
+  expect(f.moves.list).not.toHaveBeenCalled();
+  const trigger = f.screen.getByRole("menuitem", { name: "Move to window" });
+  fireEvent.pointerEnter(trigger);
+  fireEvent.click(trigger);
+  expect(f.moves.list).toHaveBeenCalledOnce();
+  expect(f.screen.getByRole("menuitem", { name: "Loading…" })).toHaveProperty("disabled", true);
+  fireEvent.keyDown(f.screen.getByRole("menu", { name: "Move to window" }), { key: "Escape" });
+  fireEvent.click(trigger);
+  await act(async () => {});
+  expect(f.screen.getByRole("menuitem", { name: "No other windows" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  await act(async () => {
+    pending.resolve([{ id: 2, label: "Lovelace", repositories: [] }]);
+    await pending.promise;
+  });
+  expect(f.screen.queryByRole("menuitem", { name: "Lovelace" })).toBeNull();
+  fireEvent.keyDown(f.screen.getByRole("menu", { name: "Move to window" }), { key: "Escape" });
+  f.moves.list.mockRejectedValueOnce(new Error("request failed"));
+  fireEvent.click(trigger);
+  await act(async () => {});
+  expect(f.screen.getByRole("menuitem", { name: "Unable to load options" })).toHaveProperty(
+    "disabled",
+    true,
+  );
 });
 
 test("inventory closes remain reflected during a reservation and agent arrivals wait in the sidebar", async () => {

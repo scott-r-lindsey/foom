@@ -1974,7 +1974,14 @@ const desktop: DesktopApi = {
   },
   windows: {
     moves: {
-      list: () => reply("windows:list", array(shape({ id: positiveCount, label: moveId }))),
+      list: () =>
+        reply(
+          "windows:list",
+          array(shape({ id: positiveCount, label: moveId, repositories: array(text) })),
+        ),
+      reportRepositories: async (ids) => {
+        await ipcRenderer.invoke("windows:tile-repositories", ids);
+      },
       beginDrag: (content) => reply("windows:begin-drag", dragToken, content),
       endDrag: (token) => invokeVoid("windows:end-drag", token),
       drop: (token, placement) => invokeVoid("windows:drop", token, placement),

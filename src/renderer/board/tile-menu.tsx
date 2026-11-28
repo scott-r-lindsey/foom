@@ -1,8 +1,8 @@
 import { CopyValue } from "../ui/copy-value";
 import { agentNames } from "./sidebar-model";
 import type { PreviewSummary } from "../../shared/workspace";
-import type { WindowMovesApi, MoveContent, WindowDestination } from "../../shared/windows";
-import { useEffect, useState, useId, useSyncExternalStore } from "react";
+import type { WindowMovesApi, MoveContent } from "../../shared/windows";
+import { useId, useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
 import type { TileMetrics, TileAction, TileLayout } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
@@ -52,19 +52,6 @@ export function TileMenu({
   close: () => void;
   action: (action: TileAction) => void;
 }) {
-  const [windows, setWindows] = useState<WindowDestination[]>([]);
-  useEffect(() => {
-    let active = true;
-    void moves
-      ?.list()
-      .then((list) => {
-        if (active) setWindows(list);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [moves]);
   const status = useSyncExternalStore(
     view?.subscribe ?? noSubscribe,
     view?.getSnapshot ?? noSnapshot,
@@ -77,8 +64,10 @@ export function TileMenu({
       action(key);
     },
   });
+  // A replacement in the same leaf starts with fresh menu actions.
   return (
     <RowMenu
+      key={content && `${content.kind}:${content.id}`}
       anchor={anchor}
       point={point}
       placement="below"
@@ -113,21 +102,29 @@ export function TileMenu({
           hint: navigator.platform.includes("Mac") ? "⇧⌘↵" : "Ctrl+Shift+Enter",
         },
         ...(popout && (row || preview) ? [item("popout", "Move to new window")] : []),
-        ...(moves && content && windows.length
+        ...(moves && content
           ? [
               {
                 label: "Move to window",
                 glyph: "popout" as const,
                 run: () => {},
-                submenu: windows.map((window) => ({
-                  label: window.label,
-                  run: () => {
-                    close();
-                    void moves.move(content, window.id).catch(() => {
-                      moveError?.();
-                    });
-                  },
-                })),
+                submenuOnHover: false,
+                submenu: async (): Promise<RowAction[]> => {
+                  const windows = await moves.list();
+                  if (!windows.length)
+                    return [{ label: "No other windows", disabled: true, run: () => {} }];
+                  return windows.map((window) => ({
+                    label: [window.label, window.repositories.join(", ")]
+                      .filter(Boolean)
+                      .join(" · "),
+                    run: () => {
+                      close();
+                      void moves.move(content, window.id).catch(() => {
+                        moveError?.();
+                      });
+                    },
+                  }));
+                },
               },
             ]
           : []),

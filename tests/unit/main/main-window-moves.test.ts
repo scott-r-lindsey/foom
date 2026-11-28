@@ -48,6 +48,25 @@ test("window move wiring transfers reservations before committing a destination 
   ]);
 });
 
+test("destination hints display current registered names and skip unknown repository IDs", async () => {
+  const repositories = [{ path: "/repo", name: "Example" }];
+  mock.openWorktrees.mockResolvedValue({
+    worktreeRoot: "/worktrees",
+    listRepositories: () => repositories,
+    managesPath: mock.managesPath,
+  });
+  await start();
+  await newWindow();
+  await invokeWindow(1, "windows:tile-repositories", ["/unknown", "/repo", "/repo"]);
+  await expect(invokeWindow(0, "windows:list")).resolves.toEqual([
+    { id: 2, label: "Lovelace", repositories: ["Example"] },
+  ]);
+  repositories[0] = { path: "/repo", name: "Renamed" };
+  await expect(invokeWindow(0, "windows:list")).resolves.toEqual([
+    { id: 2, label: "Lovelace", repositories: ["Renamed"] },
+  ]);
+});
+
 test("preview moves reuse the pop-out transfer and reject a vanished destination host", async () => {
   await start();
   await newWindow();

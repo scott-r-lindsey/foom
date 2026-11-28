@@ -1558,8 +1558,14 @@ test("window moves validate and project tokens, destinations and placement event
   const movePreviewId = previewId();
   const api = (await bridge()).windows?.moves;
   if (!api) throw new Error("Missing moves");
-  mock.invoke.mockResolvedValue([{ id: 2, label: "Window 2", secret: "discard" }]);
-  await expect(api.list()).resolves.toEqual([{ id: 2, label: "Window 2" }]);
+  mock.invoke.mockResolvedValue([
+    { id: 2, label: "Lovelace", repositories: ["foom"], secret: "discard" },
+  ]);
+  await expect(api.list()).resolves.toEqual([{ id: 2, label: "Lovelace", repositories: ["foom"] }]);
+  mock.invoke.mockResolvedValue([{ id: 2, label: "Lovelace", repositories: [12] }]);
+  await expect(api.list()).rejects.toThrow();
+  await api.reportRepositories(["repo"]);
+  expect(mock.invoke).toHaveBeenCalledWith("windows:tile-repositories", ["repo"]);
   mock.invoke.mockResolvedValue([{ id: NaN, label: "bad" }]);
   await expect(api.list()).rejects.toThrow();
   mock.invoke.mockResolvedValue(moveRequest);
