@@ -929,6 +929,44 @@ const illustrated = (name: string, file: string) =>
     images: { board: { file } },
   });
 
+test("inactive artwork warnings survive palette scans and require matching source bytes and JSON", async () => {
+  const f = await fixture({ loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode) });
+  const decode = vi.fn((png: Uint8Array) =>
+    Promise.resolve({ png, colors: [palette.colors.attention] }),
+  );
+  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), decode);
+  const file = "themes/illustrated.json";
+  const image = "themes/board.png";
+  const text = illustrated("Illustrated", "board.png");
+  const review = (json = text) => f.service.reviewTheme(file, json, parseThemeFile(json, "theme"));
+  const warning = { path: "$.images.board", reason: "image-status-color", severity: "warning" };
+  try {
+    await f.service.initialize();
+    await f.write(image, "original artwork");
+    await f.write(file, text);
+    const offer = await review();
+    expect(offer?.imageDiagnostics).toEqual([]);
+    await f.service.write({ interfaceTheme: "user:illustrated.json" }, offer?.digest);
+    expect(f.service.activePalette()?.warnings).toMatchObject([warning]);
+
+    await f.service.write({ interfaceTheme: "eclipse-dark" });
+    await f.service.refresh();
+    expect(f.service.activePalette()).toBeUndefined();
+    expect((await review())?.imageDiagnostics).toMatchObject([warning]);
+    await f.write(image, "replacement artwork");
+    expect((await review())?.imageDiagnostics).toEqual([]);
+    await f.write(image, "original artwork");
+    expect((await review())?.imageDiagnostics).toMatchObject([warning]);
+
+    const edited = illustrated("Edited", "board.png");
+    await f.write(file, edited);
+    expect((await review(edited))?.imageDiagnostics).toEqual([]);
+    expect(decode).toHaveBeenCalledOnce();
+  } finally {
+    bitmaps.dispose();
+  }
+});
+
 test.each(["available", "missing"] as const)(
   "startup applies safe non-theme edits before decoding a selection with %s artwork",
   async (availability) => {

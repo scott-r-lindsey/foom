@@ -29,6 +29,7 @@ import type {
   ActiveThemeBitmaps,
   ThemeApproval,
   ThemeBitmapApproval,
+  ThemeBitmapSlot,
   ThemeBitmapSnapshot,
 } from "../../shared/theme-bitmap";
 import { themeBitmapSlots } from "../../shared/theme-bitmaps";
@@ -101,6 +102,11 @@ interface Palette {
   digest: string;
   approval: ThemeApproval;
   bitmaps?: ThemeBitmapSnapshot;
+  knownBitmapWarnings?: readonly {
+    slot: ThemeBitmapSlot;
+    source: string;
+    warning: ThemeDiagnostic;
+  }[];
 }
 
 function bitmapApproval(
@@ -176,6 +182,20 @@ function availablePalette(approved: Palette, observed: Palette): Palette {
     if (warning) diagnostics.push(warning);
   }
   return { ...approved, bitmaps: { ...approved.bitmaps, slots, diagnostics } };
+}
+
+/** Keep the warning and the bytes it describes without retaining decoded artwork. */
+function knownBitmapWarnings(palette: Palette): NonNullable<Palette["knownBitmapWarnings"]> {
+  return (
+    palette.knownBitmapWarnings ??
+    themeBitmapSlots.flatMap((slot) => {
+      const asset = palette.bitmaps?.slots[slot];
+      const warning = palette.bitmaps?.diagnostics.find(
+        ({ path, severity }) => path === `$.images.${slot}` && severity === "warning",
+      );
+      return asset && warning ? [{ slot, source: asset.source, warning }] : [];
+    })
+  );
 }
 
 function persistedPalette(candidate: Palette, approval: ThemeApproval | null): Palette | undefined {
@@ -706,13 +726,18 @@ export class ConfigService {
       const snapshot = this.appliedThemes.get(file);
       if (!snapshot) return undefined;
       const rejectedImages = candidate?.bitmaps?.diagnostics ?? [];
-      const appliedImages = snapshot.bitmaps?.diagnostics ?? [];
+      const active = this.isActiveTheme(file);
+      const imageWarnings = active
+        ? (snapshot.bitmaps?.diagnostics.filter(({ severity }) => severity === "warning") ?? [])
+        : (snapshot.knownBitmapWarnings?.flatMap(({ slot, source, warning }) =>
+            snapshot.bitmaps?.sources[slot] === source ? [warning] : [],
+          ) ?? []);
       return {
         parsed: snapshot.parsed,
-        digest: this.isActiveTheme(file) ? snapshot.digest : appearanceOffer(snapshot),
+        digest: active ? snapshot.digest : appearanceOffer(snapshot),
         ...((candidate?.bitmaps || snapshot.bitmaps) && {
           imageDiagnostics: [
-            ...appliedImages.filter(({ severity }) => severity === "warning"),
+            ...imageWarnings,
             ...rejectedImages.filter(({ severity }) => severity !== "warning"),
           ],
         }),
@@ -782,7 +807,15 @@ export class ConfigService {
       return;
     }
     if (!this.isActiveTheme(file)) {
-      await this.acceptTheme(file, candidate, false);
+      const previous = this.appliedThemes.get(file);
+      // Palette-only scans have no source observations. Carry the known warnings
+      // forward and check their fingerprints when building the Appearance offer.
+      const warnings = previous?.text === candidate.text ? knownBitmapWarnings(previous) : [];
+      await this.acceptTheme(
+        file,
+        warnings.length ? { ...candidate, knownBitmapWarnings: warnings } : candidate,
+        false,
+      );
       return;
     }
     if (this.deferThemeDecoding && candidate.bitmaps) {

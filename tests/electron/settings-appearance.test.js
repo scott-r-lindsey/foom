@@ -690,6 +690,59 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
   }
 });
 
+test("Appearance retains known artwork warnings when a theme is deselected", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-inactive-artwork-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const sharp = require("sharp");
+  const themes = path.join(home, ".foom/config/themes");
+  const theme = interfaceThemes["eclipse-dark"];
+  const image = path.join(themes, "board.png");
+  const png = (background) =>
+    sharp({ create: { width: 16, height: 16, channels: 3, background } })
+      .png()
+      .toBuffer();
+  await writeFile(image, await png(theme.colors.attention));
+  await writeFile(
+    path.join(themes, "illustrated.json"),
+    JSON.stringify({
+      ...theme,
+      name: "Illustrated",
+      version: 2,
+      images: { board: { file: "board.png" } },
+    }),
+  );
+
+  await openSettingsScreen(page);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  await settings.getByRole("button", { name: "Appearance", exact: true }).click();
+  const row = settings.locator("details.theme-warnings").filter({ hasText: "Illustrated" });
+  const summary = row.locator("summary");
+  const catalog = () => page.evaluate(() => window.desktop.listThemes());
+  await chooseTheme(page, "Illustrated");
+  await expect(summary).toHaveText("Illustrated · Applied · 1 warning");
+  await chooseTheme(page, "Eclipse Dark");
+  await expect.poll(async () => (await catalog()).activeInterfaceTheme).toBeUndefined();
+  const inactive = await catalog();
+  assert.equal(inactive.activeBitmaps, undefined);
+  assert.ok(inactive.errors.some(({ reason }) => reason === "image-status-color"));
+  await expect(summary).toHaveText("Illustrated · 1 warning");
+  await summary.press("Enter");
+  await expect(row.getByRole("listitem")).toHaveText(
+    "illustrated.json $.images.board · image-status-color",
+  );
+
+  await writeFile(image, await png("#000000"));
+  await expect(row).toHaveCount(0);
+  await chooseTheme(page, "Illustrated");
+  await expect
+    .poll(async () => (await catalog()).activeInterfaceTheme)
+    .toBe("user:illustrated.json");
+  await expect(row).toHaveCount(0);
+});
+
 test("Appearance keeps applied theme warnings visible and counts truncated details", async (context) => {
   const home = await mkdtemp(path.join(tmpdir(), "foom-theme-warning-limit-"));
   removeAfterApps(context, home);
