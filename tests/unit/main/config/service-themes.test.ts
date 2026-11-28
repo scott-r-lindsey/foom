@@ -813,6 +813,50 @@ test("artwork selection, placement and byte changes apply automatically and revo
   }
 });
 
+test("Keep restores the approved palette and preserves artwork and other theme edits", async () => {
+  const f = await artFixture();
+  try {
+    await f.service.initialize();
+    const original = {
+      ...palette,
+      version: 2,
+      areas: { tiles: { surface: "#141414" } },
+      states: { focus: palette.colors.accent },
+    };
+    await f.write(artFile, JSON.stringify(original));
+    await f.selectTheme("art.json");
+    await f.write("themes/first.png", "first artwork");
+    const edited = {
+      ...original,
+      name: "Illustrated",
+      colors: { ...palette.colors, attention: palette.colors.ink },
+      areas: undefined,
+      states: { focus: palette.colors.ink },
+      shape: { radius: 0 },
+      type: { family: "system" },
+      images: { empty: { file: "first.png", opacity: 0.5 } },
+    };
+    await f.write(artFile, JSON.stringify(edited));
+    expect((await f.service.refresh()).pending?.detail).toBe("attention-distinctness");
+
+    expect((await f.decide("keep")).pending).toBeNull();
+    const restored = {
+      ...edited,
+      colors: original.colors,
+      areas: original.areas,
+      states: original.states,
+    };
+    expect(JSON.parse(await f.read(artFile))).toEqual(restored);
+    expect((await f.service.refresh()).pending).toBeNull();
+    expect(f.service.activePalette()?.theme).toEqual(
+      expect.objectContaining({ name: edited.name, colors: original.colors, shape: edited.shape }),
+    );
+    expect(f.service.activePalette()?.bitmaps?.empty?.[0]?.opacity).toBe(0.5);
+  } finally {
+    f.bitmaps.dispose();
+  }
+});
+
 test("deferred artwork does not gate an active palette and inactive artwork stays undecoded", async () => {
   const f = await artFixture(true);
   try {

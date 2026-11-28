@@ -32,7 +32,12 @@ import type {
 import { themeBitmapSlots } from "../../shared/theme-bitmaps";
 import { parseThemeFile } from "../../shared/theme-files";
 import { attentionConflicts } from "../../shared/user-interface-theme";
-import { isUserThemeId, ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
+import {
+  isUserThemeId,
+  themeRecord,
+  ThemeValidationError,
+  validThemeFile,
+} from "../../shared/theme-validation";
 import {
   argumentChanges,
   argumentDisclosure,
@@ -104,6 +109,28 @@ function themeApproval({ parsed, digest: source }: Palette): ThemeApproval {
   return parsed.kind === "theme" && parsed.theme.version === 2
     ? { paletteDigest: digest(JSON.stringify(parsed.theme)) }
     : source;
+}
+
+function restoreThemePalette(previous: string, proposed: string): string {
+  const approved = themeRecord(JSON.parse(previous), "$");
+  const { base, colors, areas, states } = approved;
+  const restored: Record<string, unknown> = {
+    ...themeRecord(JSON.parse(proposed), "$"),
+    base,
+    colors,
+    areas,
+    states,
+  };
+  if (areas === undefined) delete restored["areas"];
+  if (states === undefined) delete restored["states"];
+  // A proposal can switch to v1, but restored area and state colors require v2.
+  if (areas !== undefined || states !== undefined) restored["version"] = 2;
+  if (isDeepStrictEqual(restored, approved)) return previous;
+  const pretty = `${JSON.stringify(restored, null, 2)}\n`;
+  const text =
+    Buffer.byteLength(pretty) <= MAX_CONFIG_FILE_BYTES ? pretty : JSON.stringify(restored);
+  parseThemeFile(text, "theme");
+  return text;
 }
 
 interface Selection {
@@ -1076,7 +1103,8 @@ export class ConfigService {
       )
         return false;
       if (decision === "keep" && previous) {
-        if (!(await this.files.writeFile(file, previous.text, expected))) return false;
+        const restored = restoreThemePalette(previous.text, text);
+        if (!(await this.files.writeFile(file, restored, expected))) return false;
       } else {
         if (!(await matches())) return false;
         if (decision === "allow") await this.acceptTheme(file, fresh, true);

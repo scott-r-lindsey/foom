@@ -109,7 +109,9 @@ original file is verified. Active selections display the palette snapshot
 accepted by the approval gate, even while the independent catalog is still
 publishing an older version or has yet to publish that palette. Allow verifies
 the proposal digest and current bytes before recording approval. Keep it on
-restores the approved version applied in this session. When there is none, it
+restores the approved base and colors (including area and state palettes) from
+this session and preserves other saved edits, including artwork.
+When there is no approved palette in this session, Keep it on
 switches `interfaceTheme` back to the default
 only if the reviewed selection is still current in the shared Settings file.
 

@@ -545,8 +545,13 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
       menus: { surface: "#161616" },
     },
     shape: { radius: 0 },
+    images: { "tile-header": { file: "art.png", opacity: 0.25 } },
   };
   const file = path.join(root, ".foom/config/themes/personal.json");
+  const sharp = require("sharp");
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: "#142039" } })
+    .png()
+    .toFile(path.join(path.dirname(file), theme.images["tile-header"].file));
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
@@ -557,6 +562,8 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
+  const artwork = page.locator('.tile-title [data-theme-art="tile-header"]').first();
+  await expect(artwork).toHaveCSS("opacity", "0.25");
   await expect(page.locator(".board-row").first()).toHaveCSS("border-radius", "0px");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
   await expect(page.locator(".sidebar-panel")).toHaveCSS("--surface", "#202020");
@@ -571,8 +578,9 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await expect
     .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--ink")))
     .toBe("#f4efff");
-  const original = JSON.stringify(theme);
+  const originalAttention = theme.colors.attention;
   theme.colors.attention = theme.colors.ink;
+  theme.images["tile-header"].opacity = 0.5;
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
   await page
@@ -589,7 +597,11 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await page.getByRole("button", { name: "Keep it on", exact: true }).click();
   // Wait for the write to finish before opening the file on Windows.
   await expect(page.getByRole("region", { name: "Change waiting for approval" })).toHaveCount(0);
-  assert.equal(await readFile(file, "utf8"), original);
+  theme.colors.attention = originalAttention;
+  assert.deepEqual(JSON.parse(await readFile(file, "utf8")), theme);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(artwork).toHaveCSS("opacity", "0.5");
+  await expect(page.locator("html")).toHaveCSS("--attention", originalAttention);
 });
 
 test("approved theme artwork placement can change between launches", async (context) => {
