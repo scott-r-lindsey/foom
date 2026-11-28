@@ -21,13 +21,18 @@ export interface RowAction {
   /** Shows something beside the item, opened by Right, Enter or click; the panel stays open. */
   expanded?: boolean;
   /** A nested menu, opened by hover, Right, Enter or click. */
-  submenu?: readonly (RowAction | null)[];
+  submenu?: MenuActions | (() => Promise<MenuActions>);
   /** One stop holding a live value between two step buttons; stepping keeps the menu open. */
   stepper?: { value: string; decrease: RowAction; increase: RowAction };
   run: () => void | Promise<void>;
 }
+type MenuActions = readonly (RowAction | null)[];
+
 /** A submenu's link to the menu that opened it. */
 interface Nested {
+  parent: HTMLElement;
+  inline: boolean;
+  loading: boolean;
   /** Move focus into the submenu when it opens; hovering opens it without focus. */
   focus: boolean;
   /** Close the submenu and return focus to its item. */
@@ -35,6 +40,25 @@ interface Nested {
   /** Close every level and return focus to the top anchor. */
   dismiss: () => void;
 }
+
+const submenuGap = 10;
+const viewportMargin = 8;
+const minSubmenuWidth = 120;
+function sideSpace(parent: HTMLElement) {
+  const { left, right } = parent.getBoundingClientRect();
+  return {
+    left,
+    right,
+    leftSpace: left - submenuGap - viewportMargin,
+    rightSpace: window.innerWidth - right - submenuGap - viewportMargin,
+  };
+}
+
+function unavailableAction(label: string): MenuActions {
+  return [{ label, disabled: true, run: () => {} }];
+}
+const loadingActions = unavailableAction("Loading…");
+
 export interface PanelContent {
   title: ReactNode;
   kind: string;
@@ -45,11 +69,19 @@ export interface PanelContent {
   leave?: () => void;
   pin?: () => void;
 }
-/** A small stroke chevron; down rotates while its menu is open, right marks a submenu. */
-export function Chevron({ direction }: { direction: "down" | "right" }) {
+/** A small stroke chevron; down rotates while its menu is open. */
+export function Chevron({ direction }: { direction: "down" | "right" | "left" }) {
   return (
     <svg className="menu-chevron" viewBox="0 0 10 10" aria-hidden="true">
-      <path d={direction === "down" ? "M2.5 4l2.5 2.5L7.5 4" : "M4 2.5l2.5 2.5L4 7.5"} />
+      <path
+        d={
+          direction === "down"
+            ? "M2.5 4l2.5 2.5L7.5 4"
+            : direction === "left"
+              ? "M6 2.5l-2.5 2.5L6 7.5"
+              : "M4 2.5l2.5 2.5L4 7.5"
+        }
+      />
     </svg>
   );
 }
@@ -90,27 +122,56 @@ export function RowMenu({
   placement?: "right" | "below";
   label?: string;
   anchor: HTMLElement;
-  actions: readonly (RowAction | null)[];
+  actions: MenuActions;
   close: () => void;
   confirmations?: ConfirmationClient | undefined;
 }) {
   const isPanel = Boolean(panel);
   const isNested = Boolean(nested);
+  const inline = Boolean(nested?.inline);
+  const parent = nested?.parent;
+  const loading = !inline && nested?.loading;
   const stepperId = useId();
   const focusOnOpen = nested ? nested.focus : !panel || panel.pinned;
-  const [sub, setSub] = useState<{ index: number; anchor: HTMLButtonElement; focus: boolean }>();
+  const [sub, setSub] = useState<{
+    index: number;
+    parent: HTMLElement;
+    anchor: HTMLButtonElement;
+    focus: boolean;
+    inline: boolean;
+    request?: { load: () => Promise<MenuActions> };
+    loaded?: MenuActions;
+  }>();
   const confirmation = useConfirmation(confirmations);
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLButtonElement>(null);
   const pointerPinRef = useRef(false);
+  const dismiss =
+    nested?.dismiss ??
+    (() => {
+      close();
+      restoreBoardFocus(anchor);
+    });
+  const request = sub?.request;
+  useEffect(() => {
+    if (!request) return;
+    const complete = (loaded: MenuActions) => {
+      setSub((current) => (current?.request === request ? { ...current, loaded } : current));
+    };
+    void request.load().then(complete, () => {
+      complete(unavailableAction("Unable to load options"));
+    });
+  }, [request]);
   useLayoutEffect(() => {
+    if (inline) return;
     const menu = ref.current;
     return () => {
       // Scroll, resize and programmatic closure can remove the focused item.
       // An outside click that already moved focus retains its chosen target.
       if (menu?.contains(document.activeElement)) restoreBoardFocus(anchor);
     };
-  }, [anchor]);
+  }, [anchor, inline]);
   useLayoutEffect(() => {
     const element = ref.current;
     if (element) return registerErrorFocus(element, anchor, close);
@@ -126,34 +187,22 @@ export function RowMenu({
   );
   useLayoutEffect(() => {
     const menu = ref.current;
-    if (!menu) return;
+    if (!menu || inline) return;
     let panelTop: number | undefined;
     const position = () => {
       const button = anchor.getBoundingClientRect();
-      if (isNested) {
-        // Keep the trigger's hit area clear, even when labels need to wrap.
-        const leftSpace = button.left - 18;
-        const rightSpace = window.innerWidth - button.right - 18;
+      if (parent) {
+        const { left, right, leftSpace, rightSpace } = sideSpace(parent);
+        const fits = Math.max(leftSpace, rightSpace) >= minSubmenuWidth;
+        menu.style.visibility = fits ? "" : "hidden";
+        if (!fits) return;
         menu.style.removeProperty("--submenu-max-width");
-        menu.style.removeProperty("--submenu-anchor-width");
-        menu.style.removeProperty("max-height");
-        if (Math.max(leftSpace, rightSpace) >= 120) {
-          const opensRight = menu.offsetWidth <= rightSpace || rightSpace >= leftSpace;
-          const width = opensRight ? rightSpace : leftSpace;
-          menu.style.setProperty("--submenu-max-width", `${String(width)}px`);
-          menu.style.left = `${String(opensRight ? button.right + 10 : button.left - menu.offsetWidth - 10)}px`;
-          menu.style.top = `${String(Math.max(8, Math.min(button.top - 7, window.innerHeight - menu.offsetHeight - 8)))}px`;
-        } else {
-          // Span the trigger and meet its edge so the pointer can travel
-          // directly into the submenu without entering another command.
-          const above = button.top - 8;
-          const below = window.innerHeight - button.bottom - 8;
-          const opensBelow = below >= above;
-          menu.style.setProperty("--submenu-anchor-width", `${String(button.width)}px`);
-          menu.style.maxHeight = `${String(opensBelow ? below : above)}px`;
-          menu.style.left = `${String(Math.max(8, Math.min(button.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
-          menu.style.top = `${String(opensBelow ? button.bottom : button.top - menu.getBoundingClientRect().height)}px`;
-        }
+        const opensRight = menu.offsetWidth <= rightSpace || rightSpace >= leftSpace;
+        const width = opensRight ? rightSpace : leftSpace;
+        menu.style.setProperty("--submenu-max-width", `${String(width)}px`);
+        const actualWidth = menu.getBoundingClientRect().width;
+        menu.style.left = `${String(opensRight ? right + submenuGap : left - actualWidth - submenuGap)}px`;
+        menu.style.top = `${String(Math.max(8, Math.min(button.top - 7, window.innerHeight - menu.offsetHeight - 8)))}px`;
         return;
       }
       const right = isPanel
@@ -202,21 +251,35 @@ export function RowMenu({
     const observer =
       typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(position);
     observer?.observe(menu);
+    if (parent) observer?.observe(parent);
     if (keepOnResize) window.addEventListener("resize", resize);
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, [anchor, placement, isPanel, point, keepOnResize, isNested, bottomAligned]);
+  }, [anchor, placement, isPanel, point, keepOnResize, parent, inline, bottomAligned]);
   useLayoutEffect(() => {
     // Pinning changes focus policy, not placement. Pointer pinning leaves focus
     // to the pressed launcher so it cannot scroll away before mouse-up.
-    if (focusOnOpen && !pointerPinRef.current)
-      ref.current
-        ?.querySelector<HTMLButtonElement>(".row-menu-items button:not(:disabled)")
-        ?.focus();
+    if (focusOnOpen && !pointerPinRef.current) {
+      const menu = ref.current;
+      const first = menu?.querySelector<HTMLButtonElement>(
+        ".row-menu-items:not([hidden]) button:not(:disabled)",
+      );
+      (first ?? (isNested ? menu : null))?.focus();
+    }
     pointerPinRef.current = false;
-  }, [anchor, placement, focusOnOpen, isPanel, point, keepOnResize, isNested, bottomAligned]);
+  }, [
+    anchor,
+    placement,
+    focusOnOpen,
+    isPanel,
+    point,
+    keepOnResize,
+    isNested,
+    bottomAligned,
+    loading,
+  ]);
   useEffect(() => {
     // The top-level menu owns dismissal for its submenu.
     if (isNested) return;
@@ -236,7 +299,7 @@ export function RowMenu({
       if (!dismissOnScroll) return;
       if (isPanel && event.target instanceof Node && ref.current?.contains(event.target)) {
         // Panel scrolling moves submenu anchors; retain the panel, not stale portals.
-        setSub(undefined);
+        setSub((current) => (current?.inline ? current : undefined));
         return;
       }
       if (
@@ -269,12 +332,17 @@ export function RowMenu({
     document.addEventListener("keydown", escape);
     document.addEventListener("pointerdown", outside);
     document.addEventListener("scroll", scroll, true);
-    if (!keepOnResize) window.addEventListener("resize", close);
+    const resize = keepOnResize
+      ? () => {
+          setSub(undefined);
+        }
+      : close;
+    window.addEventListener("resize", resize);
     return () => {
       document.removeEventListener("keydown", escape);
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("scroll", scroll, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("resize", resize);
     };
   }, [
     anchor,
@@ -286,19 +354,75 @@ export function RowMenu({
     dismissOnAnchor,
     dismissOnScroll,
   ]);
-  const openSub = (index: number, item: HTMLButtonElement, focus: boolean) => {
+  useLayoutEffect(() => {
+    if (!sub && returnFocusRef.current) {
+      returnFocusRef.current.focus();
+      returnFocusRef.current = null;
+    }
+  }, [sub]);
+  const openSub = (
+    index: number,
+    item: HTMLButtonElement,
+    focus: boolean,
+    submenu: NonNullable<RowAction["submenu"]>,
+  ) => {
+    const parent = ref.current;
+    if (!parent) return;
+    const { leftSpace, rightSpace } = sideSpace(parent);
+    const inline = Math.max(leftSpace, rightSpace) < minSubmenuWidth;
+    // Swapping the body on hover would put a different row under the pointer
+    // before the click arrives. Drill in only on activation.
+    if (inline && !focus) return;
     setSub((current) =>
-      current?.index === index && (current.focus || !focus)
-        ? current
-        : { index, anchor: item, focus },
+      current?.index === index
+        ? focus && !current.focus
+          ? { ...current, focus }
+          : current
+        : {
+            index,
+            parent,
+            anchor: item,
+            focus,
+            inline,
+            ...(typeof submenu === "function" ? { request: { load: submenu } } : {}),
+          },
     );
   };
   const submenu = sub && actions[sub.index]?.submenu;
-  return createPortal(
+  const drillingIn = Boolean(sub?.inline && submenu);
+  const child = sub && submenu && (
+    <RowMenu
+      key={sub.index}
+      anchor={sub.anchor}
+      actions={typeof submenu === "function" ? (sub.loaded ?? loadingActions) : submenu}
+      confirmations={confirmations}
+      close={close}
+      label={actions[sub.index]?.label ?? label}
+      {...(onAction ? { onAction } : {})}
+      nested={{
+        parent: sub.parent,
+        inline: sub.inline,
+        loading: typeof submenu === "function" && !sub.loaded,
+        focus: sub.focus,
+        back: () => {
+          setSub(undefined);
+          if (sub.inline) returnFocusRef.current = sub.anchor;
+          else restoreBoardFocus(sub.anchor);
+        },
+        dismiss,
+      }}
+    />
+  );
+  const menu = (
     <div
       ref={ref}
-      className={`row-menu${placement === "below" ? " app-menu" : ""}${panel ? " sidebar-panel" : ""}${nested ? " row-submenu" : ""}`}
-      role={panel ? "dialog" : "menu"}
+      className={
+        inline
+          ? "row-drill-in"
+          : `row-menu${placement === "below" ? " app-menu" : ""}${panel ? " sidebar-panel" : ""}${nested ? " row-submenu" : ""}`
+      }
+      role={panel ? "dialog" : drillingIn ? undefined : "menu"}
+      tabIndex={nested ? -1 : undefined}
       data-pinned={panel?.pinned}
       onPointerEnter={panel?.enter}
       onPointerLeave={panel?.leave}
@@ -306,16 +430,20 @@ export function RowMenu({
         if (panel?.pin && !panel.pinned) pointerPinRef.current = true;
         panel?.pin?.();
       }}
-      aria-label={label}
+      aria-label={panel || !drillingIn ? label : undefined}
       onKeyDown={(event) => {
+        // Submenu events bubble through React, including from portals.
+        if (
+          !(event.target instanceof Element) ||
+          event.target.closest(".row-menu, .row-drill-in") !== event.currentTarget
+        )
+          return;
+        if (event.target instanceof HTMLInputElement) return;
         const items = Array.from(
           event.currentTarget.querySelectorAll<HTMLButtonElement>(
             ".row-menu-items button:not(:disabled)",
           ),
         );
-        // Keys from a submenu portal bubble through React; that menu handles its own.
-        if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-        if (event.target instanceof HTMLInputElement) return;
         const active = document.activeElement;
         // A stepper is one stop: Up and Down skip its second button.
         const stops = items.filter((item) => !item.dataset["secondary"]);
@@ -375,12 +503,19 @@ export function RowMenu({
           <span className="panel-kind">{panel.kind}</span>
         </header>
       )}
-      <div className={panel ? "panel-body" : undefined}>
+      <div className={panel ? "panel-body" : undefined} data-drill-in={drillingIn || undefined}>
         <div
           className="row-menu-items"
+          hidden={drillingIn}
           role={panel ? "menu" : undefined}
           aria-label={panel ? "Commands" : undefined}
         >
+          {inline && (
+            <button type="button" role="menuitem" className="menu-back" onClick={nested?.back}>
+              <Chevron direction="left" />
+              <span className="menu-label">Back</span>
+            </button>
+          )}
           {leading}
           {actions.map((action, index) =>
             action?.stepper ? (
@@ -436,12 +571,12 @@ export function RowMenu({
                 onPointerLeave={confirmation.cancel}
                 onBlur={confirmation.cancel}
                 onPointerEnter={(event) => {
-                  if (action.submenu) openSub(index, event.currentTarget, false);
+                  if (action.submenu) openSub(index, event.currentTarget, false, action.submenu);
                   else if (!action.disabled) setSub(undefined);
                 }}
                 onClick={(event) => {
                   if (action.submenu) {
-                    openSub(index, event.currentTarget, true);
+                    openSub(index, event.currentTarget, true, action.submenu);
                     return;
                   }
                   if (onAction) {
@@ -459,16 +594,12 @@ export function RowMenu({
                     return;
                   }
                   if (action.dismissBeforeRun) {
-                    close();
-                    restoreBoardFocus(anchor);
+                    dismiss();
                     void action.run();
                     return;
                   }
                   setSelected(index);
-                  void confirmation.run(action.run, () => {
-                    close();
-                    restoreBoardFocus(anchor);
-                  });
+                  void confirmation.run(action.run, dismiss);
                 }}
               >
                 {panel && !action.badge && <CommandGlyph name={action.glyph} />}
@@ -485,30 +616,10 @@ export function RowMenu({
             ),
           )}
         </div>
-        {panel?.facts}
+        {drillingIn ? child : panel?.facts}
       </div>
-      {sub && submenu && (
-        <RowMenu
-          anchor={sub.anchor}
-          actions={submenu}
-          confirmations={confirmations}
-          close={close}
-          label={actions[sub.index]?.label ?? label}
-          {...(onAction ? { onAction } : {})}
-          nested={{
-            focus: sub.focus,
-            back: () => {
-              setSub(undefined);
-              restoreBoardFocus(sub.anchor);
-            },
-            dismiss: () => {
-              close();
-              restoreBoardFocus(anchor);
-            },
-          }}
-        />
-      )}
-    </div>,
-    document.body,
+      {!drillingIn && child}
+    </div>
   );
+  return inline ? menu : createPortal(menu, document.body);
 }

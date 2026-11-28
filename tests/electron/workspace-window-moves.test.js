@@ -29,6 +29,30 @@ async function menuMove(page, tile, label) {
   await page.getByRole("menuitem", { name: "Move to window", exact: true }).click();
   await page.getByRole("menuitem", { name: label, exact: true }).click();
 }
+
+async function prepareMenuCapture(page) {
+  const terminal = page.locator(".xterm-helper-textarea");
+  await terminal.focus();
+  const views = await page.evaluate(() => window.desktop.windows.snapshot());
+  const id = views.find((view) => view.window === 0)?.id;
+  assert.ok(id);
+  const tail = () => page.evaluate(async (id) => (await window.desktop.tail(id, 5)).join("\n"), id);
+  await expect.poll(tail).toMatch(/[$#>]\s*$/);
+  await page.keyboard.type(
+    process.platform === "win32"
+      ? "function global:prompt { 'foom> ' }; Clear-Host"
+      : "PS1='foom> '; printf '\\033[3J\\033[2J\\033[H'",
+  );
+  await page.keyboard.press("Enter");
+  await expect.poll(tail).toMatch(/foom>\s*$/);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+}
+
+const waitForMenuFrame = (page) =>
+  page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+
 // Synthetic DOM gestures exercise the actual source and destination handlers.
 // This deliberately makes payload reads throw; no native OS drag is claimed.
 async function startDrag(page, selector) {
@@ -102,14 +126,16 @@ test("terminals move between boards through menus and token-backed sidebar/title
       await expect(
         first.getByRole("menuitem", { name: destination.label, exact: true }),
       ).toBeVisible();
-    await first.locator(".row-submenu").evaluate(async (menu) => {
-      await Promise.all(
-        menu
-          .getAnimations({ subtree: true })
-          .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
-          .map((animation) => animation.finished.catch(() => {})),
-      );
-    });
+    await first
+      .getByRole("menu", { name: "Move to window", exact: true })
+      .evaluate(async (menu) => {
+        await Promise.all(
+          menu
+            .getAnimations({ subtree: true })
+            .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+            .map((animation) => animation.finished.catch(() => {})),
+        );
+      });
     await first.screenshot({ path: `test-results/950-cross-window-drag/menu-${theme}.png` });
     await first.keyboard.press("Escape");
     await first.keyboard.press("Escape");
@@ -196,6 +222,8 @@ test("pioneer window names remain stable, reuse the lowest free name and show re
   await expect
     .poll(async () => (await list(third)).find(({ label }) => label === "Lovelace")?.repositories)
     .toEqual(["shell-fixture"]);
+  await sizeTileBoard(app, third, 1200, 800);
+  if (process.env.FOOM_SCREENSHOTS === "1") await prepareMenuCapture(third);
   for (const base of ["light", "dark"]) {
     await third.evaluate(
       (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
@@ -208,7 +236,7 @@ test("pioneer window names remain stable, reuse the lowest free name and show re
       third.getByRole("menuitem", { name: "Lovelace · shell-fixture", exact: true }),
     ).toBeVisible();
     await expect(third.getByRole("menuitem", { name: "Turing", exact: true })).toBeVisible();
-    if (process.env.FOOM_SCREENSHOTS === "1")
+    if (process.env.FOOM_SCREENSHOTS === "1" && base === "light")
       await third.screenshot({
         path: evidencePath(`screenshots-1370/move-to-window-${base}.png`),
         animations: "disabled",
@@ -216,6 +244,59 @@ test("pioneer window names remain stable, reuse the lowest free name and show re
     await third.keyboard.press("Escape");
     await third.keyboard.press("Escape");
   }
+});
+
+test("opening the window picker refreshes repository hints before showing destinations", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const source = await boardPage(app);
+  const destination = await newBoard(app, source);
+  await sizeTileBoard(app, source, 1100, 700);
+  // The menu dismisses on resize, so let Chromium deliver the resize first.
+  await waitForMenuFrame(source);
+  await source.getByRole("button", { name: "Tile 1 menu", exact: true }).press("Enter");
+  const trigger = source.getByRole("menuitem", { name: "Move to window", exact: true });
+  const picker = source.getByRole("menu", { name: "Move to window", exact: true });
+  await trigger.press("Enter");
+  await expect(picker.getByRole("menuitem", { name: "Lovelace", exact: true })).toBeFocused();
+  await source.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+
+  await destination
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
+    .press("Enter");
+  await destination.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect
+    .poll(() => source.evaluate(() => window.desktop.windows.moves.list()))
+    .toMatchObject([{ label: "Lovelace", repositories: ["shell-fixture"] }]);
+
+  // Hold the real IPC handler so stale rows cannot slip through between frames.
+  await app.evaluate(({ ipcMain }) => {
+    const channel = "windows:list";
+    const list = ipcMain._invokeHandlers.get(channel);
+    const { promise, resolve } = Promise.withResolvers();
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, async (...args) => {
+      await promise;
+      return list(...args);
+    });
+    globalThis.releaseWindowList = () => {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, list);
+      resolve();
+    };
+  });
+  try {
+    await trigger.press("Enter");
+    await expect(picker.getByRole("menuitem", { name: "Loading…", exact: true })).toBeDisabled();
+    await expect(picker.getByRole("menuitem", { name: /^Lovelace/ })).toHaveCount(0);
+  } finally {
+    await app.evaluate(() => globalThis.releaseWindowList());
+  }
+  await expect(
+    picker.getByRole("menuitem", { name: "Lovelace · shell-fixture", exact: true }),
+  ).toBeFocused();
 });
 
 test("long repository hints leave the window move trigger clickable", {
@@ -255,6 +336,12 @@ test("long repository hints leave the window move trigger clickable", {
   const y = bounds.y + bounds.height / 2;
   await source.mouse.move(x, y);
   await expect(choice).toBeVisible();
+  const panel = await source.getByRole("dialog", { name: "Tile 1 menu" }).boundingBox();
+  const flyout = await source
+    .getByRole("menu", { name: "Move to window", exact: true })
+    .boundingBox();
+  assert.ok(panel && flyout);
+  assert.ok(flyout.x + flyout.width <= panel.x || panel.x + panel.width <= flyout.x);
   // Keep the pointer stationary; a locator click would recheck its target.
   await source.mouse.down();
   await source.mouse.up();
@@ -267,12 +354,24 @@ test("long repository hints leave the window move trigger clickable", {
   await expect(destination.locator(occupied)).toHaveCount(2);
 });
 
-test("narrow window move menus keep the hovered destination under the pointer", {
+test("at 300% the window picker drills in without covering tile commands", {
   timeout: deadline(60000),
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const source = await boardPage(app);
   const destination = await newBoard(app, source);
+  const occupied = '.terminal-tile[data-empty="false"]';
+  await destination
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
+    .press("Enter");
+  await destination.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect(destination.locator(occupied)).toHaveCount(1);
+  await expect
+    .poll(() => source.evaluate(() => window.desktop.windows.moves.list()))
+    .toMatchObject([{ label: "Lovelace", repositories: ["shell-fixture"] }]);
+  await source.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "eclipse-dark" }));
+  await expect(source.locator("html")).toHaveCSS("color-scheme", "dark");
+  if (process.env.FOOM_SCREENSHOTS === "1") await prepareMenuCapture(source);
   await sizeTileBoard(app, source, 1280, 1024);
   // A resize can dismiss the tile menu after innerWidth has already changed.
   const resized = await source.evaluateHandle(() => {
@@ -291,19 +390,56 @@ test("narrow window move menus keep the hovered destination under the pointer", 
   const trigger = source.getByRole("menuitem", { name: "Move to window", exact: true });
   await trigger.evaluate((button) => button.scrollIntoView({ block: "end" }));
   await trigger.hover();
-  const choice = source.getByRole("menuitem", { name: "Lovelace", exact: true });
+  const neighbor = source.getByRole("menuitem", { name: "Move to new window", exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(neighbor).toBeVisible();
+  await expect(source.locator(".row-submenu")).toHaveCount(0);
+  // Click at the existing pointer position to detect a changed hit target after hover.
+  await source.mouse.down();
+  await source.mouse.up();
+  const panel = source.getByRole("dialog", { name: "Tile 1 menu" });
+  const picker = panel.getByRole("menu", { name: "Move to window", exact: true });
+  const back = picker.getByRole("menuitem", { name: "Back", exact: true });
+  const choice = picker.getByRole("menuitem", { name: "Lovelace · shell-fixture", exact: true });
+  await expect(back).toBeFocused();
+  await expect(choice).toBeVisible();
+  await expect(neighbor).toHaveCount(0);
+  await expect(source.locator(".row-submenu")).toHaveCount(0);
+  if (process.env.FOOM_SCREENSHOTS === "1") {
+    await waitForMenuFrame(source);
+    const window = await app.browserWindow(source);
+    try {
+      const screenshot = await window.evaluate(async (window) =>
+        (await window.webContents.capturePage()).toPNG().toString("base64"),
+      );
+      await writeFile(
+        evidencePath("screenshots-1370/move-to-window-dark.png"),
+        Buffer.from(screenshot, "base64"),
+      );
+    } finally {
+      await window.dispose();
+    }
+  }
+  await back.click();
+  await expect(trigger).toBeFocused();
+  await source.keyboard.press("ArrowRight");
+  await expect(back).toBeFocused();
+  await expect(choice).toBeEnabled();
+  await source.keyboard.press("ArrowDown");
+  await expect(choice).toBeFocused();
+  await source.keyboard.press("ArrowLeft");
+  await expect(trigger).toBeFocused();
+  await source.keyboard.press("Enter");
   await expect(choice).toBeVisible();
   const bounds = await choice.boundingBox();
   assert.ok(bounds);
   const x = bounds.x + bounds.width / 2;
   const y = bounds.y + bounds.height / 2;
-  // Use pointer movement and a coordinate click so a vanished submenu cannot
-  // turn into a locator retry that conceals the actual hit target.
+  // Use a coordinate click so a missed hit cannot turn into a locator retry.
   await source.mouse.move(x, y, { steps: 30 });
   await source.mouse.down();
   await source.mouse.up();
-  const occupied = '.terminal-tile[data-empty="false"]';
-  await expect(destination.locator(occupied)).toHaveCount(1);
+  await expect(destination.locator(occupied)).toHaveCount(2);
   await expect(source.locator(occupied)).toHaveCount(0);
   assert.equal(app.windows().filter((page) => page.url() === source.url()).length, 2);
 });

@@ -984,10 +984,7 @@
 }
 .row-submenu {
   width: max-content;
-  min-width: min(
-    max(240px, var(--submenu-anchor-width, 0px)),
-    var(--submenu-max-width, calc(100vw - 16px))
-  );
+  min-width: min(240px, var(--submenu-max-width, calc(100vw - 16px)));
   max-width: var(--submenu-max-width, calc(100vw - 16px));
   overflow-y: auto;
   overflow-wrap: anywhere;
@@ -995,6 +992,20 @@
 }
 .row-submenu::before {
   display: none;
+}
+.row-menu [data-drill-in] > .row-menu-items[hidden] {
+  display: none;
+}
+.panel-body[data-drill-in] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.row-drill-in {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.row-menu .menu-back .menu-chevron {
+  flex-shrink: 0;
+  margin-left: 0;
 }
 @keyframes submenu-open {
   from {

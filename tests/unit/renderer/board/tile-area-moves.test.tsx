@@ -210,6 +210,7 @@ test("Move to window lists stable labels and dispatches the chosen terminal", as
   fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {});
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
+  await act(async () => {});
   expect(f.screen.getByRole("menuitem", { name: "Shannon" })).toBeTruthy();
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Lovelace · <foom>, example" }));
   expect(f.moves.move).toHaveBeenCalledExactlyOnceWith({ kind: "terminal", id: "permission" }, 2);
@@ -263,9 +264,45 @@ test("a menu move failure reports the operation through the tile's action error"
   fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {});
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
+  await act(async () => {});
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Lovelace · <foom>, example" }));
   await act(async () => {});
   expect(f.screen.getByRole("alert").textContent).toBe("Unable to move tile to window.");
+});
+
+test("the window picker ignores a closed request and shows when no other windows are open", async () => {
+  const f = fixture();
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof f.moves.list>>>();
+  f.moves.list.mockReturnValueOnce(pending.promise).mockResolvedValueOnce([]);
+  f.click(0);
+  await act(async () => {});
+  fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
+  expect(f.moves.list).not.toHaveBeenCalled();
+  const trigger = f.screen.getByRole("menuitem", { name: "Move to window" });
+  fireEvent.pointerEnter(trigger);
+  fireEvent.click(trigger);
+  expect(f.moves.list).toHaveBeenCalledOnce();
+  expect(f.screen.getByRole("menuitem", { name: "Loading…" })).toHaveProperty("disabled", true);
+  fireEvent.keyDown(f.screen.getByRole("menu", { name: "Move to window" }), { key: "Escape" });
+  fireEvent.click(trigger);
+  await act(async () => {});
+  expect(f.screen.getByRole("menuitem", { name: "No other windows" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  await act(async () => {
+    pending.resolve([{ id: 2, label: "Lovelace", repositories: [] }]);
+    await pending.promise;
+  });
+  expect(f.screen.queryByRole("menuitem", { name: "Lovelace" })).toBeNull();
+  fireEvent.keyDown(f.screen.getByRole("menu", { name: "Move to window" }), { key: "Escape" });
+  f.moves.list.mockRejectedValueOnce(new Error("request failed"));
+  fireEvent.click(trigger);
+  await act(async () => {});
+  expect(f.screen.getByRole("menuitem", { name: "Unable to load options" })).toHaveProperty(
+    "disabled",
+    true,
+  );
 });
 
 test("inventory closes remain reflected during a reservation and agent arrivals wait in the sidebar", async () => {
