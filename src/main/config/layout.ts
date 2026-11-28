@@ -3,6 +3,8 @@ import {
   themeBitmapFilePattern,
   themeBitmapFits,
   themeBitmapSlots,
+  legacyThemeBitmapSlots,
+  themeBitmapSlotLimit,
 } from "../../shared/theme-bitmaps";
 import agentSchema from "../../shared/agent-plugin.schema.json";
 import agentExample from "../../shared/agent-plugin.example.json";
@@ -228,14 +230,20 @@ const themeSchema = schema("foom:theme", {
           type: "object",
           additionalProperties: false,
           properties: Object.fromEntries(
-            themeBitmapSlots.map((slot) => [
+            [...themeBitmapSlots, ...legacyThemeBitmapSlots].map((slot) => [
               slot,
               {
                 type: "object",
                 additionalProperties: false,
-                required: ["file"],
+                oneOf: [{ required: ["file"] }, { required: ["files"] }],
                 properties: {
                   file: { type: "string", maxLength: 100, pattern: themeBitmapFilePattern },
+                  files: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: themeBitmapSlotLimit,
+                    items: { type: "string", maxLength: 100, pattern: themeBitmapFilePattern },
+                  },
                   opacity: { type: "number", minimum: 0.05, maximum: 0.6, default: 0.25 },
                   fit: { enum: themeBitmapFits, default: "contain" },
                   anchor: { enum: themeBitmapAnchors, default: "center" },
@@ -552,11 +560,11 @@ edit their agent's global configuration. Validate the manifest with
   against each ink. Endpoint checks alone do not guarantee interior contrast.
   Area colors override global colors. Text contrast must remain at least 4.5:1
   within every area. Brand deviations apply with warnings, printed by the CLI.
-- Version 2 images use fixed slots board (empty board), gutter (behind tiles),
-  and sidebar (lower watermark). Each slot has a direct file name in themes/,
+- Version 2 images use fixed slots empty, sidebar and tile-header. Each slot takes
+  up to eight direct file names in themes/ via files (or one via file),
   optional opacity (0.05–0.6), fit (cover, contain or tile) and anchor (center
   or a named side/corner). Use PNG, JPEG or WebP, up to 4 MiB per file.
-  Active image edits wait for approval. Missing artwork leaves the normal background.
+  Artwork applies automatically. Missing artwork leaves the normal background.
 - A file edit that newly makes needs-you hard to distinguish in the active theme,
   or selects such a theme, waits for approval. Hue-only warnings do not wait.
   Sizes and turning sounds on apply without approval.
@@ -629,6 +637,7 @@ const GUIDE_HISTORY = [
   "059593f9163e5235069e812137968e794883fce7f457af91c7a9a72bfb901c4e",
   "ca48dcaf187f27ed7163ac19b234047dfb9e10aa48897893a81c6ff657b393fe",
   "a72376c3acd4feb9930e6e65f9130e68ee5f9910059df9987573674c8106b782",
+  "792e4aca92a99a79117008434833ac2fef57a3ff64435a5d3fbcf39e120c8472",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
@@ -655,6 +664,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "add57d054e68d788be3f6e64351b0785954fe4a9014cf1b73050fa2c10180beb",
     "831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc",
     "d1f8e5722da3ab7688b91b0b8a55c4508815d74fa844ca3df73da11e35ee9a3a",
+    "0c8a287551a0341666770ee0748475662354ffe3a3685817d88445893ef214f4",
   ],
   "schemas/settings.schema.json": [
     "a1139bb152938886dba7212dc876064fb533fc1a7bbb64a4ac6ff444cc4cb9d8",

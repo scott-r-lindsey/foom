@@ -6,6 +6,7 @@ import type { LegalDocument } from "../shared/app-menu";
 import { AboutDialog } from "./about/about-dialog";
 import { ActionError, ErrorPresentation } from "./board/error-presentation";
 import { attachPreviewComposition } from "./board/preview-composition";
+import type { ActiveThemeBitmaps } from "../shared/theme-bitmap";
 import { attachInterfaceTheme } from "./ui/interface-theme";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../shared/setup";
@@ -87,7 +88,8 @@ function AppContents({ source }: { source: BoardSource }) {
   }, [source]);
   const [setup] = useState(() => createSetupSource(source.createHostView, source.closeHostSession));
   useEffect(() => () => setup.installs?.dispose(), [setup]);
-  useEffect(() => attachInterfaceTheme(setup), [setup]);
+  const [art, setArt] = useState<ActiveThemeBitmaps>();
+  useEffect(() => attachInterfaceTheme(setup, undefined, undefined, setArt), [setup]);
   useEffect(() => attachTerminalSelectionBuffer(setup), [setup]);
   const [state, setState] = useState<SetupState>();
   const [preflight, setPreflight] = useState(false);
@@ -171,6 +173,7 @@ function AppContents({ source }: { source: BoardSource }) {
       )}
       {board && (
         <Board
+          art={art}
           source={source}
           soundSetup={setup}
           inactive={preflight}

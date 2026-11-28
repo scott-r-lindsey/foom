@@ -2364,13 +2364,13 @@ test("theme bitmap projection copies only fixed paint fields and rejects arbitra
   const paint = { id: "d".repeat(64), opacity: 0.25, fit: "contain", anchor: "top-left" };
   const activeBitmaps = {
     theme: "user:gallery.json",
-    slots: { board: { ...paint, file: "/private.png", png: Uint8Array.of(1) }, terminal: paint },
+    slots: { empty: [{ ...paint, file: "/private.png", png: Uint8Array.of(1) }], terminal: paint },
   };
   const themes = { interface: [], terminal: [], errors: [], activeBitmaps };
   mock.invoke.mockResolvedValue({ ...setup, themes });
   expect((await api.setupState()).themes?.activeBitmaps).toEqual({
     theme: activeBitmaps.theme,
-    slots: { board: paint },
+    slots: { empty: [paint] },
   });
   for (const patch of [
     { id: "https://example.invalid/secret" },
@@ -2385,9 +2385,16 @@ test("theme bitmap projection copies only fixed paint fields and rejects arbitra
         ...themes,
         activeBitmaps: {
           theme: activeBitmaps.theme,
-          slots: { board: { ...paint, ...patch } },
+          slots: { empty: [{ ...paint, ...patch }] },
         },
       },
+    });
+    await expect(api.setupState()).rejects.toThrow("Invalid setup response");
+  }
+  for (const empty of [[], Array.from({ length: 9 }, () => paint), paint]) {
+    mock.invoke.mockResolvedValue({
+      ...setup,
+      themes: { ...themes, activeBitmaps: { ...activeBitmaps, slots: { empty } } },
     });
     await expect(api.setupState()).rejects.toThrow("Invalid setup response");
   }

@@ -890,7 +890,7 @@
         "terminal font picker updates open shells and config shells and refits their grids": [
           2.546, 9.164, 4.924
         ],
-        "theme bitmaps render only in approved slots with a narrow board CSP and clean fallback": [
+        "theme artwork paints separate empty regions and tile headers with a narrow CSP": [
           4.829, 10.457, 8.483
         ],
         "tile leader avoids AltGr chords and cancels unmatched keys": [1.692, 7.502, 0],
@@ -1354,7 +1354,7 @@
           14.134, 0, 35.956
         ],
         "the board stays usable at 300% in a small window": [6.946, 11.678, 4.717],
-        "theme bitmaps render only in approved slots with a narrow board CSP and clean fallback": [
+        "theme artwork paints separate empty regions and tile headers with a narrow CSP": [
           4.829, 10.457, 8.483
         ],
         "tile leader avoids AltGr chords and cancels unmatched keys": [1.692, 7.502, 0],
@@ -2898,7 +2898,7 @@
         "sidebar panels hover, pin, rename and launch a home shell": [3.124, 9.326, 7.606],
         "terminal runs an interactive shell behind an isolated bridge": [4.201, 14.581, 5.099],
         "the board stays usable at 300% in a small window": [6.946, 11.678, 4.717],
-        "theme bitmaps render only in approved slots with a narrow board CSP and clean fallback": [
+        "theme artwork paints separate empty regions and tile headers with a narrow CSP": [
           4.829, 10.457, 8.483
         ],
         "trusted card follows interface scale and clears its scrim on every dismissal": [

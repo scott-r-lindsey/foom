@@ -523,16 +523,17 @@ test("offline bitmap checks disclose only fixed slots and count artwork in the f
     JSON.stringify({
       ...interfaceThemes["eclipse-dark"],
       version: 2,
-      images: { board: { file: "private.png" } },
+      images: { empty: { files: ["private.png", "other.png"] } },
     }),
   );
+  await put(themes, "other.png", Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   expect(await validateConfig(file)).toEqual({ code: 0, problems: [] });
   expect(await validateConfig(themes)).toEqual({
     code: 1,
     problems: [
       {
         file: "gallery.json",
-        path: "$.images.board",
+        path: "$.images.empty",
         reason: "image-unavailable",
         severity: "error",
       },
@@ -541,11 +542,11 @@ test("offline bitmap checks disclose only fixed slots and count artwork in the f
   await put(themes, "private.png", "GIF89a");
   expect(await validateConfig(themes)).toMatchObject({
     code: 1,
-    problems: [{ file: "gallery.json", path: "$.images.board", reason: "image-format" }],
+    problems: [{ file: "gallery.json", path: "$.images.empty", reason: "image-format" }],
   });
   await put(themes, "private.png", Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   expect(await validateConfig(themes)).toEqual({ code: 0, problems: [] });
-  for (let i = 0; i < 49; i++) await put(themes, `unused-${String(i)}.jpeg`, "");
+  for (let i = 0; i < 48; i++) await put(themes, `unused-${String(i)}.jpeg`, "");
   expect((await validateConfig(themes)).problems).toContainEqual({
     file: "",
     path: "$",

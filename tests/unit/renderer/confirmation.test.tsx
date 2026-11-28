@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import type { DialogRequest, ApprovalKind } from "../../../src/shared/confirmation";
 import { resolveInterfaceTheme } from "../../../src/shared/interface-themes";
+import { ThemeArtContext } from "../../../src/renderer/board/theme-art";
+import { artFixture } from "../../fixtures/theme-art";
 import { ConfirmationPage } from "../../../src/renderer/confirmation";
 beforeEach(() => {
   Object.defineProperty(document, "fonts", {
@@ -39,7 +41,11 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
       size,
     },
   });
-  const view = render(<ConfirmationPage />);
+  const view = render(
+    <ThemeArtContext value={artFixture}>
+      <ConfirmationPage />
+    </ThemeArtContext>,
+  );
   expect(view.queryByRole("alertdialog")).toBeNull();
   const request: DialogRequest = {
     presented: true,
@@ -82,6 +88,8 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   act(() => {
     receive(request);
   });
+  expect(view.getByRole("alertdialog").querySelector("[data-theme-art]")).toBeNull();
+  expect(view.getByRole("alertdialog").outerHTML).not.toContain("foom-theme:");
   await act(async () => {
     await document.fonts.ready;
   });
@@ -1094,7 +1102,11 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
   const terminal = document.createElement("input");
   document.body.append(terminal);
   terminal.focus();
-  const view = render(<ConfirmationPage />);
+  const view = render(
+    <ThemeArtContext value={artFixture}>
+      <ConfirmationPage />
+    </ThemeArtContext>,
+  );
   const row = (id: string, kind: ApprovalKind = "Worktree removal", presented = true) => ({
     // Exercise both an ordinary embedded card and the compact removal projection.
     origin: "Claude · Tile 1 · repo",
@@ -1133,6 +1145,8 @@ test("approval queue preserves focus and keyed rows, guards moved controls and r
     await document.fonts.ready;
   });
   expect(document.activeElement).toBe(terminal);
+  expect(view.getByRole("dialog").querySelector("[data-theme-art]")).toBeNull();
+  expect(view.getByRole("dialog").outerHTML).not.toContain("foom-theme:");
   expect(view.getByRole("dialog").getAttribute("aria-modal")).toBe("false");
   expect(
     [...view.container.querySelectorAll<HTMLElement>(".dlg-head")].map((header) =>

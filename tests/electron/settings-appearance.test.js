@@ -1327,7 +1327,7 @@ test("nested theme inks stay readable over parent gradients and trusted header p
   assert.ok(contrast(light.ink, "#ffffff") >= 4.5);
 });
 
-test("theme bitmaps render only in approved slots with a narrow board CSP and clean fallback", {
+test("theme artwork paints separate empty regions and tile headers with a narrow CSP", {
   timeout: deadline(45000),
 }, async (context) => {
   const home = await mkdtemp(path.join(tmpdir(), "foom-theme-bitmaps-"));
@@ -1391,17 +1391,21 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   const themes = path.join(home, ".foom/config/themes");
   const bitmap = async (slot, color, base) => {
     const width = slot === "sidebar" ? 160 : 640;
-    const height = slot === "sidebar" ? 168 : 420;
-    const svg =
-      Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 160 120">
-      <g fill="none" stroke="${color}" stroke-width="1.5">
-        <ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(-24 80 60)"/>
+    const height = slot === "sidebar" ? 168 : slot === "header" ? 36 : 420;
+    const orbit = `<ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(-24 80 60)"/>
         <ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(24 80 60)"/>
         <circle cx="80" cy="60" r="22" fill="${color}" fill-opacity=".3"/>
-        <path d="M80 30v60M50 60h60" stroke-dasharray="2 4"/>
+        <path d="M80 30v60M50 60h60" stroke-dasharray="2 4"/>`;
+    const field = `<path d="M33 71 56 35l49 10 22 40-51 5Z M33 71l72-26m-49-10 20 55m0 0 29-45" stroke-dasharray="2 3"/>
+        <g fill="${color}"><circle cx="33" cy="71" r="3"/><circle cx="56" cy="35" r="2"/>
+        <circle cx="105" cy="45" r="4"/><circle cx="127" cy="85" r="2"/><circle cx="76" cy="90" r="3"/></g>`;
+    const header = `<path d="M-4 26Q100 9 210 24T433 13 640 19M-5 34Q100 14 207 29T430 19 645 23M-10 42Q100 21 201 34T428 25 650 27" stroke-opacity=".8"/>
+        <path d="M240 13h65m59 17h74m110-21h51" stroke-opacity=".5" stroke-dasharray="2 6"/>`;
+    const svg =
+      Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${slot === "header" ? "0 0 640 36" : "0 0 160 120"}">
+      <g fill="none" stroke="${color}" stroke-width="1.5">
+        ${slot === "header" ? header : slot === "field" ? field : orbit}
       </g>
-      <g fill="${color}"><circle cx="25" cy="76" r="3"/><circle cx="127" cy="86" r="3"/>
-      <circle cx="122" cy="29" r="2"/></g>
     </svg>`);
     await sharp(svg)
       .withExif({ IFD0: { Artist: "Private source metadata" } })
@@ -1411,8 +1415,8 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   for (const base of ["light", "dark"]) {
     for (const [slot, color] of Object.entries(
       base === "light"
-        ? { board: "#35218a", gutter: "#005975", sidebar: "#075f79" }
-        : { board: "#a2baff", gutter: "#74ecd8", sidebar: "#8eb6ff" },
+        ? { orbit: "#35218a", field: "#005975", sidebar: "#075f79", header: "#35218a" }
+        : { orbit: "#a2baff", field: "#74ecd8", sidebar: "#8eb6ff", header: "#a2baff" },
     ))
       await bitmap(slot, color, base);
     await writeFile(
@@ -1422,8 +1426,8 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
         version: 2,
         name: `Bitmap ${base}`,
         images: {
-          board: { file: `${base}-board.png`, opacity: 0.6 },
-          gutter: { file: `${base}-gutter.png`, opacity: 0.6, anchor: "right" },
+          empty: { files: [`${base}-orbit.png`, `${base}-field.png`], opacity: 0.6 },
+          "tile-header": { file: `${base}-header.png`, opacity: 0.6, fit: "cover" },
           sidebar: { file: `${base}-sidebar.png`, opacity: 0.55, anchor: "bottom" },
         },
       }),
@@ -1437,7 +1441,7 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
     await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute(
       "data-theme-bitmaps",
-      "board gutter sidebar",
+      "empty sidebar tile-header",
     );
     await expect
       .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
@@ -1447,7 +1451,7 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
     page.evaluate(async () => (await window.desktop.setupState()).themes.activeBitmaps.slots);
   const capture = async (target, label) =>
     target.screenshot({
-      path: evidencePath(`1189-theme-bitmaps/${label}.png`),
+      path: evidencePath(`screenshots-1367/${label}.png`),
       animations: "disabled",
       // Fixture paths can contain an account name on some platforms.
       style: ".tile-location { display: none; }",
@@ -1466,7 +1470,7 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
     }, url);
 
   await select("light");
-  const oldBoard = source((await slots()).board);
+  const oldBoard = source((await slots()).empty[0]);
   const policyPage = await confirmationPage(app);
   const csp = (target) =>
     target.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
@@ -1531,53 +1535,105 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   assert.equal(normalized.exif, undefined);
   assert.doesNotMatch(JSON.stringify(await slots()), /\.png|Private source metadata/u);
 
+  const spaces = page.locator('.terminal-tile[data-empty="true"]');
+  const emptyArt = spaces.locator('[data-theme-art="empty"]');
+  const header = page.locator(".tile-title");
+  const terminal = tileArea.locator(".xterm:visible");
+  const paint = (target) => target.evaluate((element) => getComputedStyle(element).backgroundImage);
+  const opaque = (target) =>
+    target.evaluate((element) => /^rgb\(/u.test(getComputedStyle(element).backgroundColor));
+
   for (const base of ["light", "dark"]) {
     if (base === "dark") await select(base);
     const images = await slots();
-    await expect(tileArea).toHaveAttribute("data-occupied", "false");
-    await expect
-      .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
-      .toBe(`url("${source(images.board)}")`);
-    assert.equal(await paintsImage(source(images.board)), true);
-    assert.equal(await paintsImage(source(images.sidebar)), true);
+    assert.equal(images.empty.length, 2);
+    for (const piece of [...images.empty, ...images.sidebar, ...images["tile-header"]])
+      assert.equal(await paintsImage(source(piece)), true);
+    await expect(emptyArt).toHaveCount(1);
+    const blankPaint = await paint(emptyArt);
+    assert.ok(images.empty.some((piece) => blankPaint === `url("${source(piece)}")`));
     await expect(page.locator(".sidebar-bitmap")).toHaveCSS(
       "background-image",
-      `url("${source(images.sidebar)}")`,
+      `url("${source(images.sidebar[0])}")`,
     );
-    await capture(tileArea, `board-${base}`);
-    await capture(page.locator(".sidebar-shell"), `sidebar-${base}`);
+    await capture(page, `blank-${base}`);
 
     await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Enter");
     await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
-    const tileMenu = page.getByRole("button", { name: "Tile 1 menu", exact: true });
-    await expect(tileMenu).toBeEnabled();
-    await tileMenu.press("Enter");
-    await page.getByRole("menuitem", { name: "Split terminal right", exact: true }).press("Enter");
-    await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
-    await expect
-      .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
-      .toBe(`url("${source(images.gutter)}")`);
-    assert.equal(await paintsImage(source(images.gutter)), true);
-    await expect(page.locator(".xterm:visible")).toHaveCount(1);
-    await expect
-      .poll(async () =>
-        (await tileArea.locator(".xterm:visible .xterm-rows").textContent())?.trim(),
-      )
-      .toBe(fixturePrompt);
-    await capture(tileArea, `gutter-${base}`);
-    await page.getByRole("button", { name: "Hide", exact: true }).click();
-    await expect(tileArea).toHaveAttribute("data-occupied", "false");
-    const spaces = page.locator('.terminal-tile[data-empty="true"]');
-    await spaces.first().click({ button: "right" });
-    await page.getByRole("menuitem", { name: "Close space", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Tile 1 menu", exact: true })).toBeEnabled();
+    await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
     await expect(spaces).toHaveCount(1);
+    await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+    await expect(spaces).toHaveCount(2);
+    const regions = await emptyArt.evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        const tile = element.parentElement.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+          contained:
+            box.left >= tile.left &&
+            box.top >= tile.top &&
+            box.right <= tile.right &&
+            box.bottom <= tile.bottom,
+          image: style.backgroundImage,
+          fit: style.backgroundSize,
+          anchor: style.backgroundPosition,
+          pointerEvents: style.pointerEvents,
+        };
+      }),
+    );
+    assert.equal(regions.length, 2);
+    assert.notDeepEqual([regions[0].x, regions[0].y], [regions[1].x, regions[1].y]);
+    for (const region of regions) {
+      assert.ok(region.contained && region.width > 0 && region.height > 0);
+      assert.equal(region.fit, "contain");
+      assert.equal(region.anchor, "50% 50%");
+      assert.equal(region.pointerEvents, "none");
+      assert.ok(images.empty.some((piece) => region.image === `url("${source(piece)}")`));
+    }
+    const seam = tileArea.locator(".tile-gutter-art").first();
+    await expect(seam).toBeVisible();
+    const stable = [...regions.map((region) => region.image), await paint(seam)];
+    await page.getByRole("separator", { name: "Resize tiles" }).first().press("ArrowRight");
+    assert.deepEqual(
+      [await paint(emptyArt.first()), await paint(emptyArt.last()), await paint(seam)],
+      stable,
+    );
+
+    const titleArt = header.locator('[data-theme-art="tile-header"]');
+    await expect(titleArt).toHaveCSS(
+      "background-image",
+      `url("${source(images["tile-header"][0])}")`,
+    );
+    await expect(titleArt).toHaveCSS("pointer-events", "none");
+    for (const selector of [".tile-number", ".tile-controls", ".tile-light-backing"])
+      assert.equal(await opaque(header.locator(selector)), true);
+
+    await expect(terminal).toHaveCount(1);
+    await expect
+      .poll(async () => (await terminal.locator(".xterm-rows").textContent())?.trim())
+      .toBe(fixturePrompt);
+    await expect(terminal.locator("[data-theme-art]")).toHaveCount(0);
+    await expect(terminal.locator(".xterm-screen")).toHaveCSS("background-image", "none");
+    await header.click();
+    await capture(page, `tiles-${base}`);
+    await page.getByRole("button", { name: "Hide", exact: true }).click();
+    await expect(spaces).toHaveCount(3);
+    for (const remaining of [2, 1]) {
+      await spaces.first().click({ button: "right" });
+      await page.getByRole("menuitem", { name: "Close space", exact: true }).click();
+      await expect(spaces).toHaveCount(remaining);
+    }
   }
 
   assert.equal(await paintsImage(oldBoard), false);
-  await rm(path.join(themes, "dark-board.png"));
-  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "gutter sidebar");
-  await expect
-    .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
-    .toBe("none");
-  await capture(tileArea, "board-dark-removed");
+  await rm(path.join(themes, "dark-orbit.png"));
+  await rm(path.join(themes, "dark-field.png"));
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "sidebar tile-header");
+  await expect(emptyArt).toHaveCount(0);
 });

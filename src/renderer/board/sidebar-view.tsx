@@ -1,3 +1,4 @@
+import { ThemeArt } from "./theme-art";
 import { ActionError, BackgroundErrorMark } from "./error-presentation";
 import { AgentBadge } from "./agent-badge";
 import { AppMenu } from "./app-menu";
@@ -702,7 +703,7 @@ export function Sidebar(props: SidebarProps) {
                 );
               })}
         </div>
-        <div className="sidebar-bitmap" aria-hidden="true" />
+        <ThemeArt slot="sidebar" className="sidebar-bitmap" />
         {!compact && !filter.trim() && (
           <button
             type="button"

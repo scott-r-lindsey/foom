@@ -199,66 +199,55 @@ Terminal has no text-size helper line.
 
 ## Decorative bitmaps (#1189)
 
-Version 2 theme files may add an `images` object with only `board` (empty board),
-`gutter` (the space behind occupied layout tiles), and `sidebar` (blank space
-below the repository controls, outside the compact rail). Each slot takes
-`{ "file": "picture.png", "opacity": 0.25, "fit": "contain", "anchor": "center" }`.
-The direct file name is required. Opacity is 0.05–0.6, and fit is `cover`,
-`contain`, or `tile`. Anchor accepts `center`, `top`, `bottom`, `left`,
-`right`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
-The example gives the defaults. Each slot is decorative and ignores pointer
-events. Terminal content has no image slot. Text that can cross the background
-during tile placement uses its opaque theme surface, which the palette validator
-checks against the effective ink.
+Version 2 theme files can include an `images` object with three slots.
 
-Regular bitmap files share the 50-file folder budget with regular JSON files. Over budget, the loader
-omits bitmap paint. File names are limited to 100 ASCII letters, digits, spaces,
-dots, underscores and hyphens, starting with a letter, digit, underscore or hyphen,
-and ending in PNG, JPEG/JPG or WebP. Subfolders, symlinks and hard links are refused.
-Main reads through the theme library's descriptor and identity checks, up to
-4 MiB. The disposable [image decoder](terminals.md#image-paste-937) sniffs and
-verifies PNG, JPEG and WebP, limits dimensions to 8,192 pixels per axis and
-16 million pixels per image, and encodes the oriented first frame as a
-metadata-free PNG of at most 4 MiB. It samples the three most prevalent
-alpha-weighted color buckets and reports a fixed warning when one is within
-ΔE 40 of attention or failure colors in the relevant palettes. Those warnings
-alone do not hold a theme. An explicit decoder refusal is cached for identical
-bytes. A timeout or premature exit can retry on a later refresh after a
-one-second cooldown. The loader schedules no automatic retry.
+| Slot | Paint region |
+| --- | --- |
+| `empty` | Each blank tile region, the whole empty board, and each gap between tiles |
+| `sidebar` | Blank space below the repository controls in the expanded sidebar |
+| `tile-header` | Each occupied tile’s title bar inside the board |
 
-The catalog fingerprints source bytes for an Appearance choice without
-decoding inactive themes. Foom starts bitmap decoding after the first window
-loads and decodes only the active theme or a theme being selected. Safe edits
-to other settings apply at startup while a theme selection waits for decoding
-and any settings weakenings still require approval. When a
-settings change requires decoding, Foom prepares the snapshot before taking
-the shared settings lock, then rechecks the settings, theme JSON and source
-digests under the lock before using the verified snapshot.
+A slot takes `{ "files": ["one.png", "two.webp"], "opacity": 0.25, "fit": "contain", "anchor": "center" }`.
+Use one to eight direct filenames per slot. The singular `"file": "one.png"` is
+also accepted. Opacity is 0.05–0.6, fit is `cover`, `contain`, or `tile`, and anchor
+is `center`, a side, or a corner such as `top-right`. The example shows the defaults.
+Each region or header randomly chooses a decoded image and keeps it through
+resizes and layout changes while the region and image remain available. Fit and
+anchor apply within that region.
 
-A proposal binds the JSON, each readable source digest, and which slots decoded
-successfully. The profile records approval only for decoded artwork and retains
-previously approved bytes for unavailable slots with the same declaration.
-An earlier draft approval without verified decode provenance requires reapproval
-before its artwork can paint. Changing an active slot's file or paint settings needs **Allow /
-Keep it on**, even when the proposed file is missing. The hold lists both image
-changes and newly indistinct needs-you colors when both apply. An exact offered
-Appearance choice directly approves artwork that decodes from those source bytes.
+For one release, `board` and `gutter` each emit a warning and map to `empty`.
+An explicit `empty` takes precedence. With both legacy slots, Foom uses the
+`board` placement and takes up to eight unique filenames in board-then-gutter order.
 
-An unavailable asset leaves its slot on the normal background and stops being
-served. This preserves the approval record and applies even if the theme folder
-becomes unavailable. After restart, a matching JSON digest and matching bytes
-for available slots restore the approved palette and those slots. A restored file
-with the same bytes can paint again. Changed or previously unapproved bytes still
-wait for the gate. Keep it on restores the previous JSON when it is available
-and the remaining original assets match. It rechecks the held JSON before
-replacing it and holds a newer edit for review. If the prior JSON cannot be
-restored, it switches to Default. Allow revalidates the proposed digest before
-serving the reviewed snapshot.
+Artwork applies automatically. The disposable decoder contains decoding risk,
+and placement limits bound spoofing by agent-written art. All artwork ignores
+pointer events. Dialogs, trusted confirmations, the approval queue, the decisions
+stepper and terminal text have no art. Tile menus, window controls, status lights
+and badges have opaque backings. Palette edits that weaken attention distinctness
+still require **Allow / Keep it on**.
 
-Theme bitmaps add only `foom-theme://bitmap` to the board's `img-src`. The
-board keeps `data:` for decision previews. The scheme handler accepts GET
-requests for opaque IDs of active, approved PNGs. It serves memory only, with a
-PNG content type and no caching or fetch API access. The renderer bridge
-projects IDs and bounded placement values.
-The confirmation partition has its existing CSP and no bitmap handler. See
-[theme image privacy](privacy.md#theme-bitmaps-1189).
+Regular bitmap files share the 50-file folder budget with regular JSON files.
+Over budget, the loader omits bitmap paint. Filenames are limited to 100 ASCII
+letters, digits, spaces, dots, underscores and hyphens, starting with a letter,
+digit, underscore or hyphen, and ending in PNG, JPEG/JPG or WebP. Subfolders,
+symlinks and hard links are refused. Main reads through the theme library’s
+descriptor and identity checks, up to 4 MiB per file. The disposable
+[image decoder](terminals.md#image-paste-937) sniffs and verifies PNG, JPEG and WebP,
+limits dimensions to 8,192 pixels per axis and 16 million pixels per image,
+and encodes the oriented first frame as a metadata-free PNG of at most 4 MiB.
+It samples the three most prevalent alpha-weighted color buckets and reports a
+warning within ΔE 40 of a relevant attention or failure color. An explicit
+decoder refusal is cached for identical bytes. A timeout or premature exit can
+retry on a later refresh after a one-second cooldown. The loader schedules no
+automatic retry.
+
+Foom begins decoding after the first window loads. Only the active theme or
+a theme being selected is decoded. An unavailable asset stops being served.
+If no usable asset remains for a slot, it uses the normal background.
+
+Theme bitmaps add only `foom-theme://bitmap` to the board’s `img-src`. The board
+keeps `data:` for decision previews. The scheme handler accepts GET requests
+for opaque IDs of active PNGs. It serves memory only, with a PNG content type
+and no caching or fetch API access. The renderer bridge projects bounded lists
+of IDs and placement values. The confirmation partition keeps its existing
+CSP and has no bitmap handler. See [theme image privacy](privacy.md#theme-bitmaps-1189).

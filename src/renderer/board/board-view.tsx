@@ -1,3 +1,5 @@
+import type { ActiveThemeBitmaps } from "../../shared/theme-bitmap";
+import { ThemeArtContext } from "./theme-art";
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
 import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
 import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
@@ -103,7 +105,10 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "take-over": "Unable to take over session.",
 };
 const emptyPreviews: readonly PreviewSummary[] = [];
-export function Board(props: ComponentProps<typeof BoardContents>) {
+export function Board({
+  art,
+  ...props
+}: ComponentProps<typeof BoardContents> & { art?: ActiveThemeBitmaps | undefined }) {
   return (
     <ErrorPresentation
       copyError={(error) =>
@@ -111,7 +116,9 @@ export function Board(props: ComponentProps<typeof BoardContents>) {
         Promise.reject(new Error("Copy unavailable"))
       }
     >
-      <BoardContents {...props} />
+      <ThemeArtContext value={art}>
+        <BoardContents {...props} />
+      </ThemeArtContext>
     </ErrorPresentation>
   );
 }

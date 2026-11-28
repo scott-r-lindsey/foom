@@ -2085,9 +2085,4 @@ button.failure-mark {
 :root[data-theme-bitmaps~="sidebar"] .sidebar-shell[data-compact="false"] .sidebar-bitmap {
   display: block;
   flex: 1 0 0;
-  pointer-events: none;
-  background:
-    var(--bitmap-sidebar-image) var(--bitmap-sidebar-position) / var(--bitmap-sidebar-size)
-    var(--bitmap-sidebar-repeat);
-  opacity: var(--bitmap-sidebar-opacity);
 }

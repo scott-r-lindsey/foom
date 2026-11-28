@@ -238,13 +238,15 @@ contents, file path and unrelated values stay on that host.
 Theme art stays local. Main reads only bounded direct image files named by
 version 2 interface themes, using descriptor and folder identity checks.
 The disposable image decoder strips source metadata before the board paints
-a normalized PNG. The renderer receives opaque IDs and bounded placement data.
+a normalized PNG. The renderer receives bounded lists of opaque IDs and placement data.
 Original bytes, bitmap file names and paths, source metadata, raw decoder
 errors and sampled colors stay out of the renderer, diagnostics and control
 tools. No network request or agent input carries theme artwork.
 The board adds only `foom-theme://bitmap` to `img-src`. Its dedicated handler
-serves active approved image IDs in the board session. The confirmation partition
-keeps its existing CSP.
+serves active image IDs in the board session. Artwork applies automatically in
+empty board regions, the lower sidebar and tile headers. Dialogs, confirmations,
+the approval queue, the decisions stepper and terminal text have no artwork. The
+confirmation partition keeps its existing CSP and has no bitmap handler.
 
 ## Dispatcher inventory (#1300)
 

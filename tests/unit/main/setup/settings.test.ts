@@ -655,9 +655,11 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   };
   await reopened.setConfigBaseline("a".repeat(64), '{"kind":"settings"}', {
     file: "themes/art.json",
-    digest: bitmapApproval,
+    digest: bitmapApproval.jsonDigest,
   });
-  expect((await SettingsStore.open(dir)).themeDigest("themes/art.json")).toEqual(bitmapApproval);
+  expect((await SettingsStore.open(dir)).themeDigest("themes/art.json")).toBe(
+    bitmapApproval.jsonDigest,
+  );
   const raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   await writeFile(
     file,
@@ -681,7 +683,7 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   );
   const filtered = await SettingsStore.open(dir);
   expect(filtered.themeDigest("themes/ok.json")).toBe("c".repeat(64));
-  expect(filtered.themeDigest("themes/art.json")).toEqual(bitmapApproval);
+  expect(filtered.themeDigest("themes/art.json")).toBe(bitmapApproval.jsonDigest);
   expect(filtered.themeDigest("themes/bad-assets.json")).toBeNull();
   expect(filtered.themeDigest("themes/bad-slot.json")).toBeNull();
   expect(filtered.themeDigest("themes/old-bitmap.json")).toBeNull();

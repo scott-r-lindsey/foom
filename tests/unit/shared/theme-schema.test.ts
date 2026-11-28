@@ -108,15 +108,36 @@ test("bitmap schema agrees with the parser on fixed slots, direct names and pain
     images: {
       board: { file: "Board 1.PNG" },
       gutter: { file: "gutter.webp", opacity: 0.05, fit: "cover", anchor: "top-right" },
+      "tile-header": { files: ["a.png", "b.png"] },
       sidebar: { file: "lower.jpeg", opacity: 0.6, fit: "tile", anchor: "bottom" },
     },
   };
   expect(validate(value), JSON.stringify(validate.errors)).toBe(true);
-  expect(parseThemeFile(JSON.stringify(value), "theme")).toMatchObject({
-    images: { board: { file: "Board 1.PNG", opacity: 0.25, fit: "contain", anchor: "center" } },
+  const parsed = parseThemeFile(JSON.stringify(value), "theme");
+  if (parsed.kind !== "theme") throw Error("Expected interface theme");
+  expect(parsed).toMatchObject({
+    images: {
+      empty: {
+        files: ["Board 1.PNG", "gutter.webp"],
+        opacity: 0.25,
+        fit: "contain",
+        anchor: "center",
+      },
+      "tile-header": { files: ["a.png", "b.png"] },
+    },
   });
+  expect(parsed.warnings?.filter(({ reason }) => reason === "legacy-image-slot")).toEqual([
+    { file: "", path: "$.images.board", reason: "legacy-image-slot", severity: "warning" },
+    { file: "", path: "$.images.gutter", reason: "legacy-image-slot", severity: "warning" },
+  ]);
   for (const patch of [
     { version: 1, images: value.images },
+    { images: { empty: {} } },
+    { images: { empty: { files: [] } } },
+    { images: { empty: { files: "art.png" } } },
+    { images: { empty: { files: [42] } } },
+    { images: { empty: { files: ["art.png"], file: "art.png" } } },
+    { images: { empty: { files: Array.from({ length: 9 }, (_, i) => `art-${String(i)}.png`) } } },
     { images: { terminal: { file: "board.png" } } },
     { images: { board: "board.png" } },
     { images: { board: { file: "/board.png" } } },
@@ -133,4 +154,24 @@ test("bitmap schema agrees with the parser on fixed slots, direct names and pain
     expect(validate(invalid)).toBe(false);
     expect(() => parseThemeFile(JSON.stringify(invalid), "theme")).toThrow();
   }
+});
+
+test("legacy gutter maps to empty, and an explicit empty slot takes precedence", () => {
+  const base = { ...interfaceThemes["eclipse-dark"], version: 2 };
+  const gutter = { file: "gutter.png", fit: "cover" };
+  const parse = (images: object) => parseThemeFile(JSON.stringify({ ...base, images }), "theme");
+  expect(parse({ gutter })).toMatchObject({
+    images: { empty: { files: ["gutter.png"], fit: "cover" } },
+  });
+  const explicit = parse({ gutter, empty: { files: ["new.png", "new.png"] } });
+  if (explicit.kind !== "theme") throw Error("Expected interface theme");
+  expect(explicit).toMatchObject({
+    images: { empty: { files: ["new.png"], fit: "contain" } },
+  });
+  expect(explicit.warnings).toContainEqual({
+    file: "",
+    path: "$.images.gutter",
+    reason: "legacy-image-slot",
+    severity: "warning",
+  });
 });

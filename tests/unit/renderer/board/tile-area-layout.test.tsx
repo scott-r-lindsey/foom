@@ -10,10 +10,23 @@ import {
   placeSession,
 } from "../../../../src/renderer/board/tiles";
 import type { SidebarCommand } from "../../../../src/shared/workspace";
+import { artFixture } from "../../../fixtures/theme-art";
 import { arrangedLayout } from "../../../fixtures/tile-layout";
 import { registerTileAreaFixture, setup } from "./tile-area-fixture";
 
 registerTileAreaFixture();
+
+test("an occupied tile paints theme art only in its header, outside the terminal text", async () => {
+  const { screen, click } = setup({}, {}, artFixture);
+  expect(screen.container.querySelector('.terminal-tile [data-theme-art="empty"]')).toBeTruthy();
+  click(0);
+  await act(async () => {});
+  expect(screen.container.querySelector('.tile-title [data-theme-art="tile-header"]')).toBeTruthy();
+  const terminal = screen.container.querySelector(".tile-terminal");
+  expect(terminal).toBeTruthy();
+  expect(terminal?.querySelector("[data-theme-art]")).toBeNull();
+  expect(terminal?.outerHTML).not.toContain("foom-theme:");
+});
 
 test("irregular splits and maximize retain leaf elements and mounted controllers", async () => {
   const { screen, views, click, send } = setup();

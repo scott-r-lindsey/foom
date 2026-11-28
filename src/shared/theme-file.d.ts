@@ -22,7 +22,8 @@ export type ThemeReason =
   | "unreadable"
   | "image-unavailable"
   | "image-format"
-  | "image-status-color";
+  | "image-status-color"
+  | "legacy-image-slot";
 export interface ThemeDiagnostic {
   severity?: "error" | "warning";
   file: string;

@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { themeBitmapSlots } from "../../shared/theme-bitmaps";
-import type { ThemeApproval, ThemeBitmapApproval } from "../../shared/theme-bitmap";
+import type { ThemeApproval } from "../../shared/theme-bitmap";
 import { parseAgentDefaults as parseStoredAgentDefaults } from "../../shared/providers/arguments";
 import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
 import { hostAlias } from "../../shared/registered-hosts";
@@ -86,16 +85,12 @@ export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
     !record(value["sources"])
   )
     return undefined;
-  if (Object.keys(value["sources"]).some((key) => !themeBitmapSlots.some((slot) => slot === key)))
+  // Migrate the approved JSON independently of the old artwork digests.
+  const sources = value["sources"];
+  const legacy = ["board", "gutter", "sidebar"];
+  if (!Object.keys(sources).every((slot) => legacy.includes(slot) && sha256(sources[slot])))
     return undefined;
-  const sources: ThemeBitmapApproval["sources"] = {};
-  for (const slot of themeBitmapSlots) {
-    const source = value["sources"][slot];
-    if (source === undefined) continue;
-    if (!sha256(source)) return undefined;
-    sources[slot] = source;
-  }
-  return { decoded: true, digest: value["digest"], jsonDigest: value["jsonDigest"], sources };
+  return value["jsonDigest"];
 }
 
 export const DEFAULT_SETTINGS: Settings = freezeSettings({

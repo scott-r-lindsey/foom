@@ -1,3 +1,4 @@
+import { ThemeArt, ThemeArtContext } from "./theme-art";
 import { agentPermissionLabels } from "../../shared/agent-permission-arguments";
 import { DecisionPill } from "./message-board-decisions";
 import { HostChip } from "./sidebar-machine-row";
@@ -10,7 +11,7 @@ import { TerminalMenu } from "../terminal/terminal-menu";
 import type { TerminalContextMenu } from "../terminal/terminal-view-source.d";
 import { SpaceMenu, TileMenu } from "./tile-menu";
 import { AgentBadge } from "./agent-badge";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, use, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -154,6 +155,20 @@ export const position = (rect: TileRect): CSSProperties => ({
   width: `${String(rect.width)}%`,
   height: `${String(rect.height)}%`,
 });
+
+function tilePosition(rect: TileRect): CSSProperties {
+  const inset = (edge: boolean) => (edge ? "var(--tile-art-half-gap, 0px)" : "0px");
+  const left = inset(rect.x > 0);
+  const top = inset(rect.y > 0);
+  const right = inset(rect.x + rect.width < 99.999);
+  const bottom = inset(rect.y + rect.height < 99.999);
+  return {
+    left: `calc(${String(rect.x)}% + ${left})`,
+    top: `calc(${String(rect.y)}% + ${top})`,
+    width: `calc(${String(rect.width)}% - ${left} - ${right})`,
+    height: `calc(${String(rect.height)}% - ${top} - ${bottom})`,
+  };
+}
 export function Tile({
   tile,
   rect,
@@ -208,6 +223,7 @@ export function Tile({
   action: (action: TileAction) => void;
 }) {
   const { report, clear } = useBackgroundErrors();
+  const hasEmptyArt = Boolean(use(ThemeArtContext)?.slots.empty);
   const [view] = useState(() => source.createView?.());
   const [error, setError] = useState("");
   const errorOriginRef = useRef<Element | null>(null);
@@ -388,7 +404,9 @@ export function Tile({
       data-empty={!occupied}
       data-maximized={maximized}
       data-behind={behind}
-      style={position(maximized ? { x: 0, y: 0, width: 100, height: 100 } : rect)}
+      style={(hasEmptyArt ? tilePosition : position)(
+        maximized ? { x: 0, y: 0, width: 100, height: 100 } : rect,
+      )}
       aria-label={`Tile ${String(number)}${occupied ? `: ${name}` : ": empty"}${preview?.openedBy ? `, opened by ${previewOpener(preview, rows, preferences)}` : ""}`}
       aria-hidden={!occupied || undefined}
       tabIndex={occupied ? (focused ? 0 : -1) : undefined}
@@ -429,6 +447,7 @@ export function Tile({
         }
       }}
     >
+      {!occupied && <ThemeArt slot="empty" />}
       {occupied && (
         <header
           className="tile-title"
@@ -444,12 +463,15 @@ export function Tile({
               setMenu({ anchor: menuRef.current, point: { x: event.clientX, y: event.clientY } });
           }}
         >
+          <ThemeArt slot="tile-header" />
           <div className="tile-title-main">
             <div className="tile-heading">
               <div className="tile-heading-content">
                 {row && (
                   <>
-                    <TileLight row={row} lightRef={lightRef} />
+                    <span className="tile-light-backing">
+                      <TileLight row={row} lightRef={lightRef} />
+                    </span>
                     {exitStatus && (
                       <span className="tile-exit-status session-program" title={exitDescription}>
                         <span>{exitStatus}</span>

@@ -519,10 +519,9 @@ new attention conflicts use the existing Allow / Keep it on approval. See the
 
 ### Decorative theme bitmaps (#1189)
 
-Version 2 interface themes may place PNG, JPEG or WebP artwork in the empty
-board, in the gaps behind tiles, or in the blank lower sidebar. Put the image
-directly beside the theme JSON and specify its name in `images.board.file`,
-`images.gutter.file` or `images.sidebar.file`. Optional opacity, fit and anchor
-control the placement. Active image edits wait for **Allow / Keep it on**. A
-missing or unusable image leaves the normal background. The
+Version 2 interface themes can put PNG, JPEG or WebP artwork in empty board
+regions, the expanded sidebar’s blank lower area, or tile headers. Put the
+images beside the theme JSON. Use `files` to list up to eight per slot, or `file`
+for one. Each region keeps a random choice while it stays open. Artwork applies
+automatically, and an unavailable slot uses the normal background. The
 [theme format](../areas/themes.md#decorative-bitmaps-1189) lists the bounds and defaults.

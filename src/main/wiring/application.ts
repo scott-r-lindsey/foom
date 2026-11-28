@@ -742,7 +742,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     },
     onStatus: wiring.configStatusChanged,
     onThemeBitmapsChanged: wiring.themesChanged,
-    loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode),
+    loadThemeBitmaps: (parsed) => bitmaps.load(parsed),
     deferThemeDecoding: true,
     onThemeDecision: () => {
       void wiring.themes.reload();

@@ -6,6 +6,8 @@ import {
   DecisionsDialog,
   useDecisionCounts,
 } from "../../../../src/renderer/board/message-board-decisions";
+import { ThemeArt, ThemeArtContext } from "../../../../src/renderer/board/theme-art";
+import { artFixture } from "../../../fixtures/theme-art";
 import type {
   BoardDecision,
   BoardDecisions,
@@ -84,12 +86,15 @@ function setup(preview: MessageBoardApi["preview"] = vi.fn(() => Promise.resolve
     resolve: vi.fn(),
   };
   const view = render(
-    <DecisionsDialog
-      api={api}
-      session={{ repository: "r", name: "Main", questions: rows }}
-      subscribe={h.subscribe}
-      close={close}
-    />,
+    <ThemeArtContext value={artFixture}>
+      <ThemeArt slot="empty" />
+      <DecisionsDialog
+        api={api}
+        session={{ repository: "r", name: "Main", questions: rows }}
+        subscribe={h.subscribe}
+        close={close}
+      />
+    </ThemeArtContext>,
   );
   return {
     ...h,
@@ -143,6 +148,14 @@ it("reads coalesced counts, ignores out-of-order reads and disposes its subscrip
   });
   view.unmount();
   expect(h.off).toHaveBeenCalledOnce();
+});
+
+it("the decisions stepper has no artwork when board artwork is active", async () => {
+  const view = setup();
+  expect(view.container.querySelector('[data-theme-art="empty"]')).toBeTruthy();
+  const dialog = await view.findByRole("dialog");
+  expect(dialog.querySelector("[data-theme-art]")).toBeNull();
+  expect(dialog.outerHTML).not.toContain("foom-theme:");
 });
 
 it("reviews choices, keeps Skip pending and retries the same atomic submission", async () => {

@@ -25,8 +25,8 @@ const text = JSON.stringify({
   ...base,
   version: 2,
   images: {
-    board: { file: "private.png" },
-    gutter: { file: "private.png", opacity: 0.5, fit: "tile" },
+    empty: { files: ["private.png", "missing.png"] },
+    "tile-header": { file: "private.png", opacity: 0.5, fit: "tile" },
     sidebar: { file: "gone.webp" },
   },
 });
@@ -53,30 +53,31 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
   const { root, directory, file, normalize, bitmaps } = await fixture();
   await writeFile(file, "fixture pixels");
   const result = await bitmaps.load(parsed);
-  expect(result.slots.board?.paint.id).toMatch(/^[a-f0-9]{64}$/u);
-  expect(result.slots.board?.paint).toMatchObject({
+  expect(result.slots.empty?.[0]?.paint.id).toMatch(/^[a-f0-9]{64}$/u);
+  expect(result.slots.empty?.[0]?.paint).toMatchObject({
     opacity: 0.25,
     fit: "contain",
     anchor: "center",
   });
-  expect(result.slots.gutter?.paint).toEqual({
-    id: result.slots.board?.paint.id,
+  expect(result.slots["tile-header"]?.[0]?.paint).toEqual({
+    id: result.slots.empty?.[0]?.paint.id,
     opacity: 0.5,
     fit: "tile",
     anchor: "center",
   });
   expect(result.diagnostics).toEqual([
-    { file: "", path: "$.images.board", severity: "warning", reason: "image-status-color" },
-    { file: "", path: "$.images.gutter", severity: "warning", reason: "image-status-color" },
+    { file: "", path: "$.images.empty", severity: "warning", reason: "image-status-color" },
+    { file: "", path: "$.images.empty", severity: "error", reason: "image-unavailable" },
     { file: "", path: "$.images.sidebar", severity: "error", reason: "image-unavailable" },
+    { file: "", path: "$.images.tile-header", severity: "warning", reason: "image-status-color" },
   ]);
-  const board = result.slots.board?.paint;
-  if (!board) throw new Error("Board bitmap fixture missing");
+  const empty = result.slots.empty?.[0]?.paint;
+  if (!empty) throw new Error("Board bitmap fixture missing");
   const library = new ThemeLibrary(
     root,
     undefined,
     () => Promise.resolve({ parsed, digest: "fixture", imageDiagnostics: result.diagnostics }),
-    () => ({ id: "user:sample.json", theme: base, bitmaps: { board } }),
+    () => ({ id: "user:sample.json", theme: base, bitmaps: { empty: [empty] } }),
   );
   disposers.push(() => {
     library.dispose();
@@ -84,8 +85,8 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
   await writeFile(join(directory, "sample.json"), text);
   await library.initialize();
   const catalog = library.snapshot();
-  expect(catalog.activeBitmaps?.slots.board?.id).toBe(result.slots.board?.paint.id);
-  expect(catalog.errors).toHaveLength(3);
+  expect(catalog.activeBitmaps?.slots.empty?.[0]?.id).toBe(result.slots.empty?.[0]?.paint.id);
+  expect(catalog.errors).toHaveLength(4);
   expect(JSON.stringify(catalog)).not.toMatch(/private\.png|gone\.webp|fixture pixels/u);
   await bitmaps.load(parsed);
   expect(normalize).toHaveBeenCalledOnce();
@@ -104,11 +105,10 @@ test("enforces byte and file budgets and surfaces a fixed decoder rejection", as
   const result = await bitmaps.load(parsed);
   expect(result.diagnostics[0]).toEqual({
     file: "",
-    path: "$.images.board",
+    path: "$.images.empty",
     severity: "error",
     reason: "image-format",
   });
-  expect(result.sources.board).toBeDefined();
   for (let i = 0; i < 50; i++) await writeFile(join(directory, `sample-${String(i)}.webp`), "");
   expect((await bitmaps.load(parsed)).diagnostics.map(({ reason }) => reason)).toEqual(
     Array.from({ length: 3 }, () => "too-many-files"),
@@ -143,7 +143,7 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test("bitmap protocol resolves only exact GET IDs for currently approved images", async () => {
+test("bitmap protocol resolves only exact GET IDs for currently active images", async () => {
   const id = "d".repeat(64);
   const url = `foom-theme://bitmap/${id}`;
   const png = Uint8Array.of(1, 2, 3);
@@ -186,8 +186,9 @@ test("an unavailable folder omits all paint and a recovered sidebar uses its own
     ...parsed,
     theme: { ...base, areas: { sidebar: { failed: "#00ffee" } } },
   });
-  expect(snapshot.slots.sidebar?.paint).toBeDefined();
+  expect(snapshot.slots.sidebar?.[0]?.paint).toBeDefined();
   expect(snapshot.diagnostics).toEqual([
+    { file: "", path: "$.images.empty", severity: "error", reason: "image-unavailable" },
     { file: "", path: "$.images.sidebar", severity: "warning", reason: "image-status-color" },
   ]);
 });
@@ -201,7 +202,7 @@ test("an unchanged source recovers from a transient decode failure on a later re
   expect((await bitmaps.load(parsed)).slots).toEqual({});
   expect(normalize).toHaveBeenCalledOnce();
   clock.mockReturnValue(2_001);
-  expect((await bitmaps.load(parsed)).slots.board).toBeDefined();
+  expect((await bitmaps.load(parsed)).slots.empty).toBeDefined();
   expect(normalize).toHaveBeenCalledTimes(2);
 });
 
@@ -215,7 +216,7 @@ test.skipIf(process.platform === "win32")(
       await symlink("missing", join(directory, `dead-${String(i)}.png`));
       await symlink("missing", join(directory, `dead-${String(i)}.json`));
     }
-    expect((await bitmaps.load(parsed)).slots.board).toBeDefined();
+    expect((await bitmaps.load(parsed)).slots.empty).toBeDefined();
     const library = new ThemeLibrary(root);
     disposers.push(() => {
       library.dispose();

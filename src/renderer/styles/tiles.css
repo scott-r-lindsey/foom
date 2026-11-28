@@ -872,27 +872,70 @@
   min-height: 0;
 }
 
-/* Decorative paint is behind tiles. Any text drawn over that plane has an
-   opaque surface; the theme parser already checks its effective ink. */
-:root[data-theme-bitmaps~="board"] .tile-area[data-occupied="false"]::before,
-:root[data-theme-bitmaps~="gutter"] .tile-area[data-occupied="true"]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
+/* Artwork has its own paint box. Text and controls have opaque backings. */
+.theme-art {
   pointer-events: none;
 }
-:root[data-theme-bitmaps~="board"] .tile-area[data-occupied="false"]::before {
-  background:
-    var(--bitmap-board-image) var(--bitmap-board-position) / var(--bitmap-board-size)
-    var(--bitmap-board-repeat);
-  opacity: var(--bitmap-board-opacity);
-}
-:root[data-theme-bitmaps~="gutter"] .tile-area[data-occupied="true"]::before {
-  background:
-    var(--bitmap-gutter-image) var(--bitmap-gutter-position) / var(--bitmap-gutter-size)
-    var(--bitmap-gutter-repeat);
-  opacity: var(--bitmap-gutter-opacity);
+:root[data-theme-bitmaps~="empty"] .tile-area {
+  --tile-art-half-gap: 3px;
 }
 :root[data-theme-bitmaps]:not([data-theme-bitmaps=""]) .tile-drop-preview {
   background: var(--surface);
+}
+.terminal-tile > .theme-art,
+.tile-title > .theme-art {
+  position: absolute;
+  inset: 0;
+}
+.tile-gutter-art {
+  position: absolute;
+}
+.tile-gutter-art[data-direction="horizontal"] {
+  min-width: calc(2 * var(--tile-art-half-gap));
+  transform: translateX(calc(-1 * var(--tile-art-half-gap)));
+}
+.tile-gutter-art[data-direction="vertical"] {
+  min-height: calc(2 * var(--tile-art-half-gap));
+  transform: translateY(calc(-1 * var(--tile-art-half-gap)));
+}
+.tile-title:has(> .theme-art) {
+  position: relative;
+  isolation: isolate;
+}
+.tile-title > .theme-art {
+  z-index: -1;
+}
+.tile-light-backing {
+  display: contents;
+}
+.tile-title:has(> .theme-art)
+  :is(
+    .tile-light-backing,
+    .tile-exit-status,
+    .preview-glyph,
+    .preview-network,
+    .tile-identity > :not(.visually-hidden),
+    .tile-number,
+    .tile-controls
+  ) {
+  background-color: var(--surface);
+}
+.tile-title:has(> .theme-art) .tile-light-backing {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: 20px;
+  padding-inline: 3px 6px;
+  margin-inline: -3px -6px;
+}
+.terminal-tile:not(:hover, :focus-within, [data-focused="true"])
+  .tile-title:has(> .theme-art)
+  .tile-controls {
+  opacity: 1;
+}
+.terminal-tile:not(:hover, :focus-within, [data-focused="true"])
+  .tile-title:has(> .theme-art)
+  .tile-controls
+  button {
+  opacity: 0;
 }
