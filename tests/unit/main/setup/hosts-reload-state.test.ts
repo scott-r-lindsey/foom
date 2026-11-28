@@ -45,6 +45,7 @@ async function fixture() {
     .mockResolvedValue(good);
   const store = await SettingsStore.open(root);
   await store.update({
+    agents: { codex: true },
     registeredHosts: [
       {
         host: "fixture",
@@ -72,7 +73,7 @@ async function fixture() {
     owners.push(hosts);
     return hosts;
   };
-  return { hosts: await reopen(), reopen, run };
+  return { hosts: await reopen(), reopen, run, root };
 }
 
 test.each(["ssh", "platform", "artifact"] as const)(
@@ -181,3 +182,45 @@ test("a failed full check after partial recovery keeps the last full successful 
   expect(saved?.lastAgents).toEqual({ checkedAt: 1234, result: good });
   expect(saved?.preflight.result.ok).toBe(false);
 });
+
+test.each(["folder", "artifact"] as const)(
+  "%s reload persists agent history from the unsaved full check it adopts",
+  async (kind) => {
+    const { hosts, reopen, root, run } = await fixture();
+    const check = {
+      action: "preflight",
+      host: "fixture",
+      codeFolder: good.facts.codeFolder,
+    } as const;
+    run.mockResolvedValueOnce(failed);
+    const before = await hosts.action(check);
+    expect(before.hosts[0]?.observation?.lastAgents).toEqual({ checkedAt: 1234, result: good });
+
+    const latest: typeof good = {
+      ...good,
+      facts: { ...good.facts, agents: [{ id: "codex", state: "ready", signIn: "signed-out" }] },
+    };
+    const checkedAt = 5678;
+    const now = vi.spyOn(Date, "now").mockReturnValue(checkedAt);
+    const update = vi.spyOn(SettingsStore.prototype, "update");
+    update.mockRejectedValueOnce(new Error("fixture full check write failed"));
+    run.mockResolvedValueOnce(latest);
+    const unsaved = await hosts.action(check);
+    now.mockRestore();
+    expect(unsaved.preflightSaveFailed).toBe(true);
+    expect(unsaved.hosts[0]?.observation).toEqual(before.hosts[0]?.observation);
+
+    await hosts.action({ action: "reload", host: "fixture", target: { kind } });
+    const store = await SettingsStore.open(root);
+    const saved = store.get().registeredHosts?.[0]?.observation;
+    expect(saved?.preflight.result).toEqual(latest);
+    expect(saved?.lastAgents).toEqual({ checkedAt, result: latest });
+
+    hosts.dispose();
+    const restarted = await reopen();
+    run.mockResolvedValueOnce(failed);
+    const unreachable = await restarted.action(check);
+    expect(unreachable.hosts[0]?.observation?.preflight.result.ok).toBe(false);
+    expect(unreachable.hosts[0]?.observation?.lastAgents).toEqual(saved?.lastAgents);
+  },
+);

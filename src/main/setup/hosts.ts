@@ -36,6 +36,7 @@ import type {
   HostFailure,
   HostCheck,
   HostCheckProgress,
+  HostObservation,
   HostPreflight,
   LiveHostChecklist,
   HostManagement,
@@ -73,6 +74,15 @@ function hostTool(result: HostResult | undefined, tool: string) {
   return result?.ok
     ? [...result.facts.agents, ...(result.facts.tools ?? [])].find((entry) => entry.id === tool)
     : undefined;
+}
+
+function lastSuccessfulAgents(observation: HostObservation | undefined) {
+  return (
+    observation?.lastAgents ??
+    (observation?.preflight.result.ok
+      ? { checkedAt: observation.checkedAt, result: observation.preflight.result }
+      : undefined)
+  );
 }
 
 /** The same closed classification serves full checks and individual connection rows. */
@@ -1110,7 +1120,7 @@ export class Hosts {
   private hostKeyTrust: "askpass" | "manual" | undefined;
   private readonly checklists = new HostObservations<
     string,
-    LiveHostChecklist & { checkedAt?: number }
+    LiveHostChecklist & { checkedAt?: number; unsavedAgents?: HostObservation["lastAgents"] }
   >();
   private sshRevision = 0;
   private readonly pendingRows = new HostObservations<string, PendingHostRow[]>();
@@ -1143,15 +1153,21 @@ export class Hosts {
   private recordChecklist(
     host: string,
     preflight: HostPreflight,
-    checkedAt = this.checklists.get(host)?.checkedAt,
+    fullCheckAt?: number,
   ): LiveHostChecklist["preflight"] {
     const current = this.checklists.get(host);
     const sshRevision = preflight.sshRevision ?? 0;
     if (current && sshRevision < current.preflight.sshRevision) return current.preflight;
     const next = { ...preflight, sshRevision };
+    const checkedAt = fullCheckAt ?? current?.checkedAt;
+    const unsavedAgents =
+      fullCheckAt !== undefined && preflight.result.ok
+        ? { checkedAt: fullCheckAt, result: preflight.result }
+        : current?.unsavedAgents;
     this.checklists.set(host, {
       preflight: next,
       ...(checkedAt !== undefined ? { checkedAt } : {}),
+      ...(unsavedAgents ? { unsavedAgents } : {}),
       ...(current?.saveFailed ? { saveFailed: true } : {}),
     });
     return next;
@@ -1162,14 +1178,14 @@ export class Hosts {
     const persisted = this.store
       .get()
       .registeredHosts?.find((entry) => entry.host === host)?.observation;
-    const saveFailed =
-      failed ||
-      (!!current.saveFailed &&
-        (!persisted || (persisted.preflight.sshRevision ?? 0) < sshRevision));
-    if (!!current.saveFailed !== saveFailed)
+    const saved = !failed && persisted && (persisted.preflight.sshRevision ?? 0) >= sshRevision;
+    const saveFailed = failed || (!!current.saveFailed && !saved);
+    const unsavedAgents = saved ? undefined : current.unsavedAgents;
+    if (!!current.saveFailed !== saveFailed || current.unsavedAgents !== unsavedAgents)
       this.checklists.set(host, {
         preflight: current.preflight,
         ...(current.checkedAt !== undefined ? { checkedAt: current.checkedAt } : {}),
+        ...(unsavedAgents ? { unsavedAgents } : {}),
         ...(saveFailed ? { saveFailed: true } : {}),
       });
   }
@@ -1267,16 +1283,19 @@ export class Hosts {
         if (!entry) return hosts;
         const observation = entry.observation;
         const live = this.visibleChecklist(entry);
+        const checklist = this.checklists.get(host);
         base = completedHostCheck(entry, live);
         // Only a completed full check can supply a missing Last checked time.
         const checkedAt =
-          observation?.checkedAt ??
-          (sshRevision === undefined ? this.checklists.get(host)?.checkedAt : undefined);
+          observation?.checkedAt ?? (sshRevision === undefined ? checklist?.checkedAt : undefined);
         if (!base || checkedAt === undefined) return hosts;
-        const currentLive = this.checklists.get(host)?.preflight;
+        const currentLive = checklist?.preflight;
         canCommit = () => !superseded() && currentLive === this.checklists.get(host)?.preflight;
         // SSH changes publish their revised checklist before saving.
         const preflight = sshRevision === undefined ? change(base) : base;
+        const lastAgents =
+          (live && checklist?.unsavedAgents) ??
+          (preflight.result.ok ? observation?.lastAgents : lastSuccessfulAgents(observation));
         saved = preflight;
         return hosts.map((registration) =>
           registration === entry
@@ -1285,14 +1304,7 @@ export class Hosts {
                 observation: {
                   ...observation,
                   checkedAt,
-                  ...(!preflight.result.ok && observation?.preflight.result.ok
-                    ? {
-                        lastAgents: observation.lastAgents ?? {
-                          checkedAt,
-                          result: observation.preflight.result,
-                        },
-                      }
-                    : {}),
+                  ...(lastAgents ? { lastAgents } : {}),
                   preflight,
                 },
               }
@@ -1958,6 +1970,7 @@ export class Hosts {
             if (registration && current()) {
               const checkedAt = Date.now();
               this.recordChecklist(input.host, preflight, checkedAt);
+              const unsavedAgents = this.checklists.get(input.host)?.unsavedAgents;
               this.resourceResults.delete(input.host);
               this.results.set(input.host, preflight.result);
               await this.expandRegistration(input.host);
@@ -1970,38 +1983,29 @@ export class Hosts {
                 (hosts) =>
                   !current()
                     ? hosts
-                    : hosts.map((entry) =>
-                        entry.host === input.host
-                          ? {
-                              ...entry,
-                              observation: {
-                                ...(!preflight.result.ok && entry.observation
-                                  ? entry.observation.lastAgents
-                                    ? { lastAgents: entry.observation.lastAgents }
-                                    : entry.observation.preflight.result.ok
-                                      ? {
-                                          lastAgents: {
-                                            checkedAt: entry.observation.checkedAt,
-                                            result: entry.observation.preflight.result,
-                                          },
-                                        }
-                                      : {}
-                                  : {}),
-                                checkedAt,
-                                preflight: {
-                                  ...preflight,
-                                  result: row?.result ?? preflight.result,
-                                },
-                                ...(row?.foreignSessions !== undefined
-                                  ? { foreignSessions: row.foreignSessions }
-                                  : {}),
-                                ...(row?.foreignWorktrees !== undefined
-                                  ? { foreignWorktrees: row.foreignWorktrees }
-                                  : {}),
-                              },
-                            }
-                          : entry,
-                      ),
+                    : hosts.map((entry) => {
+                        if (entry.host !== input.host) return entry;
+                        const lastAgents = preflight.result.ok
+                          ? undefined
+                          : (unsavedAgents ?? lastSuccessfulAgents(entry.observation));
+                        return {
+                          ...entry,
+                          observation: {
+                            ...(lastAgents ? { lastAgents } : {}),
+                            checkedAt,
+                            preflight: {
+                              ...preflight,
+                              result: row?.result ?? preflight.result,
+                            },
+                            ...(row?.foreignSessions !== undefined
+                              ? { foreignSessions: row.foreignSessions }
+                              : {}),
+                            ...(row?.foreignWorktrees !== undefined
+                              ? { foreignWorktrees: row.foreignWorktrees }
+                              : {}),
+                          },
+                        };
+                      }),
                 current,
               ).then(
                 () => false,
