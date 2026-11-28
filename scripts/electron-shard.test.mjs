@@ -357,9 +357,11 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
         for (let attempt = 0; attempt < 2; attempt++) {
           try { childProcess.spawnSync(process.execPath, ["--version"]); } catch {}
         }
+        // Invalid ports fail before opening a socket in the real runner.
+        try { require("node:net").connect(-1); } catch {}
         test("second", () => {});`,
     );
-    assert.match(discover(files).get(second).error, /registration guard 2 time/);
+    assert.match(discover(files).get(second).error, /registration guard 3 time/);
     assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files);
     assert.deepEqual(runWorker("1/1", ["^first$"]).selected, files);
   });

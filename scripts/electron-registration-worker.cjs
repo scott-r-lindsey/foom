@@ -22,8 +22,20 @@ module.exports = (file, resultFile) => {
     .map((arg) => (arg.startsWith("--test-concurrency=") ? "--test-concurrency=1" : arg));
 
   let guardHits = 0;
+  function guard(target, methods) {
+    for (const method of methods) {
+      // Use a constructible function for APIs such as Worker and WebSocket.
+      target[method] = function () {
+        guardHits++;
+        throw new Error(`Guarded API ${method} during Electron suite registration`);
+      };
+    }
+  }
   const childProcess = require("node:child_process");
-  for (const method of [
+  const dns = require("node:dns");
+  const net = require("node:net");
+  const dnsQueries = Object.keys(dns).filter((name) => /^(lookup|resolve|reverse)/.test(name));
+  guard(childProcess, [
     "spawn",
     "spawnSync",
     "exec",
@@ -31,12 +43,23 @@ module.exports = (file, resultFile) => {
     "execFile",
     "execFileSync",
     "fork",
-  ]) {
-    childProcess[method] = () => {
-      guardHits++;
-      throw new Error("Process launch during Electron suite registration");
-    };
-  }
+  ]);
+  guard(childProcess.ChildProcess.prototype, ["spawn"]);
+  guard(require("node:worker_threads"), ["Worker"]);
+  guard(net, ["connect", "createConnection"]);
+  guard(net.Socket.prototype, ["connect"]);
+  guard(net.Server.prototype, ["listen"]);
+  guard(require("node:tls"), ["connect"]);
+  guard(require("node:http"), ["request", "get"]);
+  guard(require("node:https"), ["request", "get"]);
+  guard(require("node:http2"), ["connect"]);
+  guard(require("node:dgram").Socket.prototype, ["bind", "connect", "send"]);
+  guard(dns, dnsQueries);
+  guard(dns.promises, dnsQueries);
+  const resolverQueries = dnsQueries.filter((name) => !name.startsWith("lookup"));
+  guard(dns.Resolver.prototype, resolverQueries);
+  guard(dns.promises.Resolver.prototype, resolverQueries);
+  guard(globalThis, ["fetch", "WebSocket"]);
   Module.syncBuiltinESMExports();
   Test.prototype.start = () => {};
   // Node can run a file-level before hook as soon as it is registered.
