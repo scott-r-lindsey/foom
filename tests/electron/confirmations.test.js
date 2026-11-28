@@ -104,6 +104,31 @@ function assertDialogAboveBoard(evidence) {
   );
 }
 
+test("confirmed quit closes a board that vetoes renderer unload", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const child = app.process();
+  const board = await boardPage(app);
+  // Chromium honors an unload veto only after user activation.
+  await board.locator("body").click({ position: { x: 1, y: 1 } });
+  assert.equal(await board.evaluate(() => navigator.userActivation.hasBeenActive), true);
+  // Leave an unexpected unload dialog unanswered so it cannot unblock quit.
+  const dialogs = [];
+  board.on("dialog", (dialog) => dialogs.push(dialog.type()));
+  await board.evaluate(() => {
+    window.addEventListener("beforeunload", (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    });
+  });
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    const dialog = await confirmationPage(app);
+    await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+  });
+  assert.deepEqual(dialogs, []);
+  assert.equal(child.exitCode, 0);
+});
+
 test("trusted quit dialog appears above the board on first show and after hide/show reuse", {
   timeout: deadline(45_000),
 }, async (context) => {

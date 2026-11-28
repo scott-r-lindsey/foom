@@ -34,7 +34,8 @@ test.each([1, 3])(
   },
 );
 
-test("confirmed quit waits for termination, suppresses duplicate requests, then allows closing", async () => {
+test("confirmed quit waits for termination, suppresses duplicate requests, then destroys the board", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
   mock.terminals.runningCount = 2;
   let confirm: (value: { response: number }) => void = () => {};
   let stop: () => void = () => {};
@@ -59,11 +60,20 @@ test("confirmed quit waits for termination, suppresses duplicate requests, then 
   expect(mock.window.webContents.send).not.toHaveBeenCalledWith("windows:settings-stopping", true);
   quitting();
   expect(mock.message).toHaveBeenCalledOnce();
+  expect(mock.window.destroy).not.toHaveBeenCalled();
+  expect(mock.flushStorageData).not.toHaveBeenCalled();
   expect(mock.quit).not.toHaveBeenCalled();
+  mock.window.destroy.mockImplementationOnce(() => {
+    mock.appEvents.get("window-all-closed")?.({ preventDefault: vi.fn() });
+    expect(mock.quit).not.toHaveBeenCalled();
+  });
   stop();
   await vi.waitFor(() => {
     expect(mock.quit).toHaveBeenCalledOnce();
   });
+  expect(mock.workspace.dispose).toHaveBeenCalledBefore(mock.flushStorageData);
+  expect(mock.flushStorageData).toHaveBeenCalledBefore(mock.window.destroy);
+  expect(mock.window.destroy).toHaveBeenCalledBefore(mock.quit);
   expect(quitting().preventDefault).not.toHaveBeenCalled();
   const close = { preventDefault: vi.fn() };
   mock.windowEvents.get("close")?.(close);

@@ -496,15 +496,21 @@ export function runApplication() {
       previewHosts.clear();
       await config.dispose();
       disposeThemes();
-      quitting = true;
       // A resolved shutdown can resume inside a native close callback's microtask
       // checkpoint. Let that cancelled close unwind before closing windows, including
       // the explicit update restart. Keep requestQuit pending until this decision.
       await new Promise<void>((resolve) => {
         setImmediate(() => {
+          quitting = true;
           const restarting = updates.quitting();
           updates.dispose();
-          if (!restarting) app.quit();
+          if (!restarting) {
+            // All main-owned shutdown work has completed. Persist the board's
+            // DOM storage before releasing windows without a renderer unload.
+            session.defaultSession.flushStorageData();
+            for (const { window: board } of windows.values()) board.destroy();
+            app.quit();
+          }
           resolve();
         });
       });
@@ -664,7 +670,7 @@ export function runApplication() {
       });
 
     app.on("window-all-closed", () => {
-      if (process.platform !== "darwin") app.quit();
+      if (!quitting && process.platform !== "darwin") app.quit();
     });
   }
 
