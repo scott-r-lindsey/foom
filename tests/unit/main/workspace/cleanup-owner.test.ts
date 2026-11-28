@@ -543,6 +543,77 @@ it.each(["still kept", "eligible", "pending", "failed"] as const)(
   },
 );
 
+it("updates an open kept review when the scan pending at admission completes", async () => {
+  const f = fixture();
+  f.worktrees.changes.mockResolvedValue(" M tracked.txt\0");
+  expect((await f.scan()).mergedCount).toBe(0);
+  f.advance();
+  f.worktrees.mergedFetchTime.mockReturnValue(61_000);
+
+  const presentations = new RemovalPresentations();
+  const blocker = Promise.withResolvers<boolean>();
+  const first = presentations.run(() => blocker.promise);
+  const enqueued = Promise.withResolvers<CleanupFeed>();
+  const opened = Promise.withResolvers<undefined>();
+  const close = Promise.withResolvers<boolean>();
+  const status = Promise.withResolvers<string>();
+  const replacementStarted = Promise.withResolvers<undefined>();
+  const updated = vi.fn();
+  const review = f.owner.reviewMerged(repository, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
+    const feed = request.feed;
+    enqueued.resolve(feed);
+    return presentations.run(async () => {
+      if (feed.preparePresentation?.() === false) return false;
+      const unsubscribe = feed.subscribe(updated);
+      opened.resolve(undefined);
+      try {
+        return await close.promise;
+      } finally {
+        unsubscribe();
+      }
+    });
+  });
+  try {
+    const feed = await enqueued.promise;
+    await vi.waitFor(() => {
+      expect(feed.current()).toMatchObject({
+        stage: "ready",
+        fetchedAt: 61_000,
+        progress: { items: [{ branch: "feature", reason: "uncommitted changes" }] },
+      });
+    });
+
+    f.trees([tree("replacement")]);
+    f.worktrees.mergedFetchTime.mockReturnValue(61_500);
+    f.worktrees.cleanupStatus.mockImplementationOnce(() => {
+      replacementStarted.resolve(undefined);
+      return status.promise;
+    });
+    f.worktrees.mergedCommit.mockResolvedValueOnce(false);
+    f.inventory();
+    await replacementStarted.promise;
+    blocker.resolve(false);
+    await opened.promise;
+    expect(feed.current().fetchedAt).toBe(61_000);
+
+    status.resolve("");
+    await vi.waitFor(() => {
+      expect(updated).toHaveBeenCalledOnce();
+      expect(feed.current()).toMatchObject({
+        stage: "ready",
+        fetchedAt: 61_500,
+        progress: { items: [{ branch: "replacement", reason: "not merged" }] },
+      });
+    });
+  } finally {
+    blocker.resolve(false);
+    status.resolve("");
+    close.resolve(false);
+    await Promise.all([first, review]);
+  }
+});
+
 it("discards a kept review's delayed inventory after newer eligibility is published", async () => {
   const f = fixture();
   const locked = tree("locked", { locked: true });

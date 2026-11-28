@@ -769,10 +769,36 @@ export class CleanupOwner {
     const cached = this.mergeEligibility.get(repository);
     // Null denotes a review that is still checking. Undefined is a completed empty review.
     let displayed: MergeEligibilitySnapshot | undefined | null = null;
+    let dismissed = false;
+    let following = false;
     const show = (snapshot: MergeEligibilitySnapshot | undefined) => {
       displayed = snapshot;
       if (snapshot && !snapshot.plan) review.failed();
       else review.ready(snapshot?.plan ?? []);
+    };
+    const followEligibility = async (refreshExpired = false) => {
+      if (following) return;
+      following = true;
+      try {
+        let entry = this.mergeEligibility.get(repository);
+        if (
+          refreshExpired &&
+          (!entry || this.deps.now() >= entry.expires) &&
+          !this.cleanupRuns.get(repository)?.pending
+        ) {
+          entry = this.startMergeEligibility(repository);
+        }
+        while (!dismissed && entry?.pending) {
+          // A replacement wakes readers before the superseded scan finishes.
+          await entry.pending.promise;
+          entry = this.mergeEligibility.get(repository);
+        }
+        if (!dismissed && displayed !== entry?.completed) show(entry?.completed);
+      } catch {
+        if (!dismissed) review.failed();
+      } finally {
+        following = false;
+      }
     };
     const review = new CleanupRun({
       reviewOnly: true,
@@ -784,6 +810,7 @@ export class CleanupOwner {
         const snapshot = entry?.completed;
         if (snapshot?.plan?.some((item) => !item.reason)) return false;
         if (snapshot !== displayed && (displayed !== null || !entry?.pending)) show(snapshot);
+        if (entry?.pending) void followEligibility();
         return true;
       },
     });
@@ -793,24 +820,12 @@ export class CleanupOwner {
       worktrees: [],
       feed: review,
     });
+    void followEligibility(true);
     try {
-      let entry = this.mergeEligibility.get(repository);
-      if (
-        (!entry || this.deps.now() >= entry.expires) &&
-        !this.cleanupRuns.get(repository)?.pending
-      ) {
-        entry = this.startMergeEligibility(repository);
-      }
-      while (entry?.pending) {
-        // A replacement wakes readers even while the old Git or inventory read is pending.
-        await entry.pending.promise;
-        entry = this.mergeEligibility.get(repository);
-      }
-      show(entry?.completed);
-    } catch {
-      review.failed();
+      await answer;
+    } finally {
+      dismissed = true;
     }
-    await answer;
   }
 
   /** Never let remote discovery hold up local inventory or session publication. */
