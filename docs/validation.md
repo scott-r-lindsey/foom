@@ -30,7 +30,7 @@ policy without network requests in `scripts/audit.test.mjs`.
 
 Real-app integration tests are split into discovered feature suites, with a separate
 packaged smoke test. See [Electron test layout and sharding](electron-shards.md)
-for suite ownership, local commands and the named-test matrix with four Linux,
+for suite ownership, local commands and the named-test matrix with five Linux,
 six Windows and eight macOS shards. See [explicit Electron fixtures](electron-fixtures.md)
 for fixture selection and timing.
 On Linux, wrap Electron and packaged-smoke commands in `xvfb-run -a`.
@@ -165,9 +165,9 @@ shell removal on native exit and shutdown.
 
 Use Node 24 and installed dependencies. Download every `electron-results-*`
 artifact per selected recent passing CI run
-(eighteen for the current matrix, sixteen for four/five/seven, fifteen for
-four/five/six, fourteen for four/five/five, and twelve for four shards on every
-platform). Keep numeric run-ID directories and artifact subdirectories intact,
+(nineteen for the current matrix, eighteen for four/six/eight, sixteen for
+four/five/seven, fifteen for four/five/six, fourteen for four/five/five, and
+twelve for four shards on every platform). Keep numeric run-ID directories and artifact subdirectories intact,
 outside the repository or under ignored `test-results/`. Use a fresh source
 directory for each refresh:
 
@@ -191,7 +191,7 @@ platform's configured shard count, it reports headroom after measured step setup
 and warns when a shard leaves less than 25% of its step limit. Warnings are
 advisory and also appear when using `--write`.
 The examples select historical four-shard inputs with `--source-shards=4`. Omit
-that option for current runs with four Linux, six Windows and eight macOS
+that option for current runs with five Linux, six Windows and eight macOS
 shards. Each source run must have the expected report count per platform.
 When combining old and current matrices, specify per-run counts explicitly. For
 example, `--source-shards=4 --source-shards=41409300263:4,5,5` uses four reports
@@ -216,7 +216,7 @@ for the assignment method and measurement history.
 Draft PRs select Electron suites using the existing mapping in
 `scripts/electron-affected.mjs` against the PR merge-base diff. When every changed
 path is mapped, those suites run once on each platform using shard `1/1`.
-Unmapped paths, empty diffs or missing mapped suites retain the full eighteen-shard
+Unmapped paths, empty diffs or missing mapped suites retain the full nineteen-shard
 matrix. Both modes use the same Linux-to-macOS dependency. A failed or cancelled
 Linux Electron shard skips macOS Electron and macOS native checks and packaging
 and fails the gate. The Darwin build still supplies the catalog required by Linux
