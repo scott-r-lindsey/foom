@@ -88,7 +88,14 @@ export function InterfaceThemePicker({
           }}
         />
         {!compact && <CustomThemeHint />}
-        {!compact && <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />}
+        {!compact && (
+          <ThemeFilesStatus
+            catalog={catalog}
+            kind="theme"
+            openFolder={openFolder}
+            selected={typeof selected === "string" ? selected : undefined}
+          />
+        )}
       </div>
       {!compact && (
         <section

@@ -163,6 +163,28 @@
 .theme-files-status {
   overflow-wrap: anywhere;
 }
+.theme-warnings {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: calc(12px * var(--type-scale, 1));
+}
+.theme-warnings summary {
+  padding: 4px 0;
+  cursor: pointer;
+}
+.theme-warnings summary:focus-visible {
+  outline: 2px solid var(--state-focus, var(--highlight));
+  outline-offset: 2px;
+}
+.theme-warnings ul {
+  display: grid;
+  gap: 8px;
+  padding-inline-start: 20px;
+  margin: 4px 0 12px;
+}
+.theme-warnings li > span {
+  display: block;
+}
 .terminal-theme-choices {
   display: flex;
   flex-direction: column;

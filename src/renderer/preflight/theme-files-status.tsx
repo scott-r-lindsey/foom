@@ -5,14 +5,43 @@ export function ThemeFilesStatus({
   catalog,
   kind,
   openFolder,
+  selected,
 }: {
   catalog?: ThemeCatalog | undefined;
   kind: ThemeKind;
   openFolder?: (() => Promise<void>) | undefined;
+  selected?: string | undefined;
 }) {
   const [error, setError] = useState(false);
+  const diagnostics = catalog?.errors.filter((entry) => entry.kind === kind) ?? [];
+  const warnings = diagnostics.filter((entry) => entry.severity === "warning");
+  const themes = kind === "theme" ? catalog?.interface : undefined;
   return (
     <div className="theme-files-status">
+      {themes?.map(({ id, theme }) => {
+        const file = id.slice("user:".length);
+        const entries = warnings.filter((entry) => entry.file === file);
+        return (
+          entries.length > 0 && (
+            <details className="theme-warnings" key={id}>
+              <summary>
+                {theme.name} · {id === selected && "Applied · "}
+                {entries.length} {entries.length === 1 ? "warning" : "warnings"}
+              </summary>
+              <ul>
+                {entries.map(({ path, reason }, index) => (
+                  <li key={`${path}:${reason}:${String(index)}`}>
+                    <code>{file}</code>{" "}
+                    <span>
+                      <code>{path}</code> · {reason}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )
+        );
+      })}
       {openFolder && (
         <button
           type="button"
@@ -34,16 +63,11 @@ export function ThemeFilesStatus({
           }}
         />
       )}
-      {catalog?.errors
-        .filter((entry) => entry.kind === kind)
+      {diagnostics
+        .filter((entry) => entry.severity !== "warning")
         .map((entry, index) => (
-          <p
-            className={entry.severity === "warning" ? "preflight-note" : "preflight-error"}
-            role="status"
-            key={`${entry.file}-${String(index)}`}
-          >
-            {entry.severity === "warning" ? "Warning" : "Rejected"} {entry.file} · {entry.path}:{" "}
-            {entry.reason}
+          <p className="preflight-error" role="status" key={`${entry.file}-${String(index)}`}>
+            Rejected {entry.file} · {entry.path}: {entry.reason}
           </p>
         ))}
     </div>

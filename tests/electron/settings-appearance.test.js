@@ -524,6 +524,82 @@ test("custom theme files appear live, update selected colors and retain rejected
   });
 });
 
+test("Appearance shows palette and bitmap warnings only in each theme disclosure", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-theme-warnings-"));
+  removeAfterApps(context, home);
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const sharp = require("sharp");
+  const themes = path.join(home, ".foom/config/themes");
+  const modes = [
+    ["light", "Daybreak"],
+    ["dark", "Nightfall"],
+  ];
+  for (const [base, name] of modes) {
+    const { colors } = interfaceThemes[`eclipse-${base}`];
+    await sharp({
+      create: { width: 16, height: 16, channels: 3, background: colors.attention },
+    })
+      .png()
+      .toFile(path.join(themes, `${base}.png`));
+    await writeFile(
+      path.join(themes, `${base}.json`),
+      JSON.stringify({
+        version: 2,
+        name,
+        base,
+        colors: { ...colors, line: "#402600", hole: "#100f15" },
+        images: { board: { file: `${base}.png` } },
+      }),
+    );
+  }
+
+  const capture = process.env.FOOM_SCREENSHOTS === "1";
+  if (capture) await sizeTileBoard(app, page, 1200, 800);
+  await openSettingsScreen(page);
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  const sections = settings.getByRole("navigation", { name: "Settings sections" });
+  await sections.getByRole("button", { name: "Appearance", exact: true }).click();
+  const disclosures = settings.locator("details.theme-warnings");
+  const reasons = settings.getByText(/reserved-color|hole-color|image-status-color/);
+  const visibleReasons = reasons.filter({ visible: true });
+  for (const [base, name] of modes) {
+    await chooseTheme(page, name);
+    const row = disclosures.filter({ hasText: name });
+    const summary = row.locator("summary");
+    await expect(disclosures).toHaveCount(2);
+    await expect(summary).toHaveText(`${name} · Applied · 3 warnings`);
+    await expect(row.getByRole("list")).toHaveCount(0);
+    await expect(reasons.and(settings.locator(":not(.theme-warnings *)"))).toHaveCount(0);
+    await expect(visibleReasons).toHaveCount(0);
+    await summary.press("Enter");
+    const items = row.getByRole("listitem");
+    await expect(items).toHaveText([
+      `${base}.json $.colors.hole · hole-color`,
+      `${base}.json $.colors.line · reserved-color`,
+      `${base}.json $.images.board · image-status-color`,
+    ]);
+    await expect(visibleReasons).toHaveCount(3);
+    if (capture) {
+      await settings.screenshot({
+        path: evidencePath(`screenshots-1366/appearance-${base}.png`),
+        animations: "disabled",
+      });
+    }
+    await summary.press("Enter");
+    await expect(row.getByRole("list")).toHaveCount(0);
+  }
+
+  for (const name of await sections.getByRole("button").allTextContents()) {
+    if (name === "Appearance") continue;
+    await sections.getByRole("button", { name, exact: true }).click();
+    await expect(
+      settings.getByText(/\d+ warnings|reserved-color|hole-color|image-status-color/),
+    ).toHaveCount(0);
+  }
+});
+
 test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {
   timeout: deadline(45000),
 }, async (context) => {
