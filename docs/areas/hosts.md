@@ -793,6 +793,7 @@ row's existing failure state. Known row results are retained for persistence-onl
 retry without another remote inspection; one row's failure never blocks another.
 A queued save from an install that finds the tool already ready is valid only
 while the checklist it inspected is current, including at profile replacement.
+The install shortcut succeeds once the saved tool row matches the displayed row.
 A newer full check supersedes the queued save even if the full check cannot be
 saved. An explicit row reload invalidates that target's older queued observation before
 checking it. If saving an SSH observation fails, main publishes the observed
@@ -817,7 +818,8 @@ older daemons without it refuse scoped inspection and folder creation with `fact
 without falling back to a full check. Scoped results update saved presentation
 without granting launch authority or advancing the full-check timestamp. Main
 applies scoped folder and other row updates independently of the current SSH
-revision, including on an unsaved checklist.
+revision. These saves use the checklist shown in Hosts, including a newer unsaved
+full check. If that is the first full check, its timestamp becomes Last checked.
 Scoped reload replies do not publish a broad board inventory refresh. Folder and
 clone replies may seed the sidebar's location view from the action's own observations
 only when every registered host/repository pair is represented, including the acting

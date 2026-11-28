@@ -4154,16 +4154,20 @@ test("Hosts reloads the folder row after the first checklist write fails", {
     has: page.getByRole("button", { name: "Reload Code folder", exact: true }),
   });
   await expect(folder.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  const checked = card.locator(".host-footer time");
+  await expect(checked).toHaveCount(0);
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
   await reload.click();
   await expect(folder.getByText("Code folder does not exist", { exact: true })).toBeVisible();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
-  await expect(card.locator(".host-footer time")).toHaveCount(0);
+  await expect(checked).toHaveCount(1);
+  const checkedAt = await checked.getAttribute("datetime");
+  assert.ok(checkedAt);
   const reloadSSH = card.getByRole("button", { name: "Reload SSH", exact: true });
   await reloadSSH.click();
   await expect(reloadSSH).toBeEnabled();
-  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
-  await expect(card.locator(".host-footer time")).toHaveCount(0);
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toHaveCount(0);
+  await expect(checked).toHaveAttribute("datetime", checkedAt);
 });
 
 test("Hosts reopening shows a failed SSH row write without a key classification", {

@@ -1170,7 +1170,7 @@ test("an SSH retry already in the profile write queue cannot save after a newer 
   expect(reopened.state(undefined, true).hosts[0]?.observation?.preflight).toEqual(newest);
 });
 
-test("a folder reload updates the unsaved first checklist at the same SSH revision", async () => {
+test("a folder reload saves the first checklist at the same SSH revision", async () => {
   settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
   store.update.mockRejectedValueOnce(new Error("fixture first checklist write failed"));
   const check = await hosts.action({
@@ -1189,11 +1189,8 @@ test("a folder reload updates the unsaved first checklist at the same SSH revisi
     facts: { folder: { state: "fail", reason: "folder-missing" } },
   });
   expect(scoped.preflight?.sshRevision).toBe(check.preflight?.sshRevision);
-  expect(scoped.hosts[0]?.observation).toBeUndefined();
-  expect(hosts.state(undefined, true).hosts[0]?.checklist).toEqual({
-    preflight: scoped.preflight,
-    saveFailed: true,
-  });
+  expect(scoped.hosts[0]?.observation?.preflight).toEqual(scoped.preflight);
+  expect(hosts.state(undefined, true).hosts[0]?.checklist).toBeUndefined();
 });
 
 test("a staged trusted retry cannot replace the saved changed key when the newest save fails", async () => {
@@ -2838,6 +2835,90 @@ test("an already-ready Git install fails when the scoped result cannot update th
     expect(fixture.store.get().registeredHosts?.[0]?.observation).toEqual(
       failed.hosts[0]?.observation,
     );
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test.each(["failed", "absent"])(
+  "an already-ready Git install saves the newest checklist when the saved check is %s",
+  async (savedCheck) => {
+    const fixture = await restartedBrewHost();
+    try {
+      const entry = fixture.checked.hosts[0];
+      const inspected = entry?.observation?.preflight.result;
+      if (!entry || !inspected?.ok) throw new Error("Missing fixture facts");
+      const check = { action: "preflight", host: entry.host, codeFolder: entry.codeFolder };
+      if (savedCheck === "failed") {
+        fixture.run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+        const failed = await fixture.hosts.action(check);
+        expect(failed.hosts[0]?.observation?.preflight.result.ok).toBe(false);
+      } else {
+        await fixture.store.update({
+          registeredHosts: [{ host: entry.host, codeFolder: entry.codeFolder }],
+        });
+      }
+      const savedBefore = fixture.store.get().registeredHosts?.[0]?.observation;
+      vi.spyOn(fixture.store, "update").mockRejectedValueOnce(new Error("Fixture refused save"));
+      fixture.run.mockResolvedValueOnce(inspected);
+      const checked = await fixture.hosts.action(check);
+      const live = checked.hosts[0]?.checklist;
+      expect(live).toMatchObject({ saveFailed: true, preflight: { result: { ok: true } } });
+      expect(checked.hosts[0]?.observation).toEqual(savedBefore);
+
+      const ready = { id: "git", state: "ready", signIn: "unknown" } as const;
+      fixture.run.mockResolvedValueOnce({
+        ok: true,
+        facts: { ...inspected.facts, tools: [ready] },
+      });
+      const launch = vi.fn(() => Promise.resolve("unexpected-install"));
+      const reply = await fixture.hosts.action(
+        { action: "recipe", host: entry.host, tool: "git", operation: "install" },
+        undefined,
+        launch,
+      );
+
+      expect(reply.recipeFailure).toBeUndefined();
+      expect(reply.recipeSession).toBeUndefined();
+      expect(launch).not.toHaveBeenCalled();
+      const reopened = await SettingsStore.open(fixture.root);
+      const saved = reopened.get().registeredHosts?.[0]?.observation;
+      expect(saved?.preflight).toMatchObject({
+        sshRevision: live?.preflight.sshRevision,
+        result: { ok: true, facts: { tools: [ready, inspected.facts.tools?.[1]] } },
+      });
+      expect(reply.hosts[0]?.observation).toEqual(saved);
+      expect(reply.hosts[0]?.checklist).toBeUndefined();
+      if (savedBefore) expect(saved?.checkedAt).toBe(savedBefore.checkedAt);
+    } finally {
+      await fixture.dispose();
+    }
+  },
+);
+
+test("an already-ready Git install rejects when the profile writer skips the row", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const entry = fixture.checked.hosts[0];
+    const inspected = entry?.observation?.preflight.result;
+    if (!entry || !inspected?.ok) throw new Error("Missing fixture facts");
+    fixture.run.mockResolvedValueOnce({
+      ok: true,
+      facts: {
+        ...inspected.facts,
+        tools: [{ id: "git", state: "ready", signIn: "unknown" }],
+      },
+    });
+    vi.spyOn(fixture.store, "update").mockResolvedValueOnce(fixture.store.get());
+    await expect(
+      fixture.hosts.action({
+        action: "recipe",
+        host: entry.host,
+        tool: "git",
+        operation: "install",
+      }),
+    ).rejects.toThrow("Unable to update host tool");
+    expect(fixture.store.get().registeredHosts?.[0]?.observation).toEqual(entry.observation);
   } finally {
     await fixture.dispose();
   }
