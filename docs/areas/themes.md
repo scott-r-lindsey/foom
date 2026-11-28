@@ -240,7 +240,8 @@ smaller dimension and applies only to `none`. Anchor defaults to `center` and
 also accepts a side or a corner such as `top-right`. Each region or header
 randomly chooses a decoded entry with its placement and keeps it through
 resizes, layout changes and placement edits while the region and file contents
-remain available.
+remain available. When a slot references the same file more than once,
+unchanged placements retain their identity when another reference is removed.
 Gutter artwork shows through the existing tile padding along the split, leaving
 tile dimensions and borders unchanged. It moves with the tile bounds during
 animated resizing and updates immediately during pointer drags or with reduced motion.
@@ -274,9 +275,12 @@ decoder refusal is cached for identical bytes. A timeout or premature exit can
 retry on a later refresh after a one-second cooldown. The loader schedules no
 automatic retry.
 
-Foom begins decoding after the first window loads. Only the active theme or
-a theme being selected is decoded. An unavailable asset stops being served.
-If no usable asset remains for a slot, it uses the normal background.
+Foom begins decoding after the first window loads. Artwork for the active theme
+loads independently of config reviews and Settings writes. Foom keeps one
+artwork load in flight and coalesces further requests to the latest one. A
+superseded result is discarded. An unavailable asset stops being served when
+the new artwork snapshot applies. If no usable asset remains for a slot, it
+uses the normal background.
 
 Theme bitmaps add only `foom-theme://bitmap` to the board’s `img-src`. The board
 keeps `data:` for decision previews. The scheme handler accepts GET requests

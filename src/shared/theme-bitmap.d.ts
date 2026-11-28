@@ -32,6 +32,8 @@ export interface DecodedThemeBitmap {
 export interface ThemeBitmapAsset {
   paint: ThemeBitmapPaint;
   png: Uint8Array;
+  /** Main-only identity of the filename and source bytes. */
+  source: string;
 }
 export interface ThemeBitmapSnapshot {
   slots: Partial<Record<ThemeBitmapSlot, readonly ThemeBitmapAsset[]>>;

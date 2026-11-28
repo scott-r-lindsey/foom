@@ -43,7 +43,6 @@ export type ParsedThemeFile =
 export interface ThemeSnapshot {
   parsed: ParsedThemeFile;
   digest: string;
-  imageDiagnostics?: readonly ThemeDiagnostic[];
 }
 export interface ThemeCatalog {
   activeBitmaps?: ActiveThemeBitmaps;

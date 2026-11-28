@@ -78,6 +78,8 @@ export interface ConfigServiceDependencies {
   onActiveThemeChanged?(): void;
   loadThemeBitmaps?(
     parsed: Extract<ParsedThemeFile, { kind: "theme" }>,
+    previous: ThemeBitmapSnapshot | undefined,
+    signal: AbortSignal,
   ): Promise<ThemeBitmapSnapshot>;
   deferThemeDecoding?: boolean;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
@@ -104,6 +106,11 @@ interface Palette {
 }
 
 type ParsedInterfaceTheme = Extract<ParsedThemeFile, { kind: "theme" }>;
+
+interface ArtworkRequest {
+  file: string;
+  parsed: ParsedInterfaceTheme;
+}
 
 function themeApproval(parsed: ParsedInterfaceTheme) {
   return { paletteDigest: digest(JSON.stringify(attentionPalette(parsed.theme))) };
@@ -204,13 +211,9 @@ export class ConfigService {
   private pending: Pending | null = null;
   private publishedTheme: string | undefined;
   private appliedThemes = new Map<string, Palette>();
-  private artwork:
-    | {
-        file: string;
-        parsed: ParsedInterfaceTheme;
-        snapshot: ThemeBitmapSnapshot | undefined;
-      }
-    | undefined;
+  private artwork: { file: string; snapshot: ThemeBitmapSnapshot } | undefined;
+  private artworkRequest: ArtworkRequest | undefined;
+  private artworkJob: { request: ArtworkRequest; controller: AbortController } | undefined;
   private heldThemes = new Map<
     string,
     {
@@ -544,6 +547,7 @@ export class ConfigService {
         theme: Extract<ParsedThemeFile, { kind: "theme" }>["theme"] | undefined;
         digest?: string;
         bitmaps?: ActiveThemeBitmaps["slots"];
+        imageDiagnostics?: ThemeBitmapSnapshot["diagnostics"];
       }
     | undefined {
     const id = effective(this.deps.defaults, this.applied.values).interfaceTheme;
@@ -551,9 +555,9 @@ export class ConfigService {
     const file = `themes/${id.slice(5)}`;
     const palette = this.appliedThemes.get(file);
     const bitmaps: ActiveThemeBitmaps["slots"] = {};
-    const artwork = this.artwork?.file === file ? this.artwork.snapshot?.slots : undefined;
+    const artwork = this.artwork?.file === file ? this.artwork.snapshot : undefined;
     for (const slot of themeBitmapSlots) {
-      const asset = artwork?.[slot];
+      const asset = artwork?.slots[slot];
       if (asset) bitmaps[slot] = asset.map(({ paint }) => paint);
     }
     return {
@@ -561,6 +565,7 @@ export class ConfigService {
       theme: palette?.parsed.kind === "theme" ? palette.parsed.theme : undefined,
       ...(palette && { digest: palette.digest }),
       ...(Object.keys(bitmaps).length > 0 && { bitmaps }),
+      ...(artwork?.diagnostics.length && { imageDiagnostics: artwork.diagnostics }),
     };
   }
 
@@ -568,9 +573,9 @@ export class ConfigService {
     const theme = effective(this.deps.defaults, this.applied.values).interfaceTheme;
     if (!isUserThemeId(theme) || this.artwork?.file !== `themes/${theme.slice(5)}`)
       return undefined;
-    const assets = this.artwork.snapshot?.slots;
+    const assets = this.artwork.snapshot.slots;
     for (const slot of themeBitmapSlots) {
-      const asset = assets?.[slot]?.find(({ paint }) => paint.id === id);
+      const asset = assets[slot]?.find(({ paint }) => paint.id === id);
       if (asset) return asset.png;
     }
   }
@@ -586,7 +591,7 @@ export class ConfigService {
     const next = effective(this.deps.defaults, applied.values).interfaceTheme;
     if (previous && previous.id !== next) {
       this.heldThemes.delete(`themes/${previous.id.slice(5)}`);
-      this.artwork = undefined;
+      this.clearArtwork();
     }
     this.applied = applied;
     this.pending = null;
@@ -617,16 +622,8 @@ export class ConfigService {
       if (bytes && decode(bytes) === text) {
         const candidate = readPalette(text, parsed);
         await this.reviewThemeValue(file, candidate);
-        const imageDiagnostics = await this.refreshActiveArt(file, parsed);
+        this.refreshActiveArt(file, parsed);
         this.publish();
-        const snapshot = this.appliedThemes.get(file);
-        return (
-          snapshot && {
-            parsed: snapshot.parsed,
-            digest: snapshot.digest,
-            ...(imageDiagnostics && { imageDiagnostics }),
-          }
-        );
       }
       const snapshot = this.appliedThemes.get(file);
       if (snapshot)
@@ -675,32 +672,56 @@ export class ConfigService {
       await settle(this.deps.themeBaseline.set(file, approval), undefined);
   }
 
-  private async refreshActiveArt(
+  private refreshActiveArt(
     file: string,
     parsed = (this.heldThemes.get(file)?.proposal ?? this.appliedThemes.get(file))?.parsed,
-  ): Promise<ThemeBitmapSnapshot["diagnostics"] | undefined> {
-    if (this.deferThemeDecoding || !this.isActiveTheme(file)) return;
-    this.publishTheme();
-    if (parsed?.kind !== "theme") {
-      this.artwork = undefined;
+    refreshFiles = false,
+  ): void {
+    if (this.closed || this.deferThemeDecoding || !this.isActiveTheme(file)) return;
+    if (parsed?.kind !== "theme" || !parsed.images) {
+      this.clearArtwork();
       return;
     }
     const approved = this.appliedThemes.get(file)?.parsed;
-    const snapshot = parsed.images
-      ? await this.deps
-          .loadThemeBitmaps?.({
-            ...parsed,
-            theme: approved?.kind === "theme" ? approved.theme : parsed.theme,
-          })
-          .catch(ignore)
-      : undefined;
-    this.artwork = { file, parsed, snapshot };
-    return snapshot?.diagnostics;
+    const input = { ...parsed, theme: approved?.kind === "theme" ? approved.theme : parsed.theme };
+    const request = { file, parsed: input };
+    if (!refreshFiles && isDeepStrictEqual(request, this.artworkRequest)) return;
+    this.artworkRequest = request;
+    // A bitmap-only refresh still checks disk again. Let a matching decode finish
+    // for cache reuse, then publish only the newer request.
+    if (this.artworkJob && !isDeepStrictEqual(this.artworkJob.request, request))
+      this.artworkJob.controller.abort();
+    void this.loadArtwork().catch(ignore);
   }
 
-  private async refreshSelectedArt(before: EffectiveConfig["interfaceTheme"]): Promise<void> {
+  private async loadArtwork(): Promise<void> {
+    const request = this.artworkRequest;
+    if (this.closed || !request || this.artworkJob || !this.deps.loadThemeBitmaps) return;
+    const { file, parsed } = request;
+    const controller = new AbortController();
+    this.artworkJob = { request, controller };
+    try {
+      const previous = this.artwork?.file === file ? this.artwork.snapshot : undefined;
+      const snapshot = await this.deps.loadThemeBitmaps(parsed, previous, controller.signal);
+      if (this.artworkRequest === request) {
+        this.artwork = { file, snapshot };
+        this.publishTheme();
+      }
+    } finally {
+      this.artworkJob = undefined;
+      if (this.artworkRequest !== request) void this.loadArtwork().catch(ignore);
+    }
+  }
+
+  private clearArtwork(): void {
+    this.artworkRequest = undefined;
+    this.artwork = undefined;
+    this.artworkJob?.controller.abort();
+  }
+
+  private refreshSelectedArt(before: EffectiveConfig["interfaceTheme"]): void {
     const active = this.activePalette();
-    if (active && active.id !== before) await this.refreshActiveArt(`themes/${active.id.slice(5)}`);
+    if (active && active.id !== before) this.refreshActiveArt(`themes/${active.id.slice(5)}`);
   }
 
   private acceptTheme(file: string, candidate: Palette): void {
@@ -759,14 +780,14 @@ export class ConfigService {
       bytes = await this.files.read(relative);
     } catch (error) {
       this.heldThemes.delete(relative);
-      await this.refreshLastGoodArt(relative);
+      this.refreshLastGoodArt(relative);
       this.reject(relative, invalid(error), invalid(error));
       return;
     }
     if (bytes === null) {
       this.appliedThemes.delete(relative);
       this.heldThemes.delete(relative);
-      if (this.artwork?.file === relative) this.artwork = undefined;
+      if (this.isActiveTheme(relative)) this.clearArtwork();
       if (kind === "theme") await settle(this.deps.themeBaseline.set(relative, null), undefined);
       this.rejected.delete(relative);
       return;
@@ -775,20 +796,21 @@ export class ConfigService {
       const text = decode(bytes);
       const parsed = parseThemeFile(text, kind);
       await this.reviewThemeValue(relative, readPalette(text, parsed));
-      await this.refreshActiveArt(relative, parsed);
+      this.refreshActiveArt(relative, parsed, true);
     } catch (error) {
       this.heldThemes.delete(relative);
-      await this.refreshLastGoodArt(relative);
+      this.refreshLastGoodArt(relative);
       this.reject(relative, digest(bytes), invalid(error));
       return;
     }
     this.rejected.delete(relative);
   }
 
-  private async refreshLastGoodArt(file: string): Promise<void> {
-    await this.refreshActiveArt(
+  private refreshLastGoodArt(file: string): void {
+    this.refreshActiveArt(
       file,
-      this.artwork?.file === file ? this.artwork.parsed : undefined,
+      this.artworkRequest?.file === file ? this.artworkRequest.parsed : undefined,
+      true,
     );
   }
 
@@ -873,7 +895,8 @@ export class ConfigService {
   private publishTheme(): void {
     if (this.closed) return;
     const active = this.activePalette();
-    const projected = active && JSON.stringify([active.id, active.digest, active.bitmaps]);
+    const projected =
+      active && JSON.stringify([active.id, active.digest, active.bitmaps, active.imageDiagnostics]);
     if (projected !== this.publishedTheme) {
       this.publishedTheme = projected;
       this.deps.onActiveThemeChanged?.();
@@ -907,7 +930,7 @@ export class ConfigService {
         });
         if (committed) {
           await this.reconcileSettings();
-          await this.refreshSelectedArt(before.interfaceTheme);
+          this.refreshSelectedArt(before.interfaceTheme);
           this.publish();
           return;
         }
@@ -1079,7 +1102,7 @@ export class ConfigService {
     if (!committed) await this.changedProposal();
     else {
       if (decision === "keep") await this.reconcileSettings();
-      await this.refreshSelectedArt(before.interfaceTheme);
+      this.refreshSelectedArt(before.interfaceTheme);
     }
   }
 
@@ -1143,6 +1166,7 @@ export class ConfigService {
       return true;
     });
     if (!committed) await this.changedProposal();
+    if (decision === "allow") this.refreshActiveArt(file);
     this.schedule();
   }
 
@@ -1153,6 +1177,7 @@ export class ConfigService {
 
   async dispose(): Promise<void> {
     this.closed = true;
+    this.clearArtwork();
     clearTimeout(this.timer);
     for (const watcher of this.watchers.values()) watcher.close();
     this.watchers.clear();

@@ -545,7 +545,12 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
       menus: { surface: "#161616" },
     },
     shape: { radius: 0 },
-    images: { "tile-header": { files: ["art.png", "alternate.png"], opacity: 0.25 } },
+    images: {
+      "tile-header": {
+        files: ["art.png", { file: "art.png", fit: "cover" }, "alternate.png"],
+        opacity: 0.25,
+      },
+    },
   };
   const file = path.join(root, ".foom/config/themes/personal.json");
   const sharp = require("sharp");
@@ -554,21 +559,44 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   })
     .png()
     .toBuffer();
-  for (const piece of theme.images["tile-header"].files)
+  for (const piece of ["art.png", "alternate.png"])
     await writeFile(path.join(path.dirname(file), piece), pixels);
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
-  await chooseTheme(page, "Personal v2");
+  const artwork = page.locator('.tile-title [data-theme-art="tile-header"]').first();
+  await page.evaluate(() => {
+    globalThis.fixtureThemeRandom = Math.random;
+    Math.random = () => 0.5;
+  });
+  try {
+    await chooseTheme(page, "Personal v2");
+    await expect(artwork).toHaveAttribute("data-fit", "cover");
+  } finally {
+    await page.evaluate(() => {
+      Math.random = globalThis.fixtureThemeRandom;
+      delete globalThis.fixtureThemeRandom;
+    });
+  }
   await page.getByRole("button", { name: "Theme Personal v2", exact: true }).click();
   await expect(page.locator(".theme-menu-options:popover-open")).toHaveCSS("--surface", "#161616");
   await page.keyboard.press("Escape");
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
-  const artwork = page.locator('.tile-title [data-theme-art="tile-header"]').first();
   await expect(artwork).toHaveCSS("opacity", "0.25");
   const image = await artwork.evaluate((element) => getComputedStyle(element).backgroundImage);
+  theme.images["tile-header"].files.shift();
+  await writeFile(file, JSON.stringify(theme));
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const state = await window.desktop.setupState();
+        return state.themes.activeBitmaps?.slots["tile-header"]?.length;
+      }),
+    )
+    .toBe(2);
+  await expect(artwork).toHaveCSS("background-image", image);
   await expect(page.locator(".board-row").first()).toHaveCSS("border-radius", "0px");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
   await expect(page.locator(".sidebar-panel")).toHaveCSS("--surface", "#202020");
@@ -587,15 +615,39 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   theme.colors.attention = theme.colors.ink;
   theme.images["tile-header"].opacity = 0.5;
   theme.images["tile-header"].anchor = "bottom";
-  await writeFile(file, JSON.stringify(theme));
-  await boardCommand(app, ",", process.platform !== "darwin");
-  await page
-    .getByRole("region", { name: "Settings", exact: true })
-    .getByRole("button", { name: "Foom config", exact: true })
-    .click();
-  await expect(page.getByRole("region", { name: "Change waiting for approval" })).toContainText(
-    "needs-you is hard to tell apart",
-  );
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { ThemeBitmaps } = load("./build/main/themes/bitmaps.js");
+    const decode = ThemeBitmaps.prototype.load;
+    const { promise, resolve } = Promise.withResolvers();
+    globalThis.releaseArtwork = resolve;
+    ThemeBitmaps.prototype.load = async function (parsed, ...args) {
+      if (parsed.images?.["tile-header"]?.[0]?.opacity === 0.5) {
+        ThemeBitmaps.prototype.load = decode;
+        await promise;
+      }
+      return decode.call(this, parsed, ...args);
+    };
+  });
+  try {
+    await writeFile(file, JSON.stringify(theme));
+    await boardCommand(app, ",", process.platform !== "darwin");
+    await page
+      .getByRole("region", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Foom config", exact: true })
+      .click();
+    await expect(page.getByRole("region", { name: "Change waiting for approval" })).toContainText(
+      "needs-you is hard to tell apart",
+    );
+    await expect(artwork).toHaveCSS("opacity", "0.25");
+  } finally {
+    await app.evaluate(() => {
+      globalThis.releaseArtwork();
+      delete globalThis.releaseArtwork;
+    });
+  }
   assert.equal(
     await page.evaluate(() => document.documentElement.style.getPropertyValue("--attention")),
     "#ffb23e",

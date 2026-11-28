@@ -76,8 +76,13 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
   const library = new ThemeLibrary(
     root,
     undefined,
-    () => Promise.resolve({ parsed, digest: "fixture", imageDiagnostics: result.diagnostics }),
-    () => ({ id: "user:sample.json", theme: base, bitmaps: { empty: [empty] } }),
+    () => Promise.resolve({ parsed, digest: "fixture" }),
+    () => ({
+      id: "user:sample.json",
+      theme: base,
+      bitmaps: { empty: [empty] },
+      imageDiagnostics: result.diagnostics,
+    }),
   );
   disposers.push(() => {
     library.dispose();
@@ -309,6 +314,34 @@ test("a deterministic refusal is reused and the directory scan is bounded indepe
   expect(library.snapshot().interface).toHaveLength(1);
   expect((await bitmaps.load(parsed)).diagnostics[0]?.reason).toBe("too-many-files");
   expect(normalize).toHaveBeenCalledOnce();
+});
+
+test("removing an earlier placement of a file preserves the unchanged placement's ID", async () => {
+  const { file, directory, normalize, bitmaps } = await fixture();
+  await writeFile(file, "first pixels");
+  await writeFile(join(directory, "other.png"), "other pixels");
+  const contain = { file: "private.png", fit: "contain" };
+  const cover = { file: "private.png", fit: "cover" };
+  const load = (files: object[], previous?: Awaited<ReturnType<ThemeBitmaps["load"]>>) => {
+    const result = parseThemeFile(
+      JSON.stringify({ ...base, version: 2, images: { empty: { files } } }),
+      "theme",
+    );
+    if (result.kind !== "theme") throw Error("Expected interface theme");
+    return bitmaps.load(result, previous);
+  };
+  const other = { file: "other.png" };
+  const initial = await load([contain, cover, other]);
+  const withoutContain = await load([cover, other], initial);
+  expect(withoutContain.slots.empty?.map(({ paint }) => paint.id)).toEqual(
+    initial.slots.empty?.slice(1).map(({ paint }) => paint.id),
+  );
+  const edited = await load([{ ...cover, opacity: 0.5 }, other], withoutContain);
+  expect(edited.slots.empty?.[0]?.paint).toMatchObject({
+    id: withoutContain.slots.empty?.[0]?.paint.id,
+    opacity: 0.5,
+  });
+  expect(normalize).toHaveBeenCalledTimes(2);
 });
 
 test("entries for the same bytes can keep distinct placement without decoding twice", async () => {
