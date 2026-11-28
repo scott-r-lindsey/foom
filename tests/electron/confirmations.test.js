@@ -2178,6 +2178,7 @@ test("user-started trusted confirmation stays pending during simulated app deact
     };
   });
   try {
+    // Let independent native timers run throughout the inactive interval.
     await new Promise((resolve) => setTimeout(resolve, 35_000));
     assert.equal(await app.evaluate(() => globalThis.inactiveConfirmation.presentations), 0);
     await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
