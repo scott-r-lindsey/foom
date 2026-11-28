@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
+import type { ActiveThemeBitmaps } from "../../../../src/shared/theme-bitmap";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
 import type { TerminalContextMenu } from "../../../../src/renderer/terminal/terminal-view-source.d";
@@ -31,6 +32,7 @@ export function registerTileAreaFixture() {
 export function setup(
   snapshotOverrides: Partial<ShellView> = {},
   overrides: Partial<BoardSource> = {},
+  art?: ActiveThemeBitmaps,
 ) {
   const snapshot: ShellView = {
     status: "Terminal",
@@ -98,7 +100,7 @@ export function setup(
     },
   };
   Object.assign(source, overrides);
-  const screen = render(<Board source={source} />);
+  const screen = render(<Board source={source} art={art} />);
   const send = (value: BoardCommand) => {
     act(() => {
       command?.(value);

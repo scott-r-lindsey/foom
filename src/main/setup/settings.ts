@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { themeBitmapSlots } from "../../shared/theme-bitmaps";
-import type { ThemeApproval, ThemeBitmapApproval } from "../../shared/theme-bitmap";
+import type { ThemeApproval } from "../../shared/theme-bitmap";
 import { parseAgentDefaults as parseStoredAgentDefaults } from "../../shared/providers/arguments";
 import { agentPermissionLevel } from "../../shared/agent-permission-arguments";
 import { hostAlias } from "../../shared/registered-hosts";
@@ -77,8 +76,10 @@ const sha256 = (value: unknown): value is string =>
 
 export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
   if (sha256(value)) return value;
+  if (!record(value)) return undefined;
+  if (Object.keys(value).length === 1 && sha256(value["paletteDigest"]))
+    return { paletteDigest: value["paletteDigest"] };
   if (
-    !record(value) ||
     Object.keys(value).length !== 4 ||
     value["decoded"] !== true ||
     !sha256(value["digest"]) ||
@@ -86,16 +87,12 @@ export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
     !record(value["sources"])
   )
     return undefined;
-  if (Object.keys(value["sources"]).some((key) => !themeBitmapSlots.some((slot) => slot === key)))
+  // Migrate the approved JSON independently of the old artwork digests.
+  const sources = value["sources"];
+  const legacy = ["board", "gutter", "sidebar"];
+  if (!Object.keys(sources).every((slot) => legacy.includes(slot) && sha256(sources[slot])))
     return undefined;
-  const sources: ThemeBitmapApproval["sources"] = {};
-  for (const slot of themeBitmapSlots) {
-    const source = value["sources"][slot];
-    if (source === undefined) continue;
-    if (!sha256(source)) return undefined;
-    sources[slot] = source;
-  }
-  return { decoded: true, digest: value["digest"], jsonDigest: value["jsonDigest"], sources };
+  return value["jsonDigest"];
 }
 
 export const DEFAULT_SETTINGS: Settings = freezeSettings({
@@ -505,7 +502,7 @@ export class SettingsStore {
     settingsChanged(before, this.committedSettings);
   }
 
-  /** Digest of the theme file this profile last applied: that theme's approval baseline. */
+  /** Approval baseline of the theme this profile last applied. */
   themeDigest(file: string): ThemeApproval | null {
     return Object.hasOwn(this.themeDigests, file) ? (this.themeDigests[file] ?? null) : null;
   }

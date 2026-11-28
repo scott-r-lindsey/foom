@@ -1,4 +1,5 @@
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { readThemeDirectory } from "../theme-directory";
 import { IMAGE_BYTES } from "../../shared/image-paste";
 import { colorDistance } from "../../shared/theme-colors";
@@ -9,12 +10,48 @@ import {
   validThemeBitmapFile,
 } from "../../shared/theme-bitmaps";
 import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
-import type { DecodedThemeBitmap, ThemeBitmapSnapshot } from "../../shared/theme-bitmap";
+import type {
+  DecodedThemeBitmap,
+  ThemeBitmapAsset,
+  ThemeBitmapSnapshot,
+  ThemeBitmapStyle,
+} from "../../shared/theme-bitmap";
 import type { ParsedThemeFile, ThemeDiagnostic } from "../../shared/theme-file";
 import { readThemeFile } from "./files";
 
+interface BitmapPiece {
+  source: string;
+  png: Uint8Array;
+  style: ThemeBitmapStyle;
+}
+
+function identifyPieces(
+  pieces: readonly BitmapPiece[],
+  previous: readonly ThemeBitmapAsset[] = [],
+): ThemeBitmapAsset[] {
+  const remaining = new Set(previous);
+  const match = (piece: BitmapPiece, exact: boolean) => {
+    for (const asset of remaining) {
+      const { id, ...style } = asset.paint;
+      if (asset.source !== piece.source || (exact && !isDeepStrictEqual(style, piece.style)))
+        continue;
+      remaining.delete(asset);
+      return id;
+    }
+  };
+  // Reserve every unchanged placement before matching entries whose placement changed.
+  const unchanged = pieces.map((piece) => match(piece, true));
+  return pieces.map((piece, index) => ({
+    source: piece.source,
+    png: piece.png,
+    paint: {
+      id: unchanged[index] ?? match(piece, false) ?? randomBytes(32).toString("hex"),
+      ...piece.style,
+    },
+  }));
+}
+
 export class ThemeBitmaps {
-  private readonly key = randomBytes(32);
   private readonly cancel = new AbortController();
   private readonly decoded = new Map<string, Promise<DecodedThemeBitmap> | number>();
 
@@ -28,11 +65,13 @@ export class ThemeBitmaps {
 
   async load(
     parsed: Extract<ParsedThemeFile, { kind: "theme" }>,
-    mode: "decode" | "sources" = "decode",
+    previous?: ThemeBitmapSnapshot,
+    request?: AbortSignal,
   ): Promise<ThemeBitmapSnapshot> {
+    const signal = request ? AbortSignal.any([request, this.cancel.signal]) : this.cancel.signal;
+    signal.throwIfAborted();
     const diagnostics: ThemeDiagnostic[] = [];
     const slots: ThemeBitmapSnapshot["slots"] = {};
-    const sources: ThemeBitmapSnapshot["sources"] = {};
     let count: number | undefined;
     let folderReason: ThemeDiagnostic["reason"] = "image-unavailable";
     try {
@@ -45,8 +84,8 @@ export class ThemeBitmaps {
       if (error instanceof ThemeValidationError) folderReason = error.reason;
     }
     for (const slot of themeBitmapSlots) {
-      const image = parsed.images?.[slot];
-      if (!image) continue;
+      const pieces = parsed.images?.[slot];
+      if (!pieces) continue;
       const path = `$.images.${slot}`;
       const report = (reason: ThemeDiagnostic["reason"], severity: "warning" | "error") => {
         diagnostics.push({ file: "", path, reason, severity });
@@ -59,58 +98,63 @@ export class ThemeBitmaps {
         report("too-many-files", "error");
         continue;
       }
-      const { file, ...style } = image;
-      let bytes: Buffer;
-      try {
-        bytes = await readThemeFile(this.directory, file, IMAGE_BYTES, false);
-      } catch (error) {
-        report(error instanceof ThemeValidationError ? error.reason : "image-unavailable", "error");
-        continue;
-      }
-      const source = createHash("sha256").update(bytes).digest("hex");
-      sources[slot] = source;
-      if (mode === "sources") continue;
-      let bitmap: DecodedThemeBitmap;
-      try {
-        bitmap = await this.decode(source, bytes);
-      } catch {
-        report("image-format", "error");
-        continue;
-      }
-      const { colors, png } = bitmap;
-      const areas =
-        slot === "sidebar"
-          ? (["sidebar"] as const)
-          : slot === "gutter"
-            ? (["board", "tiles", "tile-headers"] as const)
-            : (["board"] as const);
-      const palettes = [
-        parsed.theme.colors,
-        ...areas.map((area) => ({
-          ...parsed.theme.colors,
-          ...parsed.theme.areas?.[area],
-        })),
-      ];
-      if (
-        colors.some((color) =>
-          palettes.some((palette) =>
-            [
-              palette.attention,
-              palette["attention-ink"],
-              palette.failed,
-              palette["failed-ink"],
-            ].some((status) => colorDistance(color, status) < 40),
-          ),
+      const { colors: globalColors, areas } = parsed.theme;
+      const headerArea = areas?.["tile-headers"] ?? areas?.tiles;
+      const overrides =
+        slot === "empty"
+          ? [areas?.board, areas?.tiles, areas?.["tile-headers"]]
+          : [slot === "tile-header" ? headerArea : areas?.sidebar];
+      const palettes = [globalColors, ...overrides.map((area) => ({ ...globalColors, ...area }))];
+      const assets: BitmapPiece[] = [];
+      for (const { file, ...style } of pieces) {
+        signal.throwIfAborted();
+        let bytes: Buffer;
+        try {
+          bytes = await readThemeFile(this.directory, file, IMAGE_BYTES, false);
+        } catch (error) {
+          report(
+            error instanceof ThemeValidationError ? error.reason : "image-unavailable",
+            "error",
+          );
+          continue;
+        }
+        const source = createHash("sha256").update(bytes).digest("hex");
+        let bitmap: DecodedThemeBitmap;
+        try {
+          bitmap = await this.decode(source, bytes, signal);
+        } catch {
+          signal.throwIfAborted();
+          report("image-format", "error");
+          continue;
+        }
+        const { colors, png } = bitmap;
+        if (
+          colors.some((color) =>
+            palettes.some((palette) =>
+              [
+                palette.attention,
+                palette["attention-ink"],
+                palette.failed,
+                palette["failed-ink"],
+              ].some((status) => colorDistance(color, status) < 40),
+            ),
+          )
         )
-      )
-        report("image-status-color", "warning");
-      const id = createHmac("sha256", this.key).update(source).digest("hex");
-      slots[slot] = { paint: { id, ...style }, png, source };
+          report("image-status-color", "warning");
+        assets.push({ source: JSON.stringify([file, source]), style, png });
+      }
+      if (assets.length) slots[slot] = identifyPieces(assets, previous?.slots[slot]);
     }
-    return { slots, sources, diagnostics };
+    signal.throwIfAborted();
+    return { slots, diagnostics };
   }
 
-  private decode(source: string, bytes: Uint8Array): Promise<DecodedThemeBitmap> {
+  private decode(
+    source: string,
+    bytes: Uint8Array,
+    signal: AbortSignal,
+  ): Promise<DecodedThemeBitmap> {
+    signal.throwIfAborted();
     const cached = this.decoded.get(source);
     if (typeof cached === "number") {
       if (performance.now() < cached)
@@ -121,11 +165,14 @@ export class ThemeBitmaps {
       const oldest = this.decoded.keys().next().value;
       if (oldest) this.decoded.delete(oldest);
     }
-    const result = this.normalize(bytes, this.cancel.signal).catch((error: unknown) => {
+    const result = this.normalize(bytes, signal).catch((error: unknown) => {
       // Cache deterministic refusals. For exit, timeout or launch failures, keep
       // only a cooldown and let a later refresh try again. Never schedule a retry.
-      if (!(error instanceof ImageDecodeRejection) && this.decoded.get(source) === result)
-        this.decoded.set(source, performance.now() + 1_000);
+      if (this.decoded.get(source) === result) {
+        if (signal.aborted) this.decoded.delete(source);
+        else if (!(error instanceof ImageDecodeRejection))
+          this.decoded.set(source, performance.now() + 1_000);
+      }
       throw error;
     });
     this.decoded.set(source, result);
@@ -138,7 +185,7 @@ export class ThemeBitmaps {
   }
 }
 
-/** The board session can read only an exact ID from the active approved snapshot. */
+/** The board session can read only an exact ID from the active snapshot. */
 export function themeBitmapResponse(
   request: Request,
   image: (id: string) => Uint8Array | undefined,

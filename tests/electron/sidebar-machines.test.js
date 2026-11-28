@@ -878,6 +878,54 @@ wait();`,
       await expect(width).toHaveAttribute("aria-valuenow", "300");
     }
   };
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const themeFolder = path.join(
+    await app.evaluate(({ app }) => app.getPath("home")),
+    ".foom/config/themes",
+  );
+  await require("sharp")({ create: { width: 8, height: 8, channels: 3, background: "#999999" } })
+    .png()
+    .toFile(path.join(themeFolder, "badge-header.png"));
+  await writeFile(
+    path.join(themeFolder, "badge-header.json"),
+    JSON.stringify({
+      ...interfaceThemes["eclipse-dark"],
+      version: 2,
+      name: "Header badge contrast",
+      colors: {
+        ...interfaceThemes["eclipse-dark"].colors,
+        "badge-ink": "#0d0a17",
+        "badge-fill": "#ffffff",
+      },
+      images: { "tile-header": { file: "badge-header.png" } },
+    }),
+  );
+  const badgeTheme = "user:badge-header.json";
+  const offeredDigest = () =>
+    page.evaluate(
+      async (id) =>
+        (await window.desktop.setupState()).themes.interface.find((theme) => theme.id === id)
+          ?.digest,
+      badgeTheme,
+    );
+  await expect.poll(offeredDigest).toBeDefined();
+  await page.evaluate(
+    ([interfaceTheme, digest]) => window.desktop.saveSetup({ interfaceTheme }, digest),
+    [badgeTheme, await offeredDigest()],
+  );
+  await expect(remoteTile.locator('[data-theme-art="tile-header"]')).toHaveCount(1);
+  const remoteBadges = remoteTile.locator(".tile-identity :is(.board-agent, .host-chip)");
+  const badgeColors = { color: "rgb(13, 10, 23)", backgroundColor: "rgb(255, 255, 255)" };
+  await expect
+    .poll(() =>
+      remoteBadges.evaluateAll((badges) =>
+        badges.map((badge) => {
+          const { color, backgroundColor } = getComputedStyle(badge);
+          return { color, backgroundColor };
+        }),
+      ),
+    )
+    .toEqual([badgeColors, badgeColors]);
   await chipStates("available");
   const hostMenu = page.getByRole("button", { name: "Actions for Builder", exact: true });
   const refreshAgents = async (choice) => {

@@ -25,8 +25,8 @@ const text = JSON.stringify({
   ...base,
   version: 2,
   images: {
-    board: { file: "private.png" },
-    gutter: { file: "private.png", opacity: 0.5, fit: "tile" },
+    empty: { files: ["private.png", "missing.png"] },
+    "tile-header": { file: "private.png", opacity: 0.5, fit: "tile" },
     sidebar: { file: "gone.webp" },
   },
 });
@@ -53,30 +53,36 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
   const { root, directory, file, normalize, bitmaps } = await fixture();
   await writeFile(file, "fixture pixels");
   const result = await bitmaps.load(parsed);
-  expect(result.slots.board?.paint.id).toMatch(/^[a-f0-9]{64}$/u);
-  expect(result.slots.board?.paint).toMatchObject({
+  expect(result.slots.empty?.[0]?.paint.id).toMatch(/^[a-f0-9]{64}$/u);
+  expect(result.slots.empty?.[0]?.paint).toMatchObject({
     opacity: 0.25,
     fit: "contain",
     anchor: "center",
   });
-  expect(result.slots.gutter?.paint).toEqual({
-    id: result.slots.board?.paint.id,
+  expect(result.slots["tile-header"]?.[0]?.paint).toMatchObject({
     opacity: 0.5,
     fit: "tile",
     anchor: "center",
   });
+  expect(result.slots["tile-header"]?.[0]?.paint.id).not.toBe(result.slots.empty?.[0]?.paint.id);
   expect(result.diagnostics).toEqual([
-    { file: "", path: "$.images.board", severity: "warning", reason: "image-status-color" },
-    { file: "", path: "$.images.gutter", severity: "warning", reason: "image-status-color" },
+    { file: "", path: "$.images.empty", severity: "warning", reason: "image-status-color" },
+    { file: "", path: "$.images.empty", severity: "error", reason: "image-unavailable" },
     { file: "", path: "$.images.sidebar", severity: "error", reason: "image-unavailable" },
+    { file: "", path: "$.images.tile-header", severity: "warning", reason: "image-status-color" },
   ]);
-  const board = result.slots.board?.paint;
-  if (!board) throw new Error("Board bitmap fixture missing");
+  const empty = result.slots.empty?.[0]?.paint;
+  if (!empty) throw new Error("Board bitmap fixture missing");
   const library = new ThemeLibrary(
     root,
     undefined,
-    () => Promise.resolve({ parsed, digest: "fixture", imageDiagnostics: result.diagnostics }),
-    () => ({ id: "user:sample.json", theme: base, bitmaps: { board } }),
+    () => Promise.resolve({ parsed, digest: "fixture" }),
+    () => ({
+      id: "user:sample.json",
+      theme: base,
+      bitmaps: { empty: [empty] },
+      imageDiagnostics: result.diagnostics,
+    }),
   );
   disposers.push(() => {
     library.dispose();
@@ -84,8 +90,8 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
   await writeFile(join(directory, "sample.json"), text);
   await library.initialize();
   const catalog = library.snapshot();
-  expect(catalog.activeBitmaps?.slots.board?.id).toBe(result.slots.board?.paint.id);
-  expect(catalog.errors).toHaveLength(3);
+  expect(catalog.activeBitmaps?.slots.empty?.[0]?.id).toBe(result.slots.empty?.[0]?.paint.id);
+  expect(catalog.errors).toHaveLength(4);
   expect(JSON.stringify(catalog)).not.toMatch(/private\.png|gone\.webp|fixture pixels/u);
   await bitmaps.load(parsed);
   expect(normalize).toHaveBeenCalledOnce();
@@ -104,11 +110,10 @@ test("enforces byte and file budgets and surfaces a fixed decoder rejection", as
   const result = await bitmaps.load(parsed);
   expect(result.diagnostics[0]).toEqual({
     file: "",
-    path: "$.images.board",
+    path: "$.images.empty",
     severity: "error",
     reason: "image-format",
   });
-  expect(result.sources.board).toBeDefined();
   for (let i = 0; i < 50; i++) await writeFile(join(directory, `sample-${String(i)}.webp`), "");
   expect((await bitmaps.load(parsed)).diagnostics.map(({ reason }) => reason)).toEqual(
     Array.from({ length: 3 }, () => "too-many-files"),
@@ -143,7 +148,7 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test("bitmap protocol resolves only exact GET IDs for currently approved images", async () => {
+test("bitmap protocol resolves only exact GET IDs for currently active images", async () => {
   const id = "d".repeat(64);
   const url = `foom-theme://bitmap/${id}`;
   const png = Uint8Array.of(1, 2, 3);
@@ -186,11 +191,68 @@ test("an unavailable folder omits all paint and a recovered sidebar uses its own
     ...parsed,
     theme: { ...base, areas: { sidebar: { failed: "#00ffee" } } },
   });
-  expect(snapshot.slots.sidebar?.paint).toBeDefined();
+  expect(snapshot.slots.sidebar?.[0]?.paint).toBeDefined();
   expect(snapshot.diagnostics).toEqual([
+    { file: "", path: "$.images.empty", severity: "error", reason: "image-unavailable" },
     { file: "", path: "$.images.sidebar", severity: "warning", reason: "image-status-color" },
   ]);
 });
+
+test("tile header warnings follow the effective status palette", async () => {
+  const { file, bitmaps, normalize } = await fixture();
+  await writeFile(file, "header");
+  const attention = "#00ff00";
+  normalize.mockImplementationOnce((bytes) => Promise.resolve({ png: bytes, colors: [attention] }));
+  const load = (areas: typeof base.areas) =>
+    bitmaps.load({
+      ...parsed,
+      images: { "tile-header": parsed.images?.["tile-header"] ?? [] },
+      theme: { ...base, ...(areas && { areas }) },
+    });
+  const warning = {
+    file: "",
+    path: "$.images.tile-header",
+    severity: "warning",
+    reason: "image-status-color",
+  };
+  expect((await load({ tiles: { attention } })).diagnostics).toEqual([warning]);
+  expect((await load({ "tile-headers": { attention } })).diagnostics).toEqual([warning]);
+  expect(
+    (await load({ tiles: { attention }, "tile-headers": { bg: "#000000" } })).diagnostics,
+  ).toEqual([]);
+});
+
+test.each(["empty", "gutter"])(
+  "%s art warns on status colors in every adjacent palette",
+  async (slot) => {
+    const { file, bitmaps, normalize } = await fixture();
+    await writeFile(file, "green artwork");
+    const attention = "#00ff00";
+    normalize.mockResolvedValueOnce({ png: Uint8Array.of(1), colors: [attention] });
+    const warning = {
+      file: "",
+      path: "$.images.empty",
+      severity: "warning",
+      reason: "image-status-color",
+    };
+
+    for (const area of ["board", "tiles", "tile-headers", "sidebar"]) {
+      const theme = parseThemeFile(
+        JSON.stringify({
+          ...base,
+          version: 2,
+          areas: { [area]: { attention } },
+          images: { [slot]: { file: "private.png" } },
+        }),
+        "theme",
+      );
+      if (theme.kind !== "theme") throw Error("Expected interface theme");
+      const snapshot = await bitmaps.load(theme);
+      expect(snapshot.slots.empty).toHaveLength(1);
+      expect(snapshot.diagnostics).toEqual(area === "sidebar" ? [] : [warning]);
+    }
+  },
+);
 
 test("an unchanged source recovers from a transient decode failure on a later refresh", async () => {
   const { file, normalize, bitmaps } = await fixture();
@@ -201,7 +263,7 @@ test("an unchanged source recovers from a transient decode failure on a later re
   expect((await bitmaps.load(parsed)).slots).toEqual({});
   expect(normalize).toHaveBeenCalledOnce();
   clock.mockReturnValue(2_001);
-  expect((await bitmaps.load(parsed)).slots.board).toBeDefined();
+  expect((await bitmaps.load(parsed)).slots.empty).toBeDefined();
   expect(normalize).toHaveBeenCalledTimes(2);
 });
 
@@ -215,7 +277,7 @@ test.skipIf(process.platform === "win32")(
       await symlink("missing", join(directory, `dead-${String(i)}.png`));
       await symlink("missing", join(directory, `dead-${String(i)}.json`));
     }
-    expect((await bitmaps.load(parsed)).slots.board).toBeDefined();
+    expect((await bitmaps.load(parsed)).slots.empty).toBeDefined();
     const library = new ThemeLibrary(root);
     disposers.push(() => {
       library.dispose();
@@ -251,5 +313,60 @@ test("a deterministic refusal is reused and the directory scan is bounded indepe
   });
   expect(library.snapshot().interface).toHaveLength(1);
   expect((await bitmaps.load(parsed)).diagnostics[0]?.reason).toBe("too-many-files");
+  expect(normalize).toHaveBeenCalledOnce();
+});
+
+test("removing an earlier placement of a file preserves the unchanged placement's ID", async () => {
+  const { file, directory, normalize, bitmaps } = await fixture();
+  await writeFile(file, "first pixels");
+  await writeFile(join(directory, "other.png"), "other pixels");
+  const contain = { file: "private.png", fit: "contain" };
+  const cover = { file: "private.png", fit: "cover" };
+  const load = (files: object[], previous?: Awaited<ReturnType<ThemeBitmaps["load"]>>) => {
+    const result = parseThemeFile(
+      JSON.stringify({ ...base, version: 2, images: { empty: { files } } }),
+      "theme",
+    );
+    if (result.kind !== "theme") throw Error("Expected interface theme");
+    return bitmaps.load(result, previous);
+  };
+  const other = { file: "other.png" };
+  const initial = await load([contain, cover, other]);
+  const withoutContain = await load([cover, other], initial);
+  expect(withoutContain.slots.empty?.map(({ paint }) => paint.id)).toEqual(
+    initial.slots.empty?.slice(1).map(({ paint }) => paint.id),
+  );
+  const edited = await load([{ ...cover, opacity: 0.5 }, other], withoutContain);
+  expect(edited.slots.empty?.[0]?.paint).toMatchObject({
+    id: withoutContain.slots.empty?.[0]?.paint.id,
+    opacity: 0.5,
+  });
+  expect(normalize).toHaveBeenCalledTimes(2);
+});
+
+test("entries for the same bytes can keep distinct placement without decoding twice", async () => {
+  const { file, normalize, bitmaps } = await fixture();
+  await writeFile(file, "same pixels");
+  const pieces = parseThemeFile(
+    JSON.stringify({
+      ...base,
+      version: 2,
+      images: {
+        empty: {
+          fit: "cover",
+          files: [
+            "private.png",
+            { file: "private.png", fit: "none", size: 30, anchor: "bottom", opacity: 0.6 },
+          ],
+        },
+      },
+    }),
+    "theme",
+  );
+  if (pieces.kind !== "theme") throw Error("Expected interface theme");
+  const { slots } = await bitmaps.load(pieces);
+  expect(slots.empty?.map(({ paint }) => paint.fit)).toEqual(["cover", "none"]);
+  expect(slots.empty?.[1]?.paint).toMatchObject({ size: 30, anchor: "bottom", opacity: 0.6 });
+  expect(slots.empty?.[0]?.paint.id).not.toBe(slots.empty?.[1]?.paint.id);
   expect(normalize).toHaveBeenCalledOnce();
 });

@@ -22,7 +22,8 @@ export type ThemeReason =
   | "unreadable"
   | "image-unavailable"
   | "image-format"
-  | "image-status-color";
+  | "image-status-color"
+  | "legacy-image-slot";
 export interface ThemeDiagnostic {
   severity?: "error" | "warning";
   file: string;
@@ -42,7 +43,6 @@ export type ParsedThemeFile =
 export interface ThemeSnapshot {
   parsed: ParsedThemeFile;
   digest: string;
-  imageDiagnostics?: readonly ThemeDiagnostic[];
 }
 export interface ThemeCatalog {
   activeBitmaps?: ActiveThemeBitmaps;

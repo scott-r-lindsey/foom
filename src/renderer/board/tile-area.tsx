@@ -1,3 +1,4 @@
+import { ThemeArt } from "./theme-art";
 import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
 import { Tile, position } from "./terminal-tile";
 
@@ -207,7 +208,6 @@ export function TileArea({
   return (
     <div
       className="tile-area"
-      data-occupied={geometry.tiles.some(({ tile }) => tile.content !== null)}
       role="group"
       aria-label="Terminal tiles"
       hidden={inactive}
@@ -288,6 +288,16 @@ export function TileArea({
               : `Split ${preview.zone}`)}
         </div>
       )}
+      {geometry.gutters.map(({ split, rect }) => (
+        <ThemeArt
+          key={split.id}
+          slot="empty"
+          className="tile-gutter-art"
+          direction={split.direction}
+          style={position(rect)}
+          hidden={layout.maximized !== null}
+        />
+      ))}
       {geometry.tiles.map(({ tile, rect }) => (
         <Tile
           key={tile.id}

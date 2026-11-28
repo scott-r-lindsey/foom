@@ -1,3 +1,4 @@
+import { ThemeArt } from "./theme-art";
 import { agentPermissionLabels } from "../../shared/agent-permission-arguments";
 import { DecisionPill } from "./message-board-decisions";
 import { HostChip } from "./sidebar-machine-row";
@@ -154,6 +155,7 @@ export const position = (rect: TileRect): CSSProperties => ({
   width: `${String(rect.width)}%`,
   height: `${String(rect.height)}%`,
 });
+
 export function Tile({
   tile,
   rect,
@@ -429,6 +431,7 @@ export function Tile({
         }
       }}
     >
+      {!occupied && <ThemeArt slot="empty" />}
       {occupied && (
         <header
           className="tile-title"
@@ -444,12 +447,15 @@ export function Tile({
               setMenu({ anchor: menuRef.current, point: { x: event.clientX, y: event.clientY } });
           }}
         >
+          <ThemeArt slot="tile-header" />
           <div className="tile-title-main">
             <div className="tile-heading">
               <div className="tile-heading-content">
                 {row && (
                   <>
-                    <TileLight row={row} lightRef={lightRef} />
+                    <span className="tile-light-backing">
+                      <TileLight row={row} lightRef={lightRef} />
+                    </span>
                     {exitStatus && (
                       <span className="tile-exit-status session-program" title={exitDescription}>
                         <span>{exitStatus}</span>

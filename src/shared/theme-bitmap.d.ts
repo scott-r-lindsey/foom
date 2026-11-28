@@ -1,9 +1,10 @@
 import type { ThemeDiagnostic, UserThemeId } from "./theme-file";
 
-export type ThemeBitmapSlot = "board" | "gutter" | "sidebar";
+export type ThemeBitmapSlot = "empty" | "sidebar" | "tile-header";
 export interface ThemeBitmapStyle {
   opacity: number;
-  fit: "cover" | "contain" | "tile";
+  fit: "cover" | "contain" | "tile" | "none";
+  size?: number;
   anchor:
     | "center"
     | "top"
@@ -15,13 +16,12 @@ export interface ThemeBitmapStyle {
     | "bottom-left"
     | "bottom-right";
 }
-export type ThemeBitmapFiles = Partial<
-  Record<ThemeBitmapSlot, ThemeBitmapStyle & { file: string }>
->;
+export type ThemeBitmapPiece = ThemeBitmapStyle & { file: string };
+export type ThemeBitmapFiles = Partial<Record<ThemeBitmapSlot, readonly ThemeBitmapPiece[]>>;
 export type ThemeBitmapPaint = ThemeBitmapStyle & { id: string };
 export interface ActiveThemeBitmaps {
   theme: UserThemeId;
-  slots: Partial<Record<ThemeBitmapSlot, ThemeBitmapPaint>>;
+  slots: Partial<Record<ThemeBitmapSlot, readonly ThemeBitmapPaint[]>>;
 }
 
 /** Main-only. Only the paint projection and normalized PNG response cross the board boundary. */
@@ -32,19 +32,13 @@ export interface DecodedThemeBitmap {
 export interface ThemeBitmapAsset {
   paint: ThemeBitmapPaint;
   png: Uint8Array;
+  /** Main-only identity of the filename and source bytes. */
   source: string;
 }
 export interface ThemeBitmapSnapshot {
-  slots: Partial<Record<ThemeBitmapSlot, ThemeBitmapAsset>>;
-  sources: Partial<Record<ThemeBitmapSlot, string>>;
+  slots: Partial<Record<ThemeBitmapSlot, readonly ThemeBitmapAsset[]>>;
   diagnostics: readonly ThemeDiagnostic[];
 }
 
-/** Private profile approval. Legacy color-only themes store just their JSON digest. */
-export interface ThemeBitmapApproval {
-  decoded: true;
-  digest: string;
-  jsonDigest: string;
-  sources: ThemeBitmapSnapshot["sources"];
-}
-export type ThemeApproval = string | ThemeBitmapApproval;
+/** Private profile baseline. Older records contain the full theme JSON digest. */
+export type ThemeApproval = string | { readonly paletteDigest: string };

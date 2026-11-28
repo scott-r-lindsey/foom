@@ -2,6 +2,8 @@
   position: relative;
 }
 .tile-area {
+  --tile-padding: 3px;
+  --tile-bounds-transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease;
   flex: 1;
   position: relative;
   min-width: 0;
@@ -11,7 +13,7 @@
   position: absolute;
   display: flex;
   flex-direction: column;
-  padding: 3px;
+  padding: var(--tile-padding);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -20,11 +22,12 @@
   background: var(--terminal-background, var(--bg));
   background-clip: padding-box;
   transition:
-    left 220ms ease,
-    top 220ms ease,
-    width 220ms ease,
-    height 220ms ease,
+    var(--tile-bounds-transition),
     opacity 180ms ease;
+}
+.tile-gutter-art {
+  position: absolute;
+  transition: var(--tile-bounds-transition);
 }
 .terminal-tile[data-focused="true"] {
   border-color: var(--highlight);
@@ -51,7 +54,7 @@
 .terminal-tile[data-maximized="true"] {
   z-index: 3;
 }
-.tile-area:has(.tile-gutter[data-dragging="true"]) .terminal-tile {
+.tile-area:has(.tile-gutter[data-dragging="true"]) :is(.terminal-tile, .tile-gutter-art) {
   transition: none;
 }
 .tile-title {
@@ -390,7 +393,8 @@
   .tile-terminal .xterm-screen {
     transition: none;
   }
-  .terminal-tile {
+  .terminal-tile,
+  .tile-gutter-art {
     transition: none;
   }
 }
@@ -872,27 +876,100 @@
   min-height: 0;
 }
 
-/* Decorative paint is behind tiles. Any text drawn over that plane has an
-   opaque surface; the theme parser already checks its effective ink. */
-:root[data-theme-bitmaps~="board"] .tile-area[data-occupied="false"]::before,
-:root[data-theme-bitmaps~="gutter"] .tile-area[data-occupied="true"]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
+/* Artwork has its own paint box. Text and controls have opaque backings. */
+.theme-art {
   pointer-events: none;
 }
-:root[data-theme-bitmaps~="board"] .tile-area[data-occupied="false"]::before {
-  background:
-    var(--bitmap-board-image) var(--bitmap-board-position) / var(--bitmap-board-size)
-    var(--bitmap-board-repeat);
-  opacity: var(--bitmap-board-opacity);
+.theme-art[data-fit="none"] {
+  container-type: size;
 }
-:root[data-theme-bitmaps~="gutter"] .tile-area[data-occupied="true"]::before {
-  background:
-    var(--bitmap-gutter-image) var(--bitmap-gutter-position) / var(--bitmap-gutter-size)
-    var(--bitmap-gutter-repeat);
-  opacity: var(--bitmap-gutter-opacity);
+.theme-art-intrinsic {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+}
+.theme-art-intrinsic > img {
+  max-width: 100%;
+  max-height: 100%;
+}
+.theme-art-intrinsic:is([data-anchor="top"], [data-anchor^="top-"]) {
+  align-items: start;
+}
+.theme-art-intrinsic:is([data-anchor="bottom"], [data-anchor^="bottom-"]) {
+  align-items: end;
+}
+.theme-art-intrinsic:is([data-anchor="left"], [data-anchor$="-left"]) {
+  justify-items: start;
+}
+.theme-art-intrinsic:is([data-anchor="right"], [data-anchor$="-right"]) {
+  justify-items: end;
 }
 :root[data-theme-bitmaps]:not([data-theme-bitmaps=""]) .tile-drop-preview {
   background: var(--surface);
+}
+.terminal-tile > .theme-art,
+.tile-title > .theme-art {
+  position: absolute;
+  inset: 0;
+}
+/* Expose gutter art through existing padding. Tile bounds and borders still
+   follow the split tree, including at the minimum size. */
+.tile-gutter-art:not([hidden]) ~ .terminal-tile {
+  background-clip: content-box;
+}
+.tile-gutter-art:not([hidden]) ~ .terminal-tile[data-empty="true"] > .theme-art {
+  inset: var(--tile-padding);
+}
+.tile-gutter-art[data-direction="horizontal"] {
+  min-width: calc(2 * var(--tile-padding));
+  transform: translateX(calc(-1 * var(--tile-padding)));
+}
+.tile-gutter-art[data-direction="vertical"] {
+  min-height: calc(2 * var(--tile-padding));
+  transform: translateY(calc(-1 * var(--tile-padding)));
+}
+.tile-title:has(> .theme-art) {
+  position: relative;
+  isolation: isolate;
+}
+.tile-title > .theme-art {
+  z-index: -1;
+}
+.tile-light-backing {
+  position: relative;
+  display: flex;
+  flex: none;
+}
+.tile-title:has(> .theme-art)
+  :is(
+    .tile-exit-status,
+    .preview-glyph,
+    .preview-network,
+    .tile-identity > :not(.visually-hidden, .board-agent, .host-chip),
+    .tile-number,
+    .tile-controls
+  ) {
+  background-color: var(--surface);
+}
+.tile-title:has(> .theme-art) .tile-light-backing::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset-block: -5px;
+  inset-inline: -3px -6px;
+  background-color: var(--surface);
+  pointer-events: none;
+}
+.terminal-tile:not(:hover, :focus-within, [data-focused="true"])
+  .tile-title:has(> .theme-art)
+  .tile-controls {
+  opacity: 1;
+}
+.terminal-tile:not(:hover, :focus-within, [data-focused="true"])
+  .tile-title:has(> .theme-art)
+  .tile-controls:not(:has(.preview-reload))
+  button {
+  opacity: 0;
 }

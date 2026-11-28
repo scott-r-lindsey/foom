@@ -35,7 +35,9 @@ export function parseThemeFile(text: string, kind: ThemeKind): ParsedThemeFile {
   if (kind === "theme") {
     const theme = parseUserInterfaceTheme(value);
     const warnings = userThemeWarnings(theme);
-    const images = Object.hasOwn(value, "images") ? parseThemeBitmaps(value["images"]) : undefined;
+    const images = Object.hasOwn(value, "images")
+      ? parseThemeBitmaps(value["images"], warnings)
+      : undefined;
     return { kind, theme, ...(images && { images }), ...(warnings.length ? { warnings } : {}) };
   }
 

@@ -545,18 +545,58 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
       menus: { surface: "#161616" },
     },
     shape: { radius: 0 },
+    images: {
+      "tile-header": {
+        files: ["art.png", { file: "art.png", fit: "cover" }, "alternate.png"],
+        opacity: 0.25,
+      },
+    },
   };
   const file = path.join(root, ".foom/config/themes/personal.json");
+  const sharp = require("sharp");
+  const pixels = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: "#142039" },
+  })
+    .png()
+    .toBuffer();
+  for (const piece of ["art.png", "alternate.png"])
+    await writeFile(path.join(path.dirname(file), piece), pixels);
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
-  await chooseTheme(page, "Personal v2");
+  const artwork = page.locator('.tile-title [data-theme-art="tile-header"]').first();
+  await page.evaluate(() => {
+    globalThis.fixtureThemeRandom = Math.random;
+    Math.random = () => 0.5;
+  });
+  try {
+    await chooseTheme(page, "Personal v2");
+    await expect(artwork).toHaveAttribute("data-fit", "cover");
+  } finally {
+    await page.evaluate(() => {
+      Math.random = globalThis.fixtureThemeRandom;
+      delete globalThis.fixtureThemeRandom;
+    });
+  }
   await page.getByRole("button", { name: "Theme Personal v2", exact: true }).click();
   await expect(page.locator(".theme-menu-options:popover-open")).toHaveCSS("--surface", "#161616");
   await page.keyboard.press("Escape");
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
+  await expect(artwork).toHaveCSS("opacity", "0.25");
+  const image = await artwork.evaluate((element) => getComputedStyle(element).backgroundImage);
+  theme.images["tile-header"].files.shift();
+  await writeFile(file, JSON.stringify(theme));
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const state = await window.desktop.setupState();
+        return state.themes.activeBitmaps?.slots["tile-header"]?.length;
+      }),
+    )
+    .toBe(2);
+  await expect(artwork).toHaveCSS("background-image", image);
   await expect(page.locator(".board-row").first()).toHaveCSS("border-radius", "0px");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
   await expect(page.locator(".sidebar-panel")).toHaveCSS("--surface", "#202020");
@@ -571,25 +611,101 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await expect
     .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--ink")))
     .toBe("#f4efff");
-  const original = JSON.stringify(theme);
+  const originalAttention = theme.colors.attention;
   theme.colors.attention = theme.colors.ink;
-  await writeFile(file, JSON.stringify(theme));
-  await boardCommand(app, ",", process.platform !== "darwin");
-  await page
-    .getByRole("region", { name: "Settings", exact: true })
-    .getByRole("button", { name: "Foom config", exact: true })
-    .click();
-  await expect(page.getByRole("region", { name: "Change waiting for approval" })).toContainText(
-    "needs-you is hard to tell apart",
-  );
+  theme.images["tile-header"].opacity = 0.5;
+  theme.images["tile-header"].anchor = "bottom";
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { ThemeBitmaps } = load("./build/main/themes/bitmaps.js");
+    const decode = ThemeBitmaps.prototype.load;
+    const { promise, resolve } = Promise.withResolvers();
+    globalThis.releaseArtwork = resolve;
+    ThemeBitmaps.prototype.load = async function (parsed, ...args) {
+      if (parsed.images?.["tile-header"]?.[0]?.opacity === 0.5) {
+        ThemeBitmaps.prototype.load = decode;
+        await promise;
+      }
+      return decode.call(this, parsed, ...args);
+    };
+  });
+  try {
+    await writeFile(file, JSON.stringify(theme));
+    await boardCommand(app, ",", process.platform !== "darwin");
+    await page
+      .getByRole("region", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Foom config", exact: true })
+      .click();
+    await expect(page.getByRole("region", { name: "Change waiting for approval" })).toContainText(
+      "needs-you is hard to tell apart",
+    );
+    await expect(artwork).toHaveCSS("opacity", "0.25");
+  } finally {
+    await app.evaluate(() => {
+      globalThis.releaseArtwork();
+      delete globalThis.releaseArtwork;
+    });
+  }
   assert.equal(
     await page.evaluate(() => document.documentElement.style.getPropertyValue("--attention")),
     "#ffb23e",
   );
+  await expect(artwork).toHaveCSS("opacity", "0.5");
+  await expect(artwork).toHaveCSS("background-position", "50% 100%");
+  await expect(artwork).toHaveCSS("background-image", image);
   await page.getByRole("button", { name: "Keep it on", exact: true }).click();
   // Wait for the write to finish before opening the file on Windows.
   await expect(page.getByRole("region", { name: "Change waiting for approval" })).toHaveCount(0);
-  assert.equal(await readFile(file, "utf8"), original);
+  theme.colors.attention = originalAttention;
+  assert.deepEqual(JSON.parse(await readFile(file, "utf8")), theme);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  await expect(artwork).toHaveCSS("opacity", "0.5");
+  await expect(page.locator("html")).toHaveCSS("--attention", originalAttention);
+});
+
+test("approved theme artwork placement can change between launches", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-art-restart-"));
+  removeAfterApps(context, home);
+  const options = { home, args: [`--user-data-dir=${path.join(home, "profile")}`] };
+  const app = await launchApp(context, { ...options, fixture: "empty-board" });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const sharp = require("sharp");
+  const base = interfaceThemes["eclipse-dark"];
+  const theme = {
+    ...base,
+    version: 1,
+    name: "Approved artwork",
+    colors: { ...base.colors, attention: base.colors.ink },
+  };
+  const themes = path.join(home, ".foom/config/themes");
+  const file = path.join(themes, "art.json");
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: "#142039" } })
+    .png()
+    .toFile(path.join(themes, "art.png"));
+  await writeFile(file, JSON.stringify(theme));
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await chooseTheme(page, theme.name);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  const artwork = '.tile-area [data-theme-art="empty"]';
+  await expect(page.locator("html")).toHaveCSS("--attention", theme.colors.attention);
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+
+  await writeFile(
+    file,
+    JSON.stringify({ ...theme, version: 2, images: { empty: { file: "art.png", opacity: 0.5 } } }),
+  );
+  const restored = await launchApp(context, { ...options, fixture: "restored" });
+  const board = await boardPage(restored);
+  await expect(board.locator("html")).toHaveCSS("--attention", theme.colors.attention);
+  await expect(board.locator(artwork)).toHaveCSS("opacity", "0.5");
+  assert.equal(
+    await board.evaluate(async () => (await window.desktop.configStatus()).pending),
+    null,
+  );
 });
 
 test("terminal font picker updates open shells and config shells and refits their grids", async (context) => {
@@ -1327,7 +1443,7 @@ test("nested theme inks stay readable over parent gradients and trusted header p
   assert.ok(contrast(light.ink, "#ffffff") >= 4.5);
 });
 
-test("theme bitmaps render only in approved slots with a narrow board CSP and clean fallback", {
+test("theme artwork paints separate empty regions and tile headers with a narrow CSP", {
   timeout: deadline(45000),
 }, async (context) => {
   const home = await mkdtemp(path.join(tmpdir(), "foom-theme-bitmaps-"));
@@ -1390,18 +1506,34 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
   const themes = path.join(home, ".foom/config/themes");
   const bitmap = async (slot, color, base) => {
-    const width = slot === "sidebar" ? 160 : 640;
-    const height = slot === "sidebar" ? 168 : 420;
-    const svg =
-      Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 160 120">
-      <g fill="none" stroke="${color}" stroke-width="1.5">
-        <ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(-24 80 60)"/>
+    const width = slot === "orbit" ? 120 : slot === "sidebar" ? 160 : 640;
+    const height = slot === "orbit" ? 90 : slot === "sidebar" ? 168 : slot === "header" ? 36 : 420;
+    const orbit = `<ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(-24 80 60)"/>
         <ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(24 80 60)"/>
         <circle cx="80" cy="60" r="22" fill="${color}" fill-opacity=".3"/>
-        <path d="M80 30v60M50 60h60" stroke-dasharray="2 4"/>
+        <path d="M80 30v60M50 60h60" stroke-dasharray="2 4"/>`;
+    const field = `<defs>
+        <linearGradient id="wash" x2="0.78" y2="1">
+          <stop stop-color="${color}" stop-opacity=".08"/>
+          <stop offset="1" stop-color="${color}" stop-opacity=".65"/>
+        </linearGradient>
+        <pattern id="stars" width="23" height="19" patternUnits="userSpaceOnUse">
+          <circle cx="4" cy="7" r=".3" fill="${color}" stroke="none"/>
+          <circle cx="13" cy="16" r=".2" fill="${color}" stroke="none"/>
+        </pattern>
+      </defs>
+      <rect width="160" height="120" fill="url(#wash)" stroke="none"/>
+      <rect width="160" height="120" fill="url(#stars)" stroke="none"/>
+      <path d="M33 71 56 35l49 10 22 40-51 5Z M33 71l72-26m-49-10 20 55m0 0 29-45" stroke-width=".65" stroke-dasharray="1.5 2.5"/>
+      <g fill="${color}" stroke="none"><circle cx="33" cy="71" r="1.8"/><circle cx="56" cy="35" r="1.1"/>
+      <circle cx="105" cy="45" r="2.8"/><circle cx="127" cy="85" r="1.3"/><circle cx="76" cy="90" r="2"/></g>`;
+    const header = `<path d="M-4 26Q100 9 210 24T433 13 640 19M-5 34Q100 14 207 29T430 19 645 23M-10 42Q100 21 201 34T428 25 650 27" stroke-opacity=".8"/>
+        <path d="M240 13h65m59 17h74m110-21h51" stroke-opacity=".5" stroke-dasharray="2 6"/>`;
+    const svg =
+      Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${slot === "header" ? "0 0 640 36" : "0 0 160 120"}">
+      <g fill="none" stroke="${color}" stroke-width="1.5">
+        ${slot === "header" ? header : slot === "field" ? field : orbit}
       </g>
-      <g fill="${color}"><circle cx="25" cy="76" r="3"/><circle cx="127" cy="86" r="3"/>
-      <circle cx="122" cy="29" r="2"/></g>
     </svg>`);
     await sharp(svg)
       .withExif({ IFD0: { Artist: "Private source metadata" } })
@@ -1411,8 +1543,8 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   for (const base of ["light", "dark"]) {
     for (const [slot, color] of Object.entries(
       base === "light"
-        ? { board: "#35218a", gutter: "#005975", sidebar: "#075f79" }
-        : { board: "#a2baff", gutter: "#74ecd8", sidebar: "#8eb6ff" },
+        ? { orbit: "#35218a", field: "#005975", sidebar: "#075f79", header: "#35218a" }
+        : { orbit: "#a2baff", field: "#74ecd8", sidebar: "#8eb6ff", header: "#a2baff" },
     ))
       await bitmap(slot, color, base);
     await writeFile(
@@ -1422,22 +1554,32 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
         version: 2,
         name: `Bitmap ${base}`,
         images: {
-          board: { file: `${base}-board.png`, opacity: 0.6 },
-          gutter: { file: `${base}-gutter.png`, opacity: 0.6, anchor: "right" },
+          empty: {
+            files: [
+              { file: `${base}-orbit.png`, fit: "none", anchor: "bottom", size: 25 },
+              `${base}-field.png`,
+            ],
+            fit: "cover",
+            opacity: 0.6,
+          },
+          "tile-header": { file: `${base}-header.png`, opacity: 0.6, fit: "cover" },
           sidebar: { file: `${base}-sidebar.png`, opacity: 0.55, anchor: "bottom" },
         },
       }),
     );
   }
   const tileArea = page.locator(".tile-area");
-  const select = async (base) => {
+  const apply = async (name) => {
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    await chooseTheme(page, `Bitmap ${base}`);
+    await chooseTheme(page, name);
     await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  };
+  const select = async (base) => {
+    await apply(`Bitmap ${base}`);
     await expect(page.locator("html")).toHaveAttribute(
       "data-theme-bitmaps",
-      "board gutter sidebar",
+      "empty sidebar tile-header",
     );
     await expect
       .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
@@ -1447,7 +1589,7 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
     page.evaluate(async () => (await window.desktop.setupState()).themes.activeBitmaps.slots);
   const capture = async (target, label) =>
     target.screenshot({
-      path: evidencePath(`1189-theme-bitmaps/${label}.png`),
+      path: evidencePath(`screenshots-1367/${label}.png`),
       animations: "disabled",
       // Fixture paths can contain an account name on some platforms.
       style: ".tile-location { display: none; }",
@@ -1466,7 +1608,7 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
     }, url);
 
   await select("light");
-  const oldBoard = source((await slots()).board);
+  const oldBoard = source((await slots()).empty[0]);
   const policyPage = await confirmationPage(app);
   const csp = (target) =>
     target.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
@@ -1529,55 +1671,300 @@ test("theme bitmaps render only in approved slots with a narrow board CSP and cl
   const normalized = await sharp(Buffer.from(delivered)).metadata();
   assert.equal(normalized.format, "png");
   assert.equal(normalized.exif, undefined);
+  assert.equal(normalized.hasAlpha, true);
   assert.doesNotMatch(JSON.stringify(await slots()), /\.png|Private source metadata/u);
+
+  const spaces = page.locator('.terminal-tile[data-empty="true"]');
+  const emptyArt = spaces.locator('[data-theme-art="empty"]');
+  const header = page.locator(".tile-title");
+  const terminal = tileArea.locator(".xterm:visible");
+  const paint = (target) =>
+    target.evaluate((element) => {
+      const image = element.querySelector("img");
+      return image ? `url("${image.src}")` : getComputedStyle(element).backgroundImage;
+    });
+  const split = async (command, choice, count) => {
+    // Random selection is exercised in the unit tests. Choose both placements
+    // in the real app so every screenshot and geometry assertion can show them.
+    await page.evaluate((value) => {
+      globalThis.fixtureThemeRandom = Math.random;
+      Math.random = () => value;
+    }, choice);
+    try {
+      await page.evaluate((action) => window.desktop.appMenu.execute(action), command);
+      await expect(spaces).toHaveCount(count);
+      await expect(emptyArt.locator("img")).toHaveCount(1);
+    } finally {
+      await page.evaluate(() => {
+        Math.random = globalThis.fixtureThemeRandom;
+        delete globalThis.fixtureThemeRandom;
+      });
+    }
+  };
+  const opaque = (target, pseudo = null) =>
+    target.evaluate(
+      (element, part) => /^rgb\(/u.test(getComputedStyle(element, part).backgroundColor),
+      pseudo,
+    );
 
   for (const base of ["light", "dark"]) {
     if (base === "dark") await select(base);
     const images = await slots();
-    await expect(tileArea).toHaveAttribute("data-occupied", "false");
-    await expect
-      .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
-      .toBe(`url("${source(images.board)}")`);
-    assert.equal(await paintsImage(source(images.board)), true);
-    assert.equal(await paintsImage(source(images.sidebar)), true);
+    assert.equal(images.empty.length, 2);
+    for (const piece of [...images.empty, ...images.sidebar, ...images["tile-header"]])
+      assert.equal(await paintsImage(source(piece)), true);
+    await expect(emptyArt).toHaveCount(1);
+    const blankPaint = await paint(emptyArt);
+    assert.ok(images.empty.some((piece) => blankPaint === `url("${source(piece)}")`));
     await expect(page.locator(".sidebar-bitmap")).toHaveCSS(
       "background-image",
-      `url("${source(images.sidebar)}")`,
+      `url("${source(images.sidebar[0])}")`,
     );
-    await capture(tileArea, `board-${base}`);
-    await capture(page.locator(".sidebar-shell"), `sidebar-${base}`);
+    await capture(page, `blank-${base}`);
 
     await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Enter");
     await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
-    const tileMenu = page.getByRole("button", { name: "Tile 1 menu", exact: true });
-    await expect(tileMenu).toBeEnabled();
-    await tileMenu.press("Enter");
-    await page.getByRole("menuitem", { name: "Split terminal right", exact: true }).press("Enter");
-    await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Tile 1 menu", exact: true })).toBeEnabled();
+    await split("split-right", 0, 1);
+    await split("split-down", 0.99, 2);
+    const accent = emptyArt.locator("img");
+    const fill = spaces.locator('[data-fit="cover"]');
+    await expect(fill).toHaveCSS("background-image", `url("${source(images.empty[1])}")`);
+    await expect(fill).toHaveCSS("background-size", "cover");
+    await expect(fill).toHaveCSS("background-position", "50% 50%");
+    await expect(accent).toHaveAttribute("src", source(images.empty[0]));
+    await expect.poll(() => accent.evaluate((image) => image.naturalWidth)).toBe(120);
+    const measureAccent = () =>
+      accent.evaluate((image) => {
+        const rect = image.getBoundingClientRect();
+        const area = image.closest("[data-theme-art]").getBoundingClientRect();
+        return {
+          width: rect.width,
+          height: rect.height,
+          naturalWidth: image.naturalWidth,
+          bottom: area.bottom - rect.bottom,
+          centered: area.x + area.width / 2 - rect.x - rect.width / 2,
+          maximum: Math.min(area.width, area.height) / 4,
+        };
+      });
+    const assertAccent = (bounds) => {
+      assert.ok(bounds.width > 0 && bounds.height > 0);
+      assert.ok(Math.abs(bounds.width - Math.min(bounds.naturalWidth, bounds.maximum)) <= 1);
+      assert.ok(Math.abs(bounds.bottom) <= 1 && Math.abs(bounds.centered) <= 1);
+    };
+    assertAccent(await measureAccent());
+    const regions = await emptyArt.evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        const tile = element.parentElement.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+          contained:
+            box.left >= tile.left &&
+            box.top >= tile.top &&
+            box.right <= tile.right &&
+            box.bottom <= tile.bottom,
+          image: element.querySelector("img")
+            ? `url("${element.querySelector("img").src}")`
+            : style.backgroundImage,
+          pointerEvents: style.pointerEvents,
+        };
+      }),
+    );
+    assert.equal(regions.length, 2);
+    assert.notDeepEqual([regions[0].x, regions[0].y], [regions[1].x, regions[1].y]);
+    for (const region of regions) {
+      assert.ok(region.contained && region.width > 0 && region.height > 0);
+      assert.equal(region.pointerEvents, "none");
+      assert.ok(images.empty.some((piece) => region.image === `url("${source(piece)}")`));
+    }
+    const seam = tileArea.locator('.tile-gutter-art[data-direction="horizontal"]');
+    await expect(seam).toBeVisible();
+    const stable = [...regions.map((region) => region.image), await paint(seam)];
+    await expect(seam).toHaveCSS("transition-property", "none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const tile = tileArea.locator('.terminal-tile[data-empty="false"]');
+    for (const property of [
+      "transition-property",
+      "transition-duration",
+      "transition-timing-function",
+    ]) {
+      const value = await tile.evaluate(
+        (element, name) => getComputedStyle(element).getPropertyValue(name),
+        property,
+      );
+      // The tile has an additional opacity transition after the four bounds.
+      await expect(seam).toHaveCSS(property, value.split(", ").slice(0, 4).join(", "));
+    }
+    const resize = page.getByRole("separator", { name: "Resize tiles" }).first();
+    const ratio = await resize.getAttribute("aria-valuenow");
+    await resize.press("ArrowRight");
+    await expect(resize).not.toHaveAttribute("aria-valuenow", ratio);
+    await seam.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map(({ finished }) => finished));
+    });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(seam).toHaveCSS("transition-property", "none");
+    assert.deepEqual(
+      [await paint(emptyArt.first()), await paint(emptyArt.last()), await paint(seam)],
+      stable,
+    );
+
+    assertAccent(await measureAccent());
+    const titleArt = header.locator('[data-theme-art="tile-header"]');
+    await expect(titleArt).toHaveCSS(
+      "background-image",
+      `url("${source(images["tile-header"][0])}")`,
+    );
+    await expect(titleArt).toHaveCSS("pointer-events", "none");
+    for (const selector of [".tile-number", ".tile-controls"])
+      assert.equal(await opaque(header.locator(selector)), true);
+    assert.equal(await opaque(header.locator(".tile-light-backing"), "::before"), true);
+
+    await expect(terminal).toHaveCount(1);
     await expect
-      .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
-      .toBe(`url("${source(images.gutter)}")`);
-    assert.equal(await paintsImage(source(images.gutter)), true);
-    await expect(page.locator(".xterm:visible")).toHaveCount(1);
-    await expect
-      .poll(async () =>
-        (await tileArea.locator(".xterm:visible .xterm-rows").textContent())?.trim(),
-      )
+      .poll(async () => (await terminal.locator(".xterm-rows").textContent())?.trim())
       .toBe(fixturePrompt);
-    await capture(tileArea, `gutter-${base}`);
+    await expect(terminal.locator("[data-theme-art]")).toHaveCount(0);
+    await expect(terminal.locator(".xterm-screen")).toHaveCSS("background-image", "none");
+    await header.click();
+    await capture(page, `tiles-${base}`);
     await page.getByRole("button", { name: "Hide", exact: true }).click();
-    await expect(tileArea).toHaveAttribute("data-occupied", "false");
-    const spaces = page.locator('.terminal-tile[data-empty="true"]');
-    await spaces.first().click({ button: "right" });
-    await page.getByRole("menuitem", { name: "Close space", exact: true }).click();
-    await expect(spaces).toHaveCount(1);
+    await expect(spaces).toHaveCount(3);
+    for (const remaining of [2, 1]) {
+      await spaces.first().click({ button: "right" });
+      await page.getByRole("menuitem", { name: "Close space", exact: true }).click();
+      await expect(spaces).toHaveCount(remaining);
+    }
   }
 
   assert.equal(await paintsImage(oldBoard), false);
-  await rm(path.join(themes, "dark-board.png"));
-  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "gutter sidebar");
+  await rm(path.join(themes, "dark-orbit.png"));
+  await rm(path.join(themes, "dark-field.png"));
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "sidebar tile-header");
+  await expect(emptyArt).toHaveCount(0);
+
+  const attention = "#00ff00";
+  const statusBitmap = "status.png";
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: attention } })
+    .png()
+    .toFile(path.join(themes, statusBitmap));
+  const narrowTheme = {
+    ...interfaceThemes["eclipse-dark"],
+    version: 2,
+    name: "Narrow artwork",
+    areas: { tiles: { attention } },
+    type: { scale: 1.25 },
+    images: { empty: { file: "dark-sidebar.png" }, "tile-header": { file: statusBitmap } },
+  };
+  const narrowThemeFile = path.join(themes, "narrow-artwork.json");
+  await writeFile(narrowThemeFile, JSON.stringify(narrowTheme));
+  await apply(narrowTheme.name);
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "empty tile-header");
+  await sizeTileBoard(app, page, 900, 640);
+  const { terminalFontStack } = require("../../build/shared/terminal-fonts.js");
+  const { settings } = await page.evaluate(() => window.desktop.setupState());
+  const minimum = await tileArea.evaluate(
+    async (element, font) => {
+      await document.fonts.load(font);
+      const probe = document.createElement("span");
+      probe.style.cssText = `position:absolute;visibility:hidden;font:${font}`;
+      probe.textContent = "M";
+      element.append(probe);
+      const minWidth = probe.getBoundingClientRect().width * 12;
+      probe.remove();
+      const [session] = (await window.desktop.workspace()).terminals;
+      localStorage.setItem(
+        `foom.tiles.v1.${window.desktop.windows.id}`,
+        JSON.stringify({
+          version: 2,
+          focused: "narrow-terminal",
+          tree: {
+            kind: "split",
+            id: "narrow-pair",
+            direction: "horizontal",
+            ratio: (2 * minWidth + 1) / element.getBoundingClientRect().width,
+            first: {
+              kind: "tile",
+              id: "narrow-terminal",
+              content: { kind: "terminal", session: session.id },
+            },
+            second: { kind: "tile", id: "spare-space", content: null },
+          },
+        }),
+      );
+      return minWidth;
+    },
+    `${settings.terminalFontSize}px ${terminalFontStack(settings.terminalFont)}`,
+  );
+  await page.reload();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(terminal).toHaveCount(1);
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "empty tile-header");
   await expect
-    .poll(() => tileArea.evaluate((tile) => getComputedStyle(tile, "::before").backgroundImage))
-    .toBe("none");
-  await capture(tileArea, "board-dark-removed");
+    .poll(() =>
+      header.evaluate((element) =>
+        getComputedStyle(element).getPropertyValue("--attention").trim(),
+      ),
+    )
+    .toBe(attention);
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  const tiles = tileArea.locator(".terminal-tile");
+  await expect(tiles).toHaveCount(3);
+  const widths = () =>
+    tiles.evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().width),
+    );
+  const decoratedWidths = await widths();
+  assert.ok(
+    decoratedWidths.every((width) => width >= minimum),
+    JSON.stringify({ decoratedWidths, minimum }),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await window.desktop.setupState()).themes.errors.some(
+          ({ file, path, reason, severity }) =>
+            file === "narrow-artwork.json" &&
+            path === "$.images.tile-header" &&
+            reason === "image-status-color" &&
+            severity === "warning",
+        ),
+      ),
+    )
+    .toBe(true);
+
+  await terminal.locator(".xterm-helper-textarea").press("Enter");
+  const exitedTile = tileArea.locator('.terminal-tile[data-exited="true"]');
+  await expect(exitedTile).toHaveCount(1);
+  // Exercise the narrow header independently of the terminal font's split minimum.
+  const narrowWidth = await page.addStyleTag({
+    content: '.tile-area .terminal-tile[data-exited="true"] { width: 72px !important; }',
+  });
+  const exitedHeader = exitedTile.locator(".tile-title");
+  const measureHeader = () =>
+    exitedHeader.evaluate((element) => {
+      const { height, width } = element.getBoundingClientRect();
+      return { height, width };
+    });
+  await expect(exitedHeader.locator(".tile-exit-status svg")).toBeVisible();
+  await expect(exitedHeader.locator('[data-theme-art="tile-header"]')).toHaveCount(1);
+  const decoratedHeader = await measureHeader();
+  await capture(exitedHeader, "narrow-exited-dark");
+  await writeFile(
+    narrowThemeFile,
+    JSON.stringify({ ...narrowTheme, images: { empty: narrowTheme.images.empty } }),
+  );
+  await expect(exitedHeader.locator('[data-theme-art="tile-header"]')).toHaveCount(0);
+  assert.deepEqual(await measureHeader(), decoratedHeader);
+  assert.deepEqual(decoratedHeader, { height: 30, width: 64 });
+  await narrowWidth.evaluate((style) => style.remove());
+
+  await apply("Eclipse Dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "");
+  assert.deepEqual(await widths(), decoratedWidths);
 });

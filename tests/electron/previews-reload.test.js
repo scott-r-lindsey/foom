@@ -305,6 +305,45 @@ test("preview manual reload controls preserve focus and shortcut targets only th
       await captureHeader("hover");
     }
   }
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const themes = path.join(
+    await app.evaluate(({ app }) => app.getPath("home")),
+    ".foom/config/themes",
+  );
+  await require("sharp")({ create: { width: 8, height: 8, channels: 3, background: "#999999" } })
+    .png()
+    .toFile(path.join(themes, "reload-header.png"));
+  await writeFile(
+    path.join(themes, "reload-header.json"),
+    JSON.stringify({
+      ...interfaceThemes["eclipse-dark"],
+      version: 2,
+      name: "Reload with artwork",
+      images: { "tile-header": { file: "reload-header.png" } },
+    }),
+  );
+  const artworkTheme = "user:reload-header.json";
+  const offeredDigest = () =>
+    page.evaluate(
+      async (id) =>
+        (await window.desktop.setupState()).themes.interface.find((theme) => theme.id === id)
+          ?.digest,
+      artworkTheme,
+    );
+  await expect.poll(offeredDigest).toBeDefined();
+  await page.evaluate(
+    ([interfaceTheme, digest]) => window.desktop.saveSetup({ interfaceTheme }, digest),
+    [artworkTheme, await offeredDigest()],
+  );
+  await expect(tile.locator('[data-theme-art="tile-header"]')).toHaveCount(1);
+  const shellMenu = page.locator('[data-tile="shell"] .tile-number');
+  await shellMenu.focus();
+  await expect(tile).toHaveAttribute("data-focused", "false");
+  await page.mouse.move(0, 0);
+  await expect(reload).toHaveCSS("opacity", "0.4");
+  await tile.locator(".tile-title").hover();
+  await expect(reload).toHaveCSS("opacity", "1");
+  await page.mouse.move(0, 0);
   await reload.focus();
   await expect(reload).toBeFocused();
   await expect

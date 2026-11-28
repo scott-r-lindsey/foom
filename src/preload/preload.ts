@@ -123,10 +123,13 @@ function either<T extends readonly Validator<unknown>[]>(
     },
   );
 }
-function array<T>(check: Validator<T>): Validator<T[]> {
+function array<T>(check: Validator<T>, minimum = 0, maximum = Infinity): Validator<T[]> {
   return copying(
     (value): value is T[] =>
-      Array.isArray(value) && Array.from(value).every((entry: unknown) => check(entry)),
+      Array.isArray(value) &&
+      value.length >= minimum &&
+      value.length <= maximum &&
+      Array.from(value).every((entry: unknown) => check(entry)),
     (value) =>
       Array.isArray(value)
         ? Array.from(value, (entry: unknown) => project(check, entry))
@@ -373,14 +376,16 @@ const validThemeReason: Validator<ThemeReason> = literal(
   "image-unavailable",
   "image-format",
   "image-status-color",
+  "legacy-image-slot",
 );
 
 const validThemeKind: Validator<ThemeKind> = literal("theme", "terminal-theme");
 
-const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
+const bitmapPaint = shape({
   id: (value): value is string => text(value) && /^[a-f0-9]{64}$/u.test(value),
   opacity: range(0.05, 0.6),
-  fit: literal("cover", "contain", "tile"),
+  fit: literal("cover", "contain", "tile", "none"),
+  size: either(absent, range(5, 100)),
   anchor: literal(
     "center",
     "top",
@@ -394,15 +399,24 @@ const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
   ),
 } satisfies Contract<ThemeBitmapPaint>);
 
+const validBitmapPaint: Validator<ThemeBitmapPaint> = copying(
+  (value): value is ThemeBitmapPaint =>
+    bitmapPaint(value) && (value.size === undefined || value.fit === "none"),
+  (value) => project(bitmapPaint, value),
+);
+
+// Keep this bound in sync with themeBitmapSlotLimit without importing runtime code.
+const validBitmapSlot = array(validBitmapPaint, 1, 8);
+
 const validThemeCatalog: Validator<ThemeCatalog> = shape({
   activeBitmaps: either(
     absent,
     shape({
       theme: userThemeId,
       slots: partial({
-        board: validBitmapPaint,
-        gutter: validBitmapPaint,
-        sidebar: validBitmapPaint,
+        empty: validBitmapSlot,
+        sidebar: validBitmapSlot,
+        "tile-header": validBitmapSlot,
       }),
     }),
   ),

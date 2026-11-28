@@ -113,17 +113,17 @@ async function validateBitmaps(text: string, parent: ConfigDirectory): Promise<T
   if (parsed.kind !== "theme") return [];
   const diagnostics: ThemeDiagnostic[] = [];
   for (const slot of themeBitmapSlots) {
-    const file = parsed.images?.[slot]?.file;
-    if (!file) continue;
-    try {
-      await validateBitmap(join(parent.path, file), parent);
-    } catch (error) {
-      diagnostics.push({
-        file: "",
-        path: `$.images.${slot}`,
-        reason: error instanceof ThemeValidationError ? error.reason : "image-unavailable",
-        severity: "error",
-      });
+    for (const { file } of parsed.images?.[slot] ?? []) {
+      try {
+        await validateBitmap(join(parent.path, file), parent);
+      } catch (error) {
+        diagnostics.push({
+          file: "",
+          path: `$.images.${slot}`,
+          reason: error instanceof ThemeValidationError ? error.reason : "image-unavailable",
+          severity: "error",
+        });
+      }
     }
   }
   return diagnostics;

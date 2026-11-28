@@ -49,6 +49,7 @@ export class ThemeLibrary {
           id: UserThemeId;
           digest?: string;
           bitmaps?: ActiveThemeBitmaps["slots"];
+          imageDiagnostics?: readonly ThemeDiagnostic[];
           theme: ThemeCatalog["interface"][number]["theme"] | undefined;
         }
       | undefined,
@@ -72,9 +73,19 @@ export class ThemeLibrary {
       if (index === -1) entries.push(entry);
       else entries[index] = entry;
     } else if (index !== -1) entries.splice(index, 1);
+    const errors = this.catalog.errors;
+    const remaining = Math.max(0, 100 - errors.filter(({ kind }) => kind === "theme").length);
     return structuredClone({
       ...this.catalog,
       interface: entries,
+      errors: [
+        ...errors,
+        ...(active.imageDiagnostics ?? []).slice(0, remaining).map((diagnostic) => ({
+          ...diagnostic,
+          file: active.id.slice(5),
+          kind: "theme" as const,
+        })),
+      ],
       ...(active.bitmaps && { activeBitmaps: { theme: active.id, slots: active.bitmaps } }),
     });
   }
@@ -205,7 +216,7 @@ export class ThemeLibrary {
           const { parsed: theme, digest } = snapshot;
           if (theme.kind === "theme")
             next.errors.push(
-              ...[...(theme.warnings ?? []), ...(snapshot.imageDiagnostics ?? [])]
+              ...(theme.warnings ?? [])
                 .slice(
                   0,
                   Math.max(0, 100 - next.errors.filter((error) => error.kind === kind).length),

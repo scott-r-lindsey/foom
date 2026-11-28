@@ -93,6 +93,23 @@ export const interfaceShapeBounds = {
 } as const;
 const colorNames = [...interfaceColorNames, ...interfaceHighlightNames];
 
+/** Canonical color inputs to the attention check, including each area's overrides. */
+export function attentionPalette(theme: InterfaceTheme) {
+  const global = colorNames.map((name) => theme.colors[name]?.toLowerCase());
+  const areas = interfaceAreas.flatMap((area) => {
+    const overrides = theme.areas?.[area];
+    if (!overrides) return [];
+    const colors = colorNames.flatMap((name, index) => {
+      const color = overrides[name]?.toLowerCase();
+      return color !== undefined && color !== global[index] ? [[name, color]] : [];
+    });
+    const stops = overrides.gradient?.stops.map(([color]) => color.toLowerCase());
+    const scrollbar = overrides.scrollbar?.toLowerCase();
+    return colors.length || stops || scrollbar ? [[area, colors, stops, scrollbar]] : [];
+  });
+  return [global, areas];
+}
+
 function palette(value: unknown, path: string, partial = false): Partial<InterfaceTheme["colors"]> {
   const record = themeRecord(value, path);
   themeKeys(record, partial ? [] : interfaceColorNames, path, colorNames);

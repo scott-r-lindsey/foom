@@ -195,7 +195,7 @@ test("projects fixed new areas, typography and sRGB paints and clears them on sw
   expect(root.dataset["themeGradients"]).toBeUndefined();
 });
 
-test("only the active theme's projected bitmap IDs affect fixed style properties", async () => {
+test("only the active theme supplies artwork to the board", async () => {
   media();
   const id = "a".repeat(64);
   const theme = "user:gallery.json";
@@ -208,37 +208,33 @@ test("only the active theme's projected bitmap IDs affect fixed style properties
       activeBitmaps: {
         theme,
         slots: {
-          board: { id, opacity: 0.2, fit: "tile", anchor: "bottom-right" },
-          sidebar: { id, opacity: 0.4, fit: "cover", anchor: "center" },
+          empty: [{ id, opacity: 0.2, fit: "tile", anchor: "bottom-right" }],
+          sidebar: [{ id, opacity: 0.4, fit: "cover", anchor: "center" }],
         },
       },
     },
   };
   let changed: ((state: SetupState) => void) | undefined;
-  const dispose = attachInterfaceTheme({
-    state: () => Promise.resolve(state),
-    subscribe: (callback) => {
-      changed = callback;
-      return () => {};
+  const updateArt = vi.fn();
+  const dispose = attachInterfaceTheme(
+    {
+      state: () => Promise.resolve(state),
+      subscribe: (callback) => {
+        changed = callback;
+        return () => {};
+      },
     },
-  });
+    undefined,
+    undefined,
+    updateArt,
+  );
   await Promise.resolve();
   const root = document.documentElement;
-  const style = root.style;
-  expect(root.dataset["themeBitmaps"]).toBe("board sidebar");
-  for (const [key, value] of Object.entries({
-    "board-image": `url("foom-theme://bitmap/${id}")`,
-    "board-opacity": "0.2",
-    "board-size": "auto",
-    "board-repeat": "repeat",
-    "board-position": "bottom right",
-    "sidebar-size": "cover",
-    "sidebar-repeat": "no-repeat",
-  }))
-    expect(style.getPropertyValue(`--bitmap-${key}`)).toBe(value);
+  expect(root.dataset["themeBitmaps"]).toBe("empty sidebar");
+  expect(updateArt).toHaveBeenLastCalledWith(state.themes?.activeBitmaps);
   changed?.({ ...state, settings: { ...state.settings, interfaceTheme: "eclipse-dark" } });
   expect(root.dataset["themeBitmaps"]).toBe("");
-  expect(style.getPropertyValue("--bitmap-board-image")).toBe("");
+  expect(updateArt).toHaveBeenLastCalledWith(undefined);
   dispose();
   expect(root.dataset["themeBitmaps"]).toBeUndefined();
 });
