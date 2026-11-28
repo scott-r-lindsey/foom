@@ -691,6 +691,7 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
 const validHostsState: Validator<HostsState> = shape({
+  viewRevision: either(absent, count),
   gitOrigins: either(absent, array(shape({ repository: text, ...gitOriginEndpointFields }))),
   progress: either(
     absent,

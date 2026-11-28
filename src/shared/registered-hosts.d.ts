@@ -219,6 +219,8 @@ export interface HostCheckProgress {
   }[];
 }
 export interface HostsState {
+  /** Hosts publication revision reflected by the returned checklist rows. */
+  viewRevision?: number;
   /** Display-only endpoints of registered local origins. */
   gitOrigins?: readonly (GitOriginEndpoint & { repository: string })[];
   /** Sealed local build capability; independent of host connectivity. */

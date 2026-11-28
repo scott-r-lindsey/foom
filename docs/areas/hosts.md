@@ -398,7 +398,13 @@ Settings → Hosts uses the Add → Check → Fix checklist described below.
 Main selects checked-in recipes from the observed closed distro and the enabled
 bundled catalog. Install opens the human-owned terminal inside its host card in
 Settings and the preflight rail. gh uses the device panel below. Agent sign-in
-opens under the relevant Settings row. The remote executable verifies a main-supplied
+opens under the relevant Settings row. Main reserves each host and tool from the
+start of an install request through terminal exit or removal and the scoped
+refresh. Concurrent requests for that host and tool are refused immediately.
+When a fresh preliminary inspection already reports the requested tool ready,
+a standalone Install saves the observed tool row and succeeds without launching
+a terminal. A readiness-only inspection preserves saved advisory fields,
+including Codex approval settings. The remote executable verifies a main-supplied
 SHA-256 digest of the fixed argv sequence before running it, without shell
 source or typing into an existing tile. Multi-step package repository preparation
 stops on the first failure. Every Debian install starts with fixed
@@ -633,7 +639,9 @@ rows as described under [refresh scope](#checklist-refresh-scope-1061). Each hos
 full preflight, repositories and session/worktree inventory, saving a Last checked
 timestamp and the closed observations in its profile registration. If saving
 the checklist fails, main publishes the completed checks and the save failure to
-every open Hosts view. A completed SSH check supersedes older SSH row errors
+every open Hosts view. The command reply and subscribed view derive recipe
+availability from the displayed checklist, including unsaved requirements.
+A completed SSH check supersedes older SSH row errors
 even if saving the checklist fails. Never-checked hosts say Not checked.
 Saved observations contain no secrets, terminal output, session identities or
 worktree authority; removal deletes them. They remain
@@ -783,7 +791,11 @@ other queued rows from loading. Queued failures never reject the list read: save
 hosts remain visible, and failed profile writes show Unable to save in the affected
 row's existing failure state. Known row results are retained for persistence-only
 retry without another remote inspection; one row's failure never blocks another.
-An explicit row reload invalidates that target's older queued observation before
+A queued save from an install that finds the tool already ready is valid only
+while the checklist it inspected is current, including at profile replacement.
+The install shortcut succeeds once the saved tool row matches the displayed row.
+A newer full check supersedes the queued save even if the full check cannot be
+saved. An explicit row reload invalidates that target's older queued observation before
 checking it. If saving an SSH observation fails, main publishes the observed
 result with its save failure and retries that save only while the observation
 is current. Other explicit reloads retain their existing row recheck on reopen.
@@ -806,7 +818,8 @@ older daemons without it refuse scoped inspection and folder creation with `fact
 without falling back to a full check. Scoped results update saved presentation
 without granting launch authority or advancing the full-check timestamp. Main
 applies scoped folder and other row updates independently of the current SSH
-revision, including on an unsaved checklist.
+revision. These saves use the checklist shown in Hosts, including a newer unsaved
+full check. If that is the first full check, its timestamp becomes Last checked.
 Scoped reload replies do not publish a broad board inventory refresh. Folder and
 clone replies may seed the sidebar's location view from the action's own observations
 only when every registered host/repository pair is represented, including the acting

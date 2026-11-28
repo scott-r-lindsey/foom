@@ -198,8 +198,22 @@ Background board connection failures do not replace those observations.
 Legacy saved-only Hosts lists retain their saved inventory counts; the subscribed
 Settings projection explicitly opts into current counts.
 Entering Hosts retains its explicit list command to resume owner-held row/save
-retries; saved row controls wait for that command to settle, and command replies
-cannot replace ordered snapshots.
+retries. The list reply carries the Hosts publication revision at which it read
+the results. Saved row controls wait for the resumed list, and post-install
+controls wait for their refreshed row. Row reloads and full checks return
+revisioned checklists, including observations that could not be saved. Each host
+displays its newest checklist and the associated recipe availability and row
+failures. A snapshot at the reply's revision or later takes over. A newer
+checklist supersedes a local row error. Replies and snapshots that repeat the
+same checklist leave its local error visible. If the
+snapshot fails after the opening list settles, row reload can request a fresh
+snapshot.
+A failed snapshot also clears post-install row checking and keeps Install
+disabled until the snapshot recovers. A rejected post-install list reply clears
+row checking and keeps Install disabled until a reload or full check supplies
+the tool result, or the subscription reports the tool ready. An install refusal
+is a command error. A later ready observation clears it, including when another
+window ran the install. Command replies leave the subscribed cache intact.
 
 The host view primes sealed-build and local SSH-client display capabilities
 without retrying failed rows or connecting to a host. This preserves the opening

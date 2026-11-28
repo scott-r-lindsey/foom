@@ -14,7 +14,7 @@ import { loginPath } from "../agents/agents";
 import { resolveForgeExecutable } from "../control/forge-process";
 import { agentProviders } from "../agents/providers/registry";
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { devNull } from "node:os";
 import {
@@ -36,6 +36,7 @@ import type {
   HostFailure,
   HostCheck,
   HostCheckProgress,
+  HostObservation,
   HostPreflight,
   LiveHostChecklist,
   HostManagement,
@@ -67,6 +68,21 @@ function unknownSshKey(ssh: HostCheck): boolean {
 function unknownHostKey(result: HostResult | undefined): boolean {
   const ssh = result?.connection?.ssh;
   return ssh ? unknownSshKey(ssh) : result?.ok === false && result.reason === "host-key-unknown";
+}
+
+function hostTool(result: HostResult | undefined, tool: string) {
+  return result?.ok
+    ? [...result.facts.agents, ...(result.facts.tools ?? [])].find((entry) => entry.id === tool)
+    : undefined;
+}
+
+function lastSuccessfulAgents(observation: HostObservation | undefined) {
+  return (
+    observation?.lastAgents ??
+    (observation?.preflight.result.ok
+      ? { checkedAt: observation.checkedAt, result: observation.preflight.result }
+      : undefined)
+  );
 }
 
 /** The same closed classification serves full checks and individual connection rows. */
@@ -173,6 +189,7 @@ class HostRowSaveFailed extends Error {
 interface PendingHostRow {
   target: HostCheckTarget;
   sshRevision?: number;
+  isCurrent?: () => boolean;
   retry?: () => Promise<HostPreflight | undefined>;
   reason?: "save-failed" | "check-failed";
 }
@@ -1012,6 +1029,7 @@ export class Hosts {
     const repositoryPaths = new Set(this.repositories().map(({ path }) => path));
     const gitOrigins = this.gitOrigins.filter(({ repository }) => repositoryPaths.has(repository));
     return {
+      ...(savedOnly ? { viewRevision: viewChanges.current("hosts") } : {}),
       ...(registeredHosts.length && gitOrigins.length ? { gitOrigins } : {}),
       ...(this.remoteHostsAvailable === undefined
         ? {}
@@ -1023,9 +1041,12 @@ export class Hosts {
           if (row.target.kind === "ssh" && row.retry && checklist?.saveFailed) return [];
           return [{ target: row.target, reason: row.reason }];
         });
-        // Saved facts provide presentation only; actions select from a fresh inspection below.
+        // Recipes follow the visible checklist, including observations that could not be saved.
+        // Actions still select recipes from a fresh inspection.
         const displayResult =
-          (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
+          checklist?.preflight.result ??
+          (savedOnly ? undefined : this.results.get(host.host)) ??
+          host.observation?.preflight.result;
         // Explicit Refresh facts belongs to Settings. Otherwise retain the
         // saved check rather than a background board connection failure.
         const resourceResult = this.resourceResults.get(host.host);
@@ -1097,34 +1118,56 @@ export class Hosts {
   }
   private readonly hostKeyTrustFailures = new Map<string, HostKeyTrustFailure>();
   private hostKeyTrust: "askpass" | "manual" | undefined;
-  private readonly checklists = new HostObservations<string, LiveHostChecklist>();
+  private readonly checklists = new HostObservations<
+    string,
+    LiveHostChecklist & { checkedAt?: number; unsavedAgents?: HostObservation["lastAgents"] }
+  >();
   private sshRevision = 0;
   private readonly pendingRows = new HostObservations<string, PendingHostRow[]>();
   private pendingRecipeRefreshes = 0;
+  private readonly installing = new Map<string, symbol>();
   private currentRow(host: string, row: PendingHostRow): boolean {
-    return row.sshRevision === undefined || row.sshRevision >= this.checklistRevision(host);
+    return (
+      row.isCurrent?.() !== false &&
+      (row.sshRevision === undefined || row.sshRevision >= this.checklistRevision(host))
+    );
   }
   private checklistRevision(host: string): number {
     return this.checklists.get(host)?.preflight.sshRevision ?? 0;
   }
   private visibleChecklist(host: RegisteredHost): LiveHostChecklist | undefined {
     const checklist = this.checklists.get(host.host);
+    const savedRevision = host.observation?.preflight.sshRevision ?? 0;
     if (
       checklist &&
-      (checklist.saveFailed ||
-        !host.observation ||
-        checklist.preflight.sshRevision > (host.observation.preflight.sshRevision ?? 0))
+      (!host.observation ||
+        checklist.preflight.sshRevision > savedRevision ||
+        (checklist.preflight.sshRevision === savedRevision && checklist.saveFailed))
     )
-      return checklist;
+      return {
+        preflight: checklist.preflight,
+        ...(checklist.saveFailed ? { saveFailed: true } : {}),
+      };
     return undefined;
   }
-  private recordChecklist(host: string, preflight: HostPreflight): LiveHostChecklist["preflight"] {
+  private recordChecklist(
+    host: string,
+    preflight: HostPreflight,
+    fullCheckAt?: number,
+  ): LiveHostChecklist["preflight"] {
     const current = this.checklists.get(host);
     const sshRevision = preflight.sshRevision ?? 0;
     if (current && sshRevision < current.preflight.sshRevision) return current.preflight;
     const next = { ...preflight, sshRevision };
+    const checkedAt = fullCheckAt ?? current?.checkedAt;
+    const unsavedAgents =
+      fullCheckAt !== undefined && preflight.result.ok
+        ? { checkedAt: fullCheckAt, result: preflight.result }
+        : current?.unsavedAgents;
     this.checklists.set(host, {
       preflight: next,
+      ...(checkedAt !== undefined ? { checkedAt } : {}),
+      ...(unsavedAgents ? { unsavedAgents } : {}),
       ...(current?.saveFailed ? { saveFailed: true } : {}),
     });
     return next;
@@ -1135,13 +1178,14 @@ export class Hosts {
     const persisted = this.store
       .get()
       .registeredHosts?.find((entry) => entry.host === host)?.observation;
-    const saveFailed =
-      failed ||
-      (!!current.saveFailed &&
-        (!persisted || (persisted.preflight.sshRevision ?? 0) < sshRevision));
-    if (!!current.saveFailed !== saveFailed)
+    const saved = !failed && persisted && (persisted.preflight.sshRevision ?? 0) >= sshRevision;
+    const saveFailed = failed || (!!current.saveFailed && !saved);
+    const unsavedAgents = saved ? undefined : current.unsavedAgents;
+    if (!!current.saveFailed !== saveFailed || current.unsavedAgents !== unsavedAgents)
       this.checklists.set(host, {
         preflight: current.preflight,
+        ...(current.checkedAt !== undefined ? { checkedAt: current.checkedAt } : {}),
+        ...(unsavedAgents ? { unsavedAgents } : {}),
         ...(saveFailed ? { saveFailed: true } : {}),
       });
   }
@@ -1168,11 +1212,37 @@ export class Hosts {
         this.pendingRecipeRefreshes--;
       });
     this.pending = queued;
-    void queued
-      .then(() => this.action({ action: "list" }))
-      .catch(() => {
-        console.warn("Recipe row refresh failed");
-      });
+    return this.action({ action: "list" }).catch(() => {
+      console.warn("Recipe row refresh failed");
+    });
+  }
+  private async checkQueuedRows(host: string, rows: readonly PendingHostRow[]) {
+    const retained = new Set<PendingHostRow>();
+    let checked = 0;
+    if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
+      for (const row of rows) {
+        try {
+          if (!this.currentRow(host, row)) continue;
+          this.registeredRow(host, row.target);
+          if (row.retry) await row.retry();
+          else await this.reloadRow(host, row.target);
+          checked++;
+        } catch (error) {
+          if (error instanceof HostRowUnavailable) continue;
+          if (error instanceof HostRowSaveFailed) {
+            row.retry = error.retry;
+            if (error.sshRevision !== undefined) row.sshRevision = error.sshRevision;
+          }
+          row.reason = row.retry ? "save-failed" : "check-failed";
+          retained.add(row);
+        }
+      }
+    const remaining = (this.pendingRows.get(host) ?? []).filter(
+      (row) => !rows.includes(row) || (retained.has(row) && this.currentRow(host, row)),
+    );
+    if (remaining.length) this.pendingRows.set(host, remaining);
+    else this.pendingRows.delete(host);
+    return checked === rows.length;
   }
   private registeredRow(host: string, target: HostCheckTarget) {
     const registration = this.registered(host);
@@ -1198,45 +1268,58 @@ export class Hosts {
     host: string,
     change: (previous: HostPreflight) => HostPreflight,
     sshRevision?: number,
+    isCurrent?: () => boolean,
   ) {
-    const registration = this.registered(host);
     const superseded = () =>
-      sshRevision !== undefined && sshRevision < this.checklistRevision(host);
-    if (registration.observation)
-      await this.updateRegistrations(
-        (hosts) => {
-          if (superseded()) return hosts;
-          return hosts.map((entry) => {
-            if (entry.host !== host || !entry.observation) return entry;
-            const observation = entry.observation;
-            const saved = change(observation.preflight);
-            return {
-              ...entry,
-              observation: {
-                ...observation,
-                ...(!saved.result.ok && observation.preflight.result.ok
-                  ? {
-                      lastAgents: observation.lastAgents ?? {
-                        checkedAt: observation.checkedAt,
-                        result: observation.preflight.result,
-                      },
-                    }
-                  : {}),
-                preflight: saved,
-              },
-            };
-          });
-        },
-        sshRevision === undefined ? undefined : () => !superseded(),
-      );
+      isCurrent?.() === false ||
+      (sshRevision !== undefined && sshRevision < this.checklistRevision(host));
+    let base: HostPreflight | undefined;
+    let saved: HostPreflight | undefined;
+    let canCommit = () => !superseded();
+    await this.updateRegistrations(
+      (hosts) => {
+        if (superseded()) return hosts;
+        const entry = hosts.find((registration) => registration.host === host);
+        if (!entry) return hosts;
+        const observation = entry.observation;
+        const live = this.visibleChecklist(entry);
+        const checklist = this.checklists.get(host);
+        base = completedHostCheck(entry, live);
+        // Only a completed full check can supply a missing Last checked time.
+        const checkedAt =
+          observation?.checkedAt ?? (sshRevision === undefined ? checklist?.checkedAt : undefined);
+        if (!base || checkedAt === undefined) return hosts;
+        const currentLive = checklist?.preflight;
+        canCommit = () => !superseded() && currentLive === this.checklists.get(host)?.preflight;
+        // SSH changes publish their revised checklist before saving.
+        const preflight = sshRevision === undefined ? change(base) : base;
+        const lastAgents =
+          (live && checklist?.unsavedAgents) ??
+          (preflight.result.ok ? observation?.lastAgents : lastSuccessfulAgents(observation));
+        saved = preflight;
+        return hosts.map((registration) =>
+          registration === entry
+            ? {
+                ...entry,
+                observation: {
+                  ...observation,
+                  checkedAt,
+                  ...(lastAgents ? { lastAgents } : {}),
+                  preflight,
+                },
+              }
+            : registration,
+        );
+      },
+      () => canCommit(),
+    );
     const live = this.checklists.get(host)?.preflight;
-    if (superseded()) return live;
+    if (!canCommit()) return live;
     // Update only the changed fields of an existing live inventory. Saved facts
     // never populate that cache, and a scoped read never renews its timestamp.
     const current = this.results.get(host);
     const before =
-      live ??
-      registration.observation?.preflight ??
+      base ??
       (current ? { ...connectionChecks(current), repositories: [], result: current } : undefined);
     if (!before) return undefined;
     if (current && !this.inventoryReads.has(host)) {
@@ -1248,7 +1331,9 @@ export class Hosts {
       this.checklistSaved(host, sshRevision, false);
       return live;
     }
-    return this.recordChecklist(host, change(before));
+    const updated = this.recordChecklist(host, saved ?? change(before));
+    if (saved) this.checklistSaved(host, updated.sshRevision, false);
+    return updated;
   }
   private nextSshRevision(previous: HostPreflight | undefined): number {
     this.sshRevision = Math.max(this.sshRevision, previous?.sshRevision ?? 0) + 1;
@@ -1313,16 +1398,24 @@ export class Hosts {
         target,
       });
     }
-    return this.applyRowCheck(host, registration, target, result, originEndpoint);
+    return this.applyRowCheck(host, registration, target, result, { originEndpoint });
   }
   private async applyRowCheck(
     host: string,
     registration: RegisteredHost,
     target: HostCheckTarget,
     result: HostResult,
-    originEndpoint?: GitOriginEndpoint,
+    {
+      originEndpoint,
+      preserveUncheckedApproval = false,
+      isCurrent,
+    }: {
+      originEndpoint?: GitOriginEndpoint | undefined;
+      preserveUncheckedApproval?: boolean;
+      isCurrent?: () => boolean;
+    } = {},
   ): Promise<HostPreflight | undefined> {
-    const previous = this.checklists.get(host)?.preflight ?? registration.observation?.preflight;
+    const previous = completedHostCheck(registration, this.visibleChecklist(registration));
     const displayed = previous?.result ?? this.results.get(host);
     const connectionRow = ["ssh", "platform", "artifact"].includes(target.kind);
     const failedConnection = !result.ok && (connectionRow || connectionFailure(result));
@@ -1437,7 +1530,7 @@ export class Hosts {
                   state: found?.state ?? "unable",
                   ...(found?.codexApprovals !== undefined
                     ? { codexApprovals: found.codexApprovals }
-                    : item.codexApprovals !== undefined
+                    : !preserveUncheckedApproval && item.codexApprovals !== undefined
                       ? { codexApprovals: "unknown" as const }
                       : {}),
                   ...(found?.details ? { details: found.details } : {}),
@@ -1473,7 +1566,7 @@ export class Hosts {
     const save = async () => {
       if (this.registeredRow(host, target).codeFolder !== registration.codeFolder)
         throw new HostRowUnavailable("Folder changed");
-      const updated = await this.updateChecklist(host, change, sshRevision);
+      const updated = await this.updateChecklist(host, change, sshRevision, isCurrent);
       if (connectionRow && result.ok && this.resourceResults.get(host)?.ok === false)
         this.resourceResults.delete(host);
       return updated;
@@ -1523,12 +1616,16 @@ export class Hosts {
       input.action === "show-setup-agent"
     )
       return Promise.reject(new Error("Invalid host action"));
-    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey).finally(
-      () => {
+    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey)
+      .finally(() => {
         if (!["progress", "cancel-trust"].includes(input.action))
           viewChanges.publish("hosts", "agents");
-      },
-    );
+      })
+      .then((state) => {
+        if (input.action !== "reload" && input.action !== "preflight") return state;
+        // The command's preflight may predate another observation already published.
+        return { ...state, ...this.state(undefined, true, true) };
+      });
   }
   private performAction(
     input: HostOperation,
@@ -1627,6 +1724,22 @@ export class Hosts {
       input.action === "draft-preflight" ||
       input.action === "setup-recheck";
     const host = "host" in input ? input.host : undefined;
+    const installKey =
+      input.action === "recipe" && ["install", "install-sign-in"].includes(input.operation)
+        ? JSON.stringify([input.host, input.tool])
+        : undefined;
+    const install = Symbol();
+    if (installKey) {
+      // Claim before joining the action queue, so a duplicate never waits to launch.
+      if (this.installing.has(installKey))
+        return Promise.resolve({ ...this.state(), recipeFailure: "recipe-unavailable" });
+      this.installing.set(installKey, install);
+    }
+    const releaseInstall = () => {
+      if (installKey && this.installing.get(installKey) === install)
+        this.installing.delete(installKey);
+    };
+    let recipeStarted = false;
     let release: (() => void) | undefined;
     const hostWork = host ? (this.hostPending.get(host) ?? Promise.resolve()) : Promise.resolve();
     const prior = host
@@ -1638,32 +1751,7 @@ export class Hosts {
         if (isCheck) release = await this.enterCheck();
         if (input.action === "list") {
           await this.refreshGitOrigins();
-          for (const [host, rows] of [...this.pendingRows]) {
-            const retained: PendingHostRow[] = [];
-            if (this.store.get().registeredHosts?.some((entry) => entry.host === host))
-              for (const row of rows) {
-                try {
-                  if (!this.currentRow(host, row)) continue;
-                  this.registeredRow(host, row.target);
-                  if (row.retry) await row.retry();
-                  else await this.reloadRow(host, row.target);
-                } catch (error) {
-                  if (error instanceof HostRowUnavailable) continue;
-                  if (error instanceof HostRowSaveFailed) {
-                    row.retry = error.retry;
-                    if (error.sshRevision !== undefined) row.sshRevision = error.sshRevision;
-                  }
-                  row.reason = row.retry ? "save-failed" : "check-failed";
-                  retained.push(row);
-                }
-              }
-            const remaining = (this.pendingRows.get(host) ?? []).filter(
-              (row) =>
-                !rows.includes(row) || (retained.includes(row) && this.currentRow(host, row)),
-            );
-            if (remaining.length) this.pendingRows.set(host, remaining);
-            else this.pendingRows.delete(host);
-          }
+          for (const [host, rows] of [...this.pendingRows]) await this.checkQueuedRows(host, rows);
           return this.state(undefined, true);
         }
         if (input.action === "reload") {
@@ -1713,7 +1801,7 @@ export class Hosts {
           const recipeSession = await launchRecipe(
             { host: input.host, profile: this.profile, human: true, trustOrigin: origin },
             () => {
-              this.refreshRecipeRows(input.host, targets);
+              void this.refreshRecipeRows(input.host, targets);
             },
           );
           if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
@@ -1751,6 +1839,40 @@ export class Hosts {
             this.results.set(input.host, inspected);
             await this.expandRegistration(input.host);
           }
+          if (
+            input.operation === "install" &&
+            inspected.ok &&
+            hostTool(inspected, input.tool)?.state === "ready"
+          ) {
+            const target = { kind: "tool", tool: input.tool } as const;
+            const current = this.registered(input.host);
+            const row = this.queueRows(input.host, [target]).get(JSON.stringify(target));
+            if (row) {
+              // The preliminary inspection belongs to the checklist it was applied to.
+              const checklist = this.checklists.get(input.host)?.preflight;
+              const isCurrent = () => checklist === this.checklists.get(input.host)?.preflight;
+              row.isCurrent = isCurrent;
+              row.retry = () =>
+                this.applyRowCheck(input.host, current, target, inspected, {
+                  preserveUncheckedApproval: true,
+                  isCurrent,
+                });
+              if (await this.checkQueuedRows(input.host, [row])) {
+                const state = this.state();
+                const entry = state.hosts.find((host) => host.host === input.host);
+                if (entry) {
+                  const displayed = hostTool(
+                    completedHostCheck(entry, entry.checklist)?.result,
+                    input.tool,
+                  );
+                  const saved = hostTool(entry.observation?.preflight.result, input.tool);
+                  if (displayed?.state === "ready" && isDeepStrictEqual(saved, displayed))
+                    return state;
+                }
+              }
+            }
+            throw new Error("Unable to update host tool");
+          }
           const recipe = this.recipe(input.host, input.tool, input.operation, inspected);
           if (!recipe || !launchRecipe || !this.profile)
             return { ...this.state(), recipeFailure: "recipe-unavailable" as const };
@@ -1773,10 +1895,11 @@ export class Hosts {
               },
             },
             () => {
-              this.refreshRecipeRows(input.host, targets);
+              void this.refreshRecipeRows(input.host, targets).finally(releaseInstall);
             },
           );
           if (typeof recipeSession !== "string") this.queueRows(input.host, targets);
+          recipeStarted = typeof recipeSession === "string";
           return {
             ...this.state(),
             ...(typeof recipeSession === "string" ? { recipeSession } : {}),
@@ -1845,7 +1968,9 @@ export class Hosts {
             const current = () => preflight.sshRevision >= this.checklistRevision(input.host);
             let preflightSaveFailed = false;
             if (registration && current()) {
-              this.recordChecklist(input.host, preflight);
+              const checkedAt = Date.now();
+              this.recordChecklist(input.host, preflight, checkedAt);
+              const unsavedAgents = this.checklists.get(input.host)?.unsavedAgents;
               this.resourceResults.delete(input.host);
               this.results.set(input.host, preflight.result);
               await this.expandRegistration(input.host);
@@ -1858,38 +1983,29 @@ export class Hosts {
                 (hosts) =>
                   !current()
                     ? hosts
-                    : hosts.map((entry) =>
-                        entry.host === input.host
-                          ? {
-                              ...entry,
-                              observation: {
-                                ...(!preflight.result.ok && entry.observation
-                                  ? entry.observation.lastAgents
-                                    ? { lastAgents: entry.observation.lastAgents }
-                                    : entry.observation.preflight.result.ok
-                                      ? {
-                                          lastAgents: {
-                                            checkedAt: entry.observation.checkedAt,
-                                            result: entry.observation.preflight.result,
-                                          },
-                                        }
-                                      : {}
-                                  : {}),
-                                checkedAt: Date.now(),
-                                preflight: {
-                                  ...preflight,
-                                  result: row?.result ?? preflight.result,
-                                },
-                                ...(row?.foreignSessions !== undefined
-                                  ? { foreignSessions: row.foreignSessions }
-                                  : {}),
-                                ...(row?.foreignWorktrees !== undefined
-                                  ? { foreignWorktrees: row.foreignWorktrees }
-                                  : {}),
-                              },
-                            }
-                          : entry,
-                      ),
+                    : hosts.map((entry) => {
+                        if (entry.host !== input.host) return entry;
+                        const lastAgents = preflight.result.ok
+                          ? undefined
+                          : (unsavedAgents ?? lastSuccessfulAgents(entry.observation));
+                        return {
+                          ...entry,
+                          observation: {
+                            ...(lastAgents ? { lastAgents } : {}),
+                            checkedAt,
+                            preflight: {
+                              ...preflight,
+                              result: row?.result ?? preflight.result,
+                            },
+                            ...(row?.foreignSessions !== undefined
+                              ? { foreignSessions: row.foreignSessions }
+                              : {}),
+                            ...(row?.foreignWorktrees !== undefined
+                              ? { foreignWorktrees: row.foreignWorktrees }
+                              : {}),
+                          },
+                        };
+                      }),
                 current,
               ).then(
                 () => false,
@@ -2152,7 +2268,10 @@ export class Hosts {
         this.cacheHostLocations(state, repositories);
         return state;
       })
-      .finally(() => release?.());
+      .finally(() => {
+        release?.();
+        if (!recipeStarted) releaseInstall();
+      });
     if (host) this.trackHostWork(host, work);
     if (!isCheck) this.pending = work;
     return work.then((state) => this.trustState(state, trustSignal));

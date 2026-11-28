@@ -362,7 +362,9 @@ process.stdin.on('data', bytes => {
   if(host==='invalid-cloud') result={ok:true,facts:{}};
   const failures={'provider-cloud':'provider-invalid','configuration-cloud':'configuration-changed','cancelled-cloud':'cancelled'};
   if(failures[host]) result={ok:false,reason:failures[host]};
-  const held = settings.hold && (!settings.holdHost || settings.holdHost===host) && message.operation===(settings.hold===true?'inspect':settings.hold);
+  const held = settings.hold && (!settings.holdHost || settings.holdHost===host) &&
+    (settings.hold==='recipe-inspect' ? message.operation==='inspect' && !message.target :
+      message.operation===(settings.hold===true?'inspect':settings.hold));
   const heldClone = settings.holdClone && message.operation==='clone';
   if(held || heldClone) { appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message,phase:'held'})+'\\n'); const timer=setInterval(()=>{ const next=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(scenario)},'utf8')); if((!held || next.hold!==settings.hold) && (!heldClone || !next.holdClone)) {clearInterval(timer);send({type:'managed',result});}},20); } else send({type:'managed',result});
  }
@@ -1308,22 +1310,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
   await expect(refresh).toBeEnabled();
   await card.getByRole("button", { name: "Change folder", exact: true }).click();
   await card.getByLabel("Code folder", { exact: true }).fill("~/new-code");
-  await app.evaluate(({ app }) => {
-    const load = process
-      .getBuiltinModule("node:module")
-      .createRequire(app.getAppPath() + "/package.json");
-    const { Hosts } = load("./build/main/setup/hosts.js");
-    const gate = Promise.withResolvers();
-    const prepareView = Hosts.prototype.prepareView;
-    globalThis.releaseFixtureHostsView = () => {
-      Hosts.prototype.prepareView = prepareView;
-      gate.resolve();
-    };
-    Hosts.prototype.prepareView = async function (...args) {
-      await gate.promise;
-      return prepareView.apply(this, args);
-    };
-  });
+  const releaseHostsView = await holdHostsView(app);
   const save = card.getByRole("button", { name: "Save", exact: true });
   try {
     await save.click();
@@ -1334,7 +1321,7 @@ test("Hosts creates missing folders and reports enrollment and artifact failures
     await expect(check).toBeDisabled();
     await expect(refresh).toBeDisabled();
   } finally {
-    await app.evaluate(() => globalThis.releaseFixtureHostsView());
+    await releaseHostsView();
   }
   // Save can finish before the subscribed card receives the new registered folder.
   await expect(
@@ -1495,6 +1482,42 @@ test("Recorded host requirements are inert, editable and clearable in Settings",
   ).resolves.toBeNull();
 });
 
+async function holdHostsView(app) {
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Hosts } = load("./build/main/setup/hosts.js");
+    const gate = Promise.withResolvers();
+    const prepareView = Hosts.prototype.prepareView;
+    globalThis.releaseFixtureHostsView = () => {
+      Hosts.prototype.prepareView = prepareView;
+      gate.resolve();
+    };
+    Hosts.prototype.prepareView = async function (...args) {
+      await gate.promise;
+      return prepareView.apply(this, args);
+    };
+  });
+  return () => app.evaluate(() => globalThis.releaseFixtureHostsView());
+}
+
+async function waitForHeldGitInspection(calls) {
+  await expect
+    .poll(async () =>
+      (await readFile(calls, "utf8"))
+        .trim()
+        .split("\n")
+        .some((line) => {
+          const { message, phase } = JSON.parse(line);
+          return (
+            phase === "held" && message.target?.kind === "tool" && message.target.tool === "git"
+          );
+        }),
+    )
+    .toBe(true);
+}
+
 test("Repositories lists existing checkouts and opens fixed repair recipes without exposing remote output", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
@@ -1542,7 +1565,7 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
     )
     .toContain("FIXTURE_RECIPE_COMPLETE");
   await capture("fix-install-tile");
-  await updateScenario({
+  const installed = {
     recipeExit: 0,
     facts: {
       tools: [
@@ -1550,10 +1573,17 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
         { id: "gh", state: "ready", signIn: "signed-out" },
       ],
     },
-  });
+  };
+  await updateScenario({ ...installed, hold: "inspect" });
   await expect(
     card.getByRole("region", { name: "Install terminal" }).getByRole("status"),
   ).toHaveText("Done");
+  await waitForHeldGitInspection(calls);
+  const gitRow = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  await expect(gitRow).toContainText("Checking…");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.getByRole("region", { name: "Settings", exact: true })).toHaveCount(0);
   await openSettingsScreen(page);
@@ -1562,19 +1592,18 @@ test("Repositories lists existing checkouts and opens fixed repair recipes witho
     .getByRole("button", { name: "Hosts", exact: true })
     .click();
   await expect(card).toBeVisible();
-  const expandInstalled = card.getByRole("button", { name: "Expand fixture-cloud", exact: true });
-  if (await expandInstalled.count()) await expandInstalled.click();
-  await expect(
-    card
-      .locator(".host-check-row")
-      .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) }),
-  ).toContainText("Pass · Installed");
+  // The pending Git result leaves the card open. Once Git is ready, the card
+  // collapses, so wait for its Expand button before checking the row.
+  await updateScenario(installed);
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toHaveCount(0);
   const installChecks = (await readFile(calls, "utf8"))
     .trim()
     .split("\n")
     .slice(beforeInstall)
     .map((line) => JSON.parse(line))
-    .filter(({ message }) => message.type === "manage")
+    .filter(({ message, phase }) => message.type === "manage" && !phase)
     .map(({ message }) => message);
   assert.deepEqual(
     installChecks
@@ -2264,13 +2293,30 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   );
   await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
   await captureHosts(app, page, "1062/install-narrow");
-  await terminal.locator(".xterm-helper-textarea").focus();
-  await page.keyboard.type("fixture-password");
-  await page.keyboard.press("Enter");
-  await expect(terminal.getByRole("status")).toHaveText("Done");
   const gitRow = card
     .locator(".host-check-row")
     .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await terminal.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("fixture-password");
+    await page.keyboard.press("Enter");
+    await expect(terminal.getByRole("status")).toHaveText("Done");
+    // This list queues behind the terminal's refresh. The live view is still held.
+    const git = await page.evaluate(async () => {
+      const reply = await window.desktop.hosts({ action: "list" });
+      await new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+      return reply.hosts[0].observation.preflight.result.facts.tools.find(({ id }) => id === "git")
+        .state;
+    });
+    assert.equal(git, "ready");
+    await expect(gitRow).toContainText("Checking…");
+    await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
+  } finally {
+    await releaseHostsView();
+  }
   await expect(gitRow).toContainText("Pass · Installed");
   await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
   await captureHosts(app, page, "1062/install-done");
@@ -2284,17 +2330,566 @@ test("Hosts embeds interactive installs, retains outcomes, and refreshes only th
   assert.deepEqual(checks, [null, { kind: "tool", tool: "git" }]);
   await terminal.getByRole("button", { name: "Dismiss" }).click();
   await expect(terminal).toHaveCount(0);
-  await updateScenario({
-    recipeExit: 23,
+  const missingGit = {
     facts: { tools: [{ id: "git", state: "missing", signIn: "unknown" }] },
-  });
+  };
+  await updateScenario(missingGit);
   await card.getByRole("button", { name: "Reload git", exact: true }).click();
   await expect(card.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
   await card.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  await updateScenario({ ...missingGit, hold: "inspect", recipeExit: 23 });
   await expect(terminal.getByRole("status")).toHaveText("Failed · exit code 23");
+  await waitForHeldGitInspection(calls);
+  await expect(gitRow).toContainText("Checking…");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
+  await updateScenario(missingGit);
   await expect(gitRow).toContainText("Not found");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeEnabled();
   await captureHosts(app, page, "1062/install-failed");
 });
+
+test("Hosts updates Git install availability before the capability snapshot arrives", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const lastChecked = card.locator(".host-footer time");
+  const gitRow = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload git", exact: true }),
+  });
+  const githubSignIn = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload gh sign-in", exact: true }),
+  });
+  await expect(install).toBeEnabled();
+  await expect(githubSignIn).toContainText("Signed out");
+  const previousCheckedAt = await lastChecked.getAttribute("datetime");
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({
+      facts: {
+        requirements: { distro: "debian", libc: "supported", packageManager: "none" },
+        tools: [
+          { id: "git", state: "missing", signIn: "unknown" },
+          { id: "gh", state: "ready", signIn: "signed-in" },
+        ],
+      },
+    });
+    await check.click();
+    await expect(githubSignIn).toContainText("Pass · Signed in");
+    await expect(check).toBeEnabled();
+    await expect(gitRow).toContainText("Not found");
+    await expect(install).toHaveCount(0);
+    const checkedAt = await page.evaluate(async () => {
+      const { hosts } = await window.desktop.hosts({ action: "list" });
+      return new Date(hosts[0].observation.checkedAt).toISOString();
+    });
+    assert.notEqual(checkedAt, previousCheckedAt);
+    await expect(lastChecked).toHaveAttribute("datetime", checkedAt);
+  } finally {
+    await releaseHostsView();
+  }
+  await updateScenario({});
+  await check.click();
+  await expect(install).toBeEnabled();
+});
+
+test("Hosts updates Git install availability when saving the capability check fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const githubSignIn = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload gh sign-in", exact: true }),
+  });
+  await expect(install).toBeEnabled();
+  await expect(githubSignIn).toContainText("Signed out");
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({
+      facts: {
+        requirements: { distro: "debian", libc: "supported", packageManager: "none" },
+        tools: [
+          { id: "git", state: "missing", signIn: "unknown" },
+          { id: "gh", state: "ready", signIn: "signed-in" },
+        ],
+      },
+    });
+    await chmod(profile, 0o555);
+    await check.click();
+    await expect(githubSignIn).toContainText("Pass · Signed in");
+    await expect(check).toBeEnabled();
+    await expect(install).toHaveCount(0);
+  } finally {
+    try {
+      await chmod(profile, 0o700);
+    } finally {
+      await releaseHostsView();
+    }
+  }
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  await expect(install).toHaveCount(0);
+});
+
+test("Hosts shows a changed key from a newer SSH reload while its snapshot is held", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    const git = card.locator(".host-check-row").filter({
+      has: page.getByRole("button", { name: "Reload git", exact: true }),
+    });
+    await git.getByRole("button", { name: "Reload git", exact: true }).click();
+    await expect(git).toContainText("Pass · Installed");
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+
+    await chmod(profile, 0o555);
+    await updateScenario({ sshFailure: "changed" });
+    await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  } finally {
+    try {
+      await chmod(profile, 0o700);
+    } finally {
+      await releaseHostsView();
+    }
+  }
+});
+
+test("Hosts clears a local tool reload failure only when its checklist changes", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const reload = card.getByRole("button", { name: "Reload git", exact: true });
+  const git = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload git", exact: true }),
+  });
+  const install = git.getByRole("button", { name: "Install git", exact: true });
+  await expect(install).toBeEnabled();
+
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await chmod(profile, 0o555);
+    await reload.click();
+    await expect(git.getByText("Unable to check", { exact: true })).toBeVisible();
+    await expect(install).toBeDisabled();
+
+    await chmod(profile, 0o700);
+    const reloadGh = card.getByRole("button", { name: "Reload gh", exact: true });
+    await reloadGh.click();
+    await expect(reloadGh).toBeEnabled();
+    await expect(git.getByText("Unable to check", { exact: true })).toBeVisible();
+    await expect(install).toBeDisabled();
+
+    await updateScenario({
+      facts: { tools: [{ id: "gh", state: "ready", signIn: "signed-in" }] },
+    });
+    await card.getByRole("button", { name: "Reload gh sign-in", exact: true }).click();
+    const signIn = card.locator(".host-check-row").filter({
+      has: page.getByRole("button", { name: "Reload gh sign-in", exact: true }),
+    });
+    await expect(signIn).toContainText("Pass · Signed in");
+    await expect(git).toContainText("Not found");
+    await expect(install).toBeEnabled();
+  } finally {
+    try {
+      await chmod(profile, 0o700);
+    } finally {
+      await releaseHostsView();
+    }
+  }
+});
+
+test("Hosts Git reload reply matches the subscribed recipes after a failed install inspection", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, updateScenario } = await hostsFixture(context);
+  await updateScenario({ inspectFailure: "facts-unavailable" });
+  const refused = await page.evaluate(() =>
+    window.desktop.hosts({
+      action: "recipe",
+      host: "fixture-cloud",
+      tool: "git",
+      operation: "install",
+    }),
+  );
+  assert.equal(refused.recipeFailure, "recipe-unavailable");
+
+  await updateScenario({});
+  const { reply, snapshot } = await page.evaluate(async () => {
+    const reply = await window.desktop.hosts({
+      action: "reload",
+      host: "fixture-cloud",
+      target: { kind: "tool", tool: "git" },
+    });
+    const snapshot = await new Promise((resolve) => {
+      const off = window.desktop.subscribeView("hosts", {}, (snapshot) => {
+        off();
+        resolve(snapshot);
+      });
+    });
+    return { reply, snapshot };
+  });
+  assert.equal(reply.preflight?.result.ok, true);
+  assert.equal(reply.viewRevision, snapshot.data?.viewRevision);
+  assert.deepEqual(reply.hosts[0].recipes, snapshot.data.hosts[0].recipes);
+  assert.equal(reply.hosts[0].recipes.find((recipe) => recipe.tool === "git")?.install, true);
+});
+
+test("Hosts reports when an already-ready Git install cannot update the checklist", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, recipeCalls, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const reload = page.getByRole("button", { name: "Reload git", exact: true });
+  const gitRow = card.locator(".host-check-row").filter({ has: reload });
+  await expect(install).toBeEnabled();
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({ inspectFailure: "facts-unavailable" });
+    const failed = await page.evaluate(async () => {
+      const { hosts } = await window.desktop.hosts({ action: "progress" });
+      const { host, codeFolder } = hosts[0];
+      return window.desktop.hosts({ action: "preflight", host, codeFolder });
+    });
+    assert.equal(failed.preflight?.result.ok, false);
+    await updateScenario({
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    await install.click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    await expect(reload).toBeEnabled();
+    assert.equal(await readFile(recipeCalls, "utf8"), "");
+  } finally {
+    await releaseHostsView();
+  }
+  await card.getByRole("button", { name: "Check capabilities", exact: true }).click();
+  await expect(gitRow).toContainText("Pass · Installed");
+});
+
+test("Hosts drops a queued ready Git save after a newer unsaved capabilities check", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const saved = () =>
+    page.evaluate(
+      async () => (await window.desktop.setupState()).settings.registeredHosts[0].observation,
+    );
+  const before = await saved();
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  await expect(install).toBeEnabled();
+  try {
+    await chmod(profile, 0o555);
+    await updateScenario({
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    await install.click();
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+    assert.equal(await readFile(recipeCalls, "utf8"), "");
+
+    await updateScenario({});
+    const checked = await page.evaluate(async () => {
+      const {
+        hosts: [entry],
+      } = await window.desktop.hosts({ action: "progress" });
+      return window.desktop.hosts({
+        action: "preflight",
+        host: entry.host,
+        codeFolder: entry.codeFolder,
+      });
+    });
+    assert.equal(checked.preflightSaveFailed, true);
+    assert.equal(
+      checked.preflight.result.facts.tools.find(({ id }) => id === "git").state,
+      "missing",
+    );
+
+    await chmod(profile, 0o700);
+    const inspections = async () =>
+      (await readFile(calls, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .filter(({ message }) => message.operation === "inspect").length;
+    const previousInspections = await inspections();
+    const listed = await page.evaluate(() => window.desktop.hosts({ action: "list" }));
+    assert.equal(await inspections(), previousInspections);
+    assert.deepEqual(listed.hosts[0].checklist, checked.hosts[0].checklist);
+    assert.equal(listed.hosts[0].rowFailures, undefined);
+    assert.deepEqual(await saved(), before);
+  } finally {
+    await chmod(profile, 0o700);
+  }
+});
+
+test("Hosts does not repeat Git install after a rejected post-install list", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, recipeCalls, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const reload = page.getByRole("button", { name: "Reload git", exact: true });
+  const gitRow = card.locator(".host-check-row").filter({ has: reload });
+  await install.click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const originalSteps = await readFile(recipeCalls, "utf8");
+  assert.equal(originalSteps.trim().split("\n").length, 2);
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await app.evaluate(({ app }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { Setup } = load("./build/main/setup/setup.js");
+      const hosts = Setup.prototype.hosts;
+      Setup.prototype.hosts = function (action) {
+        if (action.action === "list") {
+          Setup.prototype.hosts = hosts;
+          return Promise.reject(new Error("Fixture post-install list rejection"));
+        }
+        return hosts.call(this, action);
+      };
+    });
+    await updateScenario({
+      recipeExit: 0,
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    await expect(terminal.getByRole("status")).toHaveText("Done");
+    await expect(page.getByText("Unable to refresh tool", { exact: true })).toBeVisible();
+    const reply = await page.evaluate(async () => {
+      await window.desktop.hosts({ action: "list" });
+      return window.desktop.hosts({
+        action: "recipe",
+        host: "fixture-cloud",
+        tool: "git",
+        operation: "install",
+      });
+    });
+    assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
+    assert.equal(reply.recipeSession, undefined);
+    assert.equal(reply.recipeFailure, undefined);
+    await expect(install).toBeDisabled();
+    await expect(reload).toBeEnabled();
+    await expect(gitRow).not.toContainText("Checking…");
+    await reload.click();
+    await expect(gitRow).toContainText("Pass · Installed");
+    await expect(install).toHaveCount(0);
+    assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
+  } finally {
+    await releaseHostsView();
+  }
+  await expect(gitRow).toContainText("Pass · Installed");
+});
+
+test("A duplicate Git install refusal leaves the other Hosts window's saved result visible", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, recipeCalls, updateScenario } = await hostsFixture(context);
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const originalSteps = await readFile(recipeCalls, "utf8");
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  await other.locator(".config-gear").click();
+  await other.getByRole("menuitem", { name: /^Settings/u }).click();
+  await expect(other.getByRole("region", { name: "Settings" })).toBeVisible();
+  await other
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const otherCard = other.getByRole("region", { name: "fixture-cloud", exact: true });
+  await otherCard.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(other.getByText("Recipe unavailable for this host", { exact: true })).toBeVisible();
+  await updateScenario({
+    recipeExit: 0,
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  const gitRow = otherCard.locator(".host-check-row").filter({
+    has: other.getByRole("button", { name: "Reload git", exact: true }),
+  });
+  // The Install click pins this card open. Its saved checklist owns the row.
+  await expect(otherCard.getByText("Ready", { exact: false })).toBeVisible();
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(other.getByText("Recipe unavailable for this host", { exact: true })).toHaveCount(0);
+  assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
+});
+
+test("Hosts refuses a second Git install before a running recipe exits", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { page, card, calls, recipeCalls, updateScenario } = await hostsFixture(context);
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  await install.click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const originalSteps = await readFile(recipeCalls, "utf8");
+  assert.equal(originalSteps.trim().split("\n").length, 2);
+  const enabledWhileRunning = await install.isEnabled();
+  await updateScenario({ hold: "recipe-inspect" });
+  await page.evaluate(() => {
+    globalThis.fixtureDuplicateGitInstall = window.desktop.hosts({
+      action: "recipe",
+      host: "fixture-cloud",
+      tool: "git",
+      operation: "install",
+    });
+    void globalThis.fixtureDuplicateGitInstall.then(() => {
+      globalThis.fixtureDuplicateSettled = true;
+    });
+  });
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => globalThis.fixtureDuplicateSettled === true)) ||
+        (await readFile(calls, "utf8"))
+          .trim()
+          .split("\n")
+          .some((line) => {
+            const { message, phase } = JSON.parse(line);
+            return phase === "held" && message.operation === "inspect" && !message.target;
+          }),
+    )
+    .toBe(true);
+  const exited = {
+    recipeExit: 0,
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  };
+  await updateScenario({ ...exited, hold: "recipe-inspect" });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await updateScenario(exited);
+  const reply = await page.evaluate(() => globalThis.fixtureDuplicateGitInstall);
+  assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
+  assert.equal(reply.recipeFailure, "recipe-unavailable");
+  assert.equal(enabledWhileRunning, false);
+});
+
+async function verifyGitReloadAfterSnapshotFailure(context, reopen) {
+  const { app, page, card, calls, updateScenario } = await hostsFixture(context);
+  const before = await page.evaluate(
+    async () => (await window.desktop.hosts({ action: "list" })).viewRevision,
+  );
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const installed = {
+    facts: {
+      tools: [
+        { id: "git", state: "ready", signIn: "unknown" },
+        { id: "gh", state: "ready", signIn: "signed-out" },
+      ],
+    },
+  };
+  await updateScenario({ ...installed, hold: "inspect", recipeExit: 0 });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  await waitForHeldGitInspection(calls);
+  const reload = card.getByRole("button", { name: "Reload git", exact: true });
+  const gitRow = card
+    .locator(".host-check-row")
+    .filter({ has: page.getByRole("button", { name: "Reload git", exact: true }) });
+  await expect(gitRow).toContainText("Checking…");
+  if (reopen) {
+    const settings = page.getByRole("region", { name: "Settings", exact: true });
+    await settings.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+    await expect(settings).toHaveCount(0);
+    await openSettingsScreen(page);
+    await settings
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name: "Hosts", exact: true })
+      .click();
+    await expect(gitRow).toContainText("Not found");
+    await expect(reload).toBeDisabled();
+  }
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Hosts } = load("./build/main/setup/hosts.js");
+    const prepareView = Hosts.prototype.prepareView;
+    globalThis.restoreFixtureHostsView = () => {
+      Hosts.prototype.prepareView = prepareView;
+    };
+    Hosts.prototype.prepareView = async () => {
+      throw new Error("Fixture Hosts snapshot failure");
+    };
+  });
+  const loadError = page.getByText("Unable to load hosts", { exact: true });
+  try {
+    await updateScenario(installed);
+    const { git, revision } = await page.evaluate(async () => {
+      const reply = await window.desktop.hosts({ action: "list" });
+      const git = reply.hosts[0].observation.preflight.result.facts.tools.find(
+        ({ id }) => id === "git",
+      );
+      return { git: git.state, revision: reply.viewRevision };
+    });
+    assert.equal(git, "ready");
+    assert.ok(revision > before);
+    await expect(loadError).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.restoreFixtureHostsView());
+  }
+  await card.getByRole("button", { name: "Collapse fixture-cloud", exact: true }).click();
+  await card.getByRole("button", { name: "Expand fixture-cloud", exact: true }).click();
+  await expect(loadError).toBeVisible();
+  await expect(reload).toBeEnabled();
+  await expect(gitRow).not.toContainText("Checking…");
+  await expect(gitRow.getByRole("button", { name: "Install git", exact: true })).toBeDisabled();
+  await reload.click();
+  await expect(loadError).toHaveCount(0);
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(card.getByRole("button", { name: "Install git", exact: true })).toHaveCount(0);
+}
+
+test(
+  "Hosts can reload Git after its post-install snapshot fails",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => verifyGitReloadAfterSnapshotFailure(context, false),
+);
+
+test(
+  "Hosts can reload Git when the resumed snapshot fails",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(60000),
+  },
+  (context) => verifyGitReloadAfterSnapshotFailure(context, true),
+);
 
 test("Hosts shows Add progress and fixed failures without a check output panel", {
   skip: process.platform === "win32",
@@ -3559,16 +4154,20 @@ test("Hosts reloads the folder row after the first checklist write fails", {
     has: page.getByRole("button", { name: "Reload Code folder", exact: true }),
   });
   await expect(folder.getByText("Pass · Valid", { exact: true })).toBeVisible();
+  const checked = card.locator(".host-footer time");
+  await expect(checked).toHaveCount(0);
   await updateScenario({ facts: { folder: { state: "fail", reason: "folder-missing" } } });
   await reload.click();
   await expect(folder.getByText("Code folder does not exist", { exact: true })).toBeVisible();
   await expect(card.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
-  await expect(card.locator(".host-footer time")).toHaveCount(0);
+  await expect(checked).toHaveCount(1);
+  const checkedAt = await checked.getAttribute("datetime");
+  assert.ok(checkedAt);
   const reloadSSH = card.getByRole("button", { name: "Reload SSH", exact: true });
   await reloadSSH.click();
   await expect(reloadSSH).toBeEnabled();
-  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
-  await expect(card.locator(".host-footer time")).toHaveCount(0);
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toHaveCount(0);
+  await expect(checked).toHaveAttribute("datetime", checkedAt);
 });
 
 test("Hosts reopening shows a failed SSH row write without a key classification", {

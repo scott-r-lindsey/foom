@@ -424,7 +424,16 @@ Install and Sign in refresh only their affected tool and sign-in rows. The
 terminal header shows Done or Failed with its exit code. Origin trust, the plugin
 installer and agent sign-in collapse their output on exit. For origin trust, the
 Git access row shows the scoped check result. Tool installs retain
-output until dismissed or replaced. Add host shows progress and enrollment errors
+output until dismissed or replaced. The host card disables recipe actions from
+the Install click through the terminal run. After exit, the tool row shows
+**Checking…** and keeps **Install** disabled until the saved result reaches the
+checklist. The row offers **Install** again if the tool is still **Not found**.
+If the install request, its refresh reply, or the Hosts snapshot fails,
+**Checking…** ends and the tool's **Reload** control is available to recover the
+checklist. A newer reload reply updates the tool row while the Hosts snapshot
+catches up. A saved installed result also clears an earlier refusal when another
+window ran the install.
+Add host shows progress and enrollment errors
 in the form. The host card shows check progress in its header and fixed failures
 on the affected rows. **Last checked** records full checks only.
 Checklist rows have a reload icon on hover and keyboard focus, with a name
