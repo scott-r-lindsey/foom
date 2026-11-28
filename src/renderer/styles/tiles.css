@@ -3,6 +3,7 @@
 }
 .tile-area {
   --tile-padding: 3px;
+  --tile-bounds-transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease;
   flex: 1;
   position: relative;
   min-width: 0;
@@ -21,11 +22,12 @@
   background: var(--terminal-background, var(--bg));
   background-clip: padding-box;
   transition:
-    left 220ms ease,
-    top 220ms ease,
-    width 220ms ease,
-    height 220ms ease,
+    var(--tile-bounds-transition),
     opacity 180ms ease;
+}
+.tile-gutter-art {
+  position: absolute;
+  transition: var(--tile-bounds-transition);
 }
 .terminal-tile[data-focused="true"] {
   border-color: var(--highlight);
@@ -52,7 +54,7 @@
 .terminal-tile[data-maximized="true"] {
   z-index: 3;
 }
-.tile-area:has(.tile-gutter[data-dragging="true"]) .terminal-tile {
+.tile-area:has(.tile-gutter[data-dragging="true"]) :is(.terminal-tile, .tile-gutter-art) {
   transition: none;
 }
 .tile-title {
@@ -391,7 +393,8 @@
   .tile-terminal .xterm-screen {
     transition: none;
   }
-  .terminal-tile {
+  .terminal-tile,
+  .tile-gutter-art {
     transition: none;
   }
 }
@@ -910,9 +913,6 @@
 .tile-title > .theme-art {
   position: absolute;
   inset: 0;
-}
-.tile-gutter-art {
-  position: absolute;
 }
 /* Expose gutter art through existing padding. Tile bounds and borders still
    follow the split tree, including at the minimum size. */

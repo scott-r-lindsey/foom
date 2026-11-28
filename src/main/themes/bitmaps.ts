@@ -62,8 +62,10 @@ export class ThemeBitmaps {
       const { colors: globalColors, areas } = parsed.theme;
       const headerArea = areas?.["tile-headers"] ?? areas?.tiles;
       const overrides =
-        slot === "tile-header" ? headerArea : areas?.[slot === "empty" ? "board" : slot];
-      const palettes = [globalColors, { ...globalColors, ...overrides }];
+        slot === "empty"
+          ? [areas?.board, areas?.tiles, areas?.["tile-headers"]]
+          : [slot === "tile-header" ? headerArea : areas?.sidebar];
+      const palettes = [globalColors, ...overrides.map((area) => ({ ...globalColors, ...area }))];
       const assets: ThemeBitmapAsset[] = [];
       for (const { file, ...style } of pieces) {
         let bytes: Buffer;

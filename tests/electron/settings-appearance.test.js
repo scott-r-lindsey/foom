@@ -1663,10 +1663,33 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
       assert.equal(region.pointerEvents, "none");
       assert.ok(images.empty.some((piece) => region.image === `url("${source(piece)}")`));
     }
-    const seam = tileArea.locator(".tile-gutter-art").last();
+    const seam = tileArea.locator('.tile-gutter-art[data-direction="horizontal"]');
     await expect(seam).toBeVisible();
     const stable = [...regions.map((region) => region.image), await paint(seam)];
-    await page.getByRole("separator", { name: "Resize tiles" }).first().press("ArrowRight");
+    await expect(seam).toHaveCSS("transition-property", "none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const tile = tileArea.locator('.terminal-tile[data-empty="false"]');
+    for (const property of [
+      "transition-property",
+      "transition-duration",
+      "transition-timing-function",
+    ]) {
+      const value = await tile.evaluate(
+        (element, name) => getComputedStyle(element).getPropertyValue(name),
+        property,
+      );
+      // The tile has an additional opacity transition after the four bounds.
+      await expect(seam).toHaveCSS(property, value.split(", ").slice(0, 4).join(", "));
+    }
+    const resize = page.getByRole("separator", { name: "Resize tiles" }).first();
+    const ratio = await resize.getAttribute("aria-valuenow");
+    await resize.press("ArrowRight");
+    await expect(resize).not.toHaveAttribute("aria-valuenow", ratio);
+    await seam.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map(({ finished }) => finished));
+    });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(seam).toHaveCSS("transition-property", "none");
     assert.deepEqual(
       [await paint(emptyArt.first()), await paint(emptyArt.last()), await paint(seam)],
       stable,

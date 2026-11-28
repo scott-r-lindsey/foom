@@ -217,6 +217,38 @@ test("tile header warnings follow the effective status palette", async () => {
   ).toEqual([]);
 });
 
+test.each(["empty", "gutter"])(
+  "%s art warns on status colors in every adjacent palette",
+  async (slot) => {
+    const { file, bitmaps, normalize } = await fixture();
+    await writeFile(file, "green artwork");
+    const attention = "#00ff00";
+    normalize.mockResolvedValueOnce({ png: Uint8Array.of(1), colors: [attention] });
+    const warning = {
+      file: "",
+      path: "$.images.empty",
+      severity: "warning",
+      reason: "image-status-color",
+    };
+
+    for (const area of ["board", "tiles", "tile-headers", "sidebar"]) {
+      const theme = parseThemeFile(
+        JSON.stringify({
+          ...base,
+          version: 2,
+          areas: { [area]: { attention } },
+          images: { [slot]: { file: "private.png" } },
+        }),
+        "theme",
+      );
+      if (theme.kind !== "theme") throw Error("Expected interface theme");
+      const snapshot = await bitmaps.load(theme);
+      expect(snapshot.slots.empty).toHaveLength(1);
+      expect(snapshot.diagnostics).toEqual(area === "sidebar" ? [] : [warning]);
+    }
+  },
+);
+
 test("an unchanged source recovers from a transient decode failure on a later refresh", async () => {
   const { file, normalize, bitmaps } = await fixture();
   await writeFile(file, "source");
