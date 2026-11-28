@@ -2388,6 +2388,46 @@ test("Hosts updates Git install availability before the capability snapshot arri
   await expect(install).toBeEnabled();
 });
 
+test("Hosts updates Git install availability when saving the capability check fails", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const install = card.getByRole("button", { name: "Install git", exact: true });
+  const check = card.getByRole("button", { name: "Check capabilities", exact: true });
+  const githubSignIn = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload gh sign-in", exact: true }),
+  });
+  await expect(install).toBeEnabled();
+  await expect(githubSignIn).toContainText("Signed out");
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({
+      facts: {
+        requirements: { distro: "debian", libc: "supported", packageManager: "none" },
+        tools: [
+          { id: "git", state: "missing", signIn: "unknown" },
+          { id: "gh", state: "ready", signIn: "signed-in" },
+        ],
+      },
+    });
+    await chmod(profile, 0o555);
+    await check.click();
+    await expect(githubSignIn).toContainText("Pass · Signed in");
+    await expect(check).toBeEnabled();
+    await expect(install).toHaveCount(0);
+  } finally {
+    try {
+      await chmod(profile, 0o700);
+    } finally {
+      await releaseHostsView();
+    }
+  }
+  await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  await expect(install).toHaveCount(0);
+});
+
 test("Hosts Git reload reply matches the subscribed recipes after a failed install inspection", {
   skip: process.platform === "win32",
   timeout: deadline(60000),

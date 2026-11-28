@@ -639,7 +639,9 @@ rows as described under [refresh scope](#checklist-refresh-scope-1061). Each hos
 full preflight, repositories and session/worktree inventory, saving a Last checked
 timestamp and the closed observations in its profile registration. If saving
 the checklist fails, main publishes the completed checks and the save failure to
-every open Hosts view. A completed SSH check supersedes older SSH row errors
+every open Hosts view. The command reply and subscribed view derive recipe
+availability from the displayed checklist, including unsaved requirements.
+A completed SSH check supersedes older SSH row errors
 even if saving the checklist fails. Never-checked hosts say Not checked.
 Saved observations contain no secrets, terminal output, session identities or
 worktree authority; removal deletes them. They remain

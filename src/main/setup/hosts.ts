@@ -1024,9 +1024,12 @@ export class Hosts {
           if (row.target.kind === "ssh" && row.retry && checklist?.saveFailed) return [];
           return [{ target: row.target, reason: row.reason }];
         });
-        // Saved facts provide presentation only; actions select from a fresh inspection below.
+        // Recipes follow the visible checklist, including observations that could not be saved.
+        // Actions still select recipes from a fresh inspection.
         const displayResult =
-          (!savedOnly && this.results.get(host.host)) || host.observation?.preflight.result;
+          checklist?.preflight.result ??
+          (savedOnly ? undefined : this.results.get(host.host)) ??
+          host.observation?.preflight.result;
         // Explicit Refresh facts belongs to Settings. Otherwise retain the
         // saved check rather than a background board connection failure.
         const resourceResult = this.resourceResults.get(host.host);

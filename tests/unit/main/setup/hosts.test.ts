@@ -2709,6 +2709,44 @@ test("a rejected recipe launch releases the slot for another Git install", async
   }
 });
 
+test("an unsaved capability check drives recipes in the reply and Hosts snapshot", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const saved = fixture.checked.hosts[0]?.observation;
+    const result = saved?.preflight.result;
+    if (!result?.ok || !result.facts.requirements) throw new Error("Missing fixture requirements");
+    const requirements = { ...result.facts.requirements, packageManager: "none" as const };
+    fixture.run.mockResolvedValueOnce({
+      ok: true,
+      facts: { ...result.facts, requirements },
+    });
+    vi.spyOn(fixture.store, "update").mockRejectedValueOnce(new Error("Fixture refused save"));
+
+    const reply = await fixture.hosts.action({
+      action: "preflight",
+      host: "mac-fixture",
+      codeFolder: result.facts.codeFolder,
+    });
+    const snapshot = fixture.hosts.state(undefined, true, true);
+    expect(reply.preflightSaveFailed).toBe(true);
+    expect(snapshot.hosts[0]?.checklist).toMatchObject({
+      saveFailed: true,
+      preflight: { result: { ok: true, facts: { requirements } } },
+    });
+    expect(snapshot.hosts[0]?.observation).toEqual(saved);
+    expect(reply.viewRevision).toBe(snapshot.viewRevision);
+    expect(reply.hosts[0]?.recipes).toEqual(snapshot.hosts[0]?.recipes);
+    expect(reply.hosts[0]?.recipes).toContainEqual({
+      tool: "git",
+      install: false,
+      signIn: false,
+      installReason: "recipe-unavailable",
+    });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("a Git reload reply uses the same recipes as the Hosts snapshot after a failed install inspection", async () => {
   const fixture = await restartedBrewHost();
   try {
