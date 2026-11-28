@@ -1130,6 +1130,16 @@ test("zero merged cleanup eligibility opens the kept review and refreshes while 
       globalThis.expireEligibility = () => {
         time += 60_001;
       };
+      const worktrees = this.deps.worktrees;
+      globalThis.holdNextEligibilityFetch = () => {
+        const gate = Promise.withResolvers();
+        const mergedDefault = worktrees.mergedDefault;
+        worktrees.mergedDefault = (path) => {
+          worktrees.mergedDefault = mergedDefault;
+          return gate.promise.then(() => mergedDefault.call(worktrees, path, true));
+        };
+        globalThis.releaseEligibilityFetch = () => gate.resolve();
+      };
       return inventory.apply(this, args);
     };
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
@@ -1238,6 +1248,38 @@ test("zero merged cleanup eligibility opens the kept review and refreshes while 
   await expect(review.getByRole("alertdialog")).toHaveCount(0);
   await openPanel();
   await expect(deletion).toHaveText("Delete merged worktrees…1");
+
+  await closePanel();
+  try {
+    git("remote", "set-url", "origin", path.join(root, "missing.git"));
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+      globalThis.releaseEligibilityFetch();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () => (await window.desktop.sidebarInventory()).repositories[0]?.mergedError,
+        ),
+      )
+      .toContain("fetch failed");
+
+    git("remote", "set-url", "origin", remote);
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+    });
+    await openPanel();
+    const fetchFailed = page.getByText("Fetch failed", { exact: true });
+    await expect(fetchFailed).toBeVisible();
+    await app.evaluate(() => globalThis.releaseEligibilityFetch());
+    await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+    await expect(fetchFailed).toHaveCount(0);
+    await expect(page.getByText("· fetched 0 min ago", { exact: true })).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.releaseEligibilityFetch?.()).catch(() => {});
+  }
 });
 
 test("closing a board declines its queued cleanup and releases its repository before another board answers", {

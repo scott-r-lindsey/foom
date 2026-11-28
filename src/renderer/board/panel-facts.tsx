@@ -173,6 +173,7 @@ export function PanelFacts({
       ? subject.repository.path
       : undefined;
   const worktree = subject.kind === "worktree" ? subject.tree.path : repository;
+  const { mergedCount, mergedError } = subject.kind === "repository" ? subject.repository : {};
   const copyCheckout = (
     kind:
       | "copy-default-branch"
@@ -202,7 +203,7 @@ export function PanelFacts({
     return () => {
       active = false;
     };
-  }, [repository, worktree, source]);
+  }, [repository, worktree, source, mergedCount, mergedError]);
   const facts =
     loaded?.repository === repository && loaded?.worktree === worktree ? loaded?.facts : undefined;
   const unknown = "Unknown";
@@ -313,9 +314,9 @@ export function PanelFacts({
             <Chip tone="neutral">
               {subject.repository.worktrees.filter((tree) => tree.managed).length} by Foom
             </Chip>
-            {subject.repository.mergedCount === undefined ? (
+            {mergedCount === undefined ? (
               <Sub>merged count unknown</Sub>
-            ) : subject.repository.mergedCount === 0 ? (
+            ) : mergedCount === 0 ? (
               <button
                 ref={actionRef}
                 type="button"
@@ -331,7 +332,7 @@ export function PanelFacts({
                 0 eligible to delete
               </button>
             ) : (
-              <Chip tone="done">{subject.repository.mergedCount} eligible to delete</Chip>
+              <Chip tone="done">{mergedCount} eligible to delete</Chip>
             )}
           </Fact>
           <Fact label="Sessions">

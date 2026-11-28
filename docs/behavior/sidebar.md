@@ -185,9 +185,10 @@ capabilities for pending automatic role recovery offers **Revoke
 orchestrator** in its session menu. Revoking cancels recovery before Resume, which
 then starts an ordinary session. See [orchestration](orchestration.md#orchestration-and-privacy).
 
-Git facts load lazily, locally and with bounded calls; unavailable facts say
-Unknown. Opening a panel never fetches from the network. Merge facts use the
-merge checker's last fetch and the eligible count uses its exact cleanup rules.
+Git facts load lazily through bounded local reads. Unavailable facts say Unknown.
+Opening a repository panel with expired eligibility can schedule a background
+scan. As the eligibility result changes, the open panel refreshes its fetch
+facts. The eligible count uses the merge checker's cleanup rules.
 
 Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
 and current launch defaults. New conversation uses that row and checkout without a
