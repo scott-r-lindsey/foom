@@ -176,7 +176,7 @@ test("unavailable folders report a fixed error and recover", async () => {
   expect(library.snapshot().errors).toContainEqual({
     kind: "theme",
     file: "(folder)",
-    fileId: digest("(folder)"),
+    folder: true,
     path: "$",
     reason: "unreadable",
   });
@@ -266,7 +266,7 @@ test("warning diagnostics stay bounded and the active warnings come from the app
   await writeFile(join(library.folder("terminal-theme"), "bad.json"), "{");
   await library.reload();
   expect(library.snapshot().errors.filter((entry) => entry.file === file)).toEqual([
-    { kind: "theme", file, fileId: digest(file), path: "$", reason: "malformed-json" },
+    { kind: "theme", file, fileId: "0", path: "$", reason: "malformed-json" },
     {
       kind: "theme",
       file,
@@ -278,7 +278,7 @@ test("warning diagnostics stay bounded and the active warnings come from the app
   expect(library.snapshot().errors).toContainEqual({
     kind: "terminal-theme",
     file: "bad.json",
-    fileId: digest("bad.json"),
+    fileId: "0",
     path: "$",
     reason: "malformed-json",
   });
@@ -338,7 +338,7 @@ test("applied artwork diagnostics follow bitmap recovery while the theme file re
   ];
   const imageError = { file: "", path: "$.images.sidebar", reason: "image-unavailable" } as const;
   const file = "art.json";
-  const fileId = digest(file);
+  const fileId = "0";
   let active = true;
   let imageErrors: ThemeDiagnostic[] = [imageError];
   const library = new ThemeLibrary(
@@ -386,15 +386,34 @@ test("keeps distinct rejection identities when displayed filenames are truncated
   for (const name of names) await writeFile(join(folder, name), "{");
   await library.reload();
   expect(library.snapshot().errors).toEqual(
-    names.map((name) => ({
+    names.map((_, index) => ({
       kind: "theme",
       file,
-      fileId: digest(name),
+      fileId: String(index),
       path: "$",
       reason: "unsafe-file",
     })),
   );
 });
+
+test.skipIf(process.platform !== "linux")(
+  "keeps separate identities for raw filenames with the same decoded name",
+  async () => {
+    const { folder, library } = await fixture();
+    for (const byte of [0xfe, 0xff])
+      await writeFile(
+        Buffer.concat([Buffer.from(`${folder}/bad-`), Buffer.from([byte]), Buffer.from(".json")]),
+        "{",
+      );
+    await library.reload();
+    const { errors } = library.snapshot();
+    expect(errors.map(({ file, reason }) => ({ file, reason }))).toEqual([
+      { file: "bad-�.json", reason: "unsafe-file" },
+      { file: "bad-�.json", reason: "unsafe-file" },
+    ]);
+    expect(errors.map(({ fileId }) => fileId)).toEqual(["0", "1"]);
+  },
+);
 
 test("closes the theme descriptor before waiting for config approval", async () => {
   const { folder } = await fixture();

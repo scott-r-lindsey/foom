@@ -3,7 +3,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { link, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const { link, mkdtemp, readdir, readFile, rm, writeFile } = require("node:fs/promises");
 const { hostname, tmpdir } = require("node:os");
 const { afterEach } = require("node:test");
 const { deadline, expect } = require("./test-policy.js");
@@ -683,6 +683,13 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
   await writeFile(darkFile, themeText("dark", "Nightfall", "dark.png"));
   await expect.poll(pending).toMatchObject({ detail: "theme-images" });
   await expectArtwork(replacement, false);
+  const nextHold = await pending();
+  assert.ok(nextHold);
+  await writeFile(darkFile, themeText("dark", "Nightfall", "missing.png"));
+  await expect.poll(async () => (await pending())?.id).not.toBe(nextHold.id);
+  await expectThemeRejection(settings, "dark.json $.images.board · image-unavailable");
+  await expect.poll(pending).toMatchObject({ detail: "theme-images" });
+  await expectArtwork(replacement, false);
 
   for (const name of await sections.getByRole("button").allTextContents()) {
     if (name === "Appearance") continue;
@@ -872,6 +879,12 @@ test("Appearance keeps applied theme warnings visible and counts truncated detai
   await expect(rejectionItems.nth(0)).toHaveText(`${truncatedName} $ · unsafe-file`);
   await expect(rejectionItems.nth(1)).toHaveText(`${truncatedName} $ · unsafe-file`);
   await expect(rejectionItems.last()).toHaveText("and 14 more");
+
+  const { themeDirectoryEntryLimit } = require("../../build/main/theme-directory.js");
+  for (let index = (await readdir(themes)).length; index <= themeDirectoryEntryLimit; index++)
+    await writeFile(path.join(themes, `unrelated-${String(index)}.tmp`), "");
+  await expect(settings.getByText("Themes folder: too many files", { exact: true })).toBeVisible();
+  await expect(rejected).toHaveCount(0);
 });
 
 test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {

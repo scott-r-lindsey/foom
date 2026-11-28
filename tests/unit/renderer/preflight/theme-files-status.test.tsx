@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, expect, test, vi } from "vitest";
 import { ThemeFilesStatus } from "../../../../src/renderer/preflight/theme-files-status";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
+import type { ThemeCatalog } from "../../../../src/shared/theme-file";
 afterEach(cleanup);
 test("shows fixed diagnostic text for the relevant kind and handles folder failure", async () => {
   const open = vi.fn(async () => {});
@@ -151,6 +152,27 @@ test("counts every rejected file and limits the details", () => {
   details.open = true;
   expect(within(details).getAllByRole("listitem")).toHaveLength(101);
   expect(within(details).getByText("and 2 more")).toBeTruthy();
+});
+
+test("reports folder failures separately from rejected files", () => {
+  const catalog: ThemeCatalog = {
+    interface: [],
+    terminal: [],
+    errors: [
+      { kind: "theme", file: "(folder)", folder: true, path: "$", reason: "too-many-files" },
+      { kind: "theme", file: "bad.json", fileId: "0", path: "$", reason: "malformed-json" },
+      { kind: "terminal-theme", file: "(folder)", folder: true, path: "$", reason: "unreadable" },
+    ],
+  };
+  const view = render(<ThemeFilesStatus kind="theme" catalog={catalog} />);
+  expect(screen.getByText("Themes folder: too many files")).toBeTruthy();
+  const details = screen.getByText("1 file rejected").closest("details");
+  if (!details) throw new Error("Expected a rejection disclosure");
+  details.open = true;
+  expect(within(details).getByRole("listitem").textContent).toBe("bad.json $ · malformed-json");
+  view.rerender(<ThemeFilesStatus kind="terminal-theme" catalog={catalog} />);
+  expect(screen.getByText("Terminal themes folder: unreadable")).toBeTruthy();
+  expect(screen.queryByText(/file.*rejected/)).toBeNull();
 });
 
 test("counts filenames that look identical and groups multiple diagnostics for each file", () => {

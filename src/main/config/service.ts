@@ -659,15 +659,20 @@ export class ConfigService {
       ...(palette.parsed.warnings ?? []),
       ...(palette.bitmaps?.diagnostics.filter(({ severity }) => severity === "warning") ?? []),
     ];
-    const imageErrors = palette.bitmaps?.diagnostics.filter(
-      ({ severity }) => severity !== "warning",
-    );
+    const imageErrors = new Map<string, ThemeDiagnostic>();
+    for (const diagnostic of [
+      ...(palette.bitmaps?.diagnostics ?? []),
+      ...(this.heldThemes.get(file)?.proposal.bitmaps?.diagnostics ?? []),
+    ]) {
+      if (diagnostic.severity !== "warning")
+        imageErrors.set(`${diagnostic.path}:${diagnostic.reason}`, diagnostic);
+    }
     return {
       id,
       theme: palette.parsed.theme,
       digest: palette.digest,
       ...(Object.keys(bitmaps).length > 0 && { bitmaps }),
-      ...(imageErrors?.length && { imageErrors }),
+      ...(imageErrors.size > 0 && { imageErrors: [...imageErrors.values()] }),
       warnings,
     };
   }

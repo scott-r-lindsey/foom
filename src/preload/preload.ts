@@ -431,8 +431,9 @@ const validThemeCatalog: Validator<ThemeCatalog> = shape({
       file: text,
       fileId: either(
         absent,
-        (value): value is string => text(value) && /^[a-f0-9]{64}$/u.test(value),
+        (value): value is string => text(value) && /^(?:active|0|[1-9][0-9]{0,2})$/u.test(value),
       ),
+      folder: either(absent, literal(true)),
       path: text,
       reason: validThemeReason,
       detail: either(absent, text),

@@ -16,7 +16,8 @@ export function ThemeFilesStatus({
   const [error, setError] = useState(false);
   const diagnostics = catalog?.errors.filter((entry) => entry.kind === kind) ?? [];
   const warnings = diagnostics.filter((entry) => entry.severity === "warning");
-  const rejections = diagnostics.filter((entry) => entry.severity !== "warning");
+  const folderFailure = diagnostics.find((entry) => entry.folder);
+  const rejections = diagnostics.filter((entry) => !entry.folder && entry.severity !== "warning");
   const rejectedFiles = new Set(rejections.map(({ fileId }, index) => fileId ?? index)).size;
   const omittedRejections = rejections.length - rejectionDetailLimit;
   const themes = kind === "theme" ? catalog?.interface : undefined;
@@ -67,6 +68,12 @@ export function ThemeFilesStatus({
             setError(false);
           }}
         />
+      )}
+      {folderFailure && (
+        <p className="theme-folder-failure">
+          {kind === "theme" ? "Themes folder" : "Terminal themes folder"}:{" "}
+          {folderFailure.reason.replaceAll("-", " ")}
+        </p>
       )}
       {rejectedFiles > 0 && (
         <details className="theme-rejections">

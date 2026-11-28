@@ -1198,11 +1198,28 @@ test("a missing-file edit is held and Keep restores the original bitmap declarat
   await f.write(f.file, f.original.replace("board.png", "missing.png"));
   await f.service.refresh();
   expect(f.service.status().pending?.detail).toBe("theme-images");
-  expect(f.service.activePalette()).toEqual(previous);
+  const imageError = {
+    file: "",
+    path: "$.images.board",
+    reason: "image-unavailable",
+    severity: "error",
+  };
+  expect(f.service.activePalette()).toEqual({
+    ...previous,
+    imageErrors: [...(previous?.imageErrors ?? []), imageError],
+  });
   expect(f.themeBaselines.get(f.file)).toEqual(baseline);
 
+  await rm(path.join(f.directory, "board.png"));
+  await f.service.refresh();
+  expect(f.service.activePalette()?.imageErrors).toEqual([
+    imageError,
+    ...(previous?.imageErrors ?? []),
+  ]);
+  await f.image("board.png", "#6633bb");
   await f.image("missing.png", "#336688");
   await f.service.refresh();
+  expect(f.service.activePalette()).toEqual(previous);
   await f.decide("keep");
   expect(await f.read(f.file)).toBe(f.original);
   expect(f.service.activePalette()).toEqual(previous);

@@ -2421,18 +2421,23 @@ test("theme catalog validates and projects full warning counts", async () => {
   }
 });
 
-test("theme catalog validates opaque rejection file identities", async () => {
+test("theme catalog validates scan identities and folder diagnostics", async () => {
   const api = await bridge();
-  const response = (fileId: unknown) => ({
+  const response = (fileId: unknown, folder?: unknown) => ({
     interface: [],
     terminal: [],
-    errors: [{ kind: "theme", file: "bad.json", path: "$", reason: "unsafe-file", fileId }],
+    errors: [{ kind: "theme", file: "bad.json", path: "$", reason: "unsafe-file", fileId, folder }],
   });
-  const fileId = "a".repeat(64);
-  mock.invoke.mockResolvedValueOnce(response(fileId));
-  expect((await api.listThemes()).errors[0]?.fileId).toBe(fileId);
-  for (const invalid of [1, "bad.json", "a".repeat(65)]) {
+  for (const fileId of ["0", "511", "active"]) {
+    mock.invoke.mockResolvedValueOnce(response(fileId));
+    expect((await api.listThemes()).errors[0]?.fileId).toBe(fileId);
+  }
+  mock.invoke.mockResolvedValueOnce(response(undefined, true));
+  expect((await api.listThemes()).errors[0]?.folder).toBe(true);
+  for (const invalid of [1, "bad.json", "1000"]) {
     mock.invoke.mockResolvedValueOnce(response(invalid));
     await expect(api.listThemes()).rejects.toThrow();
   }
+  mock.invoke.mockResolvedValueOnce(response(undefined, "true"));
+  await expect(api.listThemes()).rejects.toThrow();
 });

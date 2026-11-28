@@ -57,7 +57,9 @@ export interface ThemeCatalog {
   terminal: readonly { id: UserThemeId; name: string; theme: TerminalTheme }[];
   errors: readonly (ThemeDiagnostic & {
     kind: ThemeKind;
-    /** Opaque identity for rejections, independent of the displayed filename. */
+    /** Position within this kind's scan, or the active theme outside the scan. */
     fileId?: string;
+    /** The diagnostic applies to the folder itself. */
+    folder?: true;
   })[];
 }

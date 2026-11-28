@@ -26,12 +26,8 @@ const kinds = ["theme", "terminal-theme"] as const;
 // how many themes can each contribute warning details.
 const warningLimit = 100;
 type CatalogDiagnostic = ThemeCatalog["errors"][number];
-function diagnosticFileId(file: string): string {
-  return createHash("sha256").update(file).digest("hex");
-}
-
-function imageError(file: string, diagnostic: ThemeDiagnostic): CatalogDiagnostic {
-  return { ...diagnostic, file, kind: "theme", fileId: diagnosticFileId(file) };
+function imageError(file: string, fileId: string, diagnostic: ThemeDiagnostic): CatalogDiagnostic {
+  return { ...diagnostic, file, kind: "theme", fileId };
 }
 
 function appendWarnings(
@@ -52,11 +48,15 @@ function catalogTheme(theme: ThemeCatalog["interface"][number]["theme"]) {
 }
 /** Owns bounded reads and session-only last-good versions. No raw contents escape main. */
 export class ThemeLibrary {
-  private catalog: ThemeCatalog & { imageErrors: readonly CatalogDiagnostic[] } = {
+  private catalog: ThemeCatalog & {
+    imageErrors: readonly CatalogDiagnostic[];
+    interfaceFiles: readonly string[];
+  } = {
     interface: [],
     terminal: [],
     errors: [],
     imageErrors: [],
+    interfaceFiles: [],
   };
   private good = new Map<string, ThemeSnapshot>();
   private queue: Promise<void> = Promise.resolve();
@@ -86,7 +86,7 @@ export class ThemeLibrary {
     return join(this.root, kind === "theme" ? "themes" : "terminal-themes");
   }
   snapshot(): ThemeCatalog {
-    const { imageErrors, ...catalog } = this.catalog;
+    const { imageErrors, interfaceFiles, ...catalog } = this.catalog;
     const active = this.activePalette?.();
     if (!active)
       return structuredClone({ ...catalog, errors: [...catalog.errors, ...imageErrors] });
@@ -95,13 +95,17 @@ export class ThemeLibrary {
     const entries = [...catalog.interface];
     const index = entries.findIndex(({ id }) => id === active.id);
     const file = active.id.slice("user:".length);
-    const fileId = diagnosticFileId(file);
+    const position = interfaceFiles.indexOf(file);
+    const fileId = position === -1 ? "active" : String(position);
     const belongsToActive = (entry: CatalogDiagnostic) =>
-      entry.kind === "theme" && (entry.fileId ? entry.fileId === fileId : entry.file === file);
+      entry.kind === "theme" &&
+      !entry.folder &&
+      (entry.fileId === undefined ? entry.file === file : entry.fileId === fileId);
     const errors = catalog.errors.filter(
       (entry) => belongsToActive(entry) && entry.severity !== "warning",
     );
-    for (const diagnostic of active.imageErrors ?? []) errors.push(imageError(file, diagnostic));
+    for (const diagnostic of active.imageErrors ?? [])
+      errors.push(imageError(file, fileId, diagnostic));
     if (active.theme) {
       const entry = {
         id: active.id,
@@ -175,7 +179,8 @@ export class ThemeLibrary {
         terminal: ThemeCatalog["terminal"][number][];
         errors: CatalogDiagnostic[];
         imageErrors: CatalogDiagnostic[];
-      } = { interface: [], terminal: [], errors: [], imageErrors: [] };
+        interfaceFiles: string[];
+      } = { interface: [], terminal: [], errors: [], imageErrors: [], interfaceFiles: [] };
       const retained = new Map<string, ThemeSnapshot>();
       for (const kind of kinds) {
         let names: string[];
@@ -198,7 +203,7 @@ export class ThemeLibrary {
         } catch (error) {
           const reason = error instanceof ThemeValidationError ? error.reason : "unreadable";
           const file = "(folder)";
-          next.errors.push({ kind, file, path: "$", reason, fileId: diagnosticFileId(file) });
+          next.errors.push({ kind, file, path: "$", reason, folder: true });
           // An inaccessible directory is not evidence that its files were deleted.
           names = [...this.good.keys()]
             .filter((key) => key.startsWith(`${kind}/`))
@@ -211,11 +216,13 @@ export class ThemeLibrary {
         let admitted =
           count +
           names.filter((file) => !regular.has(file) && this.good.has(`${kind}/${file}`)).length;
-        for (const file of names) {
+        if (kind === "theme") next.interfaceFiles = names;
+        for (const [position, file] of names.entries()) {
           const key = `${kind}/${file}`;
           // Bitmap diagnostics belong to fixed slots on their JSON theme. Do
           // not publish names of artwork or any other non-theme files here.
           if (kind === "theme" && !file.endsWith(".json")) continue;
+          const fileId = String(position);
           let snapshot: ThemeSnapshot | undefined;
           let diagnostic: ThemeDiagnostic | undefined;
           const isRegular = regular.has(file);
@@ -242,7 +249,7 @@ export class ThemeLibrary {
             next.errors.push({
               ...diagnostic,
               file: file.replace(/[\p{Cc}\p{Cf}]/gu, "�").slice(0, 100),
-              fileId: diagnosticFileId(file),
+              fileId,
               kind,
             });
             snapshot = this.good.get(key);
@@ -256,7 +263,7 @@ export class ThemeLibrary {
             if (!diagnostic)
               for (const image of snapshot.imageDiagnostics ?? []) {
                 if (image.severity === "warning") warnings.push(image);
-                else next.imageErrors.push(imageError(file, image));
+                else next.imageErrors.push(imageError(file, fileId, image));
               }
             next.interface.push({
               id: `user:${file}`,

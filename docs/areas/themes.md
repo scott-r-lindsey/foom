@@ -35,7 +35,7 @@ redirected theme directories are refused. Only eligible regular files count
 toward the 50-file budget. The scan inspects up to 512 entries plus an overflow
 check and refuses an over-limit folder without admitting a partial catalog. The library bounds its published catalog separately, reserving space
 for retained palettes and admitting in-folder JSON aliases after regular files. Previously loaded files are considered first so added files cannot
-evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics.
+evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics shown separately from file rejections.
 The read descriptor closes before parsing or waiting for the config approval queue,
 so a queued restore never waits behind a reader holding its rename target open.
 The folder watcher debounces changes for 250 ms, reloads serially and closes on
@@ -93,13 +93,14 @@ one collapsed disclosure per warned theme. Its summary shows the theme name
 and warning count. Main identifies the active user theme in the catalog for the
 “Applied” marker. Each expanded entry shows the filename, JSON path and reason.
 Applied warnings follow the approved palette and the artwork currently displayed
-while an edit waits for approval. Applied artwork errors also follow the current
-bitmap state when the theme JSON is rejected. The catalog lists the applied theme's
+while an edit waits for approval. The catalog also shows artwork errors from the held
+proposal. Applied artwork errors follow the current bitmap state when the theme JSON
+is rejected. The catalog lists the applied theme's
 diagnostics first. It reports file rejections from the bounded directory scan
 and groups them in a separate collapsed disclosure. An inactive theme whose file
 is rejected shows only its file rejection. The disclosures show up to 100 details
 each, with the full count in the summary and the omitted detail count in the list.
-Distinct rejected files count separately even when their display names coincide.
+Rejected files are identified by scan position and count separately even when their displayed names coincide.
 The offline CLI still prints its warnings with exit status 0.
 Parser exceptions and file contents never travel to the renderer.
 

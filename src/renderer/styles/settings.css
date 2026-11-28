@@ -169,10 +169,11 @@
 .theme-warnings {
   margin-bottom: 8px;
 }
-.theme-rejections {
+.theme-rejections,
+.theme-folder-failure {
   margin-top: 8px;
 }
-:is(.theme-warnings, .theme-rejections) {
+:is(.theme-warnings, .theme-rejections, .theme-folder-failure) {
   color: var(--muted);
   font-size: calc(12px * var(--type-scale, 1));
 }
