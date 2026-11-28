@@ -4,7 +4,7 @@ import type * as FileSystem from "node:fs/promises";
 import { mkdir, mkdtemp, open, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ParsedThemeFile } from "../../../../src/shared/theme-file";
+import type { ParsedThemeFile, ThemeDiagnostic } from "../../../../src/shared/theme-file";
 import { ThemeLibrary } from "../../../../src/main/themes/library";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { ansiNames, terminalThemes } from "../../../../src/shared/terminal-themes";
@@ -265,6 +265,7 @@ test("warning diagnostics stay bounded and the active warnings come from the app
   await writeFile(join(library.folder("terminal-theme"), "bad.json"), "{");
   await library.reload();
   expect(library.snapshot().errors.filter((entry) => entry.file === file)).toEqual([
+    { kind: "theme", file, path: "$", reason: "malformed-json" },
     {
       kind: "theme",
       file,
@@ -272,7 +273,6 @@ test("warning diagnostics stay bounded and the active warnings come from the app
       reason: "image-status-color",
       severity: "warning",
     },
-    { kind: "theme", file, path: "$", reason: "malformed-json" },
   ]);
   expect(library.snapshot().errors).toContainEqual({
     kind: "terminal-theme",
@@ -280,6 +280,48 @@ test("warning diagnostics stay bounded and the active warnings come from the app
     path: "$",
     reason: "malformed-json",
   });
+});
+
+test("keeps rejected files visible when active warnings compete for the last catalog entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
+  roots.push(root);
+  const theme = interfaceThemes["eclipse-dark"];
+  const warnings: ThemeDiagnostic[] = ["hole", "line", "accent", "ink"].map((token) => ({
+    file: "",
+    path: `$.colors.${token}`,
+    reason: "reserved-color",
+    severity: "warning",
+  }));
+  let active = false;
+  const library = new ThemeLibrary(
+    root,
+    undefined,
+    (file, text, parsed) =>
+      Promise.resolve({
+        parsed,
+        digest: digest(text),
+        imageDiagnostics: file.startsWith("themes/a-") ? warnings : warnings.slice(0, 2),
+      }),
+    () => (active ? { id: "user:z.json", theme, warnings: warnings.slice(0, 2) } : undefined),
+  );
+  libraries.push(library);
+  await library.initialize();
+  const folder = library.folder("theme");
+  const text = JSON.stringify(valid());
+  for (let index = 0; index < 24; index++)
+    await writeFile(join(folder, `a-${String(index)}.json`), text);
+  await writeFile(join(folder, "b.json"), text);
+  await writeFile(join(folder, "c-broken.json"), "{");
+  await writeFile(join(folder, "z.json"), text);
+  await library.reload();
+  const rejection = { kind: "theme", file: "c-broken.json", path: "$", reason: "malformed-json" };
+  expect(library.snapshot().errors).toContainEqual(rejection);
+  active = true;
+  const catalog = library.snapshot();
+  expect(catalog.errors).toHaveLength(100);
+  expect(catalog.errors).toContainEqual(rejection);
+  expect(catalog.activeInterfaceTheme).toBe("user:z.json");
+  expect(catalog.errors.filter(({ file }) => file === "z.json")).toHaveLength(2);
 });
 
 test("closes the theme descriptor before waiting for config approval", async () => {

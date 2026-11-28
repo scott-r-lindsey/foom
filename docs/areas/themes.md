@@ -90,11 +90,12 @@ reserved-color, color-distance, base-luminance and hole deviations are warnings.
 Warnings contain a filename, fixed JSON path, fixed reason and warning severity.
 Settings → Appearance groups palette and bitmap warnings by theme filename in
 one collapsed disclosure per warned theme. Its summary shows the theme name
-and warning count, with “Applied” on the selected theme. Each expanded entry
-shows the filename, JSON path and reason. Applied warnings follow the approved
-palette and the artwork currently displayed while an edit waits for approval.
-Rejected files keep their separate error status. The offline CLI still prints
-its warnings with exit status 0.
+and warning count. Main identifies the active user theme in the catalog for the
+“Applied” marker. Each expanded entry shows the filename, JSON path and reason.
+Applied warnings follow the approved palette and the artwork currently displayed
+while an edit waits for approval. Rejections have first claim on the bounded
+catalog, followed by warnings for the active theme and then other warnings.
+The offline CLI still prints its warnings with exit status 0.
 Parser exceptions and file contents never travel to the renderer.
 
 Both the config scanner and theme library pass through a serialized main-owned

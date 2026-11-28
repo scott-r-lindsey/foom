@@ -116,14 +116,7 @@ export function InterfaceThemePicker({
           </div>
         </section>
       )}
-      {!compact && (
-        <ThemeFilesStatus
-          catalog={catalog}
-          kind="theme"
-          openFolder={openFolder}
-          selected={typeof selected === "string" ? selected : undefined}
-        />
-      )}
+      {!compact && <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />}
     </div>
   );
 }

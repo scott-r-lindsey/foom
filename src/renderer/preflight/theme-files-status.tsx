@@ -5,12 +5,10 @@ export function ThemeFilesStatus({
   catalog,
   kind,
   openFolder,
-  selected,
 }: {
   catalog?: ThemeCatalog | undefined;
   kind: ThemeKind;
   openFolder?: (() => Promise<void>) | undefined;
-  selected?: string | undefined;
 }) {
   const [error, setError] = useState(false);
   const diagnostics = catalog?.errors.filter((entry) => entry.kind === kind) ?? [];
@@ -25,7 +23,7 @@ export function ThemeFilesStatus({
           entries.length > 0 && (
             <details className="theme-warnings" key={id}>
               <summary>
-                {theme.name} · {id === selected && "Applied · "}
+                {theme.name} · {id === catalog?.activeInterfaceTheme && "Applied · "}
                 {entries.length} {entries.length === 1 ? "warning" : "warnings"}
               </summary>
               <ul>

@@ -4,7 +4,7 @@ const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
+const { hostname, tmpdir } = require("node:os");
 const { afterEach } = require("node:test");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -593,6 +593,46 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
     }
     await summary.press("Enter");
     await expect(row.getByRole("list")).toHaveCount(0);
+    if (base === "light") {
+      const lock = path.join(themes, "..", ".foom-settings.lock");
+      await writeFile(
+        lock,
+        JSON.stringify({
+          pid: process.pid,
+          hostname: hostname(),
+          start: null,
+          token: "busy-settings-fixture",
+          timestamp: Date.now(),
+        }),
+      );
+      const observed = await settings.evaluateHandle((region) => {
+        const applied = new Set();
+        const read = () => {
+          for (const row of region.querySelectorAll(".theme-warnings > summary")) {
+            if (row.textContent.includes(" · Applied · ")) applied.add(row.textContent);
+          }
+        };
+        const observer = new MutationObserver(read);
+        observer.observe(region, { subtree: true, childList: true, characterData: true });
+        read();
+        return { applied, observer };
+      });
+      try {
+        await chooseTheme(page, "Nightfall");
+        const failure = page.getByRole("dialog", { name: "Action failed" });
+        await expect(failure.getByRole("alert")).toHaveText("Settings are busy; try again.");
+        assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "light");
+        assert.deepEqual(await observed.evaluate(({ applied }) => [...applied]), [
+          "Daybreak · Applied · 3 warnings",
+        ]);
+        await expect(settings.getByRole("button", { name: "Theme Daybreak" })).toBeVisible();
+        await failure.getByRole("button", { name: "Dismiss", exact: true }).click();
+      } finally {
+        await observed.evaluate(({ observer }) => observer.disconnect());
+        await observed.dispose();
+        await rm(lock);
+      }
+    }
   }
 
   const catalog = () => page.evaluate(() => window.desktop.listThemes());

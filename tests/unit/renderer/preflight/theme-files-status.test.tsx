@@ -47,8 +47,8 @@ test("groups warnings by theme file and keeps rejected edits visible separately"
   const { container } = render(
     <ThemeFilesStatus
       kind="theme"
-      selected="user:personal.json"
       catalog={{
+        activeInterfaceTheme: "user:personal.json",
         interface: [
           { id: "user:personal.json", theme: { ...interfaceThemes.graphite, name: "Personal" } },
           { id: "user:other.json", theme: { ...interfaceThemes.graphite, name: "Other" } },

@@ -2392,3 +2392,14 @@ test("theme bitmap projection copies only fixed paint fields and rejects arbitra
     await expect(api.setupState()).rejects.toThrow("Invalid setup response");
   }
 });
+
+test("theme catalog accepts only a validated user theme ID for the active interface theme", async () => {
+  const api = await bridge();
+  const themes = { interface: [], terminal: [], errors: [] };
+  mock.invoke.mockResolvedValueOnce({ ...themes, activeInterfaceTheme: "user:gallery.json" });
+  expect((await api.listThemes()).activeInterfaceTheme).toBe("user:gallery.json");
+  for (const activeInterfaceTheme of ["eclipse-dark", "user:", 1]) {
+    mock.invoke.mockResolvedValueOnce({ ...themes, activeInterfaceTheme });
+    await expect(api.listThemes()).rejects.toThrow();
+  }
+});

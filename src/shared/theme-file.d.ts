@@ -45,6 +45,7 @@ export interface ThemeSnapshot {
   imageDiagnostics?: readonly ThemeDiagnostic[];
 }
 export interface ThemeCatalog {
+  activeInterfaceTheme?: UserThemeId;
   activeBitmaps?: ActiveThemeBitmaps;
   interface: readonly { id: UserThemeId; theme: InterfaceTheme; digest?: string }[];
   terminal: readonly { id: UserThemeId; name: string; theme: TerminalTheme }[];

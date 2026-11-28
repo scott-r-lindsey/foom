@@ -395,6 +395,7 @@ const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
 } satisfies Contract<ThemeBitmapPaint>);
 
 const validThemeCatalog: Validator<ThemeCatalog> = shape({
+  activeInterfaceTheme: either(absent, userThemeId),
   activeBitmaps: either(
     absent,
     shape({

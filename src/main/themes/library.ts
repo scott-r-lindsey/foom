@@ -75,19 +75,25 @@ export class ThemeLibrary {
       else entries[index] = entry;
     } else if (index !== -1) entries.splice(index, 1);
     const file = active.id.slice("user:".length);
-    const warnings = active.warnings
-      .slice(0, diagnosticLimit)
-      .map((warning) => ({ ...warning, kind: "theme" as const, file }));
-    const interfaceErrors = this.catalog.errors
-      .filter(
-        (entry) => entry.kind === "theme" && !(entry.file === file && entry.severity === "warning"),
-      )
-      .slice(0, diagnosticLimit - warnings.length);
-    const terminalErrors = this.catalog.errors.filter((entry) => entry.kind === "terminal-theme");
+    const interfaceDiagnostics = this.catalog.errors.filter(({ kind }) => kind === "theme");
+    const rejections = interfaceDiagnostics.filter(({ severity }) => severity !== "warning");
+    const activeWarnings = active.warnings.map((warning) => ({
+      ...warning,
+      kind: "theme" as const,
+      file,
+    }));
+    const otherWarnings = interfaceDiagnostics.filter(
+      (entry) => entry.severity === "warning" && entry.file !== file,
+    );
+    const terminalDiagnostics = this.catalog.errors.filter(({ kind }) => kind === "terminal-theme");
     return structuredClone({
       ...this.catalog,
       interface: entries,
-      errors: [...warnings, ...interfaceErrors, ...terminalErrors],
+      errors: [
+        ...[...rejections, ...activeWarnings, ...otherWarnings].slice(0, diagnosticLimit),
+        ...terminalDiagnostics,
+      ],
+      ...(active.theme && { activeInterfaceTheme: active.id }),
       ...(active.bitmaps && { activeBitmaps: { theme: active.id, slots: active.bitmaps } }),
     });
   }
@@ -144,6 +150,8 @@ export class ThemeLibrary {
       } = { interface: [], terminal: [], errors: [] };
       const retained = new Map<string, ThemeSnapshot>();
       for (const kind of kinds) {
+        const rejections: ThemeCatalog["errors"][number][] = [];
+        const warnings: ThemeCatalog["errors"][number][] = [];
         let names: string[];
         const regular = new Set<string>();
         const aliases = new Set<string>();
@@ -163,7 +171,7 @@ export class ThemeLibrary {
             );
         } catch (error) {
           const reason = error instanceof ThemeValidationError ? error.reason : "unreadable";
-          next.errors.push({ kind, file: "(folder)", path: "$", reason });
+          rejections.push({ kind, file: "(folder)", path: "$", reason });
           // An inaccessible directory is not evidence that its files were deleted.
           names = [...this.good.keys()]
             .filter((key) => key.startsWith(`${kind}/`))
@@ -204,8 +212,8 @@ export class ThemeLibrary {
           }
           if (diagnostic) {
             // Diagnostic text is bounded too, even for enormous directories or unsafe names.
-            if (next.errors.filter((error) => error.kind === kind).length < diagnosticLimit)
-              next.errors.push({
+            if (rejections.length < diagnosticLimit)
+              rejections.push({
                 ...diagnostic,
                 file: file.replace(/[\p{Cc}\p{Cf}]/gu, "�").slice(0, 100),
                 kind,
@@ -216,19 +224,14 @@ export class ThemeLibrary {
           if (isRegular || !this.good.has(key)) admitted++;
           retained.set(key, snapshot);
           const { parsed: theme, digest } = snapshot;
-          if (theme.kind === "theme")
-            next.errors.push(
-              ...[...(theme.warnings ?? []), ...(snapshot.imageDiagnostics ?? [])]
-                .slice(
-                  0,
-                  Math.max(
-                    0,
-                    diagnosticLimit - next.errors.filter((error) => error.kind === kind).length,
-                  ),
-                )
-                .map((warning) => ({ ...warning, file, kind })),
-            );
           if (theme.kind === "theme") {
+            for (const diagnostic of [
+              ...(theme.warnings ?? []),
+              ...(snapshot.imageDiagnostics ?? []),
+            ]) {
+              const target = diagnostic.severity === "warning" ? warnings : rejections;
+              if (target.length < diagnosticLimit) target.push({ ...diagnostic, file, kind });
+            }
             next.interface.push({ id: `user:${file}`, theme: catalogTheme(theme.theme), digest });
           } else {
             const collision = terminalThemeOptions.some(
@@ -241,6 +244,7 @@ export class ThemeLibrary {
             });
           }
         }
+        next.errors.push(...[...rejections, ...warnings].slice(0, diagnosticLimit));
       }
       if (this.isDisposed()) return;
       const changed = JSON.stringify(next) !== JSON.stringify(this.catalog);
