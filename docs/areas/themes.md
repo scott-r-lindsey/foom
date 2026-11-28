@@ -207,17 +207,37 @@ Version 2 theme files can include an `images` object with three slots.
 | `sidebar` | Blank space below the repository controls in the expanded sidebar |
 | `tile-header` | Each occupied tile’s title bar inside the board |
 
-A slot takes `{ "files": ["one.png", "two.webp"], "opacity": 0.25, "fit": "contain", "anchor": "center" }`.
-Use one to eight direct filenames per slot. The singular `"file": "one.png"` is
-also accepted. Opacity is 0.05–0.6, fit is `cover`, `contain`, or `tile`, and anchor
-is `center`, a side, or a corner such as `top-right`. The example shows the defaults.
-Each region or header randomly chooses a decoded image and keeps it through
-resizes and layout changes while the region and image remain available. Fit and
-anchor apply within that region.
+A slot takes one to eight entries in `files`. Each entry is a direct filename
+or an object with `file` and optional placement overrides. The singular
+`"file": "one.png"` is also accepted at slot level. For example:
+
+```json
+{
+  "images": {
+    "empty": {
+      "opacity": 0.3,
+      "fit": "cover",
+      "files": [
+        "stars.webp",
+        { "file": "orbit.png", "fit": "none", "anchor": "bottom", "size": 25, "opacity": 0.6 }
+      ]
+    }
+  }
+}
+```
+
+Slot values are defaults for each piece. Opacity is 0.05–0.6 and defaults to
+0.25. Fit defaults to `contain` and also accepts `cover`, `tile`, and `none`.
+With `none`, the image stays at its natural size until it needs to shrink to
+fit. The optional `size` caps both dimensions to 5–100 percent of the region’s
+smaller dimension and applies only to `none`. Anchor defaults to `center` and
+also accepts a side or a corner such as `top-right`. Each region or header
+randomly chooses a decoded entry with its placement and keeps it through
+resizes and layout changes while the region and entry remain available.
 
 For one release, `board` and `gutter` each emit a warning and map to `empty`.
-An explicit `empty` takes precedence. With both legacy slots, Foom uses the
-`board` placement and takes up to eight unique filenames in board-then-gutter order.
+An explicit `empty` takes precedence. With both legacy slots, Foom takes up to
+eight distinct entries in board-then-gutter order, each with its own placement.
 
 Artwork applies automatically. The disposable decoder contains decoding risk,
 and placement limits bound spoofing by agent-written art. All artwork ignores
@@ -235,6 +255,7 @@ descriptor and identity checks, up to 4 MiB per file. The disposable
 [image decoder](terminals.md#image-paste-937) sniffs and verifies PNG, JPEG and WebP,
 limits dimensions to 8,192 pixels per axis and 16 million pixels per image,
 and encodes the oriented first frame as a metadata-free PNG of at most 4 MiB.
+Transparent PNG and WebP artwork retains its alpha.
 It samples the three most prevalent alpha-weighted color buckets and reports a
 warning within ΔE 40 of a relevant attention or failure color. An explicit
 decoder refusal is cached for identical bytes. A timeout or premature exit can

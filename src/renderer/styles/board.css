@@ -2074,6 +2074,7 @@ button.failure-mark {
 
 .sidebar-bitmap {
   display: none;
+  position: relative;
 }
 :root[data-theme-bitmaps~="sidebar"] .sidebar-shell[data-compact="false"] .board-list {
   display: flex;

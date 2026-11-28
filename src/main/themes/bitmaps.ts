@@ -45,8 +45,8 @@ export class ThemeBitmaps {
       if (error instanceof ThemeValidationError) folderReason = error.reason;
     }
     for (const slot of themeBitmapSlots) {
-      const image = parsed.images?.[slot];
-      if (!image) continue;
+      const pieces = parsed.images?.[slot];
+      if (!pieces) continue;
       const path = `$.images.${slot}`;
       const report = (reason: ThemeDiagnostic["reason"], severity: "warning" | "error") => {
         diagnostics.push({ file: "", path, reason, severity });
@@ -59,14 +59,13 @@ export class ThemeBitmaps {
         report("too-many-files", "error");
         continue;
       }
-      const { files, ...style } = image;
       const area = slot === "empty" ? "board" : slot === "tile-header" ? "tile-headers" : slot;
       const palettes = [
         parsed.theme.colors,
         { ...parsed.theme.colors, ...parsed.theme.areas?.[area] },
       ];
       const assets: ThemeBitmapAsset[] = [];
-      for (const file of files) {
+      for (const { file, ...style } of pieces) {
         let bytes: Buffer;
         try {
           bytes = await readThemeFile(this.directory, file, IMAGE_BYTES, false);
@@ -99,7 +98,9 @@ export class ThemeBitmaps {
           )
         )
           report("image-status-color", "warning");
-        const id = createHmac("sha256", this.key).update(source).digest("hex");
+        const id = createHmac("sha256", this.key)
+          .update(JSON.stringify([source, style]))
+          .digest("hex");
         if (!assets.some(({ paint }) => paint.id === id))
           assets.push({ paint: { id, ...style }, png });
       }

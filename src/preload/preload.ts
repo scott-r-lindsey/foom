@@ -381,10 +381,11 @@ const validThemeReason: Validator<ThemeReason> = literal(
 
 const validThemeKind: Validator<ThemeKind> = literal("theme", "terminal-theme");
 
-const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
+const bitmapPaint = shape({
   id: (value): value is string => text(value) && /^[a-f0-9]{64}$/u.test(value),
   opacity: range(0.05, 0.6),
-  fit: literal("cover", "contain", "tile"),
+  fit: literal("cover", "contain", "tile", "none"),
+  size: either(absent, range(5, 100)),
   anchor: literal(
     "center",
     "top",
@@ -397,6 +398,12 @@ const validBitmapPaint: Validator<ThemeBitmapPaint> = shape({
     "bottom-right",
   ),
 } satisfies Contract<ThemeBitmapPaint>);
+
+const validBitmapPaint: Validator<ThemeBitmapPaint> = copying(
+  (value): value is ThemeBitmapPaint =>
+    bitmapPaint(value) && (value.size === undefined || value.fit === "none"),
+  (value) => project(bitmapPaint, value),
+);
 
 // Keep this bound in sync with themeBitmapSlotLimit without importing runtime code.
 const validBitmapSlot = array(validBitmapPaint, 1, 8);

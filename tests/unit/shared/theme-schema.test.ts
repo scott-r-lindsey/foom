@@ -117,13 +117,11 @@ test("bitmap schema agrees with the parser on fixed slots, direct names and pain
   if (parsed.kind !== "theme") throw Error("Expected interface theme");
   expect(parsed).toMatchObject({
     images: {
-      empty: {
-        files: ["Board 1.PNG", "gutter.webp"],
-        opacity: 0.25,
-        fit: "contain",
-        anchor: "center",
-      },
-      "tile-header": { files: ["a.png", "b.png"] },
+      empty: [
+        { file: "Board 1.PNG", opacity: 0.25, fit: "contain", anchor: "center" },
+        { file: "gutter.webp", opacity: 0.05, fit: "cover", anchor: "top-right" },
+      ],
+      "tile-header": [{ file: "a.png" }, { file: "b.png" }],
     },
   });
   expect(parsed.warnings?.filter(({ reason }) => reason === "legacy-image-slot")).toEqual([
@@ -161,12 +159,12 @@ test("legacy gutter maps to empty, and an explicit empty slot takes precedence",
   const gutter = { file: "gutter.png", fit: "cover" };
   const parse = (images: object) => parseThemeFile(JSON.stringify({ ...base, images }), "theme");
   expect(parse({ gutter })).toMatchObject({
-    images: { empty: { files: ["gutter.png"], fit: "cover" } },
+    images: { empty: [{ file: "gutter.png", fit: "cover" }] },
   });
   const explicit = parse({ gutter, empty: { files: ["new.png", "new.png"] } });
   if (explicit.kind !== "theme") throw Error("Expected interface theme");
   expect(explicit).toMatchObject({
-    images: { empty: { files: ["new.png"], fit: "contain" } },
+    images: { empty: [{ file: "new.png", fit: "contain" }] },
   });
   expect(explicit.warnings).toContainEqual({
     file: "",
@@ -174,4 +172,62 @@ test("legacy gutter maps to empty, and an explicit empty slot takes precedence",
     reason: "legacy-image-slot",
     severity: "warning",
   });
+});
+
+test("bitmap styles inherit defaults and validate each whole entry", () => {
+  const schema: unknown = JSON.parse(OWNED_FILES["schemas/theme.schema.json"] ?? "{}");
+  if (typeof schema !== "object" || !schema) throw Error("Missing schema");
+  const validate = new Ajv().compile(schema);
+  const base = { ...interfaceThemes["eclipse-dark"], version: 2 };
+  const theme = (empty: object) => ({ ...base, images: { empty } });
+  const valid = theme({
+    fit: "none",
+    opacity: 0.4,
+    anchor: "bottom",
+    size: 25,
+    files: [
+      "accent.png",
+      { file: "accent.png", fit: "cover", anchor: "center", opacity: 0.6 },
+      { file: "large.webp", size: 100 },
+    ],
+  });
+  expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
+  expect(parseThemeFile(JSON.stringify(valid), "theme")).toMatchObject({
+    images: {
+      empty: [
+        { file: "accent.png", fit: "none", opacity: 0.4, anchor: "bottom", size: 25 },
+        { file: "accent.png", fit: "cover", opacity: 0.6, anchor: "center" },
+        { file: "large.webp", fit: "none", opacity: 0.4, anchor: "bottom", size: 100 },
+      ],
+    },
+  });
+  const optionalSlotDefault = theme({
+    size: 5,
+    files: ["fill.png", { file: "accent.png", fit: "none" }],
+  });
+  expect(validate(optionalSlotDefault), JSON.stringify(validate.errors)).toBe(true);
+  const parsed = parseThemeFile(JSON.stringify(optionalSlotDefault), "theme");
+  if (parsed.kind !== "theme") throw Error("Expected interface theme");
+  expect(parsed.images?.empty?.[0]).not.toHaveProperty("size");
+  expect(parsed.images?.empty?.[1]?.size).toBe(5);
+  expect(
+    parseThemeFile(JSON.stringify(theme({ file: "one.png", fit: "none", size: 100 })), "theme"),
+  ).toMatchObject({ images: { empty: [{ file: "one.png", fit: "none", size: 100 }] } });
+  for (const invalid of [
+    { file: "one.png", size: 25 },
+    { files: ["cover.png"], fit: "cover", size: 20 },
+    { files: [{ file: "one.png", size: 25 }] },
+    { files: [{ file: "one.png", fit: "cover", size: 25 }], fit: "none" },
+    { files: [{ file: "one.png", fit: "none", size: 4.9 }] },
+    { files: [{ file: "one.png", fit: "none", size: 101 }] },
+    { files: [{ file: "one.png", fit: "none", size: null }] },
+    { files: [{ file: "one.png", opacity: 0.65 }] },
+    { files: [{ file: "one.png", fit: "fill" }] },
+    { files: [{ fit: "none" }] },
+    { files: [{ file: "../one.png" }] },
+    { files: [{ file: "one.png", path: "Other.png" }] },
+  ]) {
+    expect(validate(theme(invalid))).toBe(false);
+    expect(() => parseThemeFile(JSON.stringify(theme(invalid)), "theme")).toThrow();
+  }
 });

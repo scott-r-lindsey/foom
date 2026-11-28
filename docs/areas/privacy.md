@@ -237,8 +237,8 @@ contents, file path and unrelated values stay on that host.
 
 Theme art stays local. Main reads only bounded direct image files named by
 version 2 interface themes, using descriptor and folder identity checks.
-The disposable image decoder strips source metadata before the board paints
-a normalized PNG. The renderer receives bounded lists of opaque IDs and placement data.
+The disposable image decoder strips source metadata and preserves alpha before
+the board paints a normalized PNG. The renderer receives bounded lists of opaque IDs and placement data.
 Original bytes, bitmap file names and paths, source metadata, raw decoder
 errors and sampled colors stay out of the renderer, diagnostics and control
 tools. No network request or agent input carries theme artwork.

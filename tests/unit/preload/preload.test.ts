@@ -2362,15 +2362,19 @@ test("projects decision facts and accepts only a bounded PNG preview response", 
 test("theme bitmap projection copies only fixed paint fields and rejects arbitrary sources", async () => {
   const api = await bridge();
   const paint = { id: "d".repeat(64), opacity: 0.25, fit: "contain", anchor: "top-left" };
+  const accent = { ...paint, fit: "none", size: 25 };
   const activeBitmaps = {
     theme: "user:gallery.json",
-    slots: { empty: [{ ...paint, file: "/private.png", png: Uint8Array.of(1) }], terminal: paint },
+    slots: {
+      empty: [{ ...paint, file: "/private.png", png: Uint8Array.of(1) }, accent],
+      terminal: paint,
+    },
   };
   const themes = { interface: [], terminal: [], errors: [], activeBitmaps };
   mock.invoke.mockResolvedValue({ ...setup, themes });
   expect((await api.setupState()).themes?.activeBitmaps).toEqual({
     theme: activeBitmaps.theme,
-    slots: { empty: [paint] },
+    slots: { empty: [paint, accent] },
   });
   for (const patch of [
     { id: "https://example.invalid/secret" },
@@ -2378,6 +2382,9 @@ test("theme bitmap projection copies only fixed paint fields and rejects arbitra
     { opacity: 1 },
     { anchor: "1px 1px" },
     { fit: "scale-down" },
+    { size: 25 },
+    { fit: "none", size: 4 },
+    { fit: "none", size: 101 },
   ]) {
     mock.invoke.mockResolvedValue({
       ...setup,

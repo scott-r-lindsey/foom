@@ -35,21 +35,33 @@ export function ThemeArt({
   const paint = pieces && themeArtChoice(pieces, id);
   if (paint?.id !== id) setId(paint?.id);
   if (!paint) return null;
+  const url = `foom-theme://bitmap/${paint.id}`;
+  const intrinsic = paint.fit === "none";
+  const limit = paint.size === undefined ? undefined : `${String(paint.size)}cqmin`;
   return (
     <div
       aria-hidden="true"
       className={className ? `theme-art ${className}` : "theme-art"}
       data-theme-art={slot}
       data-direction={direction}
+      data-fit={paint.fit}
       hidden={hidden}
       style={{
         ...style,
-        backgroundImage: `url("foom-theme://bitmap/${paint.id}")`,
-        backgroundSize: paint.fit === "tile" ? "auto" : paint.fit,
-        backgroundRepeat: paint.fit === "tile" ? "repeat" : "no-repeat",
-        backgroundPosition: paint.anchor.replace("-", " "),
         opacity: paint.opacity,
+        ...(!intrinsic && {
+          backgroundImage: `url("${url}")`,
+          backgroundSize: paint.fit === "tile" ? "auto" : paint.fit,
+          backgroundRepeat: paint.fit === "tile" ? "repeat" : "no-repeat",
+          backgroundPosition: paint.anchor.replace("-", " "),
+        }),
       }}
-    />
+    >
+      {intrinsic && (
+        <div className="theme-art-intrinsic" data-anchor={paint.anchor}>
+          <img src={url} alt="" draggable={false} style={{ maxWidth: limit, maxHeight: limit }} />
+        </div>
+      )}
+    </div>
   );
 }

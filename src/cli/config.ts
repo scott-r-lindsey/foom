@@ -113,7 +113,7 @@ async function validateBitmaps(text: string, parent: ConfigDirectory): Promise<T
   if (parsed.kind !== "theme") return [];
   const diagnostics: ThemeDiagnostic[] = [];
   for (const slot of themeBitmapSlots) {
-    for (const file of parsed.images?.[slot]?.files ?? []) {
+    for (const { file } of parsed.images?.[slot] ?? []) {
       try {
         await validateBitmap(join(parent.path, file), parent);
       } catch (error) {

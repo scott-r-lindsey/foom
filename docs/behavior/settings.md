@@ -521,7 +521,9 @@ new attention conflicts use the existing Allow / Keep it on approval. See the
 
 Version 2 interface themes can put PNG, JPEG or WebP artwork in empty board
 regions, the expanded sidebar’s blank lower area, or tile headers. Put the
-images beside the theme JSON. Use `files` to list up to eight per slot, or `file`
-for one. Each region keeps a random choice while it stays open. Artwork applies
+images beside the theme JSON. Use `files` to list up to eight filenames or
+objects with placement overrides, or `file` for one. Each region keeps a random
+choice while it stays open. The `none` fit keeps natural size and can cap the
+piece relative to its region. Artwork applies
 automatically, and an unavailable slot uses the normal background. The
 [theme format](../areas/themes.md#decorative-bitmaps-1189) lists the bounds and defaults.

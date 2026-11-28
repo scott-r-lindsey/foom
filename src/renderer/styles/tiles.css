@@ -876,6 +876,32 @@
 .theme-art {
   pointer-events: none;
 }
+.theme-art[data-fit="none"] {
+  container-type: size;
+}
+.theme-art-intrinsic {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+}
+.theme-art-intrinsic > img {
+  max-width: 100%;
+  max-height: 100%;
+}
+.theme-art-intrinsic:is([data-anchor="top"], [data-anchor^="top-"]) {
+  align-items: start;
+}
+.theme-art-intrinsic:is([data-anchor="bottom"], [data-anchor^="bottom-"]) {
+  align-items: end;
+}
+.theme-art-intrinsic:is([data-anchor="left"], [data-anchor$="-left"]) {
+  justify-items: start;
+}
+.theme-art-intrinsic:is([data-anchor="right"], [data-anchor$="-right"]) {
+  justify-items: end;
+}
 :root[data-theme-bitmaps~="empty"] .tile-area {
   --tile-art-half-gap: 3px;
 }

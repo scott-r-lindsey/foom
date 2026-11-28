@@ -59,12 +59,12 @@ test("deduplicates decoding, warns on reserved status colors and projects slots 
     fit: "contain",
     anchor: "center",
   });
-  expect(result.slots["tile-header"]?.[0]?.paint).toEqual({
-    id: result.slots.empty?.[0]?.paint.id,
+  expect(result.slots["tile-header"]?.[0]?.paint).toMatchObject({
     opacity: 0.5,
     fit: "tile",
     anchor: "center",
   });
+  expect(result.slots["tile-header"]?.[0]?.paint.id).not.toBe(result.slots.empty?.[0]?.paint.id);
   expect(result.diagnostics).toEqual([
     { file: "", path: "$.images.empty", severity: "warning", reason: "image-status-color" },
     { file: "", path: "$.images.empty", severity: "error", reason: "image-unavailable" },
@@ -252,5 +252,32 @@ test("a deterministic refusal is reused and the directory scan is bounded indepe
   });
   expect(library.snapshot().interface).toHaveLength(1);
   expect((await bitmaps.load(parsed)).diagnostics[0]?.reason).toBe("too-many-files");
+  expect(normalize).toHaveBeenCalledOnce();
+});
+
+test("entries for the same bytes can keep distinct placement without decoding twice", async () => {
+  const { file, normalize, bitmaps } = await fixture();
+  await writeFile(file, "same pixels");
+  const pieces = parseThemeFile(
+    JSON.stringify({
+      ...base,
+      version: 2,
+      images: {
+        empty: {
+          fit: "cover",
+          files: [
+            "private.png",
+            { file: "private.png", fit: "none", size: 30, anchor: "bottom", opacity: 0.6 },
+          ],
+        },
+      },
+    }),
+    "theme",
+  );
+  if (pieces.kind !== "theme") throw Error("Expected interface theme");
+  const { slots } = await bitmaps.load(pieces);
+  expect(slots.empty?.map(({ paint }) => paint.fit)).toEqual(["cover", "none"]);
+  expect(slots.empty?.[1]?.paint).toMatchObject({ size: 30, anchor: "bottom", opacity: 0.6 });
+  expect(slots.empty?.[0]?.paint.id).not.toBe(slots.empty?.[1]?.paint.id);
   expect(normalize).toHaveBeenCalledOnce();
 });

@@ -46,6 +46,28 @@ test("two regions choose independently and retain their pieces when resized or u
   expect(themeArtChoice([], firstId, () => 0)).toBeUndefined();
 });
 
+test("natural-size pieces use an intrinsic image with a bounded size and their own anchor", () => {
+  const view = render(
+    <ThemeArtContext
+      value={{
+        ...artFixture,
+        slots: {
+          empty: [{ id: "a".repeat(64), opacity: 0.4, fit: "none", anchor: "bottom", size: 25 }],
+        },
+      }}
+    >
+      <ThemeArt slot="empty" />
+    </ThemeArtContext>,
+  );
+  expect(view.container.querySelector<HTMLElement>(".theme-art")?.style.backgroundImage).toBe("");
+  const img = view.container.querySelector("img");
+  expect(img?.src).toBe(`foom-theme://bitmap/${"a".repeat(64)}`);
+  expect(img?.style.maxWidth).toBe("25cqmin");
+  expect(img?.style.maxHeight).toBe("25cqmin");
+  expect(img?.parentElement?.dataset["anchor"]).toBe("bottom");
+  expect(img?.alt).toBe("");
+});
+
 test("a board dialog has no artwork when empty and header artwork are active", () => {
   const view = render(
     <ThemeArtContext value={artFixture}>

@@ -1390,15 +1390,27 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
   const themes = path.join(home, ".foom/config/themes");
   const bitmap = async (slot, color, base) => {
-    const width = slot === "sidebar" ? 160 : 640;
-    const height = slot === "sidebar" ? 168 : slot === "header" ? 36 : 420;
+    const width = slot === "orbit" ? 120 : slot === "sidebar" ? 160 : 640;
+    const height = slot === "orbit" ? 90 : slot === "sidebar" ? 168 : slot === "header" ? 36 : 420;
     const orbit = `<ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(-24 80 60)"/>
         <ellipse cx="80" cy="60" rx="59" ry="24" transform="rotate(24 80 60)"/>
         <circle cx="80" cy="60" r="22" fill="${color}" fill-opacity=".3"/>
         <path d="M80 30v60M50 60h60" stroke-dasharray="2 4"/>`;
-    const field = `<path d="M33 71 56 35l49 10 22 40-51 5Z M33 71l72-26m-49-10 20 55m0 0 29-45" stroke-dasharray="2 3"/>
-        <g fill="${color}"><circle cx="33" cy="71" r="3"/><circle cx="56" cy="35" r="2"/>
-        <circle cx="105" cy="45" r="4"/><circle cx="127" cy="85" r="2"/><circle cx="76" cy="90" r="3"/></g>`;
+    const field = `<defs>
+        <linearGradient id="wash" x2="0.78" y2="1">
+          <stop stop-color="${color}" stop-opacity=".08"/>
+          <stop offset="1" stop-color="${color}" stop-opacity=".65"/>
+        </linearGradient>
+        <pattern id="stars" width="23" height="19" patternUnits="userSpaceOnUse">
+          <circle cx="4" cy="7" r=".3" fill="${color}" stroke="none"/>
+          <circle cx="13" cy="16" r=".2" fill="${color}" stroke="none"/>
+        </pattern>
+      </defs>
+      <rect width="160" height="120" fill="url(#wash)" stroke="none"/>
+      <rect width="160" height="120" fill="url(#stars)" stroke="none"/>
+      <path d="M33 71 56 35l49 10 22 40-51 5Z M33 71l72-26m-49-10 20 55m0 0 29-45" stroke-width=".65" stroke-dasharray="1.5 2.5"/>
+      <g fill="${color}" stroke="none"><circle cx="33" cy="71" r="1.8"/><circle cx="56" cy="35" r="1.1"/>
+      <circle cx="105" cy="45" r="2.8"/><circle cx="127" cy="85" r="1.3"/><circle cx="76" cy="90" r="2"/></g>`;
     const header = `<path d="M-4 26Q100 9 210 24T433 13 640 19M-5 34Q100 14 207 29T430 19 645 23M-10 42Q100 21 201 34T428 25 650 27" stroke-opacity=".8"/>
         <path d="M240 13h65m59 17h74m110-21h51" stroke-opacity=".5" stroke-dasharray="2 6"/>`;
     const svg =
@@ -1426,7 +1438,14 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
         version: 2,
         name: `Bitmap ${base}`,
         images: {
-          empty: { files: [`${base}-orbit.png`, `${base}-field.png`], opacity: 0.6 },
+          empty: {
+            files: [
+              { file: `${base}-orbit.png`, fit: "none", anchor: "bottom", size: 25 },
+              `${base}-field.png`,
+            ],
+            fit: "cover",
+            opacity: 0.6,
+          },
           "tile-header": { file: `${base}-header.png`, opacity: 0.6, fit: "cover" },
           sidebar: { file: `${base}-sidebar.png`, opacity: 0.55, anchor: "bottom" },
         },
@@ -1533,13 +1552,36 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
   const normalized = await sharp(Buffer.from(delivered)).metadata();
   assert.equal(normalized.format, "png");
   assert.equal(normalized.exif, undefined);
+  assert.equal(normalized.hasAlpha, true);
   assert.doesNotMatch(JSON.stringify(await slots()), /\.png|Private source metadata/u);
 
   const spaces = page.locator('.terminal-tile[data-empty="true"]');
   const emptyArt = spaces.locator('[data-theme-art="empty"]');
   const header = page.locator(".tile-title");
   const terminal = tileArea.locator(".xterm:visible");
-  const paint = (target) => target.evaluate((element) => getComputedStyle(element).backgroundImage);
+  const paint = (target) =>
+    target.evaluate((element) => {
+      const image = element.querySelector("img");
+      return image ? `url("${image.src}")` : getComputedStyle(element).backgroundImage;
+    });
+  const split = async (command, choice, count) => {
+    // Random selection is exercised in the unit tests. Choose both placements
+    // in the real app so every screenshot and geometry assertion can show them.
+    await page.evaluate((value) => {
+      globalThis.fixtureThemeRandom = Math.random;
+      Math.random = () => value;
+    }, choice);
+    try {
+      await page.evaluate((action) => window.desktop.appMenu.execute(action), command);
+      await expect(spaces).toHaveCount(count);
+      await expect(emptyArt.locator("img")).toHaveCount(1);
+    } finally {
+      await page.evaluate(() => {
+        Math.random = globalThis.fixtureThemeRandom;
+        delete globalThis.fixtureThemeRandom;
+      });
+    }
+  };
   const opaque = (target) =>
     target.evaluate((element) => /^rgb\(/u.test(getComputedStyle(element).backgroundColor));
 
@@ -1561,10 +1603,34 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
     await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Enter");
     await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
     await expect(page.getByRole("button", { name: "Tile 1 menu", exact: true })).toBeEnabled();
-    await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
-    await expect(spaces).toHaveCount(1);
-    await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
-    await expect(spaces).toHaveCount(2);
+    await split("split-right", 0, 1);
+    await split("split-down", 0.99, 2);
+    const accent = emptyArt.locator("img");
+    const fill = spaces.locator('[data-fit="cover"]');
+    await expect(fill).toHaveCSS("background-image", `url("${source(images.empty[1])}")`);
+    await expect(fill).toHaveCSS("background-size", "cover");
+    await expect(fill).toHaveCSS("background-position", "50% 50%");
+    await expect(accent).toHaveAttribute("src", source(images.empty[0]));
+    await expect.poll(() => accent.evaluate((image) => image.naturalWidth)).toBe(120);
+    const measureAccent = () =>
+      accent.evaluate((image) => {
+        const rect = image.getBoundingClientRect();
+        const area = image.closest("[data-theme-art]").getBoundingClientRect();
+        return {
+          width: rect.width,
+          height: rect.height,
+          naturalWidth: image.naturalWidth,
+          bottom: area.bottom - rect.bottom,
+          centered: area.x + area.width / 2 - rect.x - rect.width / 2,
+          maximum: Math.min(area.width, area.height) / 4,
+        };
+      });
+    const assertAccent = (bounds) => {
+      assert.ok(bounds.width > 0 && bounds.height > 0);
+      assert.ok(Math.abs(bounds.width - Math.min(bounds.naturalWidth, bounds.maximum)) <= 1);
+      assert.ok(Math.abs(bounds.bottom) <= 1 && Math.abs(bounds.centered) <= 1);
+    };
+    assertAccent(await measureAccent());
     const regions = await emptyArt.evaluateAll((elements) =>
       elements.map((element) => {
         const box = element.getBoundingClientRect();
@@ -1580,9 +1646,9 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
             box.top >= tile.top &&
             box.right <= tile.right &&
             box.bottom <= tile.bottom,
-          image: style.backgroundImage,
-          fit: style.backgroundSize,
-          anchor: style.backgroundPosition,
+          image: element.querySelector("img")
+            ? `url("${element.querySelector("img").src}")`
+            : style.backgroundImage,
           pointerEvents: style.pointerEvents,
         };
       }),
@@ -1591,12 +1657,10 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
     assert.notDeepEqual([regions[0].x, regions[0].y], [regions[1].x, regions[1].y]);
     for (const region of regions) {
       assert.ok(region.contained && region.width > 0 && region.height > 0);
-      assert.equal(region.fit, "contain");
-      assert.equal(region.anchor, "50% 50%");
       assert.equal(region.pointerEvents, "none");
       assert.ok(images.empty.some((piece) => region.image === `url("${source(piece)}")`));
     }
-    const seam = tileArea.locator(".tile-gutter-art").first();
+    const seam = tileArea.locator(".tile-gutter-art").last();
     await expect(seam).toBeVisible();
     const stable = [...regions.map((region) => region.image), await paint(seam)];
     await page.getByRole("separator", { name: "Resize tiles" }).first().press("ArrowRight");
@@ -1605,6 +1669,7 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
       stable,
     );
 
+    assertAccent(await measureAccent());
     const titleArt = header.locator('[data-theme-art="tile-header"]');
     await expect(titleArt).toHaveCSS(
       "background-image",

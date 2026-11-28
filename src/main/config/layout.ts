@@ -161,6 +161,69 @@ const areaColors = {
     [...interfaceColorNames, "highlight", "highlight-deep"].map((key) => [key, color]),
   ),
 };
+const bitmapFilename = { type: "string", maxLength: 100, pattern: themeBitmapFilePattern };
+const bitmapPlacement = {
+  opacity: { type: "number", minimum: 0.05, maximum: 0.6 },
+  fit: { enum: themeBitmapFits },
+  anchor: { enum: themeBitmapAnchors },
+  size: { type: "number", minimum: 5, maximum: 100 },
+};
+const bitmapFitNone = {
+  type: "object",
+  required: ["fit"],
+  properties: { fit: { const: "none" } },
+};
+const bitmapPiece = {
+  type: "object",
+  additionalProperties: false,
+  required: ["file"],
+  properties: { file: bitmapFilename, ...bitmapPlacement },
+  if: { required: ["fit", "size"] },
+  then: bitmapFitNone,
+};
+const bitmapSlot = {
+  type: "object",
+  additionalProperties: false,
+  oneOf: [{ required: ["file"] }, { required: ["files"] }],
+  properties: {
+    file: bitmapFilename,
+    files: {
+      type: "array",
+      minItems: 1,
+      maxItems: themeBitmapSlotLimit,
+      items: { anyOf: [bitmapFilename, bitmapPiece] },
+    },
+    ...bitmapPlacement,
+  },
+  allOf: [
+    {
+      if: { required: ["size"] },
+      then: {
+        anyOf: [
+          bitmapFitNone,
+          {
+            required: ["files"],
+            properties: { files: { type: "array", contains: bitmapFitNone } },
+          },
+        ],
+      },
+    },
+    {
+      if: { not: bitmapFitNone },
+      then: {
+        properties: {
+          files: {
+            type: "array",
+            items: {
+              if: { type: "object", required: ["size"] },
+              then: bitmapFitNone,
+            },
+          },
+        },
+      },
+    },
+  ],
+};
 const themeSchema = schema("foom:theme", {
   title: "Foom interface theme",
   oneOf: [
@@ -230,26 +293,7 @@ const themeSchema = schema("foom:theme", {
           type: "object",
           additionalProperties: false,
           properties: Object.fromEntries(
-            [...themeBitmapSlots, ...legacyThemeBitmapSlots].map((slot) => [
-              slot,
-              {
-                type: "object",
-                additionalProperties: false,
-                oneOf: [{ required: ["file"] }, { required: ["files"] }],
-                properties: {
-                  file: { type: "string", maxLength: 100, pattern: themeBitmapFilePattern },
-                  files: {
-                    type: "array",
-                    minItems: 1,
-                    maxItems: themeBitmapSlotLimit,
-                    items: { type: "string", maxLength: 100, pattern: themeBitmapFilePattern },
-                  },
-                  opacity: { type: "number", minimum: 0.05, maximum: 0.6, default: 0.25 },
-                  fit: { enum: themeBitmapFits, default: "contain" },
-                  anchor: { enum: themeBitmapAnchors, default: "center" },
-                },
-              },
-            ]),
+            [...themeBitmapSlots, ...legacyThemeBitmapSlots].map((slot) => [slot, bitmapSlot]),
           ),
         },
         type: {
@@ -560,11 +604,12 @@ edit their agent's global configuration. Validate the manifest with
   against each ink. Endpoint checks alone do not guarantee interior contrast.
   Area colors override global colors. Text contrast must remain at least 4.5:1
   within every area. Brand deviations apply with warnings, printed by the CLI.
-- Version 2 images use fixed slots empty, sidebar and tile-header. Each slot takes
-  up to eight direct file names in themes/ via files (or one via file),
-  optional opacity (0.05–0.6), fit (cover, contain or tile) and anchor (center
-  or a named side/corner). Use PNG, JPEG or WebP, up to 4 MiB per file.
-  Artwork applies automatically. Missing artwork leaves the normal background.
+- Version 2 images use fixed slots empty, sidebar and tile-header. List up to eight
+  direct filenames or objects with a file and placement overrides in files, or use
+  file for one image. Slot defaults are opacity 0.25, fit contain and anchor center.
+  Fit can also be cover, tile or none. For none, size (5–100) caps the natural-size
+  piece as a percent of the region's smaller dimension. Use PNG, JPEG or WebP,
+  up to 4 MiB per file. Artwork applies automatically.
 - A file edit that newly makes needs-you hard to distinguish in the active theme,
   or selects such a theme, waits for approval. Hue-only warnings do not wait.
   Sizes and turning sounds on apply without approval.
@@ -638,6 +683,7 @@ const GUIDE_HISTORY = [
   "ca48dcaf187f27ed7163ac19b234047dfb9e10aa48897893a81c6ff657b393fe",
   "a72376c3acd4feb9930e6e65f9130e68ee5f9910059df9987573674c8106b782",
   "792e4aca92a99a79117008434833ac2fef57a3ff64435a5d3fbcf39e120c8472",
+  "4705a282f715ed44850021c2918dfdac472a842ffb11f45fe4bd45da0be72efb",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
@@ -665,6 +711,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc",
     "d1f8e5722da3ab7688b91b0b8a55c4508815d74fa844ca3df73da11e35ee9a3a",
     "0c8a287551a0341666770ee0748475662354ffe3a3685817d88445893ef214f4",
+    "8d68f863ba8331514bba64c7a57288f4d532a0082226adf70e1a0a38a753a18c",
   ],
   "schemas/settings.schema.json": [
     "a1139bb152938886dba7212dc876064fb533fc1a7bbb64a4ac6ff444cc4cb9d8",

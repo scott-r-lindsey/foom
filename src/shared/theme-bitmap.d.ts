@@ -3,7 +3,8 @@ import type { ThemeDiagnostic, UserThemeId } from "./theme-file";
 export type ThemeBitmapSlot = "empty" | "sidebar" | "tile-header";
 export interface ThemeBitmapStyle {
   opacity: number;
-  fit: "cover" | "contain" | "tile";
+  fit: "cover" | "contain" | "tile" | "none";
+  size?: number;
   anchor:
     | "center"
     | "top"
@@ -15,9 +16,8 @@ export interface ThemeBitmapStyle {
     | "bottom-left"
     | "bottom-right";
 }
-export type ThemeBitmapFiles = Partial<
-  Record<ThemeBitmapSlot, ThemeBitmapStyle & { files: readonly string[] }>
->;
+export type ThemeBitmapPiece = ThemeBitmapStyle & { file: string };
+export type ThemeBitmapFiles = Partial<Record<ThemeBitmapSlot, readonly ThemeBitmapPiece[]>>;
 export type ThemeBitmapPaint = ThemeBitmapStyle & { id: string };
 export interface ActiveThemeBitmaps {
   theme: UserThemeId;
