@@ -5,9 +5,9 @@ import { CommandGlyph, PanelMark } from "./panel-glyphs";
 import type { CommandGlyphName } from "./panel-glyphs";
 import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, RefCallback } from "react";
 export interface RowAction {
   label: string;
   disabled?: boolean;
@@ -65,7 +65,7 @@ export interface PanelContent {
   title: ReactNode;
   kind: string;
   mark: string;
-  facts: ReactNode;
+  facts: (actionRef: RefCallback<HTMLButtonElement>) => ReactNode;
   pinned: boolean;
   enter?: () => void;
   leave?: () => void;
@@ -152,6 +152,22 @@ export function RowMenu({
   const ref = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLButtonElement>(null);
   const pointerPinRef = useRef(false);
+  const removedFocusedActionRef = useRef(false);
+  const actionRef = useCallback((button: HTMLButtonElement | null) => {
+    if (!button) return;
+    return () => {
+      if (document.activeElement === button) removedFocusedActionRef.current = true;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (!removedFocusedActionRef.current) return;
+    removedFocusedActionRef.current = false;
+    if (document.activeElement === document.body) {
+      ref.current
+        ?.querySelector<HTMLButtonElement>(".row-menu-items button:not(:disabled)")
+        ?.focus();
+    }
+  });
   const dismiss =
     nested?.dismiss ??
     (() => {
@@ -575,6 +591,7 @@ export function RowMenu({
             ) : action ? (
               <button
                 key={action.label}
+                ref={isPanel ? actionRef : undefined}
                 type="button"
                 role={action.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                 aria-checked={action.checked}
@@ -636,7 +653,7 @@ export function RowMenu({
             ),
           )}
         </div>
-        {drillingIn ? child : panel?.facts}
+        {drillingIn ? child : panel?.facts(actionRef)}
       </div>
       {!drillingIn && child}
     </div>

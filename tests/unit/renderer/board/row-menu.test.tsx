@@ -193,7 +193,7 @@ test("footer panel aligns its bottom with the gear and points at it", () => {
         title: "Foom config",
         kind: "Settings folder",
         mark: "config",
-        facts: null,
+        facts: () => null,
         pinned: true,
       }}
     />,
@@ -233,7 +233,7 @@ test("pointer pinning leaves focus to the pressed launcher while keyboard pinnin
     title: "Checkout",
     kind: "Worktree",
     mark: "checkout",
-    facts: null,
+    facts: () => null,
     pinned: false,
     pin,
   };
@@ -366,7 +366,7 @@ test("late panel facts and pinning keep commands stationary; explicit resize ref
       title: "Repository",
       kind: "Repository",
       mark: "repository",
-      facts: null,
+      facts: () => null,
       pinned: false,
     },
   };
@@ -407,7 +407,7 @@ test("scrolling a panel body dismisses every submenu while retaining the panel",
         title: "Repository",
         kind: "Repository",
         mark: "repository",
-        facts: null,
+        facts: () => null,
         pinned: true,
       }}
       actions={[

@@ -1,6 +1,6 @@
 import { CopyValue as Copy } from "../ui/copy-value";
 import { useEffect, useState, useRef, useCallback } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefCallback } from "react";
 import type { OrchestrationEntry, OrchestrationView, SidebarCommand } from "../../shared/workspace";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { ConfigStatus } from "../../shared/foom-config";
@@ -154,10 +154,14 @@ export function PanelFacts({
   subject,
   source,
   options,
+  command,
+  actionRef,
 }: {
   subject: PanelSubject;
   source: BoardSource;
   options: LaunchOptions | undefined;
+  command: (command: SidebarCommand) => Promise<void>;
+  actionRef?: RefCallback<HTMLButtonElement>;
 }) {
   const [now] = useState(Date.now);
   const [handoffError, setHandoffError] = useState("");
@@ -169,6 +173,8 @@ export function PanelFacts({
       ? subject.repository.path
       : undefined;
   const worktree = subject.kind === "worktree" ? subject.tree.path : repository;
+  const { mergedCount, mergedScanGeneration } =
+    subject.kind === "repository" ? subject.repository : {};
   const copyCheckout = (
     kind:
       | "copy-default-branch"
@@ -198,7 +204,7 @@ export function PanelFacts({
     return () => {
       active = false;
     };
-  }, [repository, worktree, source]);
+  }, [repository, worktree, source, mergedScanGeneration]);
   const facts =
     loaded?.repository === repository && loaded?.worktree === worktree ? loaded?.facts : undefined;
   const unknown = "Unknown";
@@ -309,12 +315,25 @@ export function PanelFacts({
             <Chip tone="neutral">
               {subject.repository.worktrees.filter((tree) => tree.managed).length} by Foom
             </Chip>
-            {subject.repository.mergedCount === undefined ? (
+            {mergedCount === undefined ? (
               <Sub>merged count unknown</Sub>
+            ) : mergedCount === 0 ? (
+              <button
+                ref={actionRef}
+                type="button"
+                className="panel-review-link"
+                aria-haspopup="dialog"
+                onClick={() => {
+                  void command({
+                    kind: "review-kept-worktrees",
+                    repository: subject.repository.path,
+                  });
+                }}
+              >
+                0 eligible to delete
+              </button>
             ) : (
-              <Chip tone={subject.repository.mergedCount ? "done" : "neutral"}>
-                {subject.repository.mergedCount} eligible to delete
-              </Chip>
+              <Chip tone="done">{mergedCount} eligible to delete</Chip>
             )}
           </Fact>
           <Fact label="Sessions">

@@ -4,9 +4,18 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 
 ### Delete merged worktrees
 
-The repository menu offers **Delete merged worktrees…** below Remove repository
-when linked worktrees exist, regardless of which tool created them. When none
-qualify, opening it shows each checkout's fixed reason with Delete disabled. Foom fetches the remote
+For repositories with linked worktrees, the menu offers **Delete merged
+worktrees…** below **Remove from Foom…** when the eligibility count is positive,
+before the first scan completes, or after a scan fails. A completed scan with
+zero eligible worktrees hides the command. In the repository panel, select
+**0 eligible to delete** to review the kept branches and their reasons. The
+read-only review opens with a **Close** button. Opening the repository panel or
+selecting the zero count refreshes eligibility when the cached result is at least
+one minute old. When the scan finds eligible worktrees, the command and its
+count return automatically. If the latest completed scan finds eligible
+worktrees while a kept-worktree review is queued, that review is dismissed.
+
+Foom fetches the remote
 (`origin`, or the sole remote) and resolves its advertised default branch. A
 branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
@@ -39,8 +48,10 @@ The trusted dialog lists candidate branches, then skipped checkouts with short
 reasons, and offers **Delete** and **Cancel**. During cleanup it becomes a live
 checklist with a count, progress bar, **Stop** and **Hide**. Stop finishes the
 in-flight removals and starts no more; Hide and Escape close only the window.
-There is one run per repository, and the repository panel reopens its checklist.
-Finished runs offer **Done**. The sidebar shows the same count and queued, removing,
+There is one run per repository. **Deleting merged worktrees** reopens the
+active checklist. **Cleanup results** reopens an undismissed finished checklist,
+even at zero eligible. When a fresh cleanup is available, it has its own menu
+entry. Finished runs offer **Done**. The sidebar shows the same count and queued, removing,
 removed, kept or error tags; a completion status reports the result when hidden.
 Removing uses the highlight, errors use failure ink, and reduced motion disables
 sweep and fold animations. Main checkouts, locked,

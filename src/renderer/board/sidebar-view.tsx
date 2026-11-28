@@ -395,6 +395,14 @@ export function Sidebar(props: SidebarProps) {
                 const machines = repositoryMachines(source.getMachines?.() ?? []);
                 const cleanup = repo.repository.cleanup;
                 const deleting = cleanup && cleanup.phase !== "finished";
+                const { mergedCount, mergedError } = repo.repository;
+                const canStartCleanup =
+                  !deleting &&
+                  (mergedError !== undefined || mergedCount === undefined
+                    ? repo.repository.worktrees.some(
+                        (tree) => tree.path !== repo.repository.path && !tree.bare,
+                      )
+                    : mergedCount > 0);
                 return (
                   <SidebarRepositorySection
                     key={rid}
@@ -493,27 +501,35 @@ export function Sidebar(props: SidebarProps) {
                           });
                         },
                       },
-                      ...(repo.repository.canDeleteMerged ||
-                      cleanup ||
-                      repo.repository.worktrees.some(
-                        (tree) => tree.path !== repo.repository.path && !tree.bare,
-                      )
+                      ...(cleanup || canStartCleanup ? [null] : []),
+                      ...(canStartCleanup
                         ? [
-                            null,
                             {
-                              label: deleting
-                                ? "Deleting merged worktrees"
-                                : cleanup
-                                  ? "Cleanup results"
-                                  : "Delete merged worktrees…",
+                              label: "Delete merged worktrees…",
                               glyph: "trash" as const,
-                              hint: deleting
-                                ? `${String(cleanup.done)}/${String(cleanup.total)}`
-                                : String(repo.repository.mergedCount ?? ""),
+                              hint: mergedError === undefined ? String(mergedCount ?? "") : "",
                               run: () =>
                                 command({
                                   kind: "delete-merged-worktrees",
                                   repository: repo.repository.path,
+                                  startNew: true,
+                                }),
+                            },
+                          ]
+                        : []),
+                      ...(cleanup
+                        ? [
+                            {
+                              label: deleting ? "Deleting merged worktrees" : "Cleanup results",
+                              glyph: "trash" as const,
+                              hint: deleting
+                                ? `${String(cleanup.done)}/${String(cleanup.total)}`
+                                : "",
+                              run: () =>
+                                command({
+                                  kind: "delete-merged-worktrees",
+                                  repository: repo.repository.path,
+                                  ...(cleanup.id ? { cleanupId: cleanup.id } : {}),
                                 }),
                             },
                           ]

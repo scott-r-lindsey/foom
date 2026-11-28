@@ -70,6 +70,27 @@ export interface CleanupOwnerDependencies {
   now: () => number;
 }
 
+interface MergeEligibilitySnapshot {
+  /** An absent plan represents a failed scan. */
+  plan: readonly CleanupCandidate[] | undefined;
+  fetchedAt: number | undefined;
+}
+
+interface MergeEligibility {
+  generation: number;
+  key: string | undefined;
+  count: number;
+  expires: number;
+  pending?: { promise: Promise<void>; wake: () => void };
+  completed: MergeEligibilitySnapshot | undefined;
+  result: {
+    canDeleteMerged: boolean;
+    mergedCount?: number;
+    mergedError?: string;
+    mergedScanGeneration?: number;
+  };
+}
+
 /** Main-owned cleanup plans, scans, runs and safe removal coordination. */
 export class CleanupOwner {
   private autoRemoveMergedWorktrees = false;
@@ -87,17 +108,10 @@ export class CleanupOwner {
     }
   >();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
+  private readonly keptWorktreeReviews = new Set<string>();
   private readonly mergeScans = new Map<string, Set<Promise<void>>>();
-  private readonly mergeEligibility = new Map<
-    string,
-    {
-      key: string;
-      count: number;
-      expires: number;
-      plan?: readonly CleanupCandidate[];
-      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
-    }
-  >();
+  private readonly mergeEligibility = new Map<string, MergeEligibility>();
+  private mergeGeneration = 0;
 
   constructor(private readonly deps: CleanupOwnerDependencies) {}
 
@@ -213,7 +227,7 @@ export class CleanupOwner {
       checkSessions();
       await this.deps.worktrees.removeRepository(repository);
       this.cleanupRuns.delete(repository);
-      this.mergeEligibility.delete(repository);
+      this.clearMergeEligibility(repository);
       this.deps.refresh();
     } finally {
       release();
@@ -392,7 +406,7 @@ export class CleanupOwner {
       ...[...this.cleanupRuns.values()].map((run) => run.settled()),
     ]);
     this.cleanupRuns.clear();
-    this.mergeEligibility.clear();
+    for (const repository of this.mergeEligibility.keys()) this.clearMergeEligibility(repository);
   }
   private requireNoClosingSession(worktree: string, closingId?: string): void {
     if (
@@ -544,9 +558,11 @@ export class CleanupOwner {
 
   private async mergedPlan(repository: string, refresh: boolean, inventory?: readonly Worktree[]) {
     const trees = inventory ?? (await this.deps.inventory(repository));
-    if (!trees.some((tree) => tree.path !== repository && !tree.bare)) return [];
+    if (!trees.some((tree) => tree.path !== repository && !tree.bare))
+      return { plan: [], fetchedAt: undefined };
     const base = await this.deps.worktrees.mergedDefault(repository, refresh);
-    return Promise.all(
+    const fetchedAt = this.deps.worktrees.mergedFetchTime(repository);
+    const plan = await Promise.all(
       trees.map(async (tree) => {
         let reason: CleanupReason | undefined;
         if (tree.removalFailed) return { tree, reason: this.sessionSkip(tree.path) };
@@ -599,27 +615,34 @@ export class CleanupOwner {
         }
       }),
     );
+    return { plan, fetchedAt };
   }
 
-  async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
+  async deleteMerged(
+    repository: string,
+    confirm: ConfirmWorkspace,
+    { startNew, cleanupId }: { startNew?: true; cleanupId?: string } = {},
+  ): Promise<void> {
     this.deps.known(repository);
     const existing = this.cleanupRuns.get(repository);
-    if (existing && (existing.pending || existing.current().stage === "run")) {
+    if (existing && (startNew ? existing.pending : existing.id === cleanupId)) {
       await confirm({
         kind: "merged-worktrees",
         subject: basename(repository),
         worktrees: [],
         feed: existing,
       });
-      if (!existing.pending) {
+      if (!existing.pending && this.cleanupRuns.get(repository) === existing) {
         this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
       return;
     }
+    if (!startNew) return;
     return this.deps.withRepository(repository, async () => {
       const releases = new Set<() => void>();
       const run = new CleanupRun({
+        preparePresentation: (): boolean => this.cleanupRuns.get(repository) === run,
         checkingCount: this.mergeEligibility.get(repository)?.count,
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
         fetch: async () => {
@@ -713,11 +736,12 @@ export class CleanupOwner {
       });
       this.cleanupRuns.set(repository, run);
       const cached = this.mergeEligibility.get(repository);
-      const prepare =
-        cached?.plan && this.deps.now() < cached.expires
-          ? Promise.resolve(cached.plan)
-          : this.mergedPlan(repository, true);
-      if (cached?.plan && this.deps.now() < cached.expires) run.ready(cached.plan);
+      const plan =
+        cached && !cached.pending && this.deps.now() < cached.expires
+          ? cached.completed?.plan
+          : undefined;
+      const prepare = plan ?? this.mergedPlan(repository, true).then(({ plan }) => plan);
+      if (plan) run.ready(plan);
       // Request presentation before awaiting network or filesystem checks.
       const answer = confirm({
         kind: "merged-worktrees",
@@ -734,11 +758,90 @@ export class CleanupOwner {
       const reviewed = run.current().stage === "run" && !run.pending;
       // Hide resolves presentation, but the repository reservation lasts through the run.
       await run.settled();
-      if (reviewed || run.current().stage !== "run") {
-        this.cleanupRuns.delete(repository);
+      const canceled = run.current().stage !== "run";
+      if (reviewed || canceled) {
+        if (canceled && existing) this.cleanupRuns.set(repository, existing);
+        else this.cleanupRuns.delete(repository);
         this.deps.refresh();
       }
     });
+  }
+
+  refreshMergeEligibility(repository: string): void {
+    const cached = this.mergeEligibility.get(repository);
+    if (cached && this.deps.now() >= cached.expires) this.deps.refresh();
+  }
+
+  async reviewMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
+    this.deps.known(repository);
+    if (this.keptWorktreeReviews.has(repository)) return;
+    const cached = this.mergeEligibility.get(repository);
+    // Null denotes a review that is still checking. Undefined is a completed empty review.
+    let displayed: MergeEligibilitySnapshot | undefined | null = null;
+    let dismissed = false;
+    let following = false;
+    const show = (snapshot: MergeEligibilitySnapshot | undefined) => {
+      displayed = snapshot;
+      if (snapshot && !snapshot.plan) review.failed();
+      else review.ready(snapshot?.plan ?? []);
+    };
+    const followEligibility = async (refreshExpired = false) => {
+      if (following) return;
+      following = true;
+      try {
+        let entry = this.mergeEligibility.get(repository);
+        if (
+          refreshExpired &&
+          (!entry || this.deps.now() >= entry.expires) &&
+          !this.cleanupRuns.get(repository)?.pending
+        ) {
+          entry = this.startMergeEligibility(repository);
+        }
+        while (!dismissed && entry?.pending) {
+          // A replacement wakes readers before the superseded scan finishes.
+          await entry.pending.promise;
+          entry = this.mergeEligibility.get(repository);
+        }
+        if (!dismissed && displayed !== entry?.completed) show(entry?.completed);
+      } catch {
+        if (!dismissed) review.failed();
+      } finally {
+        following = false;
+      }
+    };
+    const review = new CleanupRun({
+      reviewOnly: true,
+      checkingCount: cached?.count,
+      fetchedAt: () => displayed?.fetchedAt,
+      changed: () => {},
+      preparePresentation: () => {
+        try {
+          this.deps.known(repository);
+        } catch {
+          return false;
+        }
+        const entry = this.mergeEligibility.get(repository);
+        const snapshot = entry?.completed;
+        if (!snapshot || snapshot.plan?.some((item) => !item.reason)) return false;
+        if (snapshot !== displayed) show(snapshot);
+        if (entry.pending) void followEligibility();
+        return true;
+      },
+    });
+    this.keptWorktreeReviews.add(repository);
+    try {
+      const answer = confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: review,
+      });
+      void followEligibility(true);
+      await answer;
+    } finally {
+      dismissed = true;
+      this.keptWorktreeReviews.delete(repository);
+    }
   }
 
   /** Never let remote discovery hold up local inventory or session publication. */
@@ -746,48 +849,80 @@ export class CleanupOwner {
     if (this.cleanupRuns.get(repository)?.pending)
       return this.mergeEligibility.get(repository)?.result ?? { canDeleteMerged: false };
     if (this.deps.closed() || !worktrees.some((tree) => tree.path !== repository && !tree.bare)) {
-      this.mergeEligibility.delete(repository);
+      this.clearMergeEligibility(repository);
       return { canDeleteMerged: false };
     }
-    const key = JSON.stringify(worktrees.map((tree) => [tree, this.sessionSkip(tree.path)]));
+    const key = this.mergeEligibilityKey(worktrees);
     const cached = this.mergeEligibility.get(repository);
     if (cached?.key === key && this.deps.now() < cached.expires) return cached.result;
-    const entry: {
-      key: string;
-      count: number;
-      expires: number;
-      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
-      plan?: readonly CleanupCandidate[];
-    } = {
-      key,
-      count: worktrees.length,
+    return this.startMergeEligibility(repository, { worktrees, key }).result;
+  }
+
+  private mergeEligibilityKey(worktrees: readonly Worktree[]): string {
+    return JSON.stringify(worktrees.map((tree) => [tree, this.sessionSkip(tree.path)]));
+  }
+
+  private clearMergeEligibility(repository: string): void {
+    this.mergeEligibility.get(repository)?.pending?.wake();
+    this.mergeEligibility.delete(repository);
+  }
+
+  private startMergeEligibility(
+    repository: string,
+    inventory?: { worktrees: readonly Worktree[]; key: string },
+  ): MergeEligibility {
+    const cached = this.mergeEligibility.get(repository);
+    let wake = () => {};
+    const promise = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    const entry: MergeEligibility = {
+      generation: ++this.mergeGeneration,
+      key: inventory?.key,
+      count: inventory?.worktrees.length ?? cached?.count ?? 0,
       expires: Number.POSITIVE_INFINITY,
-      result: { canDeleteMerged: false },
+      pending: { promise, wake },
+      completed: cached?.completed,
+      // Keep publishing the completed result until the replacement scan settles.
+      result: cached?.result ?? { canDeleteMerged: false },
     };
     this.mergeEligibility.set(repository, entry);
-    const publish = (result: {
-      canDeleteMerged: boolean;
-      mergedCount?: number;
-      mergedError?: string;
-    }) => {
-      // A newer inventory, repository removal or shutdown supersedes this scan.
-      if (this.deps.closed() || this.mergeEligibility.get(repository) !== entry) return;
-      entry.result = result;
+    cached?.pending?.wake();
+    const isCurrent = () =>
+      !this.deps.closed() && this.mergeEligibility.get(repository)?.generation === entry.generation;
+    const publish = (result: MergeEligibility["result"]) => {
+      entry.result = { ...result, mergedScanGeneration: entry.generation };
       entry.expires = this.deps.now() + 60_000;
       this.deps.onChange?.();
     };
+    const readPlan = async () => {
+      if (inventory) return this.mergedPlan(repository, false, inventory.worktrees);
+      const worktrees = await this.deps.inventory(repository);
+      if (!isCurrent()) return { plan: [], fetchedAt: undefined };
+      this.deps.known(repository);
+      if (!worktrees.some((tree) => tree.path !== repository && !tree.bare)) {
+        this.clearMergeEligibility(repository);
+        return { plan: [], fetchedAt: undefined };
+      }
+      entry.key = this.mergeEligibilityKey(worktrees);
+      entry.count = worktrees.length;
+      return this.mergedPlan(repository, false, worktrees);
+    };
     const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
     this.mergeScans.set(repository, scans);
-    const scan: Promise<void> = this.mergedPlan(repository, false, worktrees)
+    const scan: Promise<void> = readPlan()
       .then(
-        (plan) => {
-          entry.plan = plan;
+        ({ plan, fetchedAt }) => {
+          if (!isCurrent()) return;
+          entry.completed = { plan, fetchedAt };
           publish({
             canDeleteMerged: plan.some((item) => !item.reason),
             mergedCount: plan.filter((item) => !item.reason).length,
           });
         },
         (error: unknown) => {
+          if (!isCurrent()) return;
+          entry.completed = { plan: undefined, fetchedAt: undefined };
           publish({
             canDeleteMerged: false,
             mergedError: error instanceof Error ? error.message : String(error),
@@ -795,10 +930,12 @@ export class CleanupOwner {
         },
       )
       .finally(() => {
+        delete entry.pending;
+        wake();
         scans.delete(scan);
         if (scans.size === 0) this.mergeScans.delete(repository);
       });
     scans.add(scan);
-    return entry.result;
+    return entry;
   }
 }

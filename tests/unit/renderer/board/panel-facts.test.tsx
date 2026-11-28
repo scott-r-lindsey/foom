@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { PanelFacts, PanelTitle } from "../../../../src/renderer/board/panel-facts";
+import {
+  PanelFacts as PanelFactsView,
+  PanelTitle,
+} from "../../../../src/renderer/board/panel-facts";
+import type { ComponentProps } from "react";
 import type { PanelSubject } from "../../../../src/renderer/board/panel-facts";
 import type { GitPanelFacts } from "../../../../src/shared/panel";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
 import { boardRows } from "../../../fixtures/board";
 const source = createSampleSource([]);
+function PanelFacts(props: Omit<ComponentProps<typeof PanelFactsView>, "command">) {
+  return <PanelFactsView {...props} command={() => Promise.resolve()} />;
+}
 const row = boardRows(0)[0];
 if (!row) throw Error("fixture");
 const tree = {
@@ -275,8 +282,8 @@ test("fact chips keep amber for needs-you, magenta for failures and name every s
   expect(tones(view)).toEqual([
     ["failed", "Fetch failed"],
     ["neutral", "0 by Foom"],
-    ["neutral", "0 eligible to delete"],
   ]);
+  expect(view.getByRole("button", { name: "0 eligible to delete" })).toBeTruthy();
   live.panelFacts.mockResolvedValue(stale);
   view.rerender(
     <PanelFacts

@@ -488,7 +488,8 @@ export function ConfirmationCard({
   const forceCleanup =
     cleanup?.stage === "ready" &&
     cleanup.progress.items.some((item) => item.state === "queued" && item.changes);
-  const running = cleanup?.stage === "run";
+  const reviewOnly = cleanup?.reviewOnly;
+  const running = cleanup?.stage === "run" && !reviewOnly;
   const finished = running && cleanup.progress.phase === "finished";
   const disabled =
     !request.presented ||
@@ -744,18 +745,22 @@ export function ConfirmationCard({
                   </Section>
                 ) : (
                   <>
+                    {!reviewOnly && (
+                      <Section
+                        label="Delete"
+                        count={
+                          cleanup.progress.items.filter((item) => item.state !== "kept").length
+                        }
+                      >
+                        <Worktrees
+                          label="Cleanup checklist"
+                          running={running}
+                          items={cleanup.progress.items.filter((item) => item.state !== "kept")}
+                        />
+                      </Section>
+                    )}
                     <Section
-                      label="Delete"
-                      count={cleanup.progress.items.filter((item) => item.state !== "kept").length}
-                    >
-                      <Worktrees
-                        label="Cleanup checklist"
-                        running={running}
-                        items={cleanup.progress.items.filter((item) => item.state !== "kept")}
-                      />
-                    </Section>
-                    <Section
-                      label={running ? "Kept" : "Keep"}
+                      label={running || reviewOnly ? "Kept" : "Keep"}
                       count={cleanup.progress.items.filter((item) => item.state === "kept").length}
                     >
                       <Worktrees
@@ -975,7 +980,7 @@ export function ConfirmationCard({
           </div>
         </div>
         <footer>
-          {cleanup && !finished && (
+          {cleanup && !finished && !reviewOnly && (
             <label className="close-when-completed">
               <input
                 type="checkbox"
@@ -1000,13 +1005,15 @@ export function ConfirmationCard({
               ? plugin.phase === "running"
                 ? "Close"
                 : "Done"
-              : embedded || request.removals
-                ? "Decline"
-                : finished
-                  ? "Done"
-                  : running
-                    ? "Hide"
-                    : (request.cancel ?? "Cancel")}
+              : reviewOnly
+                ? "Close"
+                : embedded || request.removals
+                  ? "Decline"
+                  : finished
+                    ? "Done"
+                    : running
+                      ? "Hide"
+                      : (request.cancel ?? "Cancel")}
           </button>
           {request.removals && (
             <button
@@ -1030,7 +1037,7 @@ export function ConfirmationCard({
                 : "Approve selected"}
             </button>
           )}
-          {!finished && !plugin && (
+          {!finished && !plugin && !reviewOnly && (
             <button
               type="button"
               disabled={disabled || (deadline !== undefined && now >= deadline)}

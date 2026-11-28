@@ -116,65 +116,126 @@ test.each([
   expect(view.getByRole("menuitem", { name: "New conversation here" })).toBeTruthy();
 });
 
-test("merged cleanup stays available for linked worktrees, below repository removal", async () => {
-  repository.canDeleteMerged = true;
-  repository.mergedError = "Fetch failed";
-  const view = setup();
+test.each([{}, { mergedError: "Fetch failed" }])(
+  "merged cleanup can be opened while eligibility is unknown (%j)",
+  async (scan) => {
+    const view = setup();
+    view.source.getSidebar = () => [{ ...repository, ...scan }];
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+    if (scan.mergedError) {
+      expect(view.getByRole("menuitem", { name: scan.mergedError }).hasAttribute("disabled")).toBe(
+        true,
+      );
+    }
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: "Delete merged worktrees…" }));
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenCalledExactlyOnceWith({
+      kind: "delete-merged-worktrees",
+      repository: "/foom",
+      startNew: true,
+    });
+  },
+);
+
+test("merged cleanup is absent with only a main checkout", async () => {
+  const view = setup(true);
+  view.source.getSidebar = () => [
+    {
+      ...repository,
+      worktrees: repository.worktrees.filter((tree) => tree.path === repository.path),
+    },
+  ];
   await act(async () => {
     await Promise.resolve();
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-  const items = view.getAllByRole("menuitem");
-  const removal = items.findIndex((item) => item.textContent.includes("Remove from Foom…"));
-  expect(items[removal + 1]?.textContent).toContain("Delete merged worktrees…");
-  expect(view.getByRole("menuitem", { name: "Fetch failed" }).hasAttribute("disabled")).toBe(true);
-  await act(async () => {
-    fireEvent.click(view.getByRole("menuitem", { name: "Delete merged worktrees…" }));
-    await Promise.resolve();
-  });
-  expect(view.command).toHaveBeenCalledWith({
-    kind: "delete-merged-worktrees",
-    repository: "/foom",
-  });
-  delete repository.canDeleteMerged;
-  delete repository.mergedError;
-  view.unmount();
-  const hidden = setup();
-  await act(async () => {
-    await Promise.resolve();
-  });
-  fireEvent.click(hidden.getByRole("button", { name: "Actions for Foom" }));
-  expect(hidden.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
-  hidden.unmount();
-  const original = repository.worktrees;
-  repository.worktrees = original.filter((tree) => tree.path === repository.path);
-  const mainOnly = setup(true);
-  await act(async () => {
-    await Promise.resolve();
-  });
-  fireEvent.click(mainOnly.getByRole("button", { name: "Actions for Foom" }));
-  expect(mainOnly.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
-  mainOnly.unmount();
-  repository.worktrees = original;
+  expect(view.queryByRole("menuitem", { name: /Delete merged worktrees…/ })).toBeNull();
 });
 
-test("open cleanup menus remain available when eligibility changes", async () => {
+test("an open repository menu restores merged cleanup when eligibility rises from zero", async () => {
   const view = setup();
+  let mergedCount = 0;
+  view.source.getSidebar = () => [{ ...repository, mergedCount }];
   await act(async () => {
     await Promise.resolve();
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-  expect(view.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
-  repository.canDeleteMerged = true;
-  act(() => {
-    view.base.update("a", { state: "quiet_ok" });
+  expect(view.queryByRole("menuitem", { name: /Delete merged worktrees…/ })).toBeNull();
+  const review = view.getByRole("button", { name: "0 eligible to delete" });
+  await act(async () => {
+    fireEvent.click(review);
+    await Promise.resolve();
   });
-  expect(view.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
-  delete repository.canDeleteMerged;
+  expect(view.command).toHaveBeenCalledExactlyOnceWith({
+    kind: "review-kept-worktrees",
+    repository: "/foom",
+  });
+  const menu = view.getByRole("menu");
+  expect(menu.lastElementChild?.textContent).toContain("Remove from Foom…");
+  expect(view.getAllByRole("separator").filter((item) => menu.contains(item))).toHaveLength(1);
+  review.focus();
+  mergedCount = 2;
   act(() => {
     view.base.update("a", { state: "working" });
   });
-  expect(view.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
+  expect(view.getByRole("menuitem", { name: /Delete merged worktrees…/ }).textContent).toBe(
+    "Delete merged worktrees…2",
+  );
+  const newWorktree = view.getByRole("menuitem", { name: "New worktree" });
+  expect(document.activeElement).toBe(newWorktree);
+  fireEvent.keyDown(newWorktree, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "Pin to top" }));
+  const cleanupAction = view.getByRole("menuitem", { name: /Delete merged worktrees…/ });
+  fireEvent.keyDown(menu, { key: "End" });
+  expect(document.activeElement).toBe(cleanupAction);
+  mergedCount = 0;
+  act(() => {
+    view.base.update("a", { state: "quiet_ok" });
+  });
+  expect(document.activeElement).toBe(newWorktree);
+  fireEvent.keyDown(newWorktree, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(view.getByRole("menuitem", { name: "Pin to top" }));
+});
+
+test("a new cleanup and undismissed results are independent menu commands", async () => {
+  const view = setup();
+  view.source.getSidebar = () => [
+    {
+      ...repository,
+      mergedCount: 1,
+      cleanup: { id: "cleanup", total: 1, done: 1, phase: "finished", stopped: false, items: [] },
+    },
+  ];
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const actions = view.getByRole("button", { name: "Actions for Foom" });
+  fireEvent.click(actions);
+  expect(view.getByRole("menuitem", { name: "Cleanup results" })).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: /Delete merged worktrees…/ }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenLastCalledWith({
+    kind: "delete-merged-worktrees",
+    repository: "/foom",
+    startNew: true,
+  });
+  fireEvent.click(actions);
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "Cleanup results" }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenLastCalledWith({
+    kind: "delete-merged-worktrees",
+    repository: "/foom",
+    cleanupId: "cleanup",
+  });
 });
 
 test("worktree menus offer only enabled launchers and deletion with an agent running", async () => {
@@ -312,13 +373,14 @@ test("removed subjects release pinned intent; Escape works outside and the opene
 test("cleanup progress and finished results remain reachable without folding recreated live rows", async () => {
   const view = setup();
   let progress: NonNullable<SidebarRepository["cleanup"]> = {
+    id: "running",
     total: 1,
     done: 0,
     phase: "remove",
     stopped: false,
     items: [{ id: "1", path: "/tree", branch: "feature", state: "removing" }],
   };
-  view.source.getSidebar = () => [{ ...repository, cleanup: progress }];
+  view.source.getSidebar = () => [{ ...repository, mergedCount: 0, cleanup: progress }];
   view.rerender(<Board source={view.source} />);
   expect(view.getByText("deleting 0/1")).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
@@ -329,6 +391,7 @@ test("cleanup progress and finished results remain reachable without folding rec
   expect(view.command).toHaveBeenLastCalledWith({
     kind: "delete-merged-worktrees",
     repository: "/foom",
+    cleanupId: "running",
   });
   progress = {
     ...progress,
@@ -339,7 +402,8 @@ test("cleanup progress and finished results remain reachable without folding rec
   view.rerender(<Board source={view.source} />);
   expect(view.getByRole("treeitem", { name: /^feature$/ }).getAttribute("data-cleanup")).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-  expect(view.getByRole("menuitem", { name: /Cleanup results/ })).toBeTruthy();
+  expect(view.getByRole("menuitem", { name: "Cleanup results" })).toBeTruthy();
+  expect(view.queryByRole("menuitem", { name: /Delete merged worktrees…/ })).toBeNull();
   progress = {
     ...progress,
     id: "first",

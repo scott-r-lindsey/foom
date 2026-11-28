@@ -885,7 +885,7 @@ it.each(["untracked", "commit", "forge"])(
     try {
       await expect(
         workspace.sidebarCommand(
-          { kind: "delete-merged-worktrees", repository: repo },
+          { kind: "delete-merged-worktrees", repository: repo, startNew: true },
           async (request) => {
             if (request.kind !== "merged-worktrees" || !request.feed)
               throw new Error("Missing cleanup");
@@ -1025,7 +1025,7 @@ it.each(["detached", "untracked", "unpushed", "tracked", "external", "clean bran
     });
     try {
       await workspace.sidebarCommand(
-        { kind: "delete-merged-worktrees", repository: repo },
+        { kind: "delete-merged-worktrees", repository: repo, startNew: true },
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
           await cleanupReady(request.feed);
@@ -1109,7 +1109,7 @@ it.each(["tracked edit", "commit", "untracked set"])(
     const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
     try {
       await workspace.sidebarCommand(
-        { kind: "delete-merged-worktrees", repository: repo },
+        { kind: "delete-merged-worktrees", repository: repo, startNew: true },
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed)
             throw new Error("Missing cleanup");
@@ -1162,7 +1162,7 @@ it.for(["ready", "confirmation failure"])(
       signal.addEventListener("abort", abort, { once: true });
       const workspace = cleanupWorkspace();
       const group = workspace.sidebarCommand(
-        { kind: "delete-merged-worktrees", repository: repo },
+        { kind: "delete-merged-worktrees", repository: repo, startNew: true },
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed)
             throw new Error("Missing cleanup");
@@ -1254,7 +1254,7 @@ it.each([
   const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
   try {
     await workspace.sidebarCommand(
-      { kind: "delete-merged-worktrees", repository: repo },
+      { kind: "delete-merged-worktrees", repository: repo, startNew: true },
       async (request) => {
         if (request.kind !== "merged-worktrees" || !request.feed)
           throw new Error("Missing cleanup");
@@ -1338,7 +1338,7 @@ it.each(["ignored", "submodule", "private ref", "ignorecase", "rebase"])(
     const workspace = cleanupWorkspace();
     try {
       await workspace.sidebarCommand(
-        { kind: "delete-merged-worktrees", repository: repo },
+        { kind: "delete-merged-worktrees", repository: repo, startNew: true },
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed)
             throw new Error("Missing cleanup");
@@ -1403,7 +1403,7 @@ it.each(["ignored file", "private ref", ".gitmodules"])(
     const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
     try {
       await workspace.sidebarCommand(
-        { kind: "delete-merged-worktrees", repository: repo },
+        { kind: "delete-merged-worktrees", repository: repo, startNew: true },
         async (request) => {
           if (request.kind !== "merged-worktrees" || !request.feed)
             throw new Error("Missing cleanup");
@@ -1433,7 +1433,7 @@ it("ignored-only leftovers are reviewed and removed without force", async () => 
   const workspace = cleanupWorkspace();
   try {
     await workspace.sidebarCommand(
-      { kind: "delete-merged-worktrees", repository: repo },
+      { kind: "delete-merged-worktrees", repository: repo, startNew: true },
       async (request) => {
         if (request.kind !== "merged-worktrees" || !request.feed)
           throw new Error("Missing cleanup");
@@ -1521,7 +1521,7 @@ it("rechecks the full cleanup policy after the final asynchronous merge proof", 
   });
   try {
     await workspace.sidebarCommand(
-      { kind: "delete-merged-worktrees", repository: repo },
+      { kind: "delete-merged-worktrees", repository: repo, startNew: true },
       async (request) => {
         if (request.kind !== "merged-worktrees" || !request.feed)
           throw new Error("Missing cleanup");

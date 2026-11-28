@@ -275,12 +275,27 @@ test("home shells use only main-owned paths, persist and restart without a repos
   expect(create).toHaveBeenCalledTimes(2);
 });
 
-test("panel facts require a registered repository", async () => {
+test("panel facts require a registered repository and refresh expired repository eligibility", async () => {
+  let now = 1000;
+  const onChange = vi.fn();
+  deps.now = () => now;
+  deps.onChange = onChange;
   const workspace = new Workspace(deps);
   workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
   expect(() => workspace.panelFacts("/foreign", tree.path)).toThrow();
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedCount)
+    .toBeTypeOf("number");
+  onChange.mockClear();
+  await workspace.panelFacts(repo.path, repo.path);
+  expect(onChange).not.toHaveBeenCalled();
+  now += 60_001;
   await workspace.panelFacts(repo.path, tree.path);
   expect(deps.worktrees.panelFacts).toHaveBeenCalledWith(repo.path, tree.path);
+  expect(onChange).not.toHaveBeenCalled();
+  await workspace.panelFacts(repo.path, repo.path);
+  expect(onChange).toHaveBeenCalledOnce();
+  await workspace.dispose();
 });
 
 test("restores home shells without repositories and rejects foreign home paths", async () => {

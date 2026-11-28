@@ -294,7 +294,11 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   await expect(page.getByRole("button", { name: "Actions for repo", exact: true })).toBeVisible();
   await page.evaluate((repo) => {
-    void window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository: repo });
+    void window.desktop.sidebarCommand({
+      kind: "delete-merged-worktrees",
+      repository: repo,
+      startNew: true,
+    });
   }, repo);
   const confirmation = await confirmationPage(app);
   const reportCleanup = async (stage) => {
@@ -739,6 +743,7 @@ for (const { front, queued, sameBoard, checking, background } of [
             window.desktop.sidebarCommand({
               kind: "delete-merged-worktrees",
               repository: repo,
+              startNew: true,
             }),
           repo,
         );
@@ -943,7 +948,7 @@ for (const { front, queued, sameBoard, checking, background } of [
   });
 }
 
-test("merged cleanup skips Git-ignored build folders and exposes reasons when none qualify", {
+test("merged cleanup skips Git-ignored build folders and hides the action at zero eligible", {
   timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-cleanup-990-")));
@@ -1050,13 +1055,30 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
       ),
     )
     .toBe(false);
-  await openCleanup();
-  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
-    "keep-changesuncommitted changes",
-  );
-  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
-  await confirmation.screenshot({ path: evidencePath("990-no-eligible-worktrees.png") });
-  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await expect(page.getByText("0 eligible to delete", { exact: true })).toBeVisible();
+  const cleanupAction = page.getByRole("menuitem", { name: /Delete merged worktrees…/ });
+  await expect(cleanupAction).toHaveCount(0);
+
+  const eligible = path.join(path.dirname(dirty.path), "new-merged");
+  const zero = page.getByRole("button", { name: "0 eligible to delete", exact: true });
+  const newWorktree = page.getByRole("menuitem", { name: "New worktree" });
+  await page.getByRole("button", { name: "Copy default branch" }).press("Tab");
+  await expect(zero).toBeFocused();
+  git("worktree", "add", "-b", "new-merged", eligible);
+  await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+  await expect(cleanupAction).toHaveText("Delete merged worktrees…1");
+  await expect(newWorktree).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "Pin to top" })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(cleanupAction).toBeFocused();
+  git("worktree", "lock", eligible);
+  await expect(page.getByText("0 eligible to delete", { exact: true })).toBeVisible();
+  await expect(cleanupAction).toHaveCount(0);
+  await expect(newWorktree).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "Pin to top" })).toBeFocused();
   assert.equal(
     await readFile(path.join(dirty.path, "tracked.txt"), "utf8"),
     "keep tracked changes\n",
@@ -1066,6 +1088,242 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
     "keep untracked changes\n",
   );
   await assert.rejects(realpath(merged.path), { code: "ENOENT" });
+});
+
+test("zero merged cleanup eligibility opens the kept review and refreshes while the board stays focused", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-kept-worktrees-")));
+  removeAfterApps(context, root);
+  const repository = path.join(root, "repo");
+  const checkout = path.join(root, "keep-changes");
+  const home = path.join(root, "home");
+  await mkdir(repository);
+  await mkdir(home);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repository,
+    });
+  git("init", "-q", "-b", "main");
+  await writeFile(path.join(repository, "tracked.txt"), "initial\n");
+  git("add", "tracked.txt");
+  git("commit", "-m", "initial");
+  const remote = path.join(root, "remote.git");
+  git("clone", "--bare", repository, remote);
+  git("remote", "add", "origin", remote);
+  git("worktree", "add", "-b", "keep-changes", checkout);
+  const edit = () => writeFile(path.join(checkout, "tracked.txt"), "keep tracked changes\n");
+  const restore = () => writeFile(path.join(checkout, "tracked.txt"), "initial\n");
+  await edit();
+
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  const page = await boardPage(app);
+  await app.evaluate(({ app, dialog }, repository) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { CleanupOwner } = load("./build/main/workspace/cleanup-owner.js");
+    const inventory = CleanupOwner.prototype.inventory;
+    CleanupOwner.prototype.inventory = function (...args) {
+      CleanupOwner.prototype.inventory = inventory;
+      let time = Date.now();
+      this.deps.now = () => time;
+      globalThis.expireEligibility = () => {
+        time += 60_001;
+      };
+      const worktrees = this.deps.worktrees;
+      globalThis.holdNextEligibilityFetch = () => {
+        const gate = Promise.withResolvers();
+        globalThis.eligibilityFetchStarted = false;
+        const mergedDefault = worktrees.mergedDefault;
+        worktrees.mergedDefault = (path) => {
+          worktrees.mergedDefault = mergedDefault;
+          globalThis.eligibilityFetchStarted = true;
+          return gate.promise.then(() => mergedDefault.call(worktrees, path, true));
+        };
+        globalThis.releaseEligibilityFetch = () => gate.resolve();
+      };
+      return inventory.apply(this, args);
+    };
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+  }, repository);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  const actions = page.getByRole("button", { name: "Actions for repo", exact: true });
+  const zero = page.getByRole("button", { name: "0 eligible to delete", exact: true });
+  const deletion = page.getByRole("menuitem", { name: /Delete merged worktrees…/ });
+  const openPanel = async () => {
+    await actions.click();
+    await expect(actions).toHaveAttribute("aria-expanded", "true");
+  };
+  const closePanel = async () => {
+    await page.keyboard.press("Escape");
+    await expect(actions).toHaveAttribute("aria-expanded", "false");
+  };
+  const reviewKept = async () => {
+    await zero.click();
+    const review = await confirmationPage(app, "Kept worktrees");
+    await expect(review.getByRole("list", { name: "Kept worktrees" })).toContainText(
+      "keep-changesuncommitted changes",
+    );
+    await expect(review.getByRole("button", { name: /delete/i })).toHaveCount(0);
+    return review;
+  };
+  await openPanel();
+  await expect(zero).toBeVisible();
+  await expect(deletion).toHaveCount(0);
+  const review = await reviewKept();
+  let duplicateSettled = false;
+  const duplicate = page
+    .evaluate(
+      (repository) => window.desktop.sidebarCommand({ kind: "review-kept-worktrees", repository }),
+      repository,
+    )
+    .then(() => {
+      duplicateSettled = true;
+    });
+  void duplicate.catch(() => {});
+  await expect.poll(() => duplicateSettled).toBe(true);
+  await review.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(review.getByRole("alertdialog")).toHaveCount(0);
+
+  if (process.env.FOOM_SCREENSHOTS === "1") {
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(mode);
+      await openPanel();
+      await page.locator(".sidebar-panel").screenshot({
+        path: evidencePath(`screenshots-1331/panel-${mode}.png`),
+        animations: "disabled",
+      });
+      await reviewKept();
+      await expect
+        .poll(() => review.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(mode);
+      await review.screenshot({
+        path: evidencePath(`screenshots-1331/review-${mode}.png`),
+        animations: "disabled",
+      });
+      await review.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(review.getByRole("alertdialog")).toHaveCount(0);
+    }
+  }
+
+  // A tracked edit does not change Git worktree membership or wake its watcher.
+  // Keep the board focused so native focus refresh cannot repair the stale zero.
+  await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+  await page.evaluate(() => {
+    globalThis.blurredDuringEligibilityRefresh = false;
+    window.addEventListener(
+      "blur",
+      () => {
+        globalThis.blurredDuringEligibilityRefresh = true;
+      },
+      { once: true },
+    );
+  });
+  await openPanel();
+  await expect(zero).toBeVisible();
+  const defaultBranch = page.getByRole("button", { name: "Copy default branch" });
+  await expect(defaultBranch).toHaveText("main");
+  await closePanel();
+
+  // The dirty checkout still keeps eligibility at zero after the default changes.
+  git("push", "origin", "main:refs/heads/next");
+  git("--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/next");
+  try {
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+    });
+    await openPanel();
+    await expect(zero).toBeVisible();
+    await expect(defaultBranch).toHaveText("main");
+    await app.evaluate(() => globalThis.releaseEligibilityFetch());
+    await expect(defaultBranch).toHaveText("next");
+    await expect(zero).toBeVisible();
+    await expect(deletion).toHaveCount(0);
+  } finally {
+    await app.evaluate(() => globalThis.releaseEligibilityFetch?.()).catch(() => {});
+  }
+
+  await closePanel();
+  await restore();
+  await app.evaluate(() => globalThis.expireEligibility());
+  await openPanel();
+  await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+  await expect(deletion).toHaveText("Delete merged worktrees…1");
+  assert.equal(await page.evaluate(() => globalThis.blurredDuringEligibilityRefresh), false);
+
+  await closePanel();
+  await edit();
+  try {
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+    });
+    await openPanel();
+    await expect.poll(() => app.evaluate(() => globalThis.eligibilityFetchStarted)).toBe(true);
+    assert.equal(
+      await page.evaluate(
+        async () => (await window.desktop.sidebarInventory()).repositories[0]?.mergedCount,
+      ),
+      1,
+    );
+    await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+    await expect(deletion).toHaveText("Delete merged worktrees…1");
+    await app.evaluate(() => globalThis.releaseEligibilityFetch());
+    await expect(zero).toBeVisible();
+    await expect(deletion).toHaveCount(0);
+  } finally {
+    await app.evaluate(() => globalThis.releaseEligibilityFetch?.()).catch(() => {});
+  }
+  await restore();
+  await app.evaluate(() => globalThis.expireEligibility());
+  await zero.click();
+  await expect(review.getByRole("list", { name: "Kept worktrees" })).toContainText("main checkout");
+  await expect(review.getByText("keep-changes", { exact: true })).toHaveCount(0);
+  await expect(review.getByRole("button", { name: /delete/i })).toHaveCount(0);
+  await review.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(review.getByRole("alertdialog")).toHaveCount(0);
+  await openPanel();
+  await expect(deletion).toHaveText("Delete merged worktrees…1");
+
+  await closePanel();
+  try {
+    git("remote", "set-url", "origin", path.join(root, "missing.git"));
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+      globalThis.releaseEligibilityFetch();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () => (await window.desktop.sidebarInventory()).repositories[0]?.mergedError,
+        ),
+      )
+      .toContain("fetch failed");
+
+    git("remote", "set-url", "origin", remote);
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+    });
+    await openPanel();
+    const fetchFailed = page.getByText("Fetch failed", { exact: true });
+    await expect(fetchFailed).toBeVisible();
+    await app.evaluate(() => globalThis.releaseEligibilityFetch());
+    await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+    await expect(fetchFailed).toHaveCount(0);
+    await expect(page.getByText("· fetched 0 min ago", { exact: true })).toBeVisible();
+  } finally {
+    await app.evaluate(() => globalThis.releaseEligibilityFetch?.()).catch(() => {});
+  }
 });
 
 test("closing a board declines its queued cleanup and releases its repository before another board answers", {
@@ -1141,7 +1399,12 @@ test("closing a board declines its queued cleanup and releases its repository be
   await native.evaluate((window) => window.focus());
   await native.dispose();
   const front = first.evaluate(
-    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    (repository) =>
+      window.desktop.sidebarCommand({
+        kind: "delete-merged-worktrees",
+        repository,
+        startNew: true,
+      }),
     repos[0],
   );
   void front.catch(() => {});
@@ -1151,7 +1414,12 @@ test("closing a board declines its queued cleanup and releases its repository be
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
   const queued = second.evaluate(
-    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    (repository) =>
+      window.desktop.sidebarCommand({
+        kind: "delete-merged-worktrees",
+        repository,
+        startNew: true,
+      }),
     repos[1],
   );
   // Closing the board rejects its IPC call; the main-owned request must still settle.

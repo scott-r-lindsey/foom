@@ -234,6 +234,8 @@ export interface SidebarInventory {
     canDeleteMerged?: boolean;
     mergedCount?: number;
     mergedError?: string;
+    /** Most recently completed eligibility scan, including failures. */
+    mergedScanGeneration?: number;
   })[];
   shell: string;
   home?: HomeShellFacts;
@@ -263,7 +265,13 @@ export type SidebarCommand =
   | { kind: "remove-worktree"; repository: string; worktree: string }
   | { kind: "cleanup-worktree"; repository: string; worktree: string }
   | { kind: "prune-worktree"; repository: string; worktree: string }
-  | { kind: "delete-merged-worktrees"; repository: string }
+  | {
+      kind: "delete-merged-worktrees";
+      repository: string;
+      startNew?: true;
+      cleanupId?: string;
+    }
+  | { kind: "review-kept-worktrees"; repository: string }
   | { kind: "remove-repository"; repository: string }
   | { kind: "stop"; id: string }
   | { kind: "close"; id: string }

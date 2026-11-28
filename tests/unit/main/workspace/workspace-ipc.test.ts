@@ -315,6 +315,9 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "claude" },
     { kind: "remove-repository", repository: "/repo" },
     { kind: "delete-merged-worktrees", repository: "/repo" },
+    { kind: "delete-merged-worktrees", repository: "/repo", cleanupId: "run" },
+    { kind: "delete-merged-worktrees", repository: "/repo", startNew: true },
+    { kind: "review-kept-worktrees", repository: "/repo" },
     { kind: "remove-worktree", repository: "/repo", worktree: "/tree" },
     { kind: "copy-worktree-path", repository: "/repo", worktree: "/tree" },
     { kind: "stop", id: "t1" },
@@ -329,7 +332,7 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "revoke-orchestrator", id: "t1" },
   ]) {
     await invoke("workspace:sidebar-command", [
-      value.kind.startsWith("copy-")
+      value.kind.startsWith("copy-") || value.kind === "review-kept-worktrees"
         ? value
         : { ...value, executable: "/evil", sharedCheckout: true, conversationId: "forged" },
     ]);
@@ -343,6 +346,10 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "launch", repository: null },
     { kind: "launch", repository: "/repo", worktree: "" },
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "evil" },
+    { kind: "delete-merged-worktrees", repository: "/repo", startNew: "true" },
+    { kind: "delete-merged-worktrees", repository: "/repo", cleanupId: 123 },
+    { kind: "delete-merged-worktrees", repository: "/repo", startNew: true, cleanupId: "run" },
+    { kind: "review-kept-worktrees", repository: "/repo", startNew: true },
     { kind: "evil", repository: "/repo", worktree: "/tree" },
     { kind: "review", repository: "/repo", worktree: "/tree", run: "claude" },
     { kind: "review", repository: "/repo", worktree: "/tree", run: "codex" },

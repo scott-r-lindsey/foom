@@ -115,8 +115,17 @@ shell** command launch in the main-owned home directory. Shells group beneath
 it and restart in home when they were running at quit and Restore sessions on launch is on. Its panel shows home, executable, version
 and running count. Repository panels show path, remote, default branch, last
 fetch status, worktree/creation/eligible-merged counts and session states; they
-offer New worktree, pinning, Delete merged worktrees and **Remove from Foom…**
-(with “keeps files”). Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline
+offer New worktree, pinning and **Remove from Foom…** (with “keeps files”).
+With linked worktrees, **Delete merged worktrees…** is available when the count
+is positive, before the first scan completes, or after a scan fails. Select the
+**0 eligible to delete** fact to review the kept worktrees and their reasons.
+Opening the panel or selecting the fact refreshes an eligibility result at
+least one minute old. The delete command returns when eligibility rises. If
+a live update removes the focused zero-count control, focus moves to the
+first enabled panel command.
+**Deleting merged worktrees** opens an active checklist. **Cleanup results**
+opens an undismissed finished checklist independently of the delete command.
+Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline
 field with no dialog or helper copy. Paste `claude --resume <id>` (or `-r <id>`),
 `codex resume <id>` or `agy --conversation <id>`, or a bare ID and choose a detected,
 enabled agent (CC / CX / AG). Enter launches; Escape cancels. Invalid entries mark
@@ -176,9 +185,10 @@ capabilities for pending automatic role recovery offers **Revoke
 orchestrator** in its session menu. Revoking cancels recovery before Resume, which
 then starts an ordinary session. See [orchestration](orchestration.md#orchestration-and-privacy).
 
-Git facts load lazily, locally and with bounded calls; unavailable facts say
-Unknown. Opening a panel never fetches from the network. Merge facts use the
-merge checker's last fetch and the eligible count uses its exact cleanup rules.
+Git facts load lazily through bounded local reads. Unavailable facts say Unknown.
+Opening a repository panel with expired eligibility can schedule a background
+scan. As the eligibility result changes, the open panel refreshes its fetch
+facts. The eligible count uses the merge checker's cleanup rules.
 
 Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
 and current launch defaults. New conversation uses that row and checkout without a

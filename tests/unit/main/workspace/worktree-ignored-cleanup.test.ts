@@ -129,7 +129,7 @@ for (const mode of [
       let reviewed = false;
       try {
         await workspace.sidebarCommand(
-          { kind: "delete-merged-worktrees", repository: repo },
+          { kind: "delete-merged-worktrees", repository: repo, startNew: true },
           async (request) => {
             if (request.kind !== "merged-worktrees" || !request.feed)
               throw new Error("Missing feed");

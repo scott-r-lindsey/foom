@@ -176,7 +176,21 @@ function sidebarCommand(value: unknown): SidebarCommand {
       Object.keys(value).some((key) => !["kind", "repository", "worktree"].includes(key)))
   )
     throw new Error("Invalid prune request");
-  if (kind === "remove-repository" || kind === "delete-merged-worktrees")
+  if (kind === "delete-merged-worktrees") {
+    const startNew = value["startNew"];
+    const cleanupId = value["cleanupId"];
+    if (startNew !== undefined && startNew !== true) throw new Error("Invalid cleanup request");
+    if (cleanupId !== undefined && (startNew || !text(cleanupId, 36)))
+      throw new Error("Invalid cleanup request");
+    return {
+      kind,
+      repository,
+      ...(startNew ? { startNew } : {}),
+      ...(cleanupId ? { cleanupId } : {}),
+    };
+  }
+  if (kind === "remove-repository") return { kind, repository };
+  if (kind === "review-kept-worktrees" && Object.keys(value).length === 2)
     return { kind, repository };
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
@@ -320,7 +334,7 @@ export function attachWorkspace(
           return Promise.resolve(false);
         contents.send("confirmation:dialog");
         return requestDialog({
-          title: "Delete merged worktrees?",
+          title: request.feed?.current().reviewOnly ? "Kept worktrees" : "Delete merged worktrees?",
           accept: "Delete",
           ...(request.subject !== undefined ? { subject: request.subject } : {}),
           worktrees: request.worktrees,

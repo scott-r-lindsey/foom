@@ -113,7 +113,12 @@ export interface SidebarCommandsContext {
   readonly checkoutHolds: CheckoutHolds;
   readonly cleanup: Pick<
     CleanupOwner,
-    "deleteMerged" | "inventory" | "removeIdleTree" | "removeOwnedTree" | "offerClosedReviews"
+    | "deleteMerged"
+    | "inventory"
+    | "removeIdleTree"
+    | "removeOwnedTree"
+    | "offerClosedReviews"
+    | "reviewMerged"
   >;
   readonly closed: boolean;
   readonly control: Promise<Partial<Pick<ControlRuntime, "takeOver">>> | undefined;

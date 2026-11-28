@@ -52,7 +52,11 @@ test("merged cleanup lists every skip rule and continues after a changed candida
     return Promise.resolve(true);
   });
   await expect(
-    cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, confirm),
+    cleanupCommand(
+      workspace,
+      { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
+      confirm,
+    ),
   ).resolves.toBeUndefined();
   expect(confirm).toHaveBeenCalledWith({
     kind: "merged-worktrees",
@@ -95,7 +99,7 @@ test.each(["dirty", "unmerged", "replaced", "renamed", "missing"])(
     await expect(
       cleanupCommand(
         workspace,
-        { kind: "delete-merged-worktrees", repository: repo.path },
+        { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
         async () => {
           if (change === "dirty") vi.mocked(deps.worktrees.changes).mockResolvedValue("?? file\0");
           if (change === "unmerged")
@@ -120,7 +124,11 @@ test.each(["dirty", "unmerged", "replaced", "renamed", "missing"])(
 test("merged cleanup cancels, refuses stale fetches and hides ineligible inventory", async () => {
   const workspace = new Workspace(deps);
   workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
-  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+  const command = {
+    kind: "delete-merged-worktrees",
+    repository: repo.path,
+    startNew: true,
+  } as const;
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, path: repo.path }]);
   expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
   expect(deps.worktrees.mergedDefault).not.toHaveBeenCalled();
@@ -141,6 +149,13 @@ test("merged cleanup cancels, refuses stale fetches and hides ineligible invento
   await expect
     .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedError)
     .toBe("fetch failed");
+  await workspace.sidebarCommand(
+    { kind: "review-kept-worktrees", repository: repo.path },
+    (request) => {
+      expect(request.kind).toBe("merged-worktrees");
+      return Promise.resolve(false);
+    },
+  );
   await workspace.dispose();
 });
 
@@ -151,7 +166,11 @@ test.each(["claude", "agy"] as const)(
     const spare = { ...tree, path: "/spare", branch: "spare" };
     vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree, spare]);
     vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
-    const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+    const command = {
+      kind: "delete-merged-worktrees",
+      repository: repo.path,
+      startNew: true,
+    } as const;
     const confirm = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
     await cleanupCommand(workspace, command, confirm);
     expect(confirm).toHaveBeenLastCalledWith({
@@ -192,8 +211,10 @@ test.each(["unmerged", "dirty", "replaced", "commit", "branch"])(
       return Promise.resolve(true);
     });
     await expect(
-      cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>
-        Promise.resolve(true),
+      cleanupCommand(
+        workspace,
+        { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
+        () => Promise.resolve(true),
       ),
     ).resolves.toBeUndefined();
     expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
@@ -209,7 +230,7 @@ test("a session launched during confirmation is skipped", async () => {
   await expect(
     cleanupCommand(
       workspace,
-      { kind: "delete-merged-worktrees", repository: repo.path },
+      { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
       async () => {
         await cleanupCommand(
           workspace,
@@ -254,10 +275,11 @@ test("local inventory and launches proceed while a remote check is pending; comp
   await vi.waitFor(() => {
     expect(changed).toHaveBeenCalledOnce();
   });
-  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(true);
+  const completed = (await workspace.sidebarInventory()).repositories[0];
+  expect(completed).toMatchObject({ canDeleteMerged: true, mergedCount: 1 });
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledOnce();
   now = 60_001;
-  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
+  expect((await workspace.sidebarInventory()).repositories[0]).toEqual(completed);
   await vi.waitFor(() => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
@@ -374,7 +396,11 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
     .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged)
     .toBe(true);
   vi.mocked(deps.worktrees.mergedDefault).mockClear();
-  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+  const command = {
+    kind: "delete-merged-worktrees",
+    repository: repo.path,
+    startNew: true,
+  } as const;
   await workspace.sidebarCommand(command, (request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
     expect(request.feed.current().stage).toBe("ready");
@@ -407,19 +433,37 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
   await workspace.dispose();
 });
 
-test("hidden finished cleanup reopens its retained results without another fetch", async () => {
+test("canceling a fresh cleanup leaves hidden results available without another fetch", async () => {
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   const workspace = new Workspace(deps);
   workspace.configure({ hooks: true, agents: ENABLED_AGENTS });
-  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
-  await cleanupCommand(workspace, command, () => Promise.resolve(true));
-  const fetches = vi.mocked(deps.worktrees.mergedDefault).mock.calls.length;
-  await workspace.sidebarCommand(command, (request) => {
-    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
-    expect(request.feed.current().progress.phase).toBe("finished");
-    expect(request.feed.current().progress.items[0]?.state).toBe("removed");
+  const command = {
+    kind: "delete-merged-worktrees",
+    repository: repo.path,
+    startNew: true,
+  } as const;
+  const initial = vi.fn<ConfirmWorkspace>(() => Promise.resolve(true));
+  await workspace.sidebarCommand(command, initial);
+  const request = initial.mock.calls[0]?.[0];
+  const cleanupId = request?.kind === "merged-worktrees" && request.feed?.current().progress.id;
+  if (!cleanupId) throw new Error("Missing cleanup ID");
+  const review = vi.fn((request: Parameters<ConfirmWorkspace>[0]) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
+    expect(request.feed.current().stage).not.toBe("run");
     return Promise.resolve(false);
   });
+  await workspace.sidebarCommand(command, review);
+  expect(review).toHaveBeenCalledOnce();
+  const fetches = vi.mocked(deps.worktrees.mergedDefault).mock.calls.length;
+  await workspace.sidebarCommand(
+    { kind: command.kind, repository: repo.path, cleanupId },
+    (request) => {
+      if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
+      expect(request.feed.current().progress.phase).toBe("finished");
+      expect(request.feed.current().progress.items[0]?.state).toBe("removed");
+      return Promise.resolve(false);
+    },
+  );
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
   await workspace.dispose();
 });
@@ -432,8 +476,10 @@ test("cleanup retains branch reservations until the checked-ref transaction sett
     await expect(workspace.createWorktree(repo.path, "feature")).rejects.toThrow("busy");
     throw new Error("ref lock failed");
   });
-  await cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>
-    Promise.resolve(true),
+  await cleanupCommand(
+    workspace,
+    { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
+    () => Promise.resolve(true),
   );
   await expect(workspace.createWorktree(repo.path, "feature")).resolves.toHaveProperty("path");
   await workspace.dispose();
@@ -466,7 +512,7 @@ test("cleanup drains superseded eligibility scans and does not rescan while remo
   });
   let started = false;
   const cleanup = workspace.sidebarCommand(
-    { kind: "delete-merged-worktrees", repository: repo.path },
+    { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
     async (request) => {
       if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
       const feed = request.feed;
@@ -521,7 +567,7 @@ test("an unavailable config plugin still protects its recorded conversation from
     const confirm = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
     await cleanupCommand(
       workspace,
-      { kind: "delete-merged-worktrees", repository: repo.path },
+      { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
       confirm,
     );
     expect(confirm).toHaveBeenLastCalledWith({
@@ -541,8 +587,10 @@ test("approved merged cleanup retries one pending removal without Git authorizat
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
     { ...tree, branch: null, head: null, prunable: true, removalFailed: true },
   ]);
-  await cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>
-    Promise.resolve(true),
+  await cleanupCommand(
+    workspace,
+    { kind: "delete-merged-worktrees", repository: repo.path, startNew: true },
+    () => Promise.resolve(true),
   );
   expect(deps.worktrees.cleanupBrokenWorktree).toHaveBeenCalledExactlyOnceWith(
     repo.path,

@@ -1231,6 +1231,7 @@ const validSidebarInventory: Validator<SidebarInventory> = shape({
       canDeleteMerged: either(absent, boolean),
       mergedCount: either(absent, count),
       mergedError: either(absent, text),
+      mergedScanGeneration: either(absent, positiveCount),
     }),
   ),
   shell: text,

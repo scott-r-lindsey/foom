@@ -76,6 +76,7 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "cleanup-worktree": "Unable to clean up worktree.",
   "prune-worktree": "Unable to prune worktree.",
   "delete-merged-worktrees": "Unable to delete merged worktrees.",
+  "review-kept-worktrees": "Unable to review kept worktrees.",
   "remove-repository": "Unable to remove repository.",
   stop: "Unable to stop session.",
   close: "Unable to close session.",

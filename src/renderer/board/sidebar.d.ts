@@ -18,6 +18,7 @@ export interface SidebarRepository extends Repository {
   canDeleteMerged?: boolean;
   mergedCount?: number;
   mergedError?: string;
+  mergedScanGeneration?: number;
   worktrees: readonly SidebarWorktree[];
 }
 export type SidebarLocation = { repository: string; worktree?: string };

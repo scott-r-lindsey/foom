@@ -287,6 +287,40 @@ test("same-document and subframe navigation do not abandon queued decisions", as
   expect(result).toBe(false);
 });
 
+test("queued cleanup can decline presentation before the dialog renders", async () => {
+  const slots = new RemovalPresentations();
+  const blocker = Promise.withResolvers<boolean>();
+  const front = slots.run(() => blocker.promise);
+  const dialog = new TrustedDialog(
+    parent as unknown as BrowserWindow,
+    {} as Session,
+    () => theme,
+    "linux",
+    slots,
+  );
+  const preparePresentation = vi.fn(() => false);
+  const current = vi.fn(() => {
+    throw new Error("Declined cleanup should not render");
+  });
+  const queued = dialog.request({
+    title: "Kept worktrees",
+    accept: "Delete",
+    feed: { preparePresentation, current, subscribe: () => () => {}, act() {} },
+  });
+  try {
+    await new Promise<void>(setImmediate);
+    expect(preparePresentation).not.toHaveBeenCalled();
+  } finally {
+    blocker.resolve(false);
+  }
+  await front;
+  await expect(queued).resolves.toBe(false);
+  expect(preparePresentation).toHaveBeenCalledOnce();
+  expect(current).not.toHaveBeenCalled();
+  expect(window().show).not.toHaveBeenCalled();
+  dialog.dispose();
+});
+
 test("queued ordinary confirmations also cancel without waiting for the active decision", async () => {
   const dialog = setup();
   const first = dialog.request(content);
