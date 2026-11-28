@@ -1453,11 +1453,14 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
     );
   }
   const tileArea = page.locator(".tile-area");
-  const select = async (base) => {
+  const apply = async (name) => {
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    await chooseTheme(page, `Bitmap ${base}`);
+    await chooseTheme(page, name);
     await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  };
+  const select = async (base) => {
+    await apply(`Bitmap ${base}`);
     await expect(page.locator("html")).toHaveAttribute(
       "data-theme-bitmaps",
       "empty sidebar tile-header",
@@ -1701,4 +1704,95 @@ test("theme artwork paints separate empty regions and tile headers with a narrow
   await rm(path.join(themes, "dark-field.png"));
   await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "sidebar tile-header");
   await expect(emptyArt).toHaveCount(0);
+
+  const attention = "#00ff00";
+  const statusBitmap = "status.png";
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: attention } })
+    .png()
+    .toFile(path.join(themes, statusBitmap));
+  const narrowTheme = {
+    ...interfaceThemes["eclipse-dark"],
+    version: 2,
+    name: "Narrow artwork",
+    areas: { tiles: { attention } },
+    images: { empty: { file: "dark-sidebar.png" }, "tile-header": { file: statusBitmap } },
+  };
+  await writeFile(path.join(themes, "narrow-artwork.json"), JSON.stringify(narrowTheme));
+  await apply(narrowTheme.name);
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "empty tile-header");
+  await sizeTileBoard(app, page, 900, 640);
+  const { terminalFontStack } = require("../../build/shared/terminal-fonts.js");
+  const { settings } = await page.evaluate(() => window.desktop.setupState());
+  const minimum = await tileArea.evaluate(
+    async (element, font) => {
+      await document.fonts.load(font);
+      const probe = document.createElement("span");
+      probe.style.cssText = `position:absolute;visibility:hidden;font:${font}`;
+      probe.textContent = "M";
+      element.append(probe);
+      const minWidth = probe.getBoundingClientRect().width * 12;
+      probe.remove();
+      const [session] = (await window.desktop.workspace()).terminals;
+      localStorage.setItem(
+        `foom.tiles.v1.${window.desktop.windows.id}`,
+        JSON.stringify({
+          version: 2,
+          focused: "narrow-terminal",
+          tree: {
+            kind: "split",
+            id: "narrow-pair",
+            direction: "horizontal",
+            ratio: (2 * minWidth + 1) / element.getBoundingClientRect().width,
+            first: {
+              kind: "tile",
+              id: "narrow-terminal",
+              content: { kind: "terminal", session: session.id },
+            },
+            second: { kind: "tile", id: "spare-space", content: null },
+          },
+        }),
+      );
+      return minWidth;
+    },
+    `${settings.terminalFontSize}px ${terminalFontStack(settings.terminalFont)}`,
+  );
+  await page.reload();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(terminal).toHaveCount(1);
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "empty tile-header");
+  await expect
+    .poll(() =>
+      header.evaluate((element) =>
+        getComputedStyle(element).getPropertyValue("--attention").trim(),
+      ),
+    )
+    .toBe(attention);
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  const tiles = tileArea.locator(".terminal-tile");
+  await expect(tiles).toHaveCount(3);
+  const widths = () =>
+    tiles.evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().width),
+    );
+  const decoratedWidths = await widths();
+  assert.ok(
+    decoratedWidths.every((width) => width >= minimum),
+    JSON.stringify({ decoratedWidths, minimum }),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await window.desktop.setupState()).themes.errors.some(
+          ({ file, path, reason, severity }) =>
+            file === "narrow-artwork.json" &&
+            path === "$.images.tile-header" &&
+            reason === "image-status-color" &&
+            severity === "warning",
+        ),
+      ),
+    )
+    .toBe(true);
+  await apply("Eclipse Dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme-bitmaps", "");
+  assert.deepEqual(await widths(), decoratedWidths);
 });

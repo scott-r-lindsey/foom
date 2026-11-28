@@ -234,6 +234,8 @@ smaller dimension and applies only to `none`. Anchor defaults to `center` and
 also accepts a side or a corner such as `top-right`. Each region or header
 randomly chooses a decoded entry with its placement and keeps it through
 resizes and layout changes while the region and entry remain available.
+Gutter artwork shows through the existing tile padding along the split, leaving
+tile dimensions and borders unchanged.
 
 For one release, `board` and `gutter` each emit a warning and map to `empty`.
 An explicit `empty` takes precedence. With both legacy slots, Foom takes up to
@@ -257,7 +259,8 @@ limits dimensions to 8,192 pixels per axis and 16 million pixels per image,
 and encodes the oriented first frame as a metadata-free PNG of at most 4 MiB.
 Transparent PNG and WebP artwork retains its alpha.
 It samples the three most prevalent alpha-weighted color buckets and reports a
-warning within ΔE 40 of a relevant attention or failure color. An explicit
+warning within ΔE 40 of a relevant attention or failure color. Tile-header artwork
+uses the tiles palette when no header palette is defined. An explicit
 decoder refusal is cached for identical bytes. A timeout or premature exit can
 retry on a later refresh after a one-second cooldown. The loader schedules no
 automatic retry.

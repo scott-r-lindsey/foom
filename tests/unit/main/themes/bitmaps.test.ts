@@ -193,6 +193,30 @@ test("an unavailable folder omits all paint and a recovered sidebar uses its own
   ]);
 });
 
+test("tile header warnings follow the effective status palette", async () => {
+  const { file, bitmaps, normalize } = await fixture();
+  await writeFile(file, "header");
+  const attention = "#00ff00";
+  normalize.mockImplementationOnce((bytes) => Promise.resolve({ png: bytes, colors: [attention] }));
+  const load = (areas: typeof base.areas) =>
+    bitmaps.load({
+      ...parsed,
+      images: { "tile-header": parsed.images?.["tile-header"] ?? [] },
+      theme: { ...base, ...(areas && { areas }) },
+    });
+  const warning = {
+    file: "",
+    path: "$.images.tile-header",
+    severity: "warning",
+    reason: "image-status-color",
+  };
+  expect((await load({ tiles: { attention } })).diagnostics).toEqual([warning]);
+  expect((await load({ "tile-headers": { attention } })).diagnostics).toEqual([warning]);
+  expect(
+    (await load({ tiles: { attention }, "tile-headers": { bg: "#000000" } })).diagnostics,
+  ).toEqual([]);
+});
+
 test("an unchanged source recovers from a transient decode failure on a later refresh", async () => {
   const { file, normalize, bitmaps } = await fixture();
   await writeFile(file, "source");

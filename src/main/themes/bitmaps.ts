@@ -59,11 +59,11 @@ export class ThemeBitmaps {
         report("too-many-files", "error");
         continue;
       }
-      const area = slot === "empty" ? "board" : slot === "tile-header" ? "tile-headers" : slot;
-      const palettes = [
-        parsed.theme.colors,
-        { ...parsed.theme.colors, ...parsed.theme.areas?.[area] },
-      ];
+      const { colors: globalColors, areas } = parsed.theme;
+      const headerArea = areas?.["tile-headers"] ?? areas?.tiles;
+      const overrides =
+        slot === "tile-header" ? headerArea : areas?.[slot === "empty" ? "board" : slot];
+      const palettes = [globalColors, { ...globalColors, ...overrides }];
       const assets: ThemeBitmapAsset[] = [];
       for (const { file, ...style } of pieces) {
         let bytes: Buffer;
