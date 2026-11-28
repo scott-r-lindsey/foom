@@ -21,311 +21,20 @@
   },
   "platforms": ["ubuntu-24.04", "windows-2025", "macos-15"],
   "shards": {
-    "4": [
+    "5": [
       {
-        "About replay restores its opener after iris/countdown dismissal and completion": [
-          6.315, 16.916, 11.301
-        ],
         "About rocket stays clickable after resize and interface zoom in both motion modes": [
           1.888, 7.685, 4.197
         ],
-        "Agents keeps fixed Codex device sign-in in Settings and refreshes sign-in on exit": [
-          5.354, 0, 14.227
-        ],
-        "Agents scopes use trusted consent and fixed recipes for host plugin installation": [
-          8.965, 0, 15.636
-        ],
-        "Antigravity image paste normalizes privately, sends one bracketed reference without Enter and cleans on close": [
-          6.918, 0, 7.161
-        ],
-        "Antigravity plugin MCP inherits an owned child's read-only role": [5.948, 0, 10.165],
-        "Antigravity plugin Settings disclosure installs and removes an observer that reports lifecycle": [
-          19.184, 0, 28.956
-        ],
         "Antigravity plugin progress and partial Reinstall failure in dark": [5.843, 0, 8.482],
-        "Bash command status reaches the sidebar without closing the shell": [9.761, 0, 0],
-        "Cancelling app quit reports the deferred owner close error and allows retry": [
-          4.865, 0, 10.9
+        "Chromium session storage falls back when shared memory is unavailable": [
+          0.009, 0.012, 0.009
         ],
         "Close removes a restored session after its repository registration is dropped": [
           2.69, 12.078, 5.191
         ],
-        "Closing an installer window shows Stopping while the vendor helper cleans its staging directory": [
-          4.539, 0, 8.809
-        ],
-        "Dismiss clears agent attention after focusing click consumed its feedback": [
-          2.53, 0, 8.194
-        ],
-        "Help Manual opens a contained offline guide and focuses the existing tile": [
-          7.397, 7.97, 6.044
-        ],
-        "Hosts creates missing folders and reports enrollment and artifact failures": [
-          14.674, 0, 21.536
-        ],
-        "Hosts gh device sign-in offers blocked fallbacks and preserves a changed clipboard on cancel": [
-          5.472, 0, 7.292
-        ],
-        "Hosts keeps an accepted key when the first recheck rejects login and offers the old-client fallback": [
-          3.055, 0, 6.253
-        ],
-        "Hosts orders SSH checks across two open Settings windows": [10.052, 0, 19.732],
-        "Hosts reopening shows a failed SSH row write without a key classification": [
-          4.255, 0, 7.454
-        ],
-        "Hosts replaces a transient folder reload with the newest folder reply": [7.27, 0, 9.86],
-        "Hosts reports dialog-unavailable when native trust presentation fails": [3.328, 0, 5.504],
-        "Hosts shows a fixed trust failure when askpass refuses an unrecognized prompt": [
-          3.185, 0, 6.054
-        ],
-        "Hosts shows independent inspection and repository check progress": [9.86, 0, 24.966],
-        "Origin trust stays off both boards and remains stoppable after host removal": [
-          5.702, 0, 9.501
-        ],
-        "Pi fixed per-launch extension observes lifecycle, filters role tools and removes its private files": [
-          6.363, 0, 4.735
-        ],
-        "Recorded host requirements are inert, editable and clearable in Settings": [
-          6.685, 0, 9.087
-        ],
-        "Settings Agents and Environment work without Claude Codex or Antigravity keys": [
-          2.337, 8.288, 5.719
-        ],
-        "Settings persists literal agent defaults and discloses bypass once per agent": [
-          8.35, 11.325, 9.018
-        ],
-        "Settings transitions restore background fullscreen output repeatedly": [
-          18.087, 25.966, 26.076
-        ],
-        "a human-picked preview survives inventory reads started before and after its reply": [
-          3.055, 0, 8.038
-        ],
-        "a narrow agent-opened preview shows its enabled network indicator": [8.849, 0, 9.635],
-        "a new shell has a rendered blinking cursor after reusing an exited terminal view": [
-          2.082, 9.393, 5.627
-        ],
-        "agent discovery uses the fixture login shell and controlled PATH": [1.575, 5.926, 3.269],
-        "agent image paste normalizes privately, sends one bracketed reference without Enter and cleans on close": [
-          2.517, 0, 4.589
-        ],
-        "an Antigravity orchestrator has no MCP attachment indicator": [8.579, 0, 7.694],
-        "an Antigravity orchestrator manages and reviews children through the packaged console": [
-          10.637, 0, 16.698
-        ],
-        "an agent fixture opens full-board previews in columns, retains focus and respects human close": [
-          11.805, 0, 16.491
-        ],
-        "an agent made orchestrator reports MCP attachment independently": [32.044, 0, 35.379],
-        "an orchestrator adopts an open PR, launches its child without taking focus and closes it after exit": [
-          11.167, 0, 16.128
-        ],
-        "an orchestrator wait_for wakes on a child PR required-check conclusion": [
-          27.013, 0, 36.803
-        ],
-        "background layout failures preserve terminal focus and typed input": [1.906, 9.821, 4.741],
-        "board merge requests show pipeline marks and failure notifications through recorded glab": [
-          9.671, 0, 20.165
-        ],
-        "bundled brand fonts and both system themes render in Electron": [6.821, 8.861, 6.245],
-        "click-again repository removal rejects double clicks, cancels, expires and confirms": [
-          10.022, 11.597, 9.182
-        ],
-        "closing a failed startup removes its temporary column from later saves": [3.971, 0, 6.423],
-        "config agents receive only the bundled manual and revoke the attachment on exit": [
-          6.772, 37.763, 25.968
-        ],
-        "config guide add-agent workflow verifies captures resume hooks and MCP with fixture CLIs": [
-          10.356, 82.767, 11.023
-        ],
-        "config shell closes from the tile without a session error": [2.626, 9.062, 5.884],
-        "data SQLite: Environment uses native safeStorage or refuses secrets without storing plaintext": [
-          6.04, 12.578, 3.061
-        ],
-        "data SQLite: profile settings and consent import preserve JSON and publish after commit": [
-          6.056, 8.425, 3.042
-        ],
-        "data views: General updates an already open Settings window": [2.108, 7.258, 5.157],
-        "detached removals share one review per checkout and approve independently": [
-          7.932, 44.372, 12.235
-        ],
-        "eight fixture CLI launches with startup output keep every terminal alive": [
-          1.898, 9.964, 3.979
-        ],
-        "empty sidebar and terminal pane stay accessible at both widths": [3.046, 8.766, 4.735],
-        "every Settings section passes axe in light and dark, including the narrow layout": [
-          11.786, 11.159, 8.693
-        ],
-        "footer config gear opens Settings and launches two independent docked Shells": [
-          3.492, 9.636, 5.661
-        ],
-        "fresh focused terminal cursor blinks and preserves application style on reattach": [
-          3.905, 10.952, 6.818
-        ],
-        "gutter double-click evens three columns and Tidy tiles removes holes through the menu": [
-          3.917, 10.435, 7.702
-        ],
-        "home row launches a human agent without hosts and restores its saved conversation": [
-          4.658, 0, 11.268
-        ],
-        "image paste refuses shells with a fixed visible result and shares context menu Paste": [
-          7.05, 9.206, 4.295
-        ],
-        "interface zoom follows the shared setting in every window": [1.719, 8.166, 3.868],
-        "launching into a narrow full tile adds a column and empty tiles support mouse controls": [
-          10.146, 13.437, 7.649
-        ],
-        "live raw PTY writes after resize without a stale reflow suffix": [7.743, 10.33, 8.048],
-        "local and registered-host installers stop their whole group after supervisor SIGKILL": [
-          1.558, 0, 3.186
-        ],
-        "local and registered-host vendor helpers clean private files and descendants after exit and default PTY hangup": [
-          3.195, 0, 10.128
-        ],
-        "middle click reports without pasting while tracking and Shift preserves Linux primary selection": [
-          3.039, 10.75, 6.096
-        ],
-        "modal dismissal restores the same terminal input for cancel, approve, Escape, abort and Settings": [
-          3.142, 11.811, 6.327
-        ],
-        "moved HTML preview survives never arriving destination placement": [7.753, 14.553, 11.09],
-        "native queue recentering re-arms decisions before a stationary screen-point click": [
-          5.154, 12.862, 10.441
-        ],
-        "nested empty spaces collapse after sidebar resize": [2.884, 9.753, 6.39],
-        "nested repository names follow the General toggle and retain their identity": [
-          1.952, 10.594, 3.728
-        ],
-        "one trusted approval queue appends, merges, withdraws and snapshots decisions without stealing terminal input": [
-          16.472, 18.685, 16.967
-        ],
-        "one-click local agent installers stay in Settings and refuse untrusted selectors": [
-          3.577, 0, 6.97
-        ],
-        "opt-in orchestrator wake cancels a raced menu, rejects visible menus and lost working, and submits once": [
-          24.664, 0, 30.772
-        ],
-        "ordinary Close refuses a second owned or sidebar removal until terminal teardown settles": [
-          3.028, 21.385, 5.805
-        ],
-        "owned child review loop: codex-bypass": [9.187, 0, 23.148],
-        "owned child review loop: edit": [13.199, 0, 19.768],
-        "pastes agy --conversation in a checkout and retains rejected conversations": [
-          2.197, 0, 4.726
-        ],
-        "preflight scans a code folder and adds the repositories worked on recently": [
-          4.064, 8.931, 5.936
-        ],
-        "preview gutter drags keep the native view attached and resize it in place": [
-          2.509, 15.207, 6.859
-        ],
-        "preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click": [
-          3.272, 10.902, 7.718
-        ],
-        "preview network permission allows local HTTPS only and resets after restart": [
-          4.58, 13.884, 9.449
-        ],
-        "quit acknowledgement waits for the cancelled native quit to unwind": [1.362, 7.793, 2.922],
-        "quit during a stalled startup launch preserves saved shells (confirm)": [
-          4.715, 21.591, 6.064
-        ],
-        "quit ordering diagnostics observe native presentation, input and answer before quit": [
-          1.889, 10.218, 4.802
-        ],
-        "quit via quit confirms, cancel preserves PTYs, and confirm reaps shells": [
-          2.855, 11.11, 3.976
-        ],
-        "registered-host Pi and OpenCode consume private extensions, context, MCP and resume attachments": [
-          30.521, 0, 55.636
-        ],
-        "registered-host copilot lifecycle uses host inventory and restricted child tools": [
-          19.212, 0, 31.732
-        ],
-        "registered-host restart reattaches a live child with screen replay and fresh restricted authority": [
-          41.286, 0, 62.537
-        ],
-        "remote host fixture bounds oversized replay while retaining history and live PTY state": [
-          7.943, 0, 9.649
-        ],
-        "remote machine recovery preserves the daemon's permission labels and bypass warning": [
-          14.237, 0, 22.183
-        ],
-        "remote shell fixture copies links and confirms external browser navigation": [
-          9.391, 0, 8.688
-        ],
-        "removal reviews serialize cleanup before orchestrator across boards while checking": [
-          4.179, 26.209, 11.02
-        ],
-        "removal reviews serialize cleanup before review across boards while checking": [
-          4.256, 18.887, 10.139
-        ],
-        "removal reviews serialize orchestrator before cleanup across boards": [
-          3.109, 17.989, 17.426
-        ],
-        "removal reviews serialize orchestrator before cleanup on one board": [
-          2.932, 17.256, 9.048
-        ],
-        "renderer bundle contains production React without a Node process dependency": [
-          0.638, 0.873, 0.782
-        ],
-        "resumes exited claude conversations in place after a Foom restart": [8.428, 0, 9.489],
-        "resumes exited codex conversations in place after a Foom restart": [10.667, 0, 18.813],
-        "settled automatic orchestrator removals withdraw queued confirmations": [
-          3.759, 21.487, 8.796
-        ],
-        "short preview tiles keep their native views attached when zoom wraps the headers": [
-          4.124, 14.066, 8.051
-        ],
-        "sidebar collapses at any width, refits once and opens a narrow overlay without reflow": [
-          4.439, 11.036, 7.156
-        ],
-        "sidebar menus escape the scroll area, stay in the window and launch from a worktree": [
-          16.532, 36.001, 18.718
-        ],
-        "sidebar preferences sync between windows without losing independent edits": [
-          4.841, 16.43, 10.731
-        ],
-        "start:fresh state isolation keeps config and worktrees inside its temporary profile": [
-          4.846, 13.187, 7.614
-        ],
-        "startup preserves usable landing space while loading a saved small terminal font": [
-          2.922, 9.507, 4.555
-        ],
-        "terminal links always confirm plain, matching OSC, differing OSC and long OAuth targets with trusted input": [
-          9.193, 14.273, 11.068
-        ],
-        "terminal links open and copy complete targets with trusted confirmation, wrapping and primary-only gestures": [
-          6.103, 14.933, 10.802
-        ],
-        "tiles build irregular layouts, preserve views and replace explicitly for attention": [
-          7.198, 15.729, 17.463
-        ],
-        "trusted quit dialog appears above the board on first show and after hide/show reuse": [
-          2.857, 20.232, 4.912
-        ],
-        "trusted quit dialog isolates answers, passes axe in every theme and survives a board crash": [
-          6.664, 12.455, 9.68
-        ],
-        "volume sliders keep the dragged value while sound saves settle": [6.864, 7.835, 5.139],
-        "wheel moves less and preserves normal shell scrollback": [2.224, 0, 5.923],
-        "worktree panel previews pick contained Markdown and HTML, persist v2 tiles and close on removal": [
-          9.483, 18.363, 12.989
-        ]
-      },
-      {
-        "About and launch replay keep Eclipse Dark while the board and legal dialogs follow the theme": [
-          4.015, 10.15, 6.981
-        ],
-        "Chromium session storage falls back when shared memory is unavailable": [
-          0.009, 0.012, 0.009
-        ],
-        "Close hides a review session before slow worktree removal finishes": [
-          3.545, 16.572, 9.122
-        ],
-        "Closing the owner window stops a removed host's origin repair": [4.571, 0, 10.475],
-        "Codex permission Settings require trusted confirmation and label the launched tile": [
-          3.5, 0, 6.898
-        ],
-        "Confirmed app quit shows Stopping while the vendor helper cleans its staging directory": [
-          6.84, 0, 11.507
+        "Closing an installer window escalates past SIGHUP and releases the next installer": [
+          6.901, 0, 9.55
         ],
         "Disposable Chromium and review storage is removed when its worker hard-exits": [
           0.036, 0.059, 0.083
@@ -336,41 +45,32 @@
         "Forget removes an unavailable host session locally and recovers its live daemon session as human-owned": [
           12.356, 0, 20.989
         ],
-        "Hosts authorizes SSH hosts and validates nicknames without remote calls": [
-          14.699, 0, 16.756
+        "General close finished agents defaults on and saves immediately": [3.591, 11.859, 4.865],
+        "Hosts edits names during checks and enrolls optional nicknames": [13.092, 0, 12.47],
+        "Hosts folder-change alerts keep unknown SSH keys in the needs-you tone": [3.753, 0, 6.466],
+        "Hosts keeps an accepted key when the first recheck rejects login and offers the old-client fallback": [
+          3.055, 0, 6.253
         ],
-        "Hosts embeds interactive installs, retains outcomes, and refreshes only the installed tool": [
-          11.275, 0, 12.226
+        "Hosts preserves a changed SSH key warning when a queued trust attempt is refused": [
+          2.823, 0, 4.913
         ],
-        "Hosts reloads the folder row after the first checklist write fails": [4.442, 0, 9.721],
-        "Hosts removal prunes saved session rows and startup repairs already forgotten hosts": [
-          8.646, 0, 14.298
-        ],
-        "Hosts renders Git failures and platform capability diagnostics": [11.819, 0, 12.92],
-        "Hosts reports a key change on the standalone Linux libc probe": [3.761, 0, 0],
-        "Hosts shows a changed SSH key when saving the checklist fails": [5.639, 0, 7.934],
-        "Hosts status classification stays consistent with sealed catalog omission": [
-          4.819, 0, 8.29
+        "Hosts shows readiness and read-only checkouts with explicit origin trust": [
+          14.733, 0, 19.193
         ],
         "Linux launch forces X11 despite inherited Wayland settings": [1.193, 0, 0],
         "Linux launch rejects absent or foreign displays before fixture creation": [0.003, 0, 0],
-        "OSC 52 clipboard writes require consent and reject queries, malformed output and replay": [
-          3.898, 11.347, 8.131
-        ],
-        "Origin trust accepts input and can stop while a capability check is held": [
-          8.487, 0, 10.376
-        ],
         "Pi Settings card discloses project trust bypass and keeps MCP roles unavailable": [
           2.387, 8.364, 5.047
         ],
-        "Pi static-title spinner publishes Working during continuous redraws and resumes its assigned session": [
-          9.319, 0, 11.796
+        "Settings forge cards persist user host assignments without activating providers": [
+          4.02, 13.411, 6.188
         ],
-        "Windows projected snapshot measures enumeration and preserves this process identity": [
-          0, 0.852, 0
+        "Settings opens on General from the menu, sidebar and keyboard": [1.81, 8.786, 3.285],
+        "a compositor-ready board still fails when animation callbacks are withheld": [
+          16.13, 37.472, 14.01
         ],
-        "a child hands off results through the CLI without terminal input and the parent pulls them": [
-          6.534, 0, 11.148
+        "a detached PR review works beside the author and closes with safe cleanup and dirty confirmation": [
+          28.527, 0, 64.584
         ],
         "a failed launch resumes layout saves and reload keeps later splits and terminals": [
           5.509, 0, 10.51
@@ -379,164 +79,126 @@
           4.155, 8.094, 5.891
         ],
         "a human-picked preview is tiled when its newest inventory read fails": [2.956, 0, 7.768],
-        "a local orchestrator launches and resumes a remote child with private hooks, restricted MCP and handoff": [
-          20.665, 0, 36.663
+        "a human-picked preview survives inventory reads started before and after its reply": [
+          3.055, 0, 8.038
         ],
-        "agent previews stay visible after window moves while sidebar inventory is pending": [
-          10.734, 0, 14.065
+        "agent hooks and titles publish execution transitions independently of terminal output": [
+          4.664, 0, 14.627
         ],
-        "an agent configures Foom in the config folder with validation and approval": [
-          7.397, 0, 13.944
+        "agent reopen is visible with free space and reports sidebar only at protected board capacity": [
+          8.554, 0, 16.794
         ],
-        "an agy config session greets with stderr help and help exit 0": [5.644, 0, 9.194],
+        "an agent fixture opens full-board previews in columns, retains focus and respects human close": [
+          11.805, 0, 16.491
+        ],
+        "an agent made orchestrator manages and reviews only its own children": [10.343, 0, 15.276],
         "an agy config session greets with stderr help and help exit 2": [6.02, 0, 10.431],
-        "an older human inventory cannot remove an agent preview in a new worktree": [
-          3.398, 0, 8.013
+        "an unanswered request times out while a real fixture terminal still answers input": [
+          32.415, 39.404, 34.225
         ],
-        "app fixtures isolate inherited Foom variables and retain explicit overrides": [
-          1.429, 7.166, 2.885
+        "application menu uses the command registry and supports native keyboard access": [
+          9.643, 19.84, 8.297
         ],
-        "background removal rows stay independent orchestrator before review across boards": [
-          6.808, 24.848, 10.709
+        "background removal rows stay independent orchestrator before review on one board": [
+          6.787, 19.067, 10.211
         ],
-        "blank-window manual and terminals share the leftmost column geometry": [
-          3.075, 13.469, 6.042
-        ],
-        "board pull requests show running failed and passed checks through fixture gh": [
-          9.095, 0, 19.263
-        ],
-        "board starts with live terminals only and focuses rows without opening": [
-          5.48, 11.828, 7.303
+        "background removal rows stay independent review before orchestrator on one board": [
+          6.79, 16.778, 8.904
         ],
         "broken checkout shows Clean up directly and refuses uninspectable leftover content": [
           3.829, 11.167, 6.768
         ],
-        "bundled OpenCode cards launch isolated event modules and resume assigned conversations": [
-          7.195, 50.652, 23.38
-        ],
-        "bundled opencode installer receives account environment locally and on registered hosts": [
-          1.492, 0, 3.266
-        ],
-        "bundled pi installer receives account environment locally and on registered hosts": [
-          1.528, 0, 2.9
-        ],
-        "child host pressure refuses with retry facts while human launches still start": [
-          4.414, 0, 7.367
+        "captured main timers honor native cancellation": [0.001, 0.001, 0.001],
+        "checkout shell closes from the sidebar without a session error": [2.108, 9.913, 6.252],
+        "closing a pending startup removes its temporary column from later saves": [
+          3.332, 0, 7.252
         ],
         "closing with an exited terminal quits without confirmation": [1.526, 9.217, 4.28],
-        "console pairing requires trusted approval and gives only read-only repository scope": [
-          3.114, 10.675, 6.091
+        "compositor readiness awaits output and releases subscriptions on output or failure": [
+          0.001, 0.001, 0.009
         ],
-        "copy on select writes only completed terminal selections when enabled": [
-          4.723, 21.7, 10.921
+        "config file agent arguments require trusted Allow before a fake Codex launch": [
+          6.303, 13.857, 10.012
         ],
-        "data SQLite: Drizzle, importer and commit publications run in Electron main without changing JSON authority": [
-          6.335, 9.544, 2.853
+        "config guide add-agent workflow verifies captures resume hooks and MCP with fixture CLIs": [
+          10.356, 82.767, 11.023
         ],
         "data SQLite: board and control recovery preserve history without replay or credential restoration": [
           1.303, 16.016, 2.44
         ],
-        "data SQLite: report cold process to first renderer view and write to renderer view measurements": [
-          4.955, 47.073, 11.369
+        "data SQLite: profile settings and consent import preserve JSON and publish after commit": [
+          6.056, 8.425, 3.042
         ],
-        "data SQLite: window and update metadata import without changing production files or granting preview network": [
-          1.483, 12.589, 2.955
+        "data views: Appearance and Sound update from another board": [6.697, 8.967, 4.285],
+        "data views: General updates an already open Settings window": [2.108, 7.258, 5.157],
+        "dispatcher restart restores launch grants and adopted orchestrators": [8.701, 0, 10.477],
+        "document readiness awaits native navigation and releases listeners on success or failure": [
+          0.001, 0.002, 0.003
         ],
-        "data views: Terminal updates an already open Settings window": [2.265, 8.435, 4.819],
-        "data views: host enrollment and removal update another open Agents machine picker": [
-          2.969, 10.489, 5.914
-        ],
-        "data views: main write-to-push latency is measured with the real sandboxed bridge": [
-          1.304, 7.465, 2.854
-        ],
-        "directional pads and empty-space menu split, grow, launch and close": [
-          9.117, 17.07, 12.21
+        "empty sidebar and terminal pane stay accessible at both widths": [3.046, 8.766, 4.735],
+        "every interface theme applies live to native chrome and passes axe on board and Settings": [
+          20.022, 27.218, 19.038
         ],
         "final Electron quit unwinds the debugger evaluation before resuming": [
           0.001, 0.002, 0.002
         ],
-        "first-run rail shares the Theme menu and saves its live selection": [2.578, 8.17, 9.481],
-        "hidden streaming buffers catch up byte-for-byte in normal and alternate screens": [
-          3.123, 15.489, 6.75
+        "first run goes from no agents to go, launches by keyboard, and can be replayed": [
+          9.205, 0, 14.941
         ],
-        "home shell closes from the sidebar without a session error": [1.792, 8.858, 4.599],
-        "home shell closes from the tile without a session error": [7.15, 8.993, 5.99],
-        "host answers color queries once through real view transitions and system themes": [
-          8.418, 18.575, 10.516
+        "fixture cleanup closes every app before removing directories and retains quit failures": [
+          0.002, 0.003, 0.003
         ],
-        "inactive agent confirmation dismissal preserves the other application's native focus": [
-          3.568, 14.096, 8.769
+        "fixture record publication retries Windows rename contention and cleans up on failure": [
+          0.003, 0.007, 0.008
         ],
-        "large repository scans remain readable and filter without changing scale": [
-          2.418, 9.777, 4.833
+        "fixture records await atomic writes, surface errors and abort with their case": [
+          0.004, 0.023, 0.035
         ],
-        "launches an agent in a managed worktree and routes its attention signals": [
-          17.759, 0, 23.044
+        "focus reports reach the shell without counting as a reply": [4.678, 0, 8.302],
+        "fresh focused terminal cursor blinks and preserves application style on reattach": [
+          3.905, 10.952, 6.818
         ],
-        "legacy inference profiles upgrade without evaluator controls or stored keys": [
-          6.148, 11.105, 4.122
+        "launch startup dismisses menus and reserves tiles during slow SSH and agent discovery": [
+          14.43, 0, 16.541
         ],
-        "local exit delivery across shrink reconciles the attached cursor row": [
-          7.046, 8.653, 4.819
+        "launching into a narrow full tile adds a column and empty tiles support mouse controls": [
+          10.146, 13.437, 7.649
         ],
-        "local orchestrators exchange board posts and the human replies and resolves in light and dark": [
-          9.918, 0, 14.07
+        "local and registered-host installers stop their whole group after supervisor SIGKILL": [
+          1.558, 0, 3.186
         ],
-        "merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees": [
-          8.995, 40.263, 16.199
+        "local terminal startup overlay is accessible in light and dark": [3.628, 9.538, 5.864],
+        "macOS private selection pastes from terminal A to B through bracketed paste": [
+          5.87, 14.914, 9.999
         ],
-        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
-          5.387, 34.483, 14.201
+        "middle click reports without pasting while tracking and Shift preserves Linux primary selection": [
+          3.039, 10.75, 6.096
         ],
-        "middle click focuses the inactive terminal and routes typing to its PTY": [
-          3.123, 14.766, 7.184
-        ],
-        "missing agent cards recover on explicit reload and manifest reload without toggling": [
-          8.443, 15.059, 8.461
+        "moved HTML preview survives closed before showing destination placement": [
+          2.081, 10.365, 5.101
         ],
         "native and Foom zoom entry points survive agent Settings saves without reload": [
           3.963, 11.752, 8.116
         ],
-        "nested empty spaces collapse after ancestor drag": [3.004, 9.831, 5.696],
-        "nested empty spaces collapse after window resize": [2.866, 9.725, 5.86],
-        "nested theme inks stay readable over parent gradients and trusted header paint": [
-          2.173, 7.711, 4.895
+        "native queue recentering re-arms decisions before a stationary screen-point click": [
+          5.154, 12.862, 10.441
         ],
-        "new and restored shells show a silent foreground program until the next prompt": [
-          3.968, 0, 0
-        ],
+        "nested empty spaces collapse after restore": [3.032, 9.569, 7.553],
+        "nested empty spaces collapse after sidebar resize": [2.884, 9.753, 6.39],
         "orchestrated fixture filenames signal complete credentials and console responses": [
           0.013, 0.013, 0.013
         ],
-        "owned child review loop: one-shot": [18.108, 0, 51.71],
-        "owned child review loop: restored-unread": [10.07, 0, 20.13],
+        "ordinary Close refuses a second owned or sidebar removal until terminal teardown settles": [
+          3.028, 21.385, 5.805
+        ],
+        "owned child review loop: continue": [11.233, 0, 19.13],
         "pastes claude -r in a checkout and retains rejected conversations": [7.041, 0, 5.26],
-        "pastes codex resume in a checkout and retains rejected conversations": [1.937, 0, 4.655],
-        "persistent sidebar keeps Escape in the PTY and routes keyboard navigation": [
-          6.779, 18.925, 17.197
+        "preview composition has no empty frames for a realistic HTML page": [7.937, 11.048, 7.054],
+        "quit ordering diagnostics bound records and redact locator actionability": [
+          0.001, 0.001, 0.001
         ],
-        "preflight fits safely through resize, zoom, long input and changing steps": [
-          7.447, 13.945, 9.459
-        ],
-        "preview composition has no empty frames for a Markdown page": [3.452, 14.323, 6.998],
-        "preview composition keeps maximize and restore live and excludes preview hit testing throughout tile drags": [
-          4.933, 13.201, 8.921
-        ],
-        "preview external links always use trusted review and drop scripted requests while pending": [
-          6.775, 9.414, 4.714
-        ],
-        "preview handoff Escape restores board keyboard input during a never-finishing local load": [
-          7.289, 11.035, 7.515
-        ],
-        "preview history restores scroll, goes forward and recovers missing html links": [
-          9.709, 12.471, 13.522
-        ],
-        "preview live reload follows retargeted symlinks and junctions": [2.56, 8.908, 6.23],
-        "preview live reload handles saves, assets, missing files, scroll and closes watchers": [
-          5.94, 12.224, 9.69
-        ],
-        "profile lock focuses the first app, exits duplicates and permits another profile": [
-          2.967, 13.034, 7.057
+        "quit ordering diagnostics observe native presentation, input and answer before quit": [
+          1.889, 10.218, 4.802
         ],
         "quit ordering diagnostics retain renderer failure without renderer cooperation": [
           0.003, 0.005, 0.153
@@ -544,133 +206,140 @@
         "quit ordering diagnostics tolerate disposed pages and retain live renderer failures": [
           0.001, 0.124, 0.001
         ],
-        "quit via shortcut confirms, cancel preserves PTYs, and confirm reaps shells": [
-          2.976, 10.929, 6.764
+        "raster image previews validate content, fit, show actual size and preserve pixels in both themes": [
+          3.586, 12.53, 8.777
         ],
-        "re-enrolling a host discards its Full access approval": [10.271, 0, 12.644],
         "readiness views share probes across windows and follow repository commits without reopening": [
           7.088, 9.181, 6.384
         ],
         "registered-host clean reviewer completes with restricted identity": [23.352, 0, 42.219],
+        "registered-host copilot lifecycle uses host inventory and restricted child tools": [
+          19.212, 0, 31.732
+        ],
         "registered-host review findings resume the author with fresh restricted identity": [
           31.816, 0, 42.839
         ],
-        "remote host fixture confirms foreign-session cleanup and copies host details": [
-          14.339, 0, 20.348
+        "remote host fixture bounds oversized replay while retaining history and live PTY state": [
+          7.943, 0, 9.649
         ],
         "remote live raw PTY writes after resize without a stale reflow suffix": [6.499, 0, 11.452],
-        "remote shell fixture uploads a pinned headless host and replays the same PTY after SSH loss": [
-          8.535, 0, 18.649
-        ],
-        "removal reviews serialize cleanup before orchestrator across boards": [
-          4.542, 37.615, 14.087
-        ],
         "removal reviews serialize cleanup before orchestrator on one board": [
           7.987, 22.194, 10.722
         ],
         "removal reviews serialize cleanup before review across boards": [4.605, 25.282, 13.03],
-        "removal reviews serialize orchestrator before review on one board": [
-          2.573, 17.287, 14.158
+        "removal reviews serialize orchestrator before cleanup across boards": [
+          3.109, 17.989, 17.426
+        ],
+        "removal reviews serialize orchestrator before cleanup on one board": [
+          2.932, 17.256, 9.048
+        ],
+        "renderer bundle contains production React without a Node process dependency": [
+          0.638, 0.873, 0.782
+        ],
+        "restores running claude after declining manual Resume, shell and orchestrator children across windows": [
+          8.333, 0, 30.532
         ],
         "restores running claude in a linked worktree with a replaced checkout, shell and orchestrator children across windows": [
           8.042, 0, 20.921
         ],
-        "restores running claude, shell and orchestrator children across windows": [
-          15.401, 0, 30.748
+        "restores running claude in a linked worktree, shell and orchestrator children across windows": [
+          14.669, 0, 27.543
         ],
-        "restores running codex, shell and orchestrator children across windows": [
-          13.136, 0, 26.236
+        "restores running claude with transient child checks, shell and orchestrator children across windows": [
+          11.696, 0, 18.254
         ],
-        "resumes exited agy conversations in place after a Foom restart": [3.737, 0, 8.472],
+        "resumes exited claude conversations in place after a Foom restart": [8.428, 0, 9.489],
         "same-tile orchestrator resume retains its live children with fresh credentials": [
           5.326, 0, 10.098
         ],
-        "sample user themes paint visible sidebar and board gradients in light and dark": [
-          4.798, 10.312, 9.413
-        ],
+        "scrolled shell launcher hovered creates and focuses on the first click": [3.319, 0, 9.513],
         "scrolled shell launcher pinned creates and focuses on the first click": [2.093, 0, 5.097],
+        "secondary window forwards Refusal through windows:refuse to the audio owner": [
+          1.902, 6.641, 4.16
+        ],
         "shared board startup restores a native-hidden CDP-visible board and delivers frames": [
           2.438, 7.909, 4.953
         ],
-        "sidebar border resizes live, persists per window and refits the terminal once": [
-          3.614, 18.116, 7.152
+        "shell launch paths select the new shell and its blinking input cursor": [
+          3.728, 10.493, 6.536
         ],
-        "sidebar machines launch human shells and agents and keep remote worktrees under repositories": [
-          14.966, 0, 23.392
+        "short preview tiles keep their native views attached when zoom wraps the headers": [
+          4.124, 14.066, 8.051
         ],
-        "sidebar panels hover, pin, rename and launch a home shell": [4.131, 10.383, 6.197],
-        "sidebar refuses deletion of a running shell and enables it after exit, preserving branches and the main checkout": [
-          3.425, 21.089, 8.836
+        "startup honors manual Resume, Restart and Close while remote discovery is pending": [
+          7.578, 0, 15.362
         ],
-        "stable Codex observers drive execution and retire the notifier after a verified turn": [
-          10.79, 0, 15.405
+        "startup tracing waits for the board document and skips cancelled or failed navigation": [
+          0.003, 0.004, 0.004
         ],
-        "terminals move between boards through menus and token-backed sidebar/title drops": [
-          9.936, 13.721, 10.722
+        "terminal links always confirm plain, matching OSC, differing OSC and long OAuth targets with trusted input": [
+          9.193, 14.273, 11.068
         ],
-        "the branch field creates a worktree by keyboard without launching; dirty removal confirms": [
-          10.343, 19.418, 11.147
-        ],
-        "two boards recover a silent-hide trusted dialog from blocked board input without approval": [
-          2.996, 0, 0
-        ],
-        "unread child events mark the orchestrator row and tile until human focus": [
-          67.093, 0, 72.777
+        "terminal runs an interactive shell behind an isolated bridge": [9.427, 18.783, 9.021],
+        "tile layouts restore v1 terminal content and v2 mixed content after inventory": [
+          7.781, 15.161, 10.325
         ],
         "user html preview moves to a fresh window, resets network and keeps live reload": [
           3.209, 10.787, 8.975
-        ]
+        ],
+        "wheel moves less and preserves normal shell scrollback": [2.224, 0, 5.923]
       },
       {
-        "About command opens the in-board art dialog and its anchored note": [1.6, 7.67, 6.636],
+        "About replay contains Tab and still dismisses with Enter Space or Escape": [
+          1.585, 7.811, 3.578
+        ],
         "About rocket replays launch by mouse and keyboard without changing setup": [
           6.459, 13.5, 12.507
         ],
-        "Agents scopes use saved host observations and Global enablement without checks on navigation": [
-          8.094, 0, 8.844
+        "Agents keeps fixed Codex device sign-in in Settings and refreshes sign-in on exit": [
+          5.354, 0, 14.227
         ],
-        "Cancelling app quit clears Stopping after an overlapping installer window close": [
-          6.999, 0, 10.045
+        "Antigravity image paste normalizes privately, sends one bracketed reference without Enter and cleans on close": [
+          6.918, 0, 7.161
         ],
+        "Antigravity plugin Settings disclosure installs and removes an observer that reports lifecycle": [
+          19.184, 0, 28.956
+        ],
+        "Antigravity plugin first run disclosure installs and removes an observer that reports lifecycle": [
+          14.446, 0, 17.562
+        ],
+        "Antigravity plugin progress and partial Reinstall failure in light": [5.832, 0, 8.848],
+        "Appearance refuses a custom palette changed after it was offered": [1.837, 9.414, 2.998],
+        "Bash command status reaches the sidebar without closing the shell": [9.761, 0, 0],
         "Chromium fixture storage survives restore, stays separate from Foom data and is cleaned after quit": [
           6.845, 11.118, 7.696
-        ],
-        "Closing an installer window escalates past SIGHUP and releases the next installer": [
-          6.901, 0, 9.55
         ],
         "Closing an installer window retries a one-time PTY termination exception": [
           11.739, 0, 9.724
         ],
-        "Confirmed app quit takes over after an overlapping owner stop rejects": [5.054, 0, 8.467],
-        "Confirmed last board close shows Stopping while the vendor helper cleans its staging directory": [
-          6.772, 0, 0
+        "Codex permission Settings require trusted confirmation and label the launched tile": [
+          3.5, 0, 6.898
         ],
-        "Environment settings reach a launched shell; main refuses reserved names": [
-          6.473, 8.394, 3.658
+        "Hosts confirms stopping a running install before Settings closes and closes exited installs directly": [
+          7.373, 0, 10.875
         ],
-        "General default agent starts unset and saves an explicit provider or None": [
-          2.791, 9.117, 3.791
+        "Hosts gh device sign-in leaves a failed install missing despite device output": [
+          6.9, 0, 8.291
         ],
-        "General update opt-out persists; update notices and restart counts remain quiet": [
-          7.443, 8.524, 5.004
+        "Hosts gh device sign-in offers blocked fallbacks and preserves a changed clipboard on cancel": [
+          5.472, 0, 7.292
         ],
-        "Hosts accepts new SSH keys only through the trusted askpass dialog": [5.531, 0, 8.577],
-        "Hosts edits names during checks and enrolls optional nicknames": [13.092, 0, 12.47],
-        "Hosts folder-change alerts keep unknown SSH keys in the needs-you tone": [3.753, 0, 6.466],
-        "Hosts gh device sign-in keeps the approved label through Install & sign in": [
-          7.524, 0, 10.415
-        ],
-        "Hosts list cannot save an older SSH retry over a pending changed-key check": [
-          4.61, 0, 8.069
+        "Hosts kills fixture SSH on live diagnostic overflow and removes its private file": [
+          3.624, 0, 4.853
         ],
         "Hosts loads saved rows and retries only persistence after queued profile writes fail": [
           9.731, 0, 11.427
         ],
-        "Hosts opens saved checks without SSH and keeps ready repositories compact": [
-          10.052, 0, 14.887
+        "Hosts never offers host-key trust from a remote command's forged SSH diagnostic": [
+          3.132, 0, 6.361
         ],
-        "Hosts preserves a changed SSH key warning when a queued trust attempt is refused": [
-          2.823, 0, 4.913
+        "Hosts reloads the folder row after the first checklist write fails": [4.442, 0, 9.721],
+        "Hosts renders Git failures and platform capability diagnostics": [11.819, 0, 12.92],
+        "Hosts reopening shows a failed SSH row write without a key classification": [
+          4.255, 0, 7.454
+        ],
+        "Hosts reports recipes that exit in the creation frame and refreshes their tool": [
+          4.89, 0, 11.475
         ],
         "Hosts repository reloads bypass the SSH master and update the completed SSH row": [
           8.767, 0, 7.192
@@ -678,8 +347,666 @@
         "Hosts setup agent dialog launches locally, keeps Settings open and rechecks on exit": [
           15.045, 0, 21.622
         ],
-        "Hosts shows readiness and read-only checkouts with explicit origin trust": [
-          14.733, 0, 19.193
+        "Hosts shows a fixed SSH failure when the client disconnects after discovery": [
+          3.803, 0, 5.934
+        ],
+        "Hosts status classification stays consistent with sealed catalog omission": [
+          4.819, 0, 8.29
+        ],
+        "Origin trust stays off both boards and remains stoppable after host removal": [
+          5.702, 0, 9.501
+        ],
+        "Recorded host requirements are inert, editable and clearable in Settings": [
+          6.685, 0, 9.087
+        ],
+        "Settings Agents and Environment work without Claude Codex or Antigravity keys": [
+          2.337, 8.288, 5.719
+        ],
+        "Settings session panel preview follows color and contrast; Environment links to Agents": [
+          7.572, 9.163, 5.146
+        ],
+        "Settings shares live preflight values, sizes the terminal and restores keyboard focus": [
+          10.232, 16.592, 13.112
+        ],
+        "a crashed utility host reports failure and the renderer can restart": [
+          2.256, 13.863, 8.498
+        ],
+        "a manifest-only v2 fixture agent loads from the config folder, reloads edits and is withdrawn when invalid": [
+          7.204, 24.854, 12.228
+        ],
+        "a user-authored code extension reports external hooks through the CLI and resumes on close": [
+          8.896, 26.514, 20.685
+        ],
+        "agent Settings patches preserve shortcut zoom and unrelated preferences": [
+          1.921, 7.647, 4.197
+        ],
+        "agent discovery uses the fixture login shell and controlled PATH": [1.575, 5.926, 3.269],
+        "an Antigravity orchestrator has no MCP attachment indicator": [8.579, 0, 7.694],
+        "an Antigravity orchestrator manages and reviews children through the packaged console": [
+          10.637, 0, 16.698
+        ],
+        "bundled brand fonts and both system themes render in Electron": [6.821, 8.861, 6.245],
+        "bundled copilot installer receives account environment locally and on registered hosts": [
+          1.494, 0, 4.022
+        ],
+        "bundled pi installer receives account environment locally and on registered hosts": [
+          1.528, 0, 2.9
+        ],
+        "commands removed from the wordmark menu keep their shortcuts": [2.351, 8.695, 0],
+        "custom theme files appear live, update selected colors and retain rejected edits": [
+          3.688, 10.299, 5.632
+        ],
+        "data SQLite: report cold process to first renderer view and write to renderer view measurements": [
+          4.955, 47.073, 11.369
+        ],
+        "data views: Environment changes and masked secrets update another open editor": [
+          2.037, 7.717, 5.252
+        ],
+        "data views: Terminal updates an already open Settings window": [2.265, 8.435, 4.819],
+        "data views: checkout, session and agent lifecycle changes publish across boards": [
+          2.584, 11.779, 5.333
+        ],
+        "failed exit refresh retains visible output and retries on the next resize": [
+          2.373, 9.767, 6.617
+        ],
+        "group cleanup reviews untracked files and removes detached checkouts inside its root": [
+          8.299, 37.807, 16.476
+        ],
+        "home row launches a human agent without hosts and restores its saved conversation": [
+          4.658, 0, 11.268
+        ],
+        "host answers color queries once through real view transitions and system themes": [
+          8.418, 18.575, 10.516
+        ],
+        "host smoke command uses fake SSH and survives a real hub restart": [11.55, 0, 31.261],
+        "inactive agent confirmation dismissal preserves the other application's native focus": [
+          3.568, 14.096, 8.769
+        ],
+        "interface zoom follows the shared setting in every window": [1.719, 8.166, 3.868],
+        "legacy inference profiles upgrade without evaluator controls or stored keys": [
+          6.148, 11.105, 4.122
+        ],
+        "live raw PTY writes after resize without a stale reflow suffix": [7.743, 10.33, 8.048],
+        "merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees": [
+          8.995, 40.263, 16.199
+        ],
+        "missing agent cards recover on explicit reload and manifest reload without toggling": [
+          8.443, 15.059, 8.461
+        ],
+        "nested empty spaces collapse after ancestor drag": [3.004, 9.831, 5.696],
+        "owned child review loop: blocked": [21.765, 0, 41.958],
+        "owned child review loop: edit": [13.199, 0, 19.768],
+        "owned child review loop: one-shot": [18.108, 0, 51.71],
+        "owned child review loop: unresolved": [4.798, 0, 10.074],
+        "pastes agy --conversation in a checkout and retains rejected conversations": [
+          2.197, 0, 4.726
+        ],
+        "pastes claude --resume in a checkout and retains rejected conversations": [
+          2.478, 0, 4.317
+        ],
+        "preview composition has no empty frames for a Markdown page": [3.452, 14.323, 6.998],
+        "preview history restores scroll, goes forward and recovers missing html links": [
+          9.709, 12.471, 13.522
+        ],
+        "preview live reload handles saves, assets, missing files, scroll and closes watchers": [
+          5.94, 12.224, 9.69
+        ],
+        "profile lock focuses the first app, exits duplicates and permits another profile": [
+          2.967, 13.034, 7.057
+        ],
+        "quit during a stalled startup launch preserves saved shells (cancel)": [
+          1.87, 10.646, 3.12
+        ],
+        "quit during a stalled startup launch preserves saved shells (confirm)": [
+          4.715, 21.591, 6.064
+        ],
+        "quit via close confirms, cancel preserves PTYs, and confirm reaps shells": [
+          2.772, 10.464, 6.791
+        ],
+        "quit via shortcut confirms, cancel preserves PTYs, and confirm reaps shells": [
+          2.976, 10.929, 6.764
+        ],
+        "remote clones of one origin keep main's sharing warning answerable in the real menu": [
+          11.404, 0, 20.525
+        ],
+        "remote host fixture confirms foreign-session cleanup and copies host details": [
+          14.339, 0, 20.348
+        ],
+        "remote shell fixture uploads a pinned headless host and replays the same PTY after SSH loss": [
+          8.535, 0, 18.649
+        ],
+        "removal reviews serialize orchestrator before review across boards": [
+          3.584, 17.218, 7.734
+        ],
+        "removal reviews serialize review before orchestrator on one board": [2.318, 16.186, 8.907],
+        "settled automatic orchestrator removals withdraw queued confirmations": [
+          3.759, 21.487, 8.796
+        ],
+        "sidebar border resizes live, persists per window and refits the terminal once": [
+          3.614, 18.116, 7.152
+        ],
+        "sidebar footer zoom and master volume stay synchronized and presets are absent": [
+          3.228, 9.688, 5.864
+        ],
+        "sidebar menus escape the scroll area, stay in the window and launch from a worktree": [
+          16.532, 36.001, 18.718
+        ],
+        "small tile splits refuse visibly in both menus and keyboard commands": [
+          3.252, 11.015, 7.433
+        ],
+        "stable Codex observers drive execution and retire the notifier after a verified turn": [
+          10.79, 0, 15.405
+        ],
+        "start:fresh state isolation keeps config and worktrees inside its temporary profile": [
+          4.846, 13.187, 7.614
+        ],
+        "terminal context menu targets the clicked shell and preserves tracked right clicks": [
+          5.107, 18.966, 9.141
+        ],
+        "terminal links open and copy complete targets with trusted confirmation, wrapping and primary-only gestures": [
+          6.103, 14.933, 10.802
+        ],
+        "the board stays usable at 300% in a small window": [7.066, 8.975, 6.821],
+        "trusted confirmations keep their first shown bounds while the parent is static": [
+          6.779, 11.631, 9.933
+        ],
+        "trusted quit dialog appears above the board on first show and after hide/show reuse": [
+          2.857, 20.232, 4.912
+        ],
+        "unread child events mark the orchestrator row and tile until human focus": [
+          67.093, 0, 72.777
+        ],
+        "v2 plugin setup confirms fixed actions and refuses unknown, malformed and linked metadata": [
+          14.58, 0, 24.799
+        ],
+        "version 2 themes scope portaled colors, shape and warnings and hold attention edits": [
+          3.422, 9.25, 5.753
+        ]
+      },
+      {
+        "Agents Global list and machine picker scale to twelve agents and twelve saved hosts": [
+          18.134, 18.85, 19.542
+        ],
+        "Cancelling app quit clears Stopping after an overlapping installer window close": [
+          6.999, 0, 10.045
+        ],
+        "Confirmed last board close shows Stopping while the vendor helper cleans its staging directory": [
+          6.772, 0, 0
+        ],
+        "Default themes follow native appearance live and Settings theme menus share the config launcher": [
+          9.488, 15.645, 14.353
+        ],
+        "Dismiss clears agent attention after typing consumed its feedback": [2.403, 0, 6.123],
+        "General default agent starts unset and saves an explicit provider or None": [
+          2.791, 9.117, 3.791
+        ],
+        "Hosts authorizes SSH hosts and validates nicknames without remote calls": [
+          14.699, 0, 16.756
+        ],
+        "Hosts capability checks share one SSH connection and hosts finish independently": [
+          7.758, 0, 12.43
+        ],
+        "Hosts embeds interactive installs, retains outcomes, and refreshes only the installed tool": [
+          11.275, 0, 12.226
+        ],
+        "Hosts gh device sign-in copies a strict code, opens only GitHub and refreshes one row": [
+          8.872, 0, 13.779
+        ],
+        "Hosts gh device sign-in keeps the approved label through Install & sign in": [
+          7.524, 0, 10.415
+        ],
+        "Hosts preload rejects an unversioned live SSH pass": [1.504, 8.479, 2.982],
+        "Hosts removal prunes saved session rows and startup repairs already forgotten hosts": [
+          8.646, 0, 14.298
+        ],
+        "Hosts reports a key change on the standalone Linux libc probe": [3.761, 0, 0],
+        "Hosts reports dialog-unavailable when native trust presentation fails": [3.328, 0, 5.504],
+        "Hosts shows independent inspection and repository check progress": [9.86, 0, 24.966],
+        "Settings transitions restore background fullscreen output repeatedly": [
+          18.087, 25.966, 26.076
+        ],
+        "WebGL loss keeps the terminal, scrollback and attachment usable through DOM": [
+          11.585, 17.926, 18.848
+        ],
+        "WebGL uses a visible context budget and releases hidden and unmounted views": [
+          17.398, 54.563, 40.086
+        ],
+        "a local orchestrator launches and resumes a remote child with private hooks, restricted MCP and handoff": [
+          20.665, 0, 36.663
+        ],
+        "agent previews split a blank window into terminal-width columns": [3.194, 0, 7.168],
+        "an Antigravity orchestrator reviews worktree cleanup and revokes through the packaged console": [
+          33.486, 0, 46.086
+        ],
+        "an agent made orchestrator reviews worktree cleanup and revokes with a live child": [
+          40.267, 0, 55.727
+        ],
+        "an exited agy config tile closes in place with a saved conversation": [1.909, 0, 7.636],
+        "an orchestrator adopts an open PR with child board placement off": [11.807, 0, 13.316],
+        "an orchestrator launches an agy child with stderr help and a nonzero help exit": [
+          4.814, 0, 9.883
+        ],
+        "app fixtures isolate inherited Foom variables and retain explicit overrides": [
+          1.429, 7.166, 2.885
+        ],
+        "background removal rows stay independent review before orchestrator across boards": [
+          7.365, 22.499, 10.555
+        ],
+        "bundled agy installer receives account environment locally and on registered hosts": [
+          1.507, 0, 3.201
+        ],
+        "bundled manual search supports keyboard navigation and section jumps": [
+          1.646, 8.121, 5.043
+        ],
+        "checkout shell closes from the tile without a session error": [2.502, 9.821, 4.852],
+        "closing a board declines its queued cleanup and releases its repository before another board answers": [
+          2.929, 21.932, 9.103
+        ],
+        "closing a failed startup removes its temporary column from later saves": [3.971, 0, 6.423],
+        "console pairing requires trusted approval and gives only read-only repository scope": [
+          3.114, 10.675, 6.091
+        ],
+        "cursor-row output survives window shrink, grow and Settings reattachment": [
+          6.551, 7.827, 6.245
+        ],
+        "data SQLite: Environment uses native safeStorage or refuses secrets without storing plaintext": [
+          6.04, 12.578, 3.061
+        ],
+        "data views: Agents updates an already open Settings window": [2.336, 8.928, 4.772],
+        "data views: repository removal reaches an already open Settings inventory": [
+          2.113, 6.822, 3.832
+        ],
+        "detached removals share one review per checkout and approve independently": [
+          7.932, 44.372, 12.235
+        ],
+        "directional pads and empty-space menu split, grow, launch and close": [
+          9.117, 17.07, 12.21
+        ],
+        "eight fixture CLI launches with startup output keep every terminal alive": [
+          1.898, 9.964, 3.979
+        ],
+        "fake Codex receives inline flag only when help advertises it": [2.774, 0, 11.249],
+        "first-use repository launch exposes each fixed clone failure and Settings has no clone control": [
+          5.928, 0, 10.153
+        ],
+        "flight samples baked assets with WebGL, freezes reduced motion and stops after closing": [
+          6.679, 12.408, 10.715
+        ],
+        "footer config gear opens Settings and launches two independent docked Shells": [
+          3.492, 9.636, 5.661
+        ],
+        "gutter double-click evens three columns and Tidy tiles removes holes through the menu": [
+          3.917, 10.435, 7.702
+        ],
+        "home shell closes from the sidebar without a session error": [1.792, 8.858, 4.599],
+        "live Bash redraws a long prompt once and retains narrow command output after growth": [
+          7.212, 0, 6.5
+        ],
+        "local exit delivery across shrink reconciles the attached cursor row": [
+          7.046, 8.653, 4.819
+        ],
+        "local orchestrators exchange board posts and the human replies and resolves in light and dark": [
+          9.918, 0, 14.07
+        ],
+        "middle click focuses the inactive terminal and routes typing to its PTY": [
+          3.123, 14.766, 7.184
+        ],
+        "modal dismissal restores the same terminal input for cancel, approve, Escape, abort and Settings": [
+          3.142, 11.811, 6.327
+        ],
+        "moved HTML preview survives delayed destination placement": [7.56, 13.123, 10.831],
+        "multiple windows restore independent layouts, bounds and interface size": [
+          8.961, 14.361, 11.012
+        ],
+        "nested theme inks stay readable over parent gradients and trusted header paint": [
+          2.173, 7.711, 4.895
+        ],
+        "owned child review loop: binding": [11.083, 0, 17.376],
+        "owned child review loop: codex-bypass": [9.187, 0, 23.148],
+        "owned child review loop: concurrent": [23.667, 0, 42.797],
+        "owned child review loop: restored-unread": [10.07, 0, 20.13],
+        "pastes codex resume in a checkout and retains rejected conversations": [1.937, 0, 4.655],
+        "pending startup saves an explicit split and sidebar changes across reload": [
+          3.969, 0, 8.118
+        ],
+        "persistent sidebar keeps Escape in the PTY and routes keyboard navigation": [
+          6.779, 18.925, 17.197
+        ],
+        "preview composition puts the trusted confirmation scrim above previews and restores on cancel": [
+          2.743, 11.61, 5.89
+        ],
+        "preview handoff deadline restores board keyboard input during a never-finishing local load": [
+          4.615, 13.668, 9.278
+        ],
+        "preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions": [
+          7.063, 10.978, 4.782
+        ],
+        "preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click": [
+          3.272, 10.902, 7.718
+        ],
+        "preview manual reload controls preserve focus and shortcut targets only the focused preview": [
+          7.942, 11.052, 8.708
+        ],
+        "preview network permission allows local HTTPS only and resets after restart": [
+          4.58, 13.884, 9.449
+        ],
+        "quit during a stalled startup launch preserves saved shells (failed shutdown)": [
+          3.773, 8.316, 4.671
+        ],
+        "re-enrolling a host discards its Full access approval": [10.271, 0, 12.644],
+        "reload during a blocked launch restores the original space without an extra empty tile": [
+          3.261, 0, 7.936
+        ],
+        "remote exit delivery across shrink reconciles the attached cursor row": [5.94, 0, 10.437],
+        "remote host fixture supplies startup palettes and refuses absent session reattachment": [
+          0.645, 0, 0.804
+        ],
+        "remote machine recovery preserves the daemon's permission labels and bypass warning": [
+          14.237, 0, 22.183
+        ],
+        "removal review updates one live dialog as delayed requests arrive and expire": [
+          3.261, 9.294, 6.972
+        ],
+        "removal reviews serialize cleanup before orchestrator across boards": [
+          4.542, 37.615, 14.087
+        ],
+        "removal reviews serialize review before cleanup across boards": [3.968, 19.774, 7.846],
+        "restored exited sessions hide the unattached terminal until restarted": [
+          3.953, 15.183, 7.804
+        ],
+        "resumes exited agy conversations in place after a Foom restart": [3.737, 0, 8.472],
+        "resumes exited codex conversations in place after a Foom restart": [10.667, 0, 18.813],
+        "revoking an exited orchestrator prevents automatic role recovery on resume": [
+          5.31, 0, 9.28
+        ],
+        "sidebar choice restores after restart and new windows start expanded": [
+          4.241, 14.01, 7.099
+        ],
+        "sidebar config agent menu launches a new config session in each window": [
+          7.663, 10.102, 12.664
+        ],
+        "sidebar panels hover, pin, rename and launch a home shell": [4.131, 10.383, 6.197],
+        "sidebar preferences sync between windows without losing independent edits": [
+          4.841, 16.43, 10.731
+        ],
+        "startup preserves usable landing space while loading a saved small terminal font": [
+          2.922, 9.507, 4.555
+        ],
+        "terminal links retain complete targets under oversized normal and alternate replay": [
+          5.749, 12.607, 10.05
+        ],
+        "the trailing add repository row opens the fixture folder chooser": [7.262, 11.261, 10.282],
+        "tile drag drops replace, split every edge, swap and move without reattachment; keyboard swaps and Escape": [
+          11.204, 31.588, 11.501
+        ],
+        "two boards recover a silent-hide trusted dialog from blocked board input without approval": [
+          2.996, 0, 0
+        ],
+        "worktree panel previews pick contained Markdown and HTML, persist v2 tiles and close on removal": [
+          9.483, 18.363, 12.989
+        ]
+      },
+      {
+        "About command opens the in-board art dialog and its anchored note": [1.6, 7.67, 6.636],
+        "Agents scopes use trusted consent and fixed recipes for host plugin installation": [
+          8.965, 0, 15.636
+        ],
+        "Antigravity plugin MCP inherits an owned child's read-only role": [5.948, 0, 10.165],
+        "Cancelling app quit reports the deferred owner close error and allows retry": [
+          4.865, 0, 10.9
+        ],
+        "Close hides a review session before slow worktree removal finishes": [
+          3.545, 16.572, 9.122
+        ],
+        "Close removes the tile and sidebar before slow cleanup and restores a failed row": [
+          2.896, 8.769, 7.269
+        ],
+        "Closing the owner window stops a removed host's origin repair": [4.571, 0, 10.475],
+        "Confirmed app quit shows Stopping while the vendor helper cleans its staging directory": [
+          6.84, 0, 11.507
+        ],
+        "Confirming app quit discards the deferred owner close error": [4.857, 0, 7.673],
+        "Dismiss clears agent attention after focusing click consumed its feedback": [
+          2.53, 0, 8.194
+        ],
+        "Environment settings reach a launched shell; main refuses reserved names": [
+          6.473, 8.394, 3.658
+        ],
+        "Help Manual opens a contained offline guide and focuses the existing tile": [
+          7.397, 7.97, 6.044
+        ],
+        "Hosts accepts new SSH keys only through the trusted askpass dialog": [5.531, 0, 8.577],
+        "Hosts merges recipe rows with two Hosts windows already open": [9.037, 0, 14.106],
+        "Hosts opens saved checks without SSH and keeps ready repositories compact": [
+          10.052, 0, 14.887
+        ],
+        "Hosts orders SSH checks across two open Settings windows": [10.052, 0, 19.732],
+        "Hosts preserves a rejected replacement folder and reports unrepresentable row reloads inline": [
+          5.713, 0, 9.405
+        ],
+        "Hosts real OpenSSH client shows a visible trust dialog for a disposable loopback sshd": [
+          2.408, 0, 4.956
+        ],
+        "Hosts reloads individual rows and actions never trigger full capability checks": [
+          12.699, 0, 14.676
+        ],
+        "Hosts shows a changed SSH key when saving the checklist fails": [5.639, 0, 7.934],
+        "Hosts shows a fixed trust failure when askpass refuses an unrecognized prompt": [
+          3.185, 0, 6.054
+        ],
+        "OSC 52 clipboard writes require consent and reject queries, malformed output and replay": [
+          3.898, 11.347, 8.131
+        ],
+        "Origin trust accepts input and can stop while a capability check is held": [
+          8.487, 0, 10.376
+        ],
+        "Pi fixed per-launch extension observes lifecycle, filters role tools and removes its private files": [
+          6.363, 0, 4.735
+        ],
+        "Pi static-title spinner publishes Working during continuous redraws and resumes its assigned session": [
+          9.319, 0, 11.796
+        ],
+        "a different tile never attaches a revoked ID while workspace refresh is held": [
+          3.565, 14.502, 6.806
+        ],
+        "agent image paste normalizes privately, sends one bracketed reference without Enter and cleans on close": [
+          2.517, 0, 4.589
+        ],
+        "agent previews stay visible after window moves while sidebar inventory is pending": [
+          10.734, 0, 14.065
+        ],
+        "an agent configures Foom in the config folder with validation and approval": [
+          7.397, 0, 13.944
+        ],
+        "an idle orchestrator waits on children without hiding real attention": [6.557, 0, 11.342],
+        "an older human inventory cannot remove an agent preview in a new worktree": [
+          3.398, 0, 8.013
+        ],
+        "an orchestrator wait_for wakes on a child PR required-check conclusion": [
+          27.013, 0, 36.803
+        ],
+        "background layout failures preserve terminal focus and typed input": [1.906, 9.821, 4.741],
+        "background removal rows stay independent orchestrator before review across boards": [
+          6.808, 24.848, 10.709
+        ],
+        "board merge requests show pipeline marks and failure notifications through recorded glab": [
+          9.671, 0, 20.165
+        ],
+        "bundled codex installer receives account environment locally and on registered hosts": [
+          1.298, 0, 3.154
+        ],
+        "config agents receive only the bundled manual and revoke the attachment on exit": [
+          6.772, 37.763, 25.968
+        ],
+        "config probe CLI drives only scratch fixture screens and the user can interrupt its tile": [
+          11.909, 51.808, 16.578
+        ],
+        "config shell closes from the sidebar without a session error": [1.87, 8.205, 4.031],
+        "copy on select writes only completed terminal selections when enabled": [
+          4.723, 21.7, 10.921
+        ],
+        "data SQLite: Drizzle, importer and commit publications run in Electron main without changing JSON authority": [
+          6.335, 9.544, 2.853
+        ],
+        "data SQLite: window and update metadata import without changing production files or granting preview network": [
+          1.483, 12.589, 2.955
+        ],
+        "data views: config rejection updates open Config and Forges tabs": [2.404, 8.921, 4.376],
+        "dispatcher elevation, pre-approved launch, launch grants and live demotion": [
+          5.405, 0, 9.726
+        ],
+        "every Settings section passes axe in light and dark, including the narrow layout": [
+          11.786, 11.159, 8.693
+        ],
+        "extended user themes apply through both bridges and reject malformed theme data": [
+          3.539, 10.778, 6.393
+        ],
+        "external Git changes refresh inventory and retain sessions in removed worktrees": [
+          4.545, 13.998, 6.608
+        ],
+        "failed quit refuses a restored agent when its checkout changes during the spawn pause": [
+          3.49, 0, 5.744
+        ],
+        "first-run git and selected forge hosts share lazy readiness and recover on recheck": [
+          4.058, 0, 6.103
+        ],
+        "hidden streaming buffers catch up byte-for-byte in normal and alternate screens": [
+          3.123, 15.489, 6.75
+        ],
+        "home shell closes from the tile without a session error": [7.15, 8.993, 5.99],
+        "image paste refuses shells with a fixed visible result and shares context menu Paste": [
+          7.05, 9.206, 4.295
+        ],
+        "merged cleanup skips Git-ignored build folders and exposes reasons when none qualify": [
+          5.387, 34.483, 14.201
+        ],
+        "moved HTML preview survives never arriving destination placement": [7.753, 14.553, 11.09],
+        "multiple windows share sessions, keep views exclusive and retain terminals on close": [
+          11.366, 17.781, 24.779
+        ],
+        "nested empty spaces collapse after window resize": [2.866, 9.725, 5.86],
+        "nested repository names follow the General toggle and retain their identity": [
+          1.952, 10.594, 3.728
+        ],
+        "one-click local agent installers stay in Settings and refuse untrusted selectors": [
+          3.577, 0, 6.97
+        ],
+        "opt-in orchestrator wake cancels a raced menu, rejects visible menus and lost working, and submits once": [
+          24.664, 0, 30.772
+        ],
+        "orchestrator decision pill, contained preview, review, stale head, withdrawal and board wait": [
+          22.486, 0, 30.211
+        ],
+        "owned child review loop: cap": [12.085, 0, 21.279],
+        "preview composition keeps tile and row panels visible and usable above captured pages": [
+          7.46, 11.776, 7.517
+        ],
+        "preview focused native input reaches board shortcuts including the tile leader and leaves ordinary keys in the page": [
+          2.501, 10.386, 6.009
+        ],
+        "preview handoff Escape restores board keyboard input during a never-finishing local load": [
+          7.289, 11.035, 7.515
+        ],
+        "prunable removal offers a coded modal; Enter is inert, Escape restores focus, and Prune keeps the branch": [
+          2.911, 21.218, 5.977
+        ],
+        "quit acknowledgement waits for the cancelled native quit to unwind": [1.362, 7.793, 2.922],
+        "quit via quit confirms, cancel preserves PTYs, and confirm reaps shells": [
+          2.855, 11.11, 3.976
+        ],
+        "recorded sounds refresh and preview user files while shell attention and completion stay silent": [
+          13.853, 17.103, 13.47
+        ],
+        "registered-host restart reattaches a live child with screen replay and fresh restricted authority": [
+          41.286, 0, 62.537
+        ],
+        "remote shell fixture restores profile sessions and palettes after hub restart": [
+          9.92, 0, 18.63
+        ],
+        "removal reviews serialize cleanup before review across boards while checking": [
+          4.256, 18.887, 10.139
+        ],
+        "removal reviews serialize cleanup before review on one board": [3.637, 22.096, 10.534],
+        "removal reviews serialize review before cleanup on one board": [2.892, 17.309, 7.156],
+        "restores running claude, shell and orchestrator children across windows": [
+          15.401, 0, 30.748
+        ],
+        "restores running codex, shell and orchestrator children across windows": [
+          13.136, 0, 26.236
+        ],
+        "restoring a depth-limit layout removes degenerate spaces before opening its menu": [
+          2.079, 8.063, 3.068
+        ],
+        "sample user themes paint visible sidebar and board gradients in light and dark": [
+          4.798, 10.312, 9.413
+        ],
+        "shell fixture starts through keyboard while startup layout moves": [1.689, 13.067, 4.492],
+        "sidebar machines launch human shells and agents and keep remote worktrees under repositories": [
+          14.966, 0, 23.392
+        ],
+        "source directory settings place new local agents above repositories": [2.167, 0, 10.62],
+        "terminal font picker updates open shells and config shells and refits their grids": [
+          2.965, 10.944, 5.941
+        ],
+        "terminals move between boards through menus and token-backed sidebar/title drops": [
+          9.936, 13.721, 10.722
+        ],
+        "the branch field creates a worktree by keyboard without launching; dirty removal confirms": [
+          10.343, 19.418, 11.147
+        ],
+        "theme bitmaps render only in approved slots with a narrow board CSP and clean fallback": [
+          5.454, 13.413, 11.702
+        ],
+        "tile leader avoids AltGr chords and cancels unmatched keys": [2.027, 9.407, 0],
+        "tiles build irregular layouts, preserve views and replace explicitly for attention": [
+          7.198, 15.729, 17.463
+        ],
+        "trusted quit dialog isolates answers, passes axe in every theme and survives a board crash": [
+          6.664, 12.455, 9.68
+        ],
+        "user-started trusted confirmation stays pending during simulated app deactivation": [
+          38.392, 44.576, 41.246
+        ],
+        "utility host survives concurrent terminal exits and drains multi-terminal shutdown": [
+          1.874, 9.986, 4
+        ],
+        "window size defaults to 60 percent and survives a normal quit and relaunch": [
+          6.831, 12.072, 5.923
+        ]
+      },
+      {
+        "About and launch replay keep Eclipse Dark while the board and legal dialogs follow the theme": [
+          4.015, 10.15, 6.981
+        ],
+        "About replay restores its opener after iris/countdown dismissal and completion": [
+          6.315, 16.916, 11.301
+        ],
+        "Agents scopes use saved host observations and Global enablement without checks on navigation": [
+          8.094, 0, 8.844
+        ],
+        "Closing an installer window shows Stopping while the vendor helper cleans its staging directory": [
+          4.539, 0, 8.809
+        ],
+        "Confirmed app quit shows Stopping for an installer awaiting its terminal create reply": [
+          6.129, 0, 9.206
+        ],
+        "Confirmed app quit takes over after an overlapping owner stop rejects": [5.054, 0, 8.467],
+        "General update opt-out persists; update notices and restart counts remain quiet": [
+          7.443, 8.524, 5.004
+        ],
+        "Hosts creates missing folders and reports enrollment and artifact failures": [
+          14.674, 0, 21.536
+        ],
+        "Hosts fences a trusted retry already inside the profile writer": [4.109, 0, 5.505],
+        "Hosts list cannot save an older SSH retry over a pending changed-key check": [
+          4.61, 0, 8.069
+        ],
+        "Hosts replaces a transient folder reload with the newest folder reply": [7.27, 0, 9.86],
+        "Hosts row reloads recover daemon state without inventing capability passes": [
+          6.816, 0, 11.272
+        ],
+        "Hosts shows Add progress and fixed failures without a check output panel": [
+          9.766, 0, 10.695
         ],
         "Hosts status classification preserves transport failures with a fixture catalog": [
           4.876, 0, 7.837
@@ -693,115 +1020,91 @@
         "Repositories lists existing checkouts and opens fixed repair recipes without exposing remote output": [
           12.835, 0, 14.621
         ],
-        "Settings forge cards persist user host assignments without activating providers": [
-          4.02, 13.411, 6.188
+        "Review fixture user data and Chromium session storage stay separate and are cleaned together": [
+          6.185, 7.79, 3.486
         ],
-        "Settings opens on General from the menu, sidebar and keyboard": [1.81, 8.786, 3.285],
-        "Settings shares live preflight values, sizes the terminal and restores keyboard focus": [
-          10.232, 16.592, 13.112
+        "Settings persists literal agent defaults and discloses bypass once per agent": [
+          8.35, 11.325, 9.018
         ],
-        "WebGL uses a visible context budget and releases hidden and unmounted views": [
-          17.398, 54.563, 40.086
+        "Windows projected snapshot measures enumeration and preserves this process identity": [
+          0, 0.852, 0
         ],
-        "a detached PR review works beside the author and closes with safe cleanup and dirty confirmation": [
-          28.527, 0, 64.584
+        "a CLI-only orchestrator has no Resume promise or exited Revoke menu item": [
+          4.746, 0, 10.295
         ],
-        "agent hooks and titles publish execution transitions independently of terminal output": [
-          4.664, 0, 14.627
+        "a child hands off results through the CLI without terminal input and the parent pulls them": [
+          6.534, 0, 11.148
         ],
-        "agent reopen is visible with free space and reports sidebar only at protected board capacity": [
-          8.554, 0, 16.794
+        "a narrow agent-opened preview shows its enabled network indicator": [8.849, 0, 9.635],
+        "a new shell has a rendered blinking cursor after reusing an exited terminal view": [
+          2.082, 9.393, 5.627
         ],
-        "an exited agy config tile closes in place with a saved conversation": [1.909, 0, 7.636],
-        "an idle orchestrator waits on children without hiding real attention": [6.557, 0, 11.342],
-        "an orchestrator adopts an open PR with child board placement off": [11.807, 0, 13.316],
-        "an unanswered request times out while a real fixture terminal still answers input": [
-          32.415, 39.404, 34.225
+        "an agent made orchestrator reports MCP attachment independently": [32.044, 0, 35.379],
+        "an agy config session greets with stderr help and help exit 0": [5.644, 0, 9.194],
+        "an orchestrator adopts an open PR, launches its child without taking focus and closes it after exit": [
+          11.167, 0, 16.128
         ],
         "appearance switches light and dark, and zoom shortcuts resize the interface": [
           9.88, 15.513, 12.006
         ],
-        "background removal rows stay independent review before orchestrator across boards": [
-          7.365, 22.499, 10.555
+        "blank-window manual and terminals share the leftmost column geometry": [
+          3.075, 13.469, 6.042
         ],
-        "bundled agy installer receives account environment locally and on registered hosts": [
-          1.507, 0, 3.201
+        "board pull requests show running failed and passed checks through fixture gh": [
+          9.095, 0, 19.263
+        ],
+        "board starts with live terminals only and focuses rows without opening": [
+          5.48, 11.828, 7.303
+        ],
+        "bundled OpenCode cards launch isolated event modules and resume assigned conversations": [
+          7.195, 50.652, 23.38
         ],
         "bundled claude installer receives account environment locally and on registered hosts": [
           1.488, 0, 2.617
         ],
-        "bundled copilot installer receives account environment locally and on registered hosts": [
-          1.494, 0, 4.022
-        ],
-        "bundled manual search supports keyboard navigation and section jumps": [
-          1.646, 8.121, 5.043
-        ],
         "bundled notices and licenses scroll and dismiss from About and menu commands": [
           4.632, 10.944, 5.969
         ],
-        "captured main timers honor native cancellation": [0.001, 0.001, 0.001],
-        "checkout shell closes from the tile without a session error": [2.502, 9.821, 4.852],
-        "closing a board declines its queued cleanup and releases its repository before another board answers": [
-          2.929, 21.932, 9.103
+        "bundled opencode installer receives account environment locally and on registered hosts": [
+          1.492, 0, 3.266
         ],
-        "closing a pending startup removes its temporary column from later saves": [
-          3.332, 0, 7.252
+        "child host pressure refuses with retry facts while human launches still start": [
+          4.414, 0, 7.367
         ],
-        "compositor readiness awaits output and releases subscriptions on output or failure": [
-          0.001, 0.001, 0.009
+        "click-again repository removal rejects double clicks, cancels, expires and confirms": [
+          10.022, 11.597, 9.182
         ],
-        "config file agent arguments require trusted Allow before a fake Codex launch": [
-          6.303, 13.857, 10.012
+        "config shell closes from the tile without a session error": [2.626, 9.062, 5.884],
+        "data views: host enrollment and removal update another open Agents machine picker": [
+          2.969, 10.489, 5.914
         ],
-        "config shell closes from the sidebar without a session error": [1.87, 8.205, 4.031],
-        "cursor-row output survives window shrink, grow and Settings reattachment": [
-          6.551, 7.827, 6.245
+        "data views: main write-to-push latency is measured with the real sandboxed bridge": [
+          1.304, 7.465, 2.854
         ],
-        "data views: Environment changes and masked secrets update another open editor": [
-          2.037, 7.717, 5.252
+        "external worktrees support independent shells and confirmed shared agents": [
+          7.474, 18.796, 15.552
         ],
-        "data views: config rejection updates open Config and Forges tabs": [2.404, 8.921, 4.376],
-        "data views: repository removal reaches an already open Settings inventory": [
-          2.113, 6.822, 3.832
+        "first remote repository launch ignores a local main-checkout agent in the real menu": [
+          9.938, 0, 16.261
         ],
-        "dispatcher elevation, pre-approved launch, launch grants and live demotion": [
-          5.405, 0, 9.726
-        ],
-        "dispatcher restart restores launch grants and adopted orchestrators": [8.701, 0, 10.477],
-        "document readiness awaits native navigation and releases listeners on success or failure": [
-          0.001, 0.002, 0.003
-        ],
-        "every interface theme applies live to native chrome and passes axe on board and Settings": [
-          20.022, 27.218, 19.038
-        ],
-        "external Git changes refresh inventory and retain sessions in removed worktrees": [
-          4.545, 13.998, 6.608
-        ],
-        "fake Codex receives inline flag only when help advertises it": [2.774, 0, 11.249],
-        "first-run git and selected forge hosts share lazy readiness and recover on recheck": [
-          4.058, 0, 6.103
-        ],
-        "fixture cleanup closes every app before removing directories and retains quit failures": [
-          0.002, 0.003, 0.003
-        ],
-        "fixture record publication retries Windows rename contention and cleans up on failure": [
-          0.003, 0.007, 0.008
-        ],
-        "fixture records await atomic writes, surface errors and abort with their case": [
-          0.004, 0.023, 0.035
-        ],
+        "first-run rail shares the Theme menu and saves its live selection": [2.578, 8.17, 9.481],
         "flight lens preserves main's procedural starfield outside its feathered disc": [
           3.836, 9.962, 5.66
         ],
         "fresh profiles adopt shared config without resetting a running profile": [
           3.048, 37.58, 12.3
         ],
-        "host smoke command uses fake SSH and survives a real hub restart": [11.55, 0, 31.261],
+        "large repository scans remain readable and filter without changing scale": [
+          2.418, 9.777, 4.833
+        ],
+        "launches an agent in a managed worktree and routes its attention signals": [
+          17.759, 0, 23.044
+        ],
         "local and registered-host installers stop their whole group after helper SIGKILL": [
           1.585, 0, 5.221
         ],
-        "macOS private selection pastes from terminal A to B through bracketed paste": [
-          5.87, 14.914, 9.999
+        "local and registered-host vendor helpers clean private files and descendants after exit and default PTY hangup": [
+          3.195, 0, 10.128
         ],
         "macOS quit from an inactive app activates trusted consent and keeps board close guarded": [
           0, 0, 4.994
@@ -809,93 +1112,87 @@
         "maximized-away terminals pause paints and restore without changing attachment": [
           3.363, 14.139, 8.419
         ],
-        "multiple windows restore independent layouts, bounds and interface size": [
-          8.961, 14.361, 11.012
+        "merged cleanup deletes external worktrees and branches while preserving a skipped checkout": [
+          8.549, 22.489, 14.832
         ],
-        "nested empty spaces collapse after restore": [3.032, 9.569, 7.553],
-        "orchestrator decision pill, contained preview, review, stale head, withdrawal and board wait": [
-          22.486, 0, 30.211
+        "neutral identity badges keep labels and geometry across themes and interface scales": [
+          9.008, 14.159, 8.227
         ],
-        "owned child review loop: blocked": [21.765, 0, 41.958],
+        "new and restored shells show a silent foreground program until the next prompt": [
+          3.968, 0, 0
+        ],
+        "one trusted approval queue appends, merges, withdraws and snapshots decisions without stealing terminal input": [
+          16.472, 18.685, 16.967
+        ],
         "owned child review loop: clean": [14.906, 0, 23.849],
         "owned child review loop: fix": [25.343, 0, 43.251],
         "owned child review loop: red": [8.933, 0, 18.425],
-        "owned child review loop: unresolved": [4.798, 0, 10.074],
-        "preview composition has no empty frames for a realistic HTML page": [7.937, 11.048, 7.054],
-        "preview composition keeps tile and row panels visible and usable above captured pages": [
-          7.46, 11.776, 7.517
+        "preflight fits safely through resize, zoom, long input and changing steps": [
+          7.447, 13.945, 9.459
         ],
-        "preview composition puts the trusted confirmation scrim above previews and restores on cancel": [
-          2.743, 11.61, 5.89
+        "preflight scans a code folder and adds the repositories worked on recently": [
+          4.064, 8.931, 5.936
         ],
-        "preview focused native input reaches board shortcuts including the tile leader and leaves ordinary keys in the page": [
-          2.501, 10.386, 6.009
+        "preview composition keeps maximize and restore live and excludes preview hit testing throughout tile drags": [
+          4.933, 13.201, 8.921
+        ],
+        "preview external links always use trusted review and drop scripted requests while pending": [
+          6.775, 9.414, 4.714
+        ],
+        "preview gutter drags keep the native view attached and resize it in place": [
+          2.509, 15.207, 6.859
+        ],
+        "preview history restores raster image mode and pan, and revalidates image bytes": [
+          5.602, 14.927, 10.034
         ],
         "preview history restores scroll, goes forward and recovers missing md links": [
           5.816, 18.332, 10.427
         ],
-        "preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions": [
-          7.063, 10.978, 4.782
-        ],
         "preview host keeps keyboard focus after a user-clicked link navigation": [
           7.697, 10.33, 7.865
         ],
-        "prunable removal offers a coded modal; Enter is inert, Escape restores focus, and Prune keeps the branch": [
-          2.911, 21.218, 5.977
+        "preview live reload follows retargeted symlinks and junctions": [2.56, 8.908, 6.23],
+        "previews move to existing boards at drop edges with identity, network reset and live reload": [
+          5.436, 12.719, 7.708
         ],
-        "quit during a stalled startup launch preserves saved shells (cancel)": [
-          1.87, 10.646, 3.12
+        "quit preserves a saved shell while startup discovery is stalled": [5.996, 8.251, 2.728],
+        "registered-host Pi and OpenCode consume private extensions, context, MCP and resume attachments": [
+          30.521, 0, 55.636
         ],
-        "quit ordering diagnostics bound records and redact locator actionability": [
-          0.001, 0.001, 0.001
+        "registered-host agy lifecycle uses host inventory and restricted child tools": [
+          19.645, 0, 32.755
         ],
-        "recorded sounds refresh and preview user files while shell attention and completion stay silent": [
-          13.853, 17.103, 13.47
+        "registered-host codex lifecycle uses host inventory and restricted child tools": [
+          25.176, 0, 41.286
         ],
-        "remote exit delivery across shrink reconciles the attached cursor row": [5.94, 0, 10.437],
         "remote host fixture checks preflight failures and enrolls an incomplete code folder": [
           10.965, 0, 22.056
         ],
-        "removal review updates one live dialog as delayed requests arrive and expire": [
-          3.261, 9.294, 6.972
+        "remote shell fixture copies links and confirms external browser navigation": [
+          9.391, 0, 8.688
         ],
-        "removal reviews serialize cleanup before review on one board": [3.637, 22.096, 10.534],
-        "removal reviews serialize review before cleanup across boards": [3.968, 19.774, 7.846],
-        "removal reviews serialize review before cleanup on one board": [2.892, 17.309, 7.156],
-        "removal reviews serialize review before orchestrator on one board": [2.318, 16.186, 8.907],
-        "restores running claude in a linked worktree, shell and orchestrator children across windows": [
-          14.669, 0, 27.543
+        "removal reviews serialize cleanup before orchestrator across boards while checking": [
+          4.179, 26.209, 11.02
         ],
-        "revoking an exited orchestrator prevents automatic role recovery on resume": [
-          5.31, 0, 9.28
+        "removal reviews serialize orchestrator before review on one board": [
+          2.573, 17.287, 14.158
         ],
-        "scrolled shell launcher hovered creates and focuses on the first click": [3.319, 0, 9.513],
-        "shell fixture starts through keyboard while startup layout moves": [1.689, 13.067, 4.492],
-        "shell launch paths select the new shell and its blinking input cursor": [
-          3.728, 10.493, 6.536
+        "removal reviews serialize review before orchestrator across boards": [
+          3.259, 16.276, 7.452
         ],
-        "startup honors manual Resume, Restart and Close while remote discovery is pending": [
-          7.578, 0, 15.362
+        "settled automatic orchestrator removals withdraw visible confirmations": [
+          3.826, 21.751, 11.126
         ],
-        "startup tracing waits for the board document and skips cancelled or failed navigation": [
-          0.003, 0.004, 0.004
+        "sidebar collapses at any width, refits once and opens a narrow overlay without reflow": [
+          4.439, 11.036, 7.156
         ],
-        "terminal context menu targets the clicked shell and preserves tracked right clicks": [
-          5.107, 18.966, 9.141
+        "sidebar refuses deletion of a running shell and enables it after exit, preserving branches and the main checkout": [
+          3.425, 21.089, 8.836
         ],
-        "terminal links retain complete targets under oversized normal and alternate replay": [
-          5.749, 12.607, 10.05
-        ],
-        "terminal runs an interactive shell behind an isolated bridge": [9.427, 18.783, 9.021],
-        "the board stays usable at 300% in a small window": [7.066, 8.975, 6.821],
-        "tile drag drops replace, split every edge, swap and move without reattachment; keyboard swaps and Escape": [
-          11.204, 31.588, 11.501
-        ],
-        "tile layouts restore v1 terminal content and v2 mixed content after inventory": [
-          7.781, 15.161, 10.325
-        ],
-        "tile leader avoids AltGr chords and cancels unmatched keys": [2.027, 9.407, 0],
         "tile terminal viewport has no native overflow bars": [2.619, 9.69, 6.454],
+        "trusted approval gestures cannot retarget withdrawals, expiry or arrivals and synthetic decisions grant nothing": [
+          29.775, 49.393, 28.282
+        ],
         "trusted card follows interface scale and clears its scrim on every dismissal": [
           5.262, 12.382, 9.101
         ],
@@ -908,305 +1205,10 @@
         "user markdown preview moves to a fresh window, resets network and keeps live reload": [
           8.12, 10.8, 8.824
         ],
-        "user-started trusted confirmation stays pending during simulated app deactivation": [
-          38.392, 44.576, 41.246
-        ],
-        "utility host survives concurrent terminal exits and drains multi-terminal shutdown": [
-          1.874, 9.986, 4
-        ],
-        "window size defaults to 60 percent and survives a normal quit and relaunch": [
-          6.831, 12.072, 5.923
-        ]
-      },
-      {
-        "About replay contains Tab and still dismisses with Enter Space or Escape": [
-          1.585, 7.811, 3.578
-        ],
-        "Agents Global list and machine picker scale to twelve agents and twelve saved hosts": [
-          18.134, 18.85, 19.542
-        ],
-        "Antigravity plugin first run disclosure installs and removes an observer that reports lifecycle": [
-          14.446, 0, 17.562
-        ],
-        "Antigravity plugin progress and partial Reinstall failure in light": [5.832, 0, 8.848],
-        "Appearance refuses a custom palette changed after it was offered": [1.837, 9.414, 2.998],
-        "Close removes the tile and sidebar before slow cleanup and restores a failed row": [
-          2.896, 8.769, 7.269
-        ],
-        "Confirmed app quit shows Stopping for an installer awaiting its terminal create reply": [
-          6.129, 0, 9.206
-        ],
-        "Confirming app quit discards the deferred owner close error": [4.857, 0, 7.673],
-        "Default themes follow native appearance live and Settings theme menus share the config launcher": [
-          9.488, 15.645, 14.353
-        ],
-        "Dismiss clears agent attention after typing consumed its feedback": [2.403, 0, 6.123],
-        "General close finished agents defaults on and saves immediately": [3.591, 11.859, 4.865],
-        "Hosts capability checks share one SSH connection and hosts finish independently": [
-          7.758, 0, 12.43
-        ],
-        "Hosts confirms stopping a running install before Settings closes and closes exited installs directly": [
-          7.373, 0, 10.875
-        ],
-        "Hosts fences a trusted retry already inside the profile writer": [4.109, 0, 5.505],
-        "Hosts gh device sign-in copies a strict code, opens only GitHub and refreshes one row": [
-          8.872, 0, 13.779
-        ],
-        "Hosts gh device sign-in leaves a failed install missing despite device output": [
-          6.9, 0, 8.291
-        ],
-        "Hosts kills fixture SSH on live diagnostic overflow and removes its private file": [
-          3.624, 0, 4.853
-        ],
-        "Hosts merges recipe rows with two Hosts windows already open": [9.037, 0, 14.106],
-        "Hosts never offers host-key trust from a remote command's forged SSH diagnostic": [
-          3.132, 0, 6.361
-        ],
-        "Hosts preload rejects an unversioned live SSH pass": [1.504, 8.479, 2.982],
-        "Hosts preserves a rejected replacement folder and reports unrepresentable row reloads inline": [
-          5.713, 0, 9.405
-        ],
-        "Hosts real OpenSSH client shows a visible trust dialog for a disposable loopback sshd": [
-          2.408, 0, 4.956
-        ],
-        "Hosts reloads individual rows and actions never trigger full capability checks": [
-          12.699, 0, 14.676
-        ],
-        "Hosts reports recipes that exit in the creation frame and refreshes their tool": [
-          4.89, 0, 11.475
-        ],
-        "Hosts row reloads recover daemon state without inventing capability passes": [
-          6.816, 0, 11.272
-        ],
-        "Hosts shows Add progress and fixed failures without a check output panel": [
-          9.766, 0, 10.695
-        ],
-        "Hosts shows a fixed SSH failure when the client disconnects after discovery": [
-          3.803, 0, 5.934
-        ],
-        "Review fixture user data and Chromium session storage stay separate and are cleaned together": [
-          6.185, 7.79, 3.486
-        ],
-        "Settings session panel preview follows color and contrast; Environment links to Agents": [
-          7.572, 9.163, 5.146
-        ],
-        "WebGL loss keeps the terminal, scrollback and attachment usable through DOM": [
-          11.585, 17.926, 18.848
-        ],
-        "a CLI-only orchestrator has no Resume promise or exited Revoke menu item": [
-          4.746, 0, 10.295
-        ],
-        "a compositor-ready board still fails when animation callbacks are withheld": [
-          16.13, 37.472, 14.01
-        ],
-        "a crashed utility host reports failure and the renderer can restart": [
-          2.256, 13.863, 8.498
-        ],
-        "a different tile never attaches a revoked ID while workspace refresh is held": [
-          3.565, 14.502, 6.806
-        ],
-        "a manifest-only v2 fixture agent loads from the config folder, reloads edits and is withdrawn when invalid": [
-          7.204, 24.854, 12.228
-        ],
-        "a user-authored code extension reports external hooks through the CLI and resumes on close": [
-          8.896, 26.514, 20.685
-        ],
-        "agent Settings patches preserve shortcut zoom and unrelated preferences": [
-          1.921, 7.647, 4.197
-        ],
-        "agent previews split a blank window into terminal-width columns": [3.194, 0, 7.168],
-        "an Antigravity orchestrator reviews worktree cleanup and revokes through the packaged console": [
-          33.486, 0, 46.086
-        ],
-        "an agent made orchestrator manages and reviews only its own children": [10.343, 0, 15.276],
-        "an agent made orchestrator reviews worktree cleanup and revokes with a live child": [
-          40.267, 0, 55.727
-        ],
-        "an orchestrator launches an agy child with stderr help and a nonzero help exit": [
-          4.814, 0, 9.883
-        ],
-        "application menu uses the command registry and supports native keyboard access": [
-          9.643, 19.84, 8.297
-        ],
-        "background removal rows stay independent orchestrator before review on one board": [
-          6.787, 19.067, 10.211
-        ],
-        "background removal rows stay independent review before orchestrator on one board": [
-          6.79, 16.778, 8.904
-        ],
-        "bundled codex installer receives account environment locally and on registered hosts": [
-          1.298, 0, 3.154
-        ],
-        "checkout shell closes from the sidebar without a session error": [2.108, 9.913, 6.252],
-        "commands removed from the wordmark menu keep their shortcuts": [2.351, 8.695, 0],
-        "config probe CLI drives only scratch fixture screens and the user can interrupt its tile": [
-          11.909, 51.808, 16.578
-        ],
-        "custom theme files appear live, update selected colors and retain rejected edits": [
-          3.688, 10.299, 5.632
-        ],
-        "data views: Agents updates an already open Settings window": [2.336, 8.928, 4.772],
-        "data views: Appearance and Sound update from another board": [6.697, 8.967, 4.285],
-        "data views: checkout, session and agent lifecycle changes publish across boards": [
-          2.584, 11.779, 5.333
-        ],
-        "extended user themes apply through both bridges and reject malformed theme data": [
-          3.539, 10.778, 6.393
-        ],
-        "external worktrees support independent shells and confirmed shared agents": [
-          7.474, 18.796, 15.552
-        ],
-        "failed exit refresh retains visible output and retries on the next resize": [
-          2.373, 9.767, 6.617
-        ],
-        "failed quit refuses a restored agent when its checkout changes during the spawn pause": [
-          3.49, 0, 5.744
-        ],
-        "first remote repository launch ignores a local main-checkout agent in the real menu": [
-          9.938, 0, 16.261
-        ],
-        "first run goes from no agents to go, launches by keyboard, and can be replayed": [
-          9.205, 0, 14.941
-        ],
-        "first-use repository launch exposes each fixed clone failure and Settings has no clone control": [
-          5.928, 0, 10.153
-        ],
-        "flight samples baked assets with WebGL, freezes reduced motion and stops after closing": [
-          6.679, 12.408, 10.715
-        ],
-        "focus reports reach the shell without counting as a reply": [4.678, 0, 8.302],
-        "group cleanup reviews untracked files and removes detached checkouts inside its root": [
-          8.299, 37.807, 16.476
-        ],
-        "launch startup dismisses menus and reserves tiles during slow SSH and agent discovery": [
-          14.43, 0, 16.541
-        ],
-        "live Bash redraws a long prompt once and retains narrow command output after growth": [
-          7.212, 0, 6.5
-        ],
-        "local terminal startup overlay is accessible in light and dark": [3.628, 9.538, 5.864],
-        "merged cleanup deletes external worktrees and branches while preserving a skipped checkout": [
-          8.549, 22.489, 14.832
-        ],
-        "moved HTML preview survives closed before showing destination placement": [
-          2.081, 10.365, 5.101
-        ],
-        "moved HTML preview survives delayed destination placement": [7.56, 13.123, 10.831],
-        "multiple windows share sessions, keep views exclusive and retain terminals on close": [
-          11.366, 17.781, 24.779
-        ],
-        "neutral identity badges keep labels and geometry across themes and interface scales": [
-          9.008, 14.159, 8.227
-        ],
-        "owned child review loop: binding": [11.083, 0, 17.376],
-        "owned child review loop: cap": [12.085, 0, 21.279],
-        "owned child review loop: concurrent": [23.667, 0, 42.797],
-        "owned child review loop: continue": [11.233, 0, 19.13],
-        "pastes claude --resume in a checkout and retains rejected conversations": [
-          2.478, 0, 4.317
-        ],
-        "pending startup saves an explicit split and sidebar changes across reload": [
-          3.969, 0, 8.118
-        ],
-        "preview handoff deadline restores board keyboard input during a never-finishing local load": [
-          4.615, 13.668, 9.278
-        ],
-        "preview history restores raster image mode and pan, and revalidates image bytes": [
-          5.602, 14.927, 10.034
-        ],
-        "preview manual reload controls preserve focus and shortcut targets only the focused preview": [
-          7.942, 11.052, 8.708
-        ],
-        "previews move to existing boards at drop edges with identity, network reset and live reload": [
-          5.436, 12.719, 7.708
-        ],
-        "quit during a stalled startup launch preserves saved shells (failed shutdown)": [
-          3.773, 8.316, 4.671
-        ],
-        "quit preserves a saved shell while startup discovery is stalled": [5.996, 8.251, 2.728],
-        "quit via close confirms, cancel preserves PTYs, and confirm reaps shells": [
-          2.772, 10.464, 6.791
-        ],
-        "raster image previews validate content, fit, show actual size and preserve pixels in both themes": [
-          3.586, 12.53, 8.777
-        ],
-        "registered-host agy lifecycle uses host inventory and restricted child tools": [
-          19.645, 0, 32.755
-        ],
-        "registered-host codex lifecycle uses host inventory and restricted child tools": [
-          25.176, 0, 41.286
-        ],
-        "reload during a blocked launch restores the original space without an extra empty tile": [
-          3.261, 0, 7.936
-        ],
-        "remote clones of one origin keep main's sharing warning answerable in the real menu": [
-          11.404, 0, 20.525
-        ],
-        "remote host fixture supplies startup palettes and refuses absent session reattachment": [
-          0.645, 0, 0.804
-        ],
-        "remote shell fixture restores profile sessions and palettes after hub restart": [
-          9.92, 0, 18.63
-        ],
-        "removal reviews serialize orchestrator before review across boards": [
-          3.584, 17.218, 7.734
-        ],
-        "removal reviews serialize review before orchestrator across boards": [
-          3.259, 16.276, 7.452
-        ],
-        "restored exited sessions hide the unattached terminal until restarted": [
-          3.953, 15.183, 7.804
-        ],
-        "restores running claude after declining manual Resume, shell and orchestrator children across windows": [
-          8.333, 0, 30.532
-        ],
-        "restores running claude with transient child checks, shell and orchestrator children across windows": [
-          11.696, 0, 18.254
-        ],
-        "restoring a depth-limit layout removes degenerate spaces before opening its menu": [
-          2.079, 8.063, 3.068
-        ],
-        "secondary window forwards Refusal through windows:refuse to the audio owner": [
-          1.902, 6.641, 4.16
-        ],
-        "settled automatic orchestrator removals withdraw visible confirmations": [
-          3.826, 21.751, 11.126
-        ],
-        "sidebar choice restores after restart and new windows start expanded": [
-          4.241, 14.01, 7.099
-        ],
-        "sidebar config agent menu launches a new config session in each window": [
-          7.663, 10.102, 12.664
-        ],
-        "sidebar footer zoom and master volume stay synchronized and presets are absent": [
-          3.228, 9.688, 5.864
-        ],
-        "small tile splits refuse visibly in both menus and keyboard commands": [
-          3.252, 11.015, 7.433
-        ],
-        "source directory settings place new local agents above repositories": [2.167, 0, 10.62],
-        "terminal font picker updates open shells and config shells and refits their grids": [
-          2.965, 10.944, 5.941
-        ],
-        "the trailing add repository row opens the fixture folder chooser": [7.262, 11.261, 10.282],
-        "theme bitmaps render only in approved slots with a narrow board CSP and clean fallback": [
-          5.454, 13.413, 11.702
-        ],
-        "trusted approval gestures cannot retarget withdrawals, expiry or arrivals and synthetic decisions grant nothing": [
-          29.775, 49.393, 28.282
-        ],
-        "trusted confirmations keep their first shown bounds while the parent is static": [
-          6.779, 11.631, 9.933
-        ],
         "utility host survives output floods without losing rows or delaying another PTY": [
           2.997, 10.75, 6.926
         ],
-        "v2 plugin setup confirms fixed actions and refuses unknown, malformed and linked metadata": [
-          14.58, 0, 24.799
-        ],
-        "version 2 themes scope portaled colors, shape and warnings and hold attention edits": [
-          3.422, 9.25, 5.753
-        ],
+        "volume sliders keep the dragged value while sound saves settle": [6.864, 7.835, 5.139],
         "wide blank tiles start as columns, full boards grow right, and hide refills without moving siblings": [
           3.266, 30.424, 6.247
         ]
@@ -3608,7 +3610,7 @@
     ]
   },
   "shardCounts": {
-    "ubuntu-24.04": 4,
+    "ubuntu-24.04": 5,
     "windows-2025": 6,
     "macos-15": 8
   }

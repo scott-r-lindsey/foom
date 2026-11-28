@@ -273,12 +273,13 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   );
 });
 
-test("desktop jobs use four Linux, six Windows and eight macOS shards", () => {
+test("desktop jobs use five Linux, six Windows and eight macOS shards", () => {
   assert.deepEqual(desktopMatrix(), [
-    { os: "ubuntu-24.04", shard: "1/4" },
-    { os: "ubuntu-24.04", shard: "2/4" },
-    { os: "ubuntu-24.04", shard: "3/4" },
-    { os: "ubuntu-24.04", shard: "4/4" },
+    { os: "ubuntu-24.04", shard: "1/5" },
+    { os: "ubuntu-24.04", shard: "2/5" },
+    { os: "ubuntu-24.04", shard: "3/5" },
+    { os: "ubuntu-24.04", shard: "4/5" },
+    { os: "ubuntu-24.04", shard: "5/5" },
     { os: "windows-2025", shard: "1/6" },
     { os: "windows-2025", shard: "2/6" },
     { os: "windows-2025", shard: "3/6" },
@@ -295,10 +296,11 @@ test("desktop jobs use four Linux, six Windows and eight macOS shards", () => {
     { os: "macos-15", shard: "8/8" },
   ]);
   assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [
-    { os: "ubuntu-24.04", shard: "1/4" },
-    { os: "ubuntu-24.04", shard: "2/4" },
-    { os: "ubuntu-24.04", shard: "3/4" },
-    { os: "ubuntu-24.04", shard: "4/4" },
+    { os: "ubuntu-24.04", shard: "1/5" },
+    { os: "ubuntu-24.04", shard: "2/5" },
+    { os: "ubuntu-24.04", shard: "3/5" },
+    { os: "ubuntu-24.04", shard: "4/5" },
+    { os: "ubuntu-24.04", shard: "5/5" },
   ]);
 });
 
@@ -1104,6 +1106,12 @@ test("ready reuse rejects mismatched or incomplete proof and falls back on API f
     "cancelled workflow": ({ run }) => (run.conclusion = "cancelled"),
     "affected matrix": ({ jobs }) => (jobs[3].name = "Electron (ubuntu-24.04, 1/1)"),
     "incomplete response": ({ report }) => report.total_count++,
+    "missing fifth Linux shard": ({ jobs, report }) => {
+      const index = jobs.findIndex(({ name }) => name === "Electron (ubuntu-24.04, 5/5)");
+      assert.notEqual(index, -1);
+      jobs.splice(index, 1);
+      report.total_count--;
+    },
     "missing packaging": ({ jobs, report }) => {
       jobs.splice(
         jobs.findIndex(({ name }) => name === "Native checks and packaging (macos-15)"),

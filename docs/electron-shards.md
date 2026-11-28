@@ -1,6 +1,6 @@
 # Electron test layout and shard balance
 
-Full CI runs use four named-test shards on Linux, six on Windows and eight on macOS.
+Full CI runs use five named-test shards on Linux, six on Windows and eight on macOS.
 Draft PRs with entirely mapped changes run the affected suites once per platform
 using shard `1/1`; any unmapped path retains the full matrix. The ready transition
 runs the full matrix unless CI verifies a completed full run for the same head SHA,
@@ -12,7 +12,7 @@ companion job per platform after all host builds succeed. Linux and Windows
 Electron and all host builds can start as soon as change detection finishes.
 macOS Electron and macOS native checks and packaging wait for all Linux
 Electron shards to succeed.
-The Quality gate requires all eighteen Electron jobs, host builds and all three
+The Quality gate requires all nineteen Electron jobs, host builds and all three
 packaging jobs. Draft quality gate requires the selected Electron jobs and the
 same host build and packaging jobs.
 It cannot satisfy the required Quality gate. See [merge safety](validation.md#ci-and-packages).
@@ -101,8 +101,8 @@ xvfb-run -a pnpm run test:electron
 # One exact test across discovered suites
 xvfb-run -a pnpm run test:electron --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
 # Run the same command again to reuse a matching build
-# Match CI shard 2 of 4
-FOOM_ELECTRON_SHARD=2/4 xvfb-run -a pnpm run test:electron
+# Match Linux CI shard 2 of 5
+FOOM_ELECTRON_SHARD=2/5 xvfb-run -a pnpm run test:electron
 # Registration, sharding and filter checks without launching Electron
 node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs scripts/electron-tests.test.mjs
 ```
