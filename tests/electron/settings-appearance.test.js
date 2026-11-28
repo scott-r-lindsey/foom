@@ -592,6 +592,48 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   assert.equal(await readFile(file, "utf8"), original);
 });
 
+test("approved theme artwork placement can change between launches", async (context) => {
+  const home = await mkdtemp(path.join(tmpdir(), "foom-art-restart-"));
+  removeAfterApps(context, home);
+  const options = { home, args: [`--user-data-dir=${path.join(home, "profile")}`] };
+  const app = await launchApp(context, { ...options, fixture: "empty-board" });
+  const page = await boardPage(app);
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const sharp = require("sharp");
+  const base = interfaceThemes["eclipse-dark"];
+  const theme = {
+    ...base,
+    version: 2,
+    name: "Approved artwork",
+    colors: { ...base.colors, attention: base.colors.ink },
+    images: { empty: { file: "art.png", opacity: 0.25 } },
+  };
+  const themes = path.join(home, ".foom/config/themes");
+  const file = path.join(themes, "art.json");
+  await sharp({ create: { width: 8, height: 8, channels: 3, background: "#142039" } })
+    .png()
+    .toFile(path.join(themes, theme.images.empty.file));
+  await writeFile(file, JSON.stringify(theme));
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await chooseTheme(page, theme.name);
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
+  const artwork = '.tile-area [data-theme-art="empty"]';
+  await expect(page.locator(artwork)).toHaveCSS("opacity", "0.25");
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+
+  theme.images.empty.opacity = 0.5;
+  await writeFile(file, JSON.stringify(theme));
+  const restored = await launchApp(context, { ...options, fixture: "restored" });
+  const board = await boardPage(restored);
+  await expect(board.locator("html")).toHaveCSS("--attention", theme.colors.attention);
+  await expect(board.locator(artwork)).toHaveCSS("opacity", "0.5");
+  assert.equal(
+    await board.evaluate(async () => (await window.desktop.configStatus()).pending),
+    null,
+  );
+});
+
 test("terminal font picker updates open shells and config shells and refits their grids", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);

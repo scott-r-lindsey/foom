@@ -76,8 +76,10 @@ const sha256 = (value: unknown): value is string =>
 
 export function parseThemeApproval(value: unknown): ThemeApproval | undefined {
   if (sha256(value)) return value;
+  if (!record(value)) return undefined;
+  if (Object.keys(value).length === 1 && sha256(value["paletteDigest"]))
+    return { paletteDigest: value["paletteDigest"] };
   if (
-    !record(value) ||
     Object.keys(value).length !== 4 ||
     value["decoded"] !== true ||
     !sha256(value["digest"]) ||
@@ -500,7 +502,7 @@ export class SettingsStore {
     settingsChanged(before, this.committedSettings);
   }
 
-  /** Digest of the theme file this profile last applied: that theme's approval baseline. */
+  /** Approval baseline of the theme this profile last applied. */
   themeDigest(file: string): ThemeApproval | null {
     return Object.hasOwn(this.themeDigests, file) ? (this.themeDigests[file] ?? null) : null;
   }

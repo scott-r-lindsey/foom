@@ -38,5 +38,5 @@ export interface ThemeBitmapSnapshot {
   diagnostics: readonly ThemeDiagnostic[];
 }
 
-/** Private profile baseline for attention distinctness, keyed by theme JSON digest. */
-export type ThemeApproval = string;
+/** Private profile baseline. Older records contain the full theme JSON digest. */
+export type ThemeApproval = string | { readonly paletteDigest: string };

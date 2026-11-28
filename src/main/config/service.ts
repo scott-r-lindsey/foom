@@ -58,7 +58,7 @@ export interface ConfigServiceDependencies {
       theme?: { file: string; digest: ThemeApproval },
     ): Promise<void>;
   };
-  /** The profile's digest of each interface theme file it last applied, by config path. */
+  /** The profile's approval baseline for each applied interface theme, by config path. */
   themeBaseline: {
     get(file: string): ThemeApproval | null;
     set(file: string, value: ThemeApproval | null): Promise<void>;
@@ -97,6 +97,13 @@ interface Palette {
   parsed: ParsedThemeFile;
   digest: string;
   bitmaps?: ThemeBitmapSnapshot;
+}
+
+function themeApproval({ parsed, digest: source }: Palette): ThemeApproval {
+  // The v2 parser builds the palette in fixed key order and keeps artwork separate.
+  return parsed.kind === "theme" && parsed.theme.version === 2
+    ? { paletteDigest: digest(JSON.stringify(parsed.theme)) }
+    : source;
 }
 
 interface Selection {
@@ -557,7 +564,7 @@ export class ConfigService {
       .set(
         digest(applied.text),
         applied.text,
-        selection && palette ? { file: selection.file, digest: palette.digest } : undefined,
+        selection && palette ? { file: selection.file, digest: themeApproval(palette) } : undefined,
       )
       .catch(ignore);
   }
@@ -625,9 +632,12 @@ export class ConfigService {
       await this.acceptTheme(file, candidate, false);
       return;
     }
+    const baseline = this.deps.themeBaseline.get(file);
     const previous =
       this.appliedThemes.get(file) ??
-      (candidate.digest === this.deps.themeBaseline.get(file) ? candidate : undefined);
+      (candidate.digest === baseline || isDeepStrictEqual(themeApproval(candidate), baseline)
+        ? candidate
+        : undefined);
     const approved = new Set(
       previous?.parsed.kind === "theme" ? attentionConflicts(previous.parsed.theme) : [],
     );
@@ -658,7 +668,7 @@ export class ConfigService {
     this.appliedThemes.set(file, candidate);
     if (!active) return;
     try {
-      await this.deps.themeBaseline.set(file, candidate.digest);
+      await this.deps.themeBaseline.set(file, themeApproval(candidate));
     } catch {
       /* An unrecorded baseline only means a later restart holds this palette again. */
     }
