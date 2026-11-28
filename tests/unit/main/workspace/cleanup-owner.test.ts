@@ -459,7 +459,44 @@ it("reviews kept worktrees without deletion authority and reuses a fresh eligibi
   expect(f.worktrees.deleteMergedBranches).not.toHaveBeenCalled();
 });
 
-it("shows the newest eligibility when a kept review's scan is superseded", async () => {
+it("discards a kept review's delayed inventory after newer eligibility is published", async () => {
+  const f = fixture();
+  const locked = tree("locked", { locked: true });
+  f.trees([locked]);
+  expect((await f.scan()).mergedCount).toBe(0);
+
+  const started = Promise.withResolvers<undefined>();
+  const inventory = Promise.withResolvers<Worktree[]>();
+  f.deps.inventory.mockImplementationOnce(() => {
+    started.resolve(undefined);
+    return inventory.promise;
+  });
+  f.advance();
+  await f.owner.reviewMerged(repository, async (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
+    const feed = request.feed;
+    await started.promise;
+    expect(feed.current().stage).toBe("checking");
+    f.trees([locked, tree("newly-locked", { locked: true }), tree("eligible")]);
+    expect((await f.scan()).mergedCount).toBe(1);
+    inventory.resolve([locked]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.deps.onChange).toHaveBeenCalledTimes(2);
+    expect(f.inventory().mergedCount).toBe(1);
+    expect(feed.current()).toMatchObject({
+      stage: "ready",
+      progress: {
+        items: [
+          { branch: "locked", reason: "unavailable" },
+          { branch: "newly-locked", reason: "unavailable" },
+        ],
+      },
+    });
+    return false;
+  });
+});
+
+it("shows the newest eligibility before the kept review's superseded scan settles", async () => {
   const f = fixture();
   const locked = tree("locked", { locked: true });
   const dirty = tree("dirty");
@@ -483,10 +520,13 @@ it("shows the newest eligibility when a kept review's scan is superseded", async
     expect(feed.current().stage).toBe("checking");
     f.trees([{ ...locked, locked: false }, dirty]);
     expect((await f.scan()).mergedCount).toBe(1);
-    status.resolve(" M tracked.txt\0");
-    await vi.waitFor(() => {
-      expect(feed.current().stage).toBe("ready");
-    });
+    try {
+      await vi.waitFor(() => {
+        expect(feed.current().stage).toBe("ready");
+      });
+    } finally {
+      status.resolve(" M tracked.txt\0");
+    }
     expect(feed.current().progress.items).toMatchObject([
       { branch: "dirty", reason: "uncommitted changes" },
     ]);
@@ -494,7 +534,7 @@ it("shows the newest eligibility when a kept review's scan is superseded", async
   });
 });
 
-it.each(["success", "failure", "inventory failure"] as const)(
+it.each(["success", "failure", "inventory failure", "no linked worktrees"] as const)(
   "refreshes expired eligibility for the panel and kept review (%s)",
   async (outcome) => {
     const f = fixture();
@@ -507,13 +547,14 @@ it.each(["success", "failure", "inventory failure"] as const)(
       f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
     if (outcome === "inventory failure")
       f.deps.inventory.mockRejectedValueOnce(new Error("unavailable"));
+    if (outcome === "no linked worktrees") f.trees([tree("main", { path: repository })]);
     await f.owner.reviewMerged(repository, async (request) => {
       if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
       const feed = request.feed;
       expect(feed.current().stage).toBe("checking");
       await vi.waitFor(() => {
         expect(feed.current()).toMatchObject(
-          outcome === "success"
+          outcome === "success" || outcome === "no linked worktrees"
             ? { stage: "ready", progress: { items: [], total: 0 } }
             : { error: "fetch failed" },
         );
@@ -522,6 +563,10 @@ it.each(["success", "failure", "inventory failure"] as const)(
     });
     if (outcome === "success") expect(f.inventory().mergedCount).toBe(1);
     if (outcome === "failure") expect(f.inventory().mergedError).toBe("offline");
+    if (outcome === "no linked worktrees") {
+      expect(f.inventory().mergedCount).toBeUndefined();
+      expect(f.worktrees.mergedDefault).toHaveBeenCalledOnce();
+    }
   },
 );
 
