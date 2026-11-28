@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 import { discoverRemoteSessions } from "../../../../src/main/workspace/remote-session-restore";
 import { readSessions } from "../../../../src/main/workspace/session-store";
+import { LocalLaunchRefusal } from "../../../../src/shared/launch-failure";
 import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
@@ -146,6 +147,25 @@ test("host setup starts a local machine agent with a main-owned, spawn-validated
   expect(agents.launch.mock.calls[0]?.[0].control).toBeUndefined();
   expect(validate).toHaveBeenCalledWith(true);
   expect(workspace.snapshot().terminals[0]?.placement).toEqual({ kind: "local" });
+});
+
+test.each([
+  { agent: "codex", reason: "agent_unavailable" },
+  { agent: "claude", reason: "agent-discovery-failed", error: new Error("private scan failure") },
+  {
+    agent: "claude",
+    reason: "agent-provider-changed",
+    error: new LocalLaunchRefusal("agent-provider-changed", "fixture provider changed"),
+  },
+])("host setup refuses $reason before local spawn", async ({ agent, reason, error }) => {
+  const workspace = configured();
+  if (error) agents.scan.mockRejectedValueOnce(error);
+  const validate = vi.fn();
+  await expect(
+    workspace.startHostSetupAgent("setup-id", agent, "fixed brief", validate),
+  ).rejects.toMatchObject({ reason });
+  expect(validate).toHaveBeenCalledOnce();
+  expect(agents.launch).not.toHaveBeenCalled();
 });
 
 test.each([
