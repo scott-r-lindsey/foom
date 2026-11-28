@@ -70,13 +70,19 @@ export interface CleanupOwnerDependencies {
   now: () => number;
 }
 
+interface MergeEligibilitySnapshot {
+  /** An absent plan represents a failed scan. */
+  plan: readonly CleanupCandidate[] | undefined;
+  fetchedAt: number | undefined;
+}
+
 interface MergeEligibility {
   generation: number;
   key: string | undefined;
   count: number;
   expires: number;
   pending?: { promise: Promise<void>; wake: () => void };
-  plan?: readonly CleanupCandidate[];
+  completed: MergeEligibilitySnapshot | undefined;
   result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
 }
 
@@ -546,9 +552,11 @@ export class CleanupOwner {
 
   private async mergedPlan(repository: string, refresh: boolean, inventory?: readonly Worktree[]) {
     const trees = inventory ?? (await this.deps.inventory(repository));
-    if (!trees.some((tree) => tree.path !== repository && !tree.bare)) return [];
+    if (!trees.some((tree) => tree.path !== repository && !tree.bare))
+      return { plan: [], fetchedAt: undefined };
     const base = await this.deps.worktrees.mergedDefault(repository, refresh);
-    return Promise.all(
+    const fetchedAt = this.deps.worktrees.mergedFetchTime(repository);
+    const plan = await Promise.all(
       trees.map(async (tree) => {
         let reason: CleanupReason | undefined;
         if (tree.removalFailed) return { tree, reason: this.sessionSkip(tree.path) };
@@ -601,6 +609,7 @@ export class CleanupOwner {
         }
       }),
     );
+    return { plan, fetchedAt };
   }
 
   async deleteMerged(
@@ -719,11 +728,12 @@ export class CleanupOwner {
       });
       this.cleanupRuns.set(repository, run);
       const cached = this.mergeEligibility.get(repository);
-      const prepare =
-        cached?.plan && this.deps.now() < cached.expires
-          ? Promise.resolve(cached.plan)
-          : this.mergedPlan(repository, true);
-      if (cached?.plan && this.deps.now() < cached.expires) run.ready(cached.plan);
+      const plan =
+        cached && !cached.pending && this.deps.now() < cached.expires
+          ? cached.completed?.plan
+          : undefined;
+      const prepare = plan ?? this.mergedPlan(repository, true).then(({ plan }) => plan);
+      if (plan) run.ready(plan);
       // Request presentation before awaiting network or filesystem checks.
       const answer = confirm({
         kind: "merged-worktrees",
@@ -757,11 +767,25 @@ export class CleanupOwner {
   async reviewMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
     this.deps.known(repository);
     const cached = this.mergeEligibility.get(repository);
+    // Null denotes a review that is still checking. Undefined is a completed empty review.
+    let displayed: MergeEligibilitySnapshot | undefined | null = null;
+    const show = (snapshot: MergeEligibilitySnapshot | undefined) => {
+      displayed = snapshot;
+      if (snapshot && !snapshot.plan) review.failed();
+      else review.ready(snapshot?.plan ?? []);
+    };
     const review = new CleanupRun({
       reviewOnly: true,
       checkingCount: cached?.count,
-      fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
+      fetchedAt: () => displayed?.fetchedAt,
       changed: () => {},
+      preparePresentation: () => {
+        const entry = this.mergeEligibility.get(repository);
+        const snapshot = entry?.completed;
+        if (snapshot?.plan?.some((item) => !item.reason)) return false;
+        if (snapshot !== displayed && (displayed !== null || !entry?.pending)) show(snapshot);
+        return true;
+      },
     });
     const answer = confirm({
       kind: "merged-worktrees",
@@ -782,8 +806,7 @@ export class CleanupOwner {
         await entry.pending.promise;
         entry = this.mergeEligibility.get(repository);
       }
-      if (entry?.result.mergedError !== undefined) review.failed();
-      else review.ready(entry?.plan ?? []);
+      show(entry?.completed);
     } catch {
       review.failed();
     }
@@ -828,6 +851,7 @@ export class CleanupOwner {
       count: inventory?.worktrees.length ?? cached?.count ?? 0,
       expires: Number.POSITIVE_INFINITY,
       pending: { promise, wake },
+      completed: cached?.completed,
       // Keep the menu hidden at a known zero until the replacement scan settles.
       result: {
         canDeleteMerged: false,
@@ -846,11 +870,11 @@ export class CleanupOwner {
     const readPlan = async () => {
       if (inventory) return this.mergedPlan(repository, false, inventory.worktrees);
       const worktrees = await this.deps.inventory(repository);
-      if (!isCurrent()) return [];
+      if (!isCurrent()) return { plan: [], fetchedAt: undefined };
       this.deps.known(repository);
       if (!worktrees.some((tree) => tree.path !== repository && !tree.bare)) {
         this.clearMergeEligibility(repository);
-        return [];
+        return { plan: [], fetchedAt: undefined };
       }
       entry.key = this.mergeEligibilityKey(worktrees);
       entry.count = worktrees.length;
@@ -860,9 +884,9 @@ export class CleanupOwner {
     this.mergeScans.set(repository, scans);
     const scan: Promise<void> = readPlan()
       .then(
-        (plan) => {
+        ({ plan, fetchedAt }) => {
           if (!isCurrent()) return;
-          entry.plan = plan;
+          entry.completed = { plan, fetchedAt };
           publish({
             canDeleteMerged: plan.some((item) => !item.reason),
             mergedCount: plan.filter((item) => !item.reason).length,
@@ -870,6 +894,7 @@ export class CleanupOwner {
         },
         (error: unknown) => {
           if (!isCurrent()) return;
+          entry.completed = { plan: undefined, fetchedAt: undefined };
           publish({
             canDeleteMerged: false,
             mergedError: error instanceof Error ? error.message : String(error),

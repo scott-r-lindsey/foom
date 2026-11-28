@@ -56,7 +56,10 @@ it opens checking before awaiting the fresh plan. Approval always fetches afresh
 The zero-count fact opens a read-only cleanup feed that lists kept worktrees.
 It joins any matching eligibility scan and refreshes an expired cached plan
 through the same inventory path. If a newer scan supersedes the one it joined,
-the review waits for current eligibility. This feed holds no removal capability.
+the review waits for current eligibility. At presentation, a queued review uses
+the reasons and fetch time from the same completed scan. If that scan found
+eligible worktrees, main skips the queued review and the panel shows the updated
+count. This feed holds no removal capability.
 Fetch operations are queued per repository, including background and explicit scans.
 Each waits for both subprocesses to settle before releasing the queue on failure.
 Default discovery runs `ls-remote --symref` alongside `fetch --prune`, then tests

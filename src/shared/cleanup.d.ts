@@ -38,6 +38,8 @@ export interface CleanupDialog {
 }
 /** Main-only capability, never sent over IPC. */
 export interface CleanupFeed {
+  /** Recheck a queued review before its first render. False skips the dialog. */
+  preparePresentation?(): boolean;
   current(): CleanupDialog;
   subscribe(listener: () => void): () => void;
   act(): void;

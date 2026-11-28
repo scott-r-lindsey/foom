@@ -41,8 +41,11 @@ export class CleanupRun implements CleanupFeed {
       checkingCount?: number | undefined;
       fetchedAt?(): number | undefined;
       changed(): void;
-    } & (CleanupActions | { reviewOnly: true }),
+    } & (CleanupActions | { reviewOnly: true; preparePresentation(): boolean }),
   ) {}
+  preparePresentation(): boolean {
+    return "reviewOnly" in this.deps ? this.deps.preparePresentation() : true;
+  }
   get pending(): boolean {
     return this.phase !== "finished";
   }
@@ -101,7 +104,11 @@ export class CleanupRun implements CleanupFeed {
     for (const listener of this.listeners) listener();
   }
   ready(plan: readonly CleanupCandidate[]): void {
-    if ("reviewOnly" in this.deps) plan = plan.filter((item) => item.reason !== undefined);
+    if ("reviewOnly" in this.deps) {
+      plan = plan.filter((item) => item.reason !== undefined);
+      this.error = undefined;
+      this.phase = "fetch";
+    }
     this.plan = plan;
     this.items = plan.map(({ tree, reason, changes }, index) => ({
       id: String(index),
@@ -128,6 +135,7 @@ export class CleanupRun implements CleanupFeed {
     this.publish();
   }
   failed(): void {
+    if ("reviewOnly" in this.deps) this.items = [];
     this.error = "fetch failed";
     this.stage = "run";
     this.phase = "finished";

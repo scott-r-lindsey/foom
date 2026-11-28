@@ -1,6 +1,7 @@
 import { CheckoutHolds } from "../../../../src/main/workspace/worktree-reservations";
 import { expect, it, vi } from "vitest";
 import { CleanupOwner } from "../../../../src/main/workspace/cleanup-owner";
+import { RemovalPresentations } from "../../../../src/main/confirmations/removal-review";
 import { remoteRemovalStatus } from "../../../../src/main/workspace/worktree-operations";
 import type { CleanupOwnerDependencies } from "../../../../src/main/workspace/cleanup-owner";
 import type { CleanupFeed } from "../../../../src/shared/cleanup";
@@ -458,6 +459,89 @@ it("reviews kept worktrees without deletion authority and reuses a fresh eligibi
   expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
   expect(f.worktrees.deleteMergedBranches).not.toHaveBeenCalled();
 });
+
+it.each(["still kept", "eligible", "pending", "failed"] as const)(
+  "checks the completed eligibility scan when a queued kept review opens (%s)",
+  async (outcome) => {
+    const f = fixture();
+    f.worktrees.changes.mockResolvedValue(" M tracked.txt\0");
+    expect((await f.scan()).mergedCount).toBe(0);
+
+    const presentations = new RemovalPresentations();
+    const firstDialog = Promise.withResolvers<boolean>();
+    const first = presentations.run(() => firstDialog.promise);
+    const presented = vi.fn<(snapshot: ReturnType<CleanupFeed["current"]>) => void>();
+    const enqueued = Promise.withResolvers<CleanupFeed>();
+    const pendingStatus = Promise.withResolvers<string>();
+    const review = f.owner.reviewMerged(repository, (request) => {
+      if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing review");
+      const feed = request.feed;
+      enqueued.resolve(feed);
+      return presentations.run(() => {
+        if (feed.preparePresentation?.() === false) return Promise.resolve(false);
+        presented(feed.current());
+        return Promise.resolve(false);
+      });
+    });
+    try {
+      const feed = await enqueued.promise;
+      expect(feed.current()).toMatchObject({
+        stage: "ready",
+        fetchedAt: 500,
+        progress: { items: [{ branch: "feature", reason: "uncommitted changes" }] },
+      });
+      f.worktrees.changes.mockResolvedValue("");
+      f.worktrees.mergedCommit.mockResolvedValue(outcome === "eligible");
+      f.worktrees.mergedFetchTime.mockReturnValue(61_000);
+      if (outcome === "failed")
+        f.worktrees.mergedDefault.mockRejectedValueOnce(new Error("offline"));
+      f.advance();
+      const scan = await f.scan();
+      if (outcome === "failed") expect(scan.mergedError).toBe("offline");
+      else expect(scan.mergedCount).toBe(outcome === "eligible" ? 1 : 0);
+      if (outcome === "pending") {
+        f.worktrees.cleanupStatus.mockReturnValueOnce(pendingStatus.promise);
+        f.worktrees.mergedFetchTime.mockReturnValue(121_000);
+        f.advance();
+        f.inventory();
+        await vi.waitFor(() => {
+          expect(f.worktrees.mergedFetchTime).toHaveBeenCalledTimes(3);
+        });
+      }
+      expect(presented).not.toHaveBeenCalled();
+    } finally {
+      firstDialog.resolve(false);
+      try {
+        await Promise.all([first, review]);
+      } finally {
+        pendingStatus.resolve("");
+      }
+    }
+
+    if (outcome === "eligible") {
+      expect(presented).not.toHaveBeenCalled();
+      expect(f.inventory().mergedCount).toBe(1);
+    } else if (outcome === "failed") {
+      expect(presented).toHaveBeenCalledOnce();
+      const snapshot = presented.mock.calls[0]?.[0];
+      expect(snapshot).toMatchObject({
+        error: "fetch failed",
+        progress: { items: [] },
+      });
+      expect(snapshot).not.toHaveProperty("fetchedAt");
+    } else {
+      expect(presented).toHaveBeenCalledOnce();
+      expect(presented.mock.calls[0]?.[0]).toMatchObject({
+        stage: "ready",
+        fetchedAt: 61_000,
+        progress: {
+          items: [{ branch: "feature", reason: "not merged" }],
+        },
+      });
+    }
+    expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
+  },
+);
 
 it("discards a kept review's delayed inventory after newer eligibility is published", async () => {
   const f = fixture();

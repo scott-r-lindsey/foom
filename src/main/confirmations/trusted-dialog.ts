@@ -488,6 +488,7 @@ export class TrustedDialog {
       delete renderContent.removal;
       delete renderContent.approval;
       delete renderContent.userAction;
+      if (feed?.preparePresentation?.() === false) return false;
       const request: DialogRequest = {
         ...renderContent,
         id,

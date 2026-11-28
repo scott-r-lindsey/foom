@@ -12,7 +12,8 @@ zero eligible worktrees hides the command. In the repository panel, select
 read-only review opens with a **Close** button. Opening the repository panel or
 selecting the zero count refreshes eligibility when the cached result is at least
 one minute old. When the scan finds eligible worktrees, the command and its
-count return automatically.
+count return automatically. If the latest completed scan finds eligible
+worktrees while a kept-worktree review is queued, that review is dismissed.
 
 Foom fetches the remote
 (`origin`, or the sole remote) and resolves its advertised default branch. A
