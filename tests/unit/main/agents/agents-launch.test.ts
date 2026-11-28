@@ -22,6 +22,7 @@ import {
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentLaunch } from "../../../../src/shared/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 
 describe("automation spawn authority", () => {
@@ -439,7 +440,7 @@ describe("human home launches", () => {
 
 describe("main-owned permission levels", () => {
   it.each([false, true])(
-    "resolves a dispatcher orchestrator's permission for its destination (remote=%s)",
+    "refuses dispatcher bypass defaults and uses the destination's permission (remote=%s)",
     async (remote) => {
       listWorktrees.mockResolvedValue([{ path: root, bare: false, prunable: false }]);
       const spawn = vi.fn(async (spec: TerminalSpec) => {
@@ -478,36 +479,44 @@ describe("main-owned permission levels", () => {
           }),
       );
       service.setHooksEnabled(false);
-      service.setPermissionLevels({
-        local: { codex: { level: "ask" } },
-        "host:worker": { codex: { level: "workspace" } },
-      });
       const previous = versions.codex;
       versions.codex = "codex-cli 0.167.0";
       agentFixture.help = "--sandbox --ask-for-approval -c";
+      const launch: AgentLaunch = {
+        ...request,
+        agent: "codex",
+        worktree: root,
+        mainCheckout: true,
+        automated: true,
+        control: { role: "orchestrator" },
+        prompt: "Review the release.",
+        beforeSpawn() {},
+        ...(remote
+          ? {
+              remoteOrchestrator: {
+                target: { host: "worker" },
+                origin: "https://example.test/project.git",
+                path: "/remote/project",
+                validate: async () => {},
+              },
+            }
+          : { localOnly: true }),
+      };
       try {
         await expect(
           service.launch({
-            ...request,
-            agent: "codex",
-            worktree: root,
-            mainCheckout: true,
-            automated: true,
-            control: { role: "orchestrator" },
-            prompt: "Review the release.",
-            beforeSpawn() {},
-            ...(remote
-              ? {
-                  remoteOrchestrator: {
-                    target: { host: "worker" },
-                    origin: "https://example.test/project.git",
-                    path: "/remote/project",
-                    validate: async () => {},
-                  },
-                }
-              : { localOnly: true }),
+            ...launch,
+            defaultArguments: ["-c", 'profiles={fixture={sandbox_mode="danger-full-access"}}'],
           }),
-        ).resolves.toMatchObject({ permissionLevel: remote ? "workspace" : "ask" });
+        ).rejects.toThrow("Unattended child bypass is unavailable");
+        expect(spawn).not.toHaveBeenCalled();
+        service.setPermissionLevels({
+          local: { codex: { level: "ask" } },
+          "host:worker": { codex: { level: "workspace" } },
+        });
+        await expect(service.launch(launch)).resolves.toMatchObject({
+          permissionLevel: remote ? "workspace" : "ask",
+        });
         expect(spawn).toHaveBeenCalledOnce();
       } finally {
         service.release(spawn.mock.lastCall?.[0].id ?? "terminal-id");

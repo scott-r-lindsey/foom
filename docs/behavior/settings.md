@@ -139,9 +139,10 @@ characters. Foom reserves Claude `--settings`, `--safe-mode` and `--bare`,
 these defaults cannot displace its attention flags. Saving a known bypass argument
 requires a main-owned trusted dialog once per provider/disclosure identity, with Cancel focused by default: a worktree is not a sandbox, and
 the agent can act as the user anywhere on the machine. Cancelling leaves settings
-unchanged. Codex `danger-full-access` sandbox flags and `sandbox_mode` overrides
-also count as bypass, even with approvals enabled. Known bypass detection is a
-fixed table, not an effective-policy audit. On load, an invalid agent's stored
+unchanged. Codex `--yolo`, explicit full-access sandbox settings, and settings
+that disable approval prompts count as bypass. Foom checks recognized launch
+arguments against the [manifest rules](../contracts/agent-compatibility.md#launch-argument-bypass-audit-1318).
+On load, an invalid agent's stored
 argument list is dropped without resetting other settings or other agents' lists.
 Consent records bind the provider origin and manifest, including executable and
 bypass policy. Historical built-in consent is retained only for its pinned build

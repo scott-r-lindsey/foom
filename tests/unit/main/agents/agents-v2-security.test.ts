@@ -22,8 +22,30 @@ import { bypassConsentIdentity } from "../../../../src/main/agents/default-argum
 import codexManifest from "../../../../src/shared/bundled-agents/codex.json";
 import { hostRequest } from "../../../../src/shared/terminal-host-protocol";
 
+it("requires human acknowledgement to launch Codex with the bypass alias", async () => {
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const service = enabledAgentService(
+    { listWorktrees, launchIdentity },
+    { create },
+    undefined,
+    undefined,
+    new AgyPlugin(),
+    confirm,
+  );
+  agentFixture.service = service;
+  service.setHooksEnabled(false);
+  const launch = { ...request, agent: "codex", defaultArguments: ["--yolo"] };
+  await expect(service.launch(launch)).rejects.toThrow("cancelled");
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(create).not.toHaveBeenCalled();
+  confirm.mockResolvedValue(true);
+  await expect(service.launch(launch)).resolves.toMatchObject({ bypass: true });
+  expect(create.mock.calls[0]?.[0].args).toContain("--yolo");
+});
+
 it.each([
   ["opencode", "--auto"],
+  ["opencode", "--dangerouslySkipPermissions"],
   ["copilot", "--yolo"],
 ])(
   "%s bundled launches require current provider consent for inherited config-origin bypass defaults",
@@ -49,6 +71,12 @@ it.each([
     );
     const inherited = { ...request, agent: provider.id, defaultArguments: [bypass] };
     service.setHooksEnabled(false);
+    service.setBypassIdentities({ [provider.id]: currentIdentity });
+    await expect(service.launch({ ...inherited, control: { parentId: "parent" } })).rejects.toThrow(
+      "Unattended child bypass is unavailable",
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
     service.setBypassIdentities({ [provider.id]: priorIdentity });
     await expect(service.launch(inherited)).rejects.toThrow("cancelled");
     expect(create).not.toHaveBeenCalled();

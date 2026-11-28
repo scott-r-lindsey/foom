@@ -226,6 +226,18 @@
     {
       "flag": "--auto",
       "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--yolo",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--dangerously-skip-permissions",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--dangerouslySkipPermissions",
+      "forms": ["exact", "equals"]
     }
   ],
   "bypassEnvironment": [],
