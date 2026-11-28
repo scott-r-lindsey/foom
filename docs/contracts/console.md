@@ -145,8 +145,9 @@ is a fixed control error. Omission preserves Settings default arguments.
 ### Dispatcher commands (#1300)
 
 From the dispatcher session, run `foom repos` or
-`foom launch-orchestrator REPO --agent PROVIDER --prompt TEXT --idempotency-key KEY`.
-The launch command accepts `--host HOST` and `--reason TEXT`. A pending receipt
+`foom launch-orchestrator PATH --agent PROVIDER --prompt TEXT --idempotency-key KEY`.
+Use the exact registered path returned by `repos`. The launch command accepts
+`--host HOST` and `--reason TEXT`. A pending receipt
 appears as a launch grant in the dispatcher's decisions pill. Read it with
 `foom operation-status --idempotency-key KEY`. Use `stop`, `session-state` and
 `read-handoff` with the owned orchestrator IDs from `repos`. Dispatcher prompt

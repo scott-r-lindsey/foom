@@ -27,10 +27,15 @@ async function fixture(context) {
   const home = path.join(root, "home");
   const profile = path.join(root, "profile");
   await Promise.all([source, bin, home].map((directory) => mkdir(directory)));
-  for (const name of ["billing", "infra", "ledger", "tools"]) {
-    const cwd = path.join(source, name);
-    await mkdir(cwd);
-    gitSync(["init", "-q", "-b", "main"], { cwd });
+  const projects = Object.fromEntries(
+    ["billing", "infra", "ledger", "tools"].map((name) => [name, path.join(source, "teams", name)]),
+  );
+  const unregistered = path.join(source, "teams", "scratch");
+  for (const cwd of [...Object.values(projects), unregistered]) {
+    await mkdir(cwd, { recursive: true });
+    const metadata =
+      cwd === projects.infra ? ["--separate-git-dir", path.join(root, "infra-git")] : [];
+    gitSync(["init", "-q", "-b", "main", ...metadata], { cwd });
     gitSync(
       [
         "-c",
@@ -68,7 +73,23 @@ process.stdout.write("FOOM_AGENT_READY`,
   };
   const app = await launch();
   const page = await boardPage(app);
-  await page.evaluate((sourceDirectory) => window.desktop.saveSetup({ sourceDirectory }), source);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, source);
+  await page.evaluate(
+    async (paths) => {
+      await window.desktop.scanCode("dispatcher-fixture", null, () => {});
+      await window.desktop.applyRepositories(paths);
+    },
+    [projects.billing, projects.ledger, projects.tools],
+  );
+  await app.evaluate(({ dialog }, checkout) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [checkout] });
+  }, projects.infra);
+  assert.equal(
+    await page.evaluate(async () => (await window.desktop.addRepository())?.path),
+    projects.infra,
+  );
   const section = page.getByRole("treeitem", { name: `Source directory ${source}`, exact: true });
   const sourceName = section.getByRole("button", { name: source, exact: true });
   await expect(sourceName).toHaveAttribute("title", source);
@@ -79,7 +100,7 @@ process.stdout.write("FOOM_AGENT_READY`,
   await page.getByRole("menuitem", { name: "New Claude Code" }).click();
   const row = section.locator(".board-row");
   await expect(row).toHaveCount(1);
-  return { app, page, launch, credentials, row };
+  return { app, page, launch, credentials, row, projects, unregistered };
 }
 
 function control(credentials) {
@@ -159,15 +180,28 @@ async function elevate(app, page, row, takeScreenshot) {
   const confirm = await confirmationPage(app, "Elevate to dispatcher");
   const glyph = await confirm.locator(".glyph svg path").getAttribute("d");
   assert.ok(glyph);
-  const option = confirm.getByRole("checkbox", { name: "billing" });
+  const options = confirm.getByRole("checkbox");
+  await expect(options).toHaveCount(4);
+  for (const name of ["infra", "ledger", "tools"]) {
+    await expect(confirm.getByRole("checkbox", { name: path.join("teams", name) })).toBeVisible();
+  }
+  const option = confirm.getByRole("checkbox", { name: path.join("teams", "billing") });
+  const heading = confirm.getByRole("heading", { name: /Pre-approved repositories/ });
+  await expect(heading).toHaveText(/Pre-approved repositories\s*0$/);
   await option.check();
+  await expect(heading).toHaveText(/Pre-approved repositories\s*1$/);
+  const second = confirm.getByRole("checkbox", { name: path.join("teams", "infra") });
+  await second.check();
+  await expect(heading).toHaveText(/Pre-approved repositories\s*2$/);
+  await second.uncheck();
+  await expect(heading).toHaveText(/Pre-approved repositories\s*1$/);
   await takeScreenshot?.(confirm);
   await confirm.getByRole("button", { name: "Elevate", exact: true }).click();
   await expect(row).toContainText("Dispatcher");
   await expect(row.locator(".session-orchestration svg path")).toHaveAttribute("d", glyph);
 }
 
-function launchRequest(repo, key = repo) {
+function launchRequest(repo, key = path.basename(repo)) {
   return {
     repo,
     agent: "claude",
@@ -181,7 +215,7 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
   timeout: deadline(90_000),
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
-  const { app, page, credentials, row } = await fixture(context);
+  const { app, page, credentials, row, projects, unregistered } = await fixture(context);
   const sourceGrant = await credentials();
   const request = control(sourceGrant);
   const mcp = await mcpTools(sourceGrant);
@@ -212,12 +246,44 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
       cli: "foom wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000]",
     },
   );
-  assert.equal(JSON.parse((await consoleCall(sourceGrant, "repos")).stdout).result.untrusted, true);
-  const launch = await request("launch_orchestrator", launchRequest("billing"));
+  const firstPage = JSON.parse(
+    (await consoleCall(sourceGrant, "repos", "--limit", "1")).stdout,
+  ).result;
+  assert.equal(firstPage.untrusted, true);
+  assert.deepEqual(
+    firstPage.repos.map(({ repo }) => repo),
+    [projects.billing],
+  );
+  assert.equal(firstPage.nextCursor, projects.billing);
+  const secondPage = JSON.parse(
+    (await consoleCall(sourceGrant, "repos", "--limit", "1", "--after", firstPage.nextCursor))
+      .stdout,
+  ).result;
+  assert.deepEqual(
+    secondPage.repos.map(({ repo }) => repo),
+    [projects.infra],
+  );
+  assert.equal(secondPage.nextCursor, projects.infra);
+  const inventory = (await request("repos")).result?.repos;
+  assert.deepEqual(
+    inventory.map((entry) => entry.repo),
+    Object.values(projects),
+  );
+  assert.deepEqual(
+    inventory.filter((entry) => entry.preApproved).map((entry) => entry.repo),
+    [projects.billing],
+  );
+  assert.deepEqual(await request("launch_orchestrator", launchRequest(unregistered)), {
+    error: "not_found",
+  });
+  const launch = await request("launch_orchestrator", launchRequest(projects.billing));
   assert.equal(launch.result?.status, "succeeded", JSON.stringify(launch));
-  const first = await request("launch_orchestrator", launchRequest("billing"));
+  const first = await request("launch_orchestrator", launchRequest(projects.billing));
   assert.equal(first.result?.resultId, launch.result?.resultId);
-  const occupied = await request("launch_orchestrator", launchRequest("billing", "occupied"));
+  const occupied = await request(
+    "launch_orchestrator",
+    launchRequest(projects.billing, "occupied"),
+  );
   assert.equal(occupied.result?.status, "failed");
   assert.equal(occupied.result?.reason, "refused");
   const waited = await consoleCall(
@@ -255,12 +321,14 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
     ["ledger", "Allow and add to dispatcher repos", "succeeded"],
     ["tools", "Don't launch", "declined"],
   ]) {
-    const pending = await request("launch_orchestrator", launchRequest(repo));
+    const pending = await request("launch_orchestrator", launchRequest(projects[repo]));
     assert.equal(pending.result?.status, "pending_confirmation");
     await page.getByRole("button", { name: "1 decision needed from you", exact: true }).click();
     const stepper = page.getByRole("dialog", { name: /decisions$/ });
     await expect(
-      stepper.getByText(`Launch Claude Code orchestrator in ${repo}`, { exact: true }),
+      stepper.getByText(`Launch Claude Code orchestrator in ${path.join("teams", repo)}`, {
+        exact: true,
+      }),
     ).toBeVisible();
     assert.equal(await stepper.getByLabel("Other answer").count(), 0);
     if (repo === "infra") await captureThemes(page, page, "grant");
@@ -278,9 +346,9 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
     );
   }
   const repos = (await request("repos")).result?.repos;
-  assert.equal(repos.find((item) => item.repo === "infra").preApproved, false);
-  assert.equal(repos.find((item) => item.repo === "ledger").preApproved, true);
-  assert.deepEqual(repos.find((item) => item.repo === "tools").orchestrators, []);
+  assert.equal(repos.find((item) => item.repo === projects.infra).preApproved, false);
+  assert.equal(repos.find((item) => item.repo === projects.ledger).preApproved, true);
+  assert.deepEqual(repos.find((item) => item.repo === projects.tools).orchestrators, []);
   await captureThemes(page, page, "sidebar");
   await row.getByRole("button", { name: /Actions for/ }).click();
   await page.getByRole("menuitem", { name: "Demote", exact: true }).click();
@@ -294,11 +362,11 @@ test("dispatcher restart restores launch grants and adopted orchestrators", {
   timeout: deadline(90_000),
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
-  const { app, page, launch, credentials, row } = await fixture(context);
+  const { app, page, launch, credentials, row, projects } = await fixture(context);
   const beforeRestart = await credentials();
   const request = control(beforeRestart);
   await elevate(app, page, row);
-  const { result } = await request("launch_orchestrator", launchRequest("billing"));
+  const { result } = await request("launch_orchestrator", launchRequest(projects.billing));
   assert.equal(result.status, "succeeded");
   await expect
     .poll(() =>
@@ -327,7 +395,7 @@ test("dispatcher restart restores launch grants and adopted orchestrators", {
   assert.equal(report?.summary, "Read this after restart.");
   const replacement = await request(
     "launch_orchestrator",
-    launchRequest("billing", "replacement-before-restart"),
+    launchRequest(projects.billing, "replacement-before-restart"),
   );
   assert.equal(replacement.result?.status, "succeeded");
   const replacementId = replacement.result.resultId;
@@ -355,8 +423,11 @@ test("dispatcher restart restores launch grants and adopted orchestrators", {
   const current = control(await credentials());
   assert.equal((await current("whoami")).result?.role, "dispatcher");
   const { repos } = (await current("repos")).result;
-  assert.equal(repos.find((row) => row.repo === "billing").preApproved, true);
-  assert.equal(repos.find((row) => row.repo === "billing").orchestrators[0].id, replacementId);
+  assert.equal(repos.find((row) => row.repo === projects.billing).preApproved, true);
+  assert.equal(
+    repos.find((row) => row.repo === projects.billing).orchestrators[0].id,
+    replacementId,
+  );
   assert.deepEqual(await current("read_handoff", { id: exitedId }), { result: report });
   const state = await current("session_state", { id: exitedId });
   assert.equal(state.result?.state, "exited");

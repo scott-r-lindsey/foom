@@ -774,7 +774,6 @@ export function createAppSource(): BoardSource {
           hooks: setup.settings.hooks,
           registeredHosts: setup.settings.registeredHosts ?? [],
           codeFolder: setup.settings.codeFolder,
-          sourceDirectory: setup.settings.sourceDirectory,
           showNestedRepositoryNames: setup.settings.showNestedRepositoryNames,
         };
       },

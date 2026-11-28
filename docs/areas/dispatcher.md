@@ -1,25 +1,30 @@
-# Dispatcher (#1300)
+# Dispatcher (#1300, #1373)
 
-General → Source directory accepts an existing local directory. Main commits the
-canonical path under the profile settings lock. New local agents launched from
-the source directory's sidebar menu start as plain sessions with the manual and
-identity tools. The sidebar shows source paths on one line, with an ellipsis
-when needed and the full path on hover. Existing sessions keep their launch
-directory.
+The code folder chosen in repository setup is the default working directory for
+new local agent sessions launched without a checkout. These start as plain
+sessions with the manual and identity tools. The sidebar shows the code folder
+on one line, with an ellipsis when needed and the full path on hover. Existing
+sessions keep their launch directory. Without a code folder, new default local
+sessions start at home and elevation is unavailable.
 
 A source-session row offers **Elevate to dispatcher…**. The trusted dialog opens
 in the requesting board window with the same layered glyph as the dispatcher's
-sidebar row. It lists direct Git repositories. Select the repositories to
+sidebar row. It lists registered local Git repositories. Select the repositories to
 pre-approve. Each selected repository's running orchestrators
 become addressable by the dispatcher. Their current repository authority and
 child ownership carry forward. One source directory has one active dispatcher.
 **Demote** releases that role while its orchestrators continue running.
 
-Main verifies the canonical source and Git checkout identities before elevation,
-on launch admission and before spawn. Repository selectors are direct directory
-names. Hidden folders, nested paths, absolute paths, links and non-repositories
+Main verifies the canonical source identity, registry membership and Git
+checkout identity before granting access, on launch admission and before spawn.
+Repository selectors are exact registered paths, including nested repositories
+and registrations outside the code folder. Linked worktrees and checkouts with
+separate Git metadata are supported through their regular `.git` pointer files.
+Symlinked checkout paths and `.git` markers, unregistered paths and non-repositories
 fail validation. The private control profile stores approval and adoption
-identities. After an orderly shutdown, main can restore the scope for the same
+identities. Older approvals saved as child directory names are resolved relative
+to their saved source directory and must pass the same live repository checks.
+After an orderly shutdown, main can restore the scope for the same
 conversation if the session was an active dispatcher when shutdown began. Main
 consumes that recovery record when opening the control service and checks the
 provider capabilities selected for the source launch. A concurrent refresh of
@@ -35,8 +40,8 @@ that orchestrator's tile and row.
 
 When a dispatcher requests a launch outside its pre-approved repositories, Foom
 opens a grant question in the decisions stepper. Main builds the title using the
-agent's manifest display name and the full repository selector, including the
-registered host when specified. Main supplies the three fixed choices. A request
+agent's manifest display name and repository path, relative to the source when
+inside it. The title includes the registered host when specified. Main supplies the three fixed choices. A request
 without a matching manifest fails before a grant question is opened. The optional
 agent-supplied reason is untrusted plain text.
 **Allow once** authorizes the bound launch. **Allow and add to dispatcher repos**

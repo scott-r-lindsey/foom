@@ -1386,21 +1386,11 @@ test("Terminal discloses and saves profile-only OSC 52 consent", async () => {
   });
 });
 
-test("General saves a canonicalizable source directory draft and clears the setting on blank input", async () => {
+test("General leaves source location to repository setup", () => {
   const initial = setupState();
-  const source = fake(initial);
-  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
-  const field = screen.getByLabelText("Source directory");
-  fireEvent.change(field, { target: { value: "  /fixture/source  " } });
-  fireEvent.click(screen.getByRole("button", { name: "Save source directory" }));
-  await waitFor(() => {
-    expect(source.save).toHaveBeenLastCalledWith({ sourceDirectory: "/fixture/source" });
-  });
-  fireEvent.change(screen.getByLabelText("Source directory"), { target: { value: "" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save source directory" }));
-  await waitFor(() => {
-    expect(source.save).toHaveBeenLastCalledWith({ sourceDirectory: null });
-  });
+  render(<Preflight source={fake(initial)} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
+  expect(screen.queryByLabelText("Source directory")).toBeNull();
 });
 
 test("Settings saves a permission edit through the source and displays the saved value", async () => {

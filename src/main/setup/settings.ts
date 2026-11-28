@@ -26,18 +26,7 @@ import type { ConfigSettings } from "../../shared/config";
 import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
 import { renameSync } from "node:fs";
-import {
-  link,
-  mkdir,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { homedir } from "node:os";
+import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { validAgentId } from "../../shared/providers/catalog";
 import type { Settings, SettingsPatch } from "../../shared/setup";
@@ -131,7 +120,6 @@ export const DEFAULT_SETTINGS: Settings = freezeSettings({
   terminalTheme: "follow",
   sound: structuredClone(DEFAULT_SOUND),
   codeFolder: null,
-  sourceDirectory: null,
 });
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -256,15 +244,6 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
           isAbsolute(entry)))
     )
       patch.codeFolder = entry;
-    else if (
-      key === "sourceDirectory" &&
-      (entry === null ||
-        (typeof entry === "string" &&
-          entry.length <= 4096 &&
-          !/\p{Cc}/u.test(entry) &&
-          (isAbsolute(entry) || entry.startsWith("~/"))))
-    )
-      patch.sourceDirectory = entry;
     else throw new Error("Invalid settings");
   }
   return patch;
@@ -323,6 +302,7 @@ export class SettingsStore {
     const store = new SettingsStore(join(userData, "settings.json"));
     let migrated = false;
     let hasRemoteProfile = false;
+    let droppedSourceDirectory = false;
     let backup: string | undefined;
     try {
       const state: unknown = JSON.parse(await readFile(store.file, "utf8"));
@@ -338,6 +318,8 @@ export class SettingsStore {
       if (record(state) && (version === 1 || version === 2) && record(state["settings"])) {
         const { agentArguments, sound, ...rest } = migrateAppearanceSettings(state["settings"]);
         const legacy = "inference" in rest || "inferenceTimeoutMs" in rest;
+        const legacySource = Object.hasOwn(rest, "sourceDirectory");
+        delete rest["sourceDirectory"];
         delete rest["codexNotifierAcknowledged"];
         delete rest["inference"];
         delete rest["inferenceTimeoutMs"];
@@ -431,10 +413,12 @@ export class SettingsStore {
         // Older builds reject sparse profile consent maps and may rewrite defaults.
         // Retain the original valid profile once, without retired inference secrets.
         const original = { ...state["settings"] };
+        delete original["sourceDirectory"];
         delete original["inference"];
         delete original["inferenceTimeoutMs"];
         backup = JSON.stringify({ ...state, settings: original });
-        migrated ||= legacy || legacyAutoRemove;
+        droppedSourceDirectory = legacySource;
+        migrated ||= legacy || legacyAutoRemove || legacySource;
       }
     } catch {
       // Defaults.
@@ -454,6 +438,7 @@ export class SettingsStore {
       }
     }
     if (migrated || !hasRemoteProfile) await store.write(() => {});
+    if (droppedSourceDirectory) console.info("Removed the retired sourceDirectory setting.");
     store.committedSettings = freezeSettings(store.settings);
     return store;
   }
@@ -579,17 +564,7 @@ export class SettingsStore {
     if (this.writer && Object.keys(config).length)
       await this.writer(config, ...(themeDigest ? [themeDigest] : []));
     if (Object.keys(config).length && !Object.keys(profile).length) return this.committedSettings;
-    await this.write(async () => {
-      if (typeof profile.sourceDirectory === "string") {
-        const requested = profile.sourceDirectory;
-        const expanded = requested.startsWith("~/")
-          ? join(homedir(), requested.slice(2))
-          : requested;
-        const canonical = await realpath(expanded).catch(() => undefined);
-        if (!canonical || !(await stat(canonical).catch(() => undefined))?.isDirectory())
-          throw new Error("Choose an existing source directory.");
-        profile.sourceDirectory = canonical;
-      }
+    await this.write(() => {
       const argumentsPatch = profile.agentArguments;
       const agentArguments = argumentsPatch
         ? parseStoredAgentDefaults({ ...this.settings.agentArguments, ...argumentsPatch })

@@ -1149,10 +1149,14 @@ test("dispatcher elevation stays on the requesting board and rejects foreign or 
       _id: string,
       choose: (
         directory: string,
-        repos: { name: string; running: boolean }[],
+        repos: { path: string; name: string; running: boolean }[],
       ) => Promise<readonly string[] | undefined>,
     ) => {
-      select(await choose("/fixture/source", [{ name: "project", running: true }]));
+      select(
+        await choose("/fixture/source", [
+          { path: "/fixture/source/team/project", name: "team/project", running: true },
+        ]),
+      );
     },
   );
   const demote = vi.fn();
@@ -1161,7 +1165,7 @@ test("dispatcher elevation stays on the requesting board and rejects foreign or 
   expect(() => invoke(channel, [{ kind: "elevate-dispatcher", id: "foreign" }])).toThrow();
   expect(() => invoke(channel, [{ kind: "elevate-dispatcher", id: "t1", repos: [] }])).toThrow();
   requestDialog.mockImplementationOnce((content) => {
-    content.selectDispatcherRepositories?.(["project"]);
+    content.selectDispatcherRepositories?.(["/fixture/source/team/project"]);
     return Promise.resolve(true);
   });
   await invoke(channel, [{ kind: "elevate-dispatcher", id: "t1" }]);
@@ -1170,12 +1174,14 @@ test("dispatcher elevation stays on the requesting board and rejects foreign or 
     expect.objectContaining({
       userAction: true,
       glyph: "dispatcher",
-      dispatcherRepositories: [{ name: "project", running: true }],
+      dispatcherRepositories: [
+        { path: "/fixture/source/team/project", name: "team/project", running: true },
+      ],
     }),
   );
-  expect(select).toHaveBeenLastCalledWith(["project"]);
+  expect(select).toHaveBeenLastCalledWith(["/fixture/source/team/project"]);
   requestDialog.mockImplementationOnce((content) => {
-    content.selectDispatcherRepositories?.(["project"]);
+    content.selectDispatcherRepositories?.(["/fixture/source/team/project"]);
     contents.isDestroyed.mockReturnValue(true);
     return Promise.resolve(true);
   });

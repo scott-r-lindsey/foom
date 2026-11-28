@@ -23,8 +23,8 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
 } {
   return {
     worktreeLaunch: {
-      get sourceDirectory() {
-        return owner.sourceDirectory;
+      get codeFolder() {
+        return owner.codeFolder;
       },
       get control() {
         return owner.control;

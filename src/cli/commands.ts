@@ -1,5 +1,5 @@
 import { hostAlias } from "../shared/registered-hosts";
-import { dispatcherLaunch, sourceRepositoryName } from "../shared/dispatcher-validation";
+import { dispatcherLaunch, dispatcherRepositoryPath } from "../shared/dispatcher-validation";
 import { selectionInput } from "../node-common/launch-selection";
 import { reviewInput } from "../shared/review-validation";
 import { isChildInput } from "../shared/child-input";
@@ -18,7 +18,7 @@ export function command(args: readonly string[]): Command {
       const flag = words[index];
       const value = words[index + 1];
       if (flag === "--after" && params["after"] === undefined)
-        params["after"] = sourceRepositoryName(value);
+        params["after"] = dispatcherRepositoryPath(value);
       else if (flag === "--limit" && params["limit"] === undefined)
         params["limit"] = integer(value, 16, 1);
       else throw new ControlError("invalid_request");

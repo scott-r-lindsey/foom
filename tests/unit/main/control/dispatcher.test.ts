@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { expect, test, vi } from "vitest";
 import { Dispatcher, type DispatcherHost } from "../../../../src/main/control/dispatcher";
 import { ControlService } from "../../../../src/main/control/service";
-import { identifier, object } from "../../../../src/shared/control-validation";
+import { dispatcherRepositoryPath } from "../../../../src/shared/dispatcher-validation";
+import { ControlError, identifier, object } from "../../../../src/shared/control-validation";
 import { locationId } from "../../../../src/main/control/metadata";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { Operations } from "../../../../src/main/control/operations";
@@ -17,8 +18,8 @@ import { atomicPrivate, privateDirectory } from "../../../../src/node-common/pri
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 
 const directory = resolve("fixture-source");
-const repository = resolve(directory, "primary");
-const other = resolve(directory, "secondary");
+const repository = resolve(directory, "team", "primary");
+const other = resolve("other-projects", "secondary");
 
 function row(id: string, path: string, scope: "source" | "orchestrator"): WorkspaceTerminal {
   return {
@@ -46,13 +47,21 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
     { name: "primary", path: repository, identity: "primary-proof" },
     { name: "secondary", path: other, identity: "secondary-proof" },
   ];
+  let inventory = repos;
   const host = {
     directoryIdentity: vi.fn(() => Promise.resolve("source-proof")),
-    repository: vi.fn((_directory: string, name: string) => {
-      const repo = repos.find((candidate) => candidate.name === name);
+    repository: vi.fn((_directory: string, path: string) => {
+      const repo = repos.find((candidate) => candidate.path === path);
       return repo ? Promise.resolve(repo) : Promise.reject(new Error("repository refused"));
     }),
-    repositories: vi.fn(() => Promise.resolve(repos)),
+    repositories: vi.fn<DispatcherHost["repositories"]>((_directory, page) => {
+      if (!page) return Promise.resolve(inventory);
+      const after = page.after;
+      const start = after === undefined ? 0 : inventory.findIndex(({ path }) => path === after) + 1;
+      if (after !== undefined && start === 0) return Promise.reject(new ControlError("not_found"));
+      return Promise.resolve(inventory.slice(start, start + page.take));
+    }),
+    validateHost: vi.fn(),
     agentName: vi.fn((id: string) => (id === "claude" ? "Claude Code" : undefined)),
     launch: vi.fn<DispatcherHost["launch"]>((_input, _repo, _id, _verify, _active, lifecycle) =>
       Promise.resolve(lifecycle.terminalId),
@@ -101,18 +110,33 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
       signal,
     );
   }
-  const elevate = async (selection = ["primary"]) => {
+  const elevate = async (selection = [repository]) => {
     await dispatcher.elevate(
       "dispatcher",
       () => Promise.resolve(selection),
       service.setRole.bind(service),
     );
   };
-  return { host, dispatcher, service, rows, repos, save, persist, call, elevate, source };
+  const setInventory = (projects: typeof repos) => {
+    inventory = projects;
+  };
+  return {
+    host,
+    dispatcher,
+    service,
+    rows,
+    repos,
+    save,
+    persist,
+    call,
+    elevate,
+    source,
+    setInventory,
+  };
 }
 
 const launch = {
-  repo: "secondary",
+  repo: other,
   agent: "claude",
   reason: "Review the fixtures",
   prompt: "Find the owner.",
@@ -192,11 +216,11 @@ test("dispatcher grants are scoped to source agents and trusted elevation adopts
   }).toThrow("forbidden");
   await expect(call("elevate_dispatcher")).rejects.toThrow("forbidden");
   await expect(call("repos")).rejects.toThrow("forbidden");
-  const select = vi.fn(() => Promise.resolve(["primary"]));
+  const select = vi.fn(() => Promise.resolve([repository]));
   await dispatcher.elevate("dispatcher", select, service.setRole.bind(service));
   expect(select).toHaveBeenCalledWith(directory, [
-    { name: "primary", running: true },
-    { name: "secondary", running: false },
+    { name: "primary", path: repository, running: true },
+    { name: "secondary", path: other, running: false },
   ]);
   expect(dispatcher.view("dispatcher", rows)).toEqual({ orchestrators: 1, repositories: 1 });
   expect(save).toHaveBeenCalledOnce();
@@ -317,12 +341,12 @@ test("dispatcher stop replay returns the original receipt after the orchestrator
 test("dispatcher launch replay returns the original receipt after the repository is renamed", async () => {
   const { call, elevate, host, repos } = harness();
   await elevate();
-  const start = { ...launch, repo: "primary" };
+  const start = { ...launch, repo: repository };
   const started = await call("launch_orchestrator", start);
   expect(started).toMatchObject({ status: "succeeded" });
-  const target = repos.find(({ name }) => name === start.repo);
+  const target = repos.find(({ path }) => path === start.repo);
   if (!target) throw new Error("Missing fixture repository");
-  target.name = "renamed";
+  target.path = resolve(directory, "renamed");
   await expect(call("launch_orchestrator", start)).resolves.toEqual(started);
   await expect(
     call("launch_orchestrator", { ...start, prompt: "Different prompt" }),
@@ -363,7 +387,7 @@ test("dispatcher persists only validated scope data and reopens it from the priv
     await expect(
       dispatcher.elevate("dispatcher", () => Promise.resolve(["absent"]), setRole),
     ).rejects.toThrow("invalid_request");
-    await dispatcher.elevate("dispatcher", () => Promise.resolve(["primary"]), setRole);
+    await dispatcher.elevate("dispatcher", () => Promise.resolve([repository]), setRole);
     const row = rows.find(({ id }) => id === "dispatcher");
     if (!row) throw new Error("Missing source");
     row.conversationId = "same-conversation";
@@ -457,11 +481,87 @@ test.each(["conversation", "directory", "launch"] as const)(
   },
 );
 
+test.each(["\u200d", "\u200e"])(
+  "legacy approval and adoption recover under a source path containing %s",
+  async (format) => {
+    const { host, rows, repos } = harness();
+    const legacyDirectory = resolve(`fixture-${format}-source`);
+    const legacyPath = join(legacyDirectory, "legacy-project");
+    repos.push({ name: "legacy-project", path: legacyPath, identity: "legacy-proof" });
+    rows.push(row("legacy-orchestrator", legacyPath, "orchestrator"));
+    const source = rows[0];
+    if (!source) throw new Error("Missing source");
+    source.repository = legacyDirectory;
+    source.worktree = legacyDirectory;
+    source.conversationId = "same-conversation";
+    const profile = await mkdtemp(join(tmpdir(), "foom-dispatcher-legacy-"));
+    try {
+      const privatePath = await privateDirectory(profile);
+      const legacy = { name: "legacy-project", identity: "legacy-proof" };
+      const scope = {
+        id: source.id,
+        directory: legacyDirectory,
+        identity: "source-proof",
+        approved: [legacy],
+        adopted: [{ id: "legacy-orchestrator", ...legacy }],
+        restoreConversation: source.conversationId,
+      };
+      await atomicPrivate(privatePath, "dispatchers.json", { version: 1, scopes: [scope] });
+      const open = () =>
+        Dispatcher.open(
+          privatePath,
+          host,
+          () => rows,
+          () => {},
+        );
+      const dispatcher = await open();
+      await expect(dispatcher.revive(source.id, source.conversationId, vi.fn())).resolves.toBe(
+        true,
+      );
+      expect(dispatcher.view(source.id, rows)).toEqual({ orchestrators: 1, repositories: 1 });
+      await atomicPrivate(privatePath, "dispatchers.json", {
+        version: 1,
+        scopes: [{ ...scope, approved: [{ ...legacy, name: "../legacy-project" }] }],
+      });
+      await expect(open()).rejects.toThrow("invalid_request");
+    } finally {
+      await rm(profile, { force: true, recursive: true });
+    }
+  },
+);
+
+test("a grant cannot launch after repository deregistration and an unknown host cannot request a grant", async () => {
+  const tool = harness();
+  await tool.elevate();
+  tool.host.validateHost.mockImplementationOnce(() => {
+    throw new Error("unknown host");
+  });
+  await expect(tool.call("launch_orchestrator", { ...launch, host: "unknown" })).rejects.toThrow(
+    "unknown host",
+  );
+  expect(setup(tool).questions).toEqual([]);
+  await expect(tool.call("launch_orchestrator", launch)).resolves.toMatchObject({
+    status: "pending_confirmation",
+  });
+  const [question] = setup(tool).questions;
+  if (!question) throw new Error("Missing grant question");
+  tool.repos.splice(1, 1);
+  await tool.dispatcher.answer({
+    answers: [{ post: question.post, index: question.index, option: "add" }],
+    idempotencyKey: "unregistered",
+  });
+  await expect(
+    tool.call("operation_status", { idempotencyKey: launch.idempotencyKey }),
+  ).resolves.toMatchObject({
+    status: "failed",
+  });
+  expect(tool.host.launch).not.toHaveBeenCalled();
+});
+
 test("dispatcher validates launch, state, wait and input arguments before effects", async () => {
   const { host, call, elevate, rows, dispatcher, service } = harness();
   await elevate();
   for (const patch of [
-    { repo: "/outside" },
     { repo: ".hidden" },
     { reason: "\u001b" },
     { host: "-localhost" },
@@ -472,6 +572,9 @@ test("dispatcher validates launch, state, wait and input arguments before effect
       "invalid_request",
     );
   }
+  await expect(
+    call("launch_orchestrator", { ...launch, repo: resolve("unregistered") }),
+  ).rejects.toThrow("repository refused");
   await expect(
     call("launch_orchestrator", { ...launch, agent: "missing", idempotencyKey: "unknown-agent" }),
   ).resolves.toMatchObject({ status: "failed" });
@@ -537,11 +640,13 @@ test("inventory searches one page, scopes decisions, and refuses stale directori
   for (const limit of [0, 0.5, 17, "2"]) {
     await expect(call("repos", { limit })).rejects.toThrow("invalid_request");
   }
-  await expect(call("repos", { after: "missing" })).rejects.toThrow("not_found");
+  await expect(call("repos", { after: resolve(directory, "missing") })).rejects.toThrow(
+    "not_found",
+  );
   await expect(call("repos", { limit: 1 })).resolves.toMatchObject({
     repos: [
       {
-        repo: "primary",
+        repo: repository,
         preApproved: true,
         pullRequests: [],
         orchestrators: [
@@ -555,10 +660,15 @@ test("inventory searches one page, scopes decisions, and refuses stale directori
         ],
       },
     ],
-    nextCursor: "primary",
+    nextCursor: repository,
   });
-  await expect(call("repos", { after: "primary", limit: 1 })).resolves.toMatchObject({
-    repos: [{ repo: "secondary", preApproved: false, orchestrators: [] }],
+  expect(host.repositories).toHaveBeenLastCalledWith(directory, {
+    after: undefined,
+    take: 2,
+    signal: undefined,
+  });
+  await expect(call("repos", { after: repository, limit: 1 })).resolves.toMatchObject({
+    repos: [{ repo: other, preApproved: false, orchestrators: [] }],
     nextCursor: null,
   });
   host.directoryIdentity.mockResolvedValueOnce("source-proof").mockResolvedValueOnce("changed");
@@ -605,7 +715,7 @@ test("repository inventory pages fit the complete MCP response and retain every 
   });
   const names = Array.from({ length: 16 }, (_, i) => `project-${i.toString().padStart(2, "0")}`);
   const projects = names.map((name) => ({ name, path: join(directory, name), identity: name }));
-  tool.host.repositories.mockResolvedValue(projects);
+  tool.setInventory(projects);
   for (const project of projects) tool.rows.push(row(project.name, project.path, "orchestrator"));
   await tool.elevate([]);
   const seen: string[] = [];
@@ -617,19 +727,19 @@ test("repository inventory pages fit the complete MCP response and retain every 
     ).toBeLessThanOrEqual(MCP_RESPONSE_LIMIT);
     const repos = page["repos"];
     if (!Array.isArray(repos) || !repos.length) throw new Error("Missing repository page");
-    for (const repo of repos) seen.push(identifier(object(repo)["repo"]));
+    for (const repo of repos) seen.push(dispatcherRepositoryPath(object(repo)["repo"]));
     const next = page["nextCursor"];
-    cursor = next === null ? null : identifier(next);
+    cursor = next === null ? null : dispatcherRepositoryPath(next);
     if (cursor) expect(cursor).toBe(seen.at(-1));
   } while (cursor && seen.length < names.length);
   expect(cursor).toBeNull();
-  expect(seen).toEqual(names);
+  expect(seen).toEqual(projects.map(({ path }) => path));
 });
 
 test("failed grant settlement leaves the unattempted suffix open and retryable by the same batch", async () => {
   const tool = harness();
   await tool.elevate([]);
-  const second = { ...launch, repo: "primary", idempotencyKey: "second-key" };
+  const second = { ...launch, repo: repository, idempotencyKey: "second-key" };
   await tool.call("launch_orchestrator", launch);
   await tool.call("launch_orchestrator", second);
   const [firstQuestion, secondQuestion] = setup(tool).questions;
@@ -674,7 +784,7 @@ test("source exit during the directory check prevents opening the elevation dial
   const { dispatcher, host, save, service, source } = harness();
   const identity = Promise.withResolvers<string>();
   host.directoryIdentity.mockReturnValueOnce(identity.promise);
-  const select = vi.fn(() => Promise.resolve(["primary"]));
+  const select = vi.fn(() => Promise.resolve([repository]));
   const elevation = dispatcher.elevate("dispatcher", select, service.setRole.bind(service));
   source.dispose();
   identity.resolve("source-proof");
@@ -707,7 +817,7 @@ test("source exit after elevation commit validation rolls back the saved scope a
 
 test("a replacement preserves dispatcher read access to the retained previous launch", async () => {
   const { call, elevate, rows } = harness();
-  await elevate(["secondary"]);
+  await elevate([other]);
   const started = object(await call("launch_orchestrator", launch));
   expect(started).toMatchObject({ status: "succeeded" });
   const previous = row(identifier(started["resultId"]), other, "orchestrator");
@@ -787,7 +897,11 @@ test("distinct repository selectors remain visible in launch approvals", async (
   for (const name of names) {
     tool.repos.push({ name, path: resolve(directory, name), identity: name });
     await expect(
-      tool.call("launch_orchestrator", { ...launch, repo: name, idempotencyKey: name }),
+      tool.call("launch_orchestrator", {
+        ...launch,
+        repo: resolve(directory, name),
+        idempotencyKey: name,
+      }),
     ).resolves.toMatchObject({ status: "pending_confirmation" });
   }
   expect(setup(tool).questions.map(({ question }) => question.title)).toEqual(
@@ -799,7 +913,7 @@ test("a full dispatcher refuses a launch before dispatching a spawn and retains 
   const { call, elevate, rows, host } = harness();
   for (let index = 1; index < 128; index++)
     rows.push(row(`retained-${String(index)}`, repository, "orchestrator"));
-  await elevate(["primary", "secondary"]);
+  await elevate([repository, other]);
   for (const retained of rows.slice(2)) {
     retained.exited = true;
     if (retained.orchestration?.role === "orchestrator") retained.orchestration.active = false;
@@ -830,7 +944,7 @@ test("concurrent launches cannot share the final adoption slot before a terminal
   const { call, elevate, rows, host, save } = harness();
   for (let index = 1; index < 127; index++)
     rows.push(row(`retained-${String(index)}`, repository, "orchestrator"));
-  await elevate(["primary", "secondary"]);
+  await elevate([repository, other]);
   const started = Promise.withResolvers<string>();
   const finished = Promise.withResolvers<string>();
   host.launch.mockImplementationOnce((_input, _repo, _id, _verify, _active, lifecycle) => {
@@ -845,7 +959,7 @@ test("concurrent launches cannot share the final adoption slot before a terminal
     if (!Array.isArray(scopes)) throw new Error("Missing saved dispatcher scope");
     expect(object(scopes[0])["adopted"]).toContainEqual({
       id,
-      name: "secondary",
+      path: other,
       identity: "secondary-proof",
       launched: true,
     });
@@ -863,10 +977,12 @@ test("a launch refused before the spawn boundary records a definitive failure", 
   const { call, elevate, host } = harness();
   await elevate();
   host.launch.mockRejectedValueOnce(new Error("Orchestrator slot occupied"));
-  await expect(call("launch_orchestrator", { ...launch, repo: "primary" })).resolves.toMatchObject({
-    status: "failed",
-    reason: "refused",
-  });
+  await expect(call("launch_orchestrator", { ...launch, repo: repository })).resolves.toMatchObject(
+    {
+      status: "failed",
+      reason: "refused",
+    },
+  );
   host.launch.mockImplementationOnce(
     (_input, _repository, _dispatcher, _verify, _active, lifecycle) => {
       lifecycle.spawning();
@@ -875,7 +991,7 @@ test("a launch refused before the spawn boundary records a definitive failure", 
   );
   const uncertain = await call("launch_orchestrator", {
     ...launch,
-    repo: "primary",
+    repo: repository,
     idempotencyKey: "spawn-uncertain",
   });
   expect(uncertain).toMatchObject({

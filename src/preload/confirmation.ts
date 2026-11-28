@@ -290,7 +290,10 @@ const validDialogSummaryLine: Validator<DialogSummaryLine> = shape({
 const geometryRevision: Validator<number> = (value): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const dialogFields = {
-  dispatcherRepositories: either(absent, array(shape({ name: nonempty, running: boolean }))),
+  dispatcherRepositories: either(
+    absent,
+    array(shape({ path: nonempty, name: nonempty, running: boolean })),
+  ),
   geometryRevision: either(absent, geometryRevision),
   id: nonempty,
   presented: boolean,

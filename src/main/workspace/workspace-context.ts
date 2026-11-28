@@ -103,7 +103,7 @@ export class WorkspaceContext {
   concurrentChildren = 4;
   showNewChildren = true;
   defaultAgent: string | null = null;
-  sourceDirectory: string | null = null;
+  codeFolder: string | null = null;
   private dispatcher: ControlRuntime["dispatcher"];
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
@@ -128,15 +128,19 @@ export class WorkspaceContext {
 
   readonly dispatcherHost: NonNullable<Parameters<typeof ControlRuntime.start>[9]> = {
     directoryIdentity: sourceDirectoryIdentity,
-    repository: sourceRepository,
-    repositories: sourceRepositories,
+    repository: (directory, path) =>
+      sourceRepository(() => this.deps.worktrees.listRepositories(), directory, path),
+    repositories: (directory, page) =>
+      sourceRepositories(() => this.deps.worktrees.listRepositories(), directory, page),
+    validateHost: (host) => {
+      if (!this.deps.hosts?.repositoryTarget) throw new ControlError("host_unavailable");
+      this.deps.hosts.registered(host);
+    },
     agentName: (id) => agentProviders().find((provider) => provider.id === id)?.name,
     launch: async (request, repository, dispatcher, verify, active, lifecycle) => {
       await verify();
-      if (!this.deps.worktrees.listRepositories().some((row) => row.path === repository.path)) {
-        const added = await this.addRepository(repository.path);
-        if (added.path !== repository.path) throw new ControlError("conflict");
-      }
+      if (!this.deps.worktrees.listRepositories().some(({ path }) => path === repository.path))
+        throw new ControlError("conflict");
       const host = request.host;
       const hosts = this.deps.hosts;
       let remote: AgentLaunch["remoteOrchestrator"];
@@ -196,7 +200,11 @@ export class WorkspaceContext {
     const control = await this.control;
     if (!control?.dispatcher || this.sessions.isRestoring(id))
       throw new ControlError("unavailable");
-    await control.dispatcher.elevate(id, select, control.setRole.bind(control));
+    const validate = () => {
+      if (!this.codeFolder || this.launched.get(id)?.worktree !== this.codeFolder)
+        throw new ControlError("not_found");
+    };
+    await control.dispatcher.elevate(id, select, control.setRole.bind(control), validate);
   }
 
   async demoteDispatcher(id: string) {
@@ -595,7 +603,7 @@ export class WorkspaceContext {
           | "closeFinishedAgents"
           | "restoreSessions"
           | "defaultAgent"
-          | "sourceDirectory"
+          | "codeFolder"
           | "concurrentChildren"
           | "wakeOrchestrator"
           | "wakeIntervalMinutes"
@@ -611,7 +619,7 @@ export class WorkspaceContext {
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
     this.defaultAgent = settings.defaultAgent ?? null;
-    this.sourceDirectory = settings.sourceDirectory ?? null;
+    this.codeFolder = settings.codeFolder ?? null;
     this.orchestration.configureWake(
       settings.wakeOrchestrator ?? false,
       settings.wakeIntervalMinutes ?? 3,

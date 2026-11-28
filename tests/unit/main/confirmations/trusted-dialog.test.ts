@@ -1912,20 +1912,29 @@ test("dispatcher elevation accepts only a unique selection displayed by the trus
   const elevation = {
     title: "Elevate to dispatcher",
     accept: "Elevate",
-    dispatcherRepositories: [{ name: "project", running: true }],
+    dispatcherRepositories: [
+      { path: "/fixture/source/team/project", name: "team/project", running: true },
+    ],
     selectDispatcherRepositories,
   };
   const approved = dialog.request(elevation);
   const firstId = await shown();
-  for (const invalid of [true, ["missing"], ["project", "project"], [null]]) {
+  for (const invalid of [
+    true,
+    ["missing"],
+    ["/fixture/source/team/project", "/fixture/source/team/project"],
+    [null],
+  ]) {
     answer(firstId, invalid);
   }
   expect(selectDispatcherRepositories).not.toHaveBeenCalled();
-  answer(firstId, ["project"], { sender: parent.webContents });
+  answer(firstId, ["/fixture/source/team/project"], { sender: parent.webContents });
   expect(selectDispatcherRepositories).not.toHaveBeenCalled();
-  answer(firstId, ["project"]);
+  answer(firstId, ["/fixture/source/team/project"]);
   await expect(approved).resolves.toBe(true);
-  expect(selectDispatcherRepositories).toHaveBeenCalledExactlyOnceWith(["project"]);
+  expect(selectDispatcherRepositories).toHaveBeenCalledExactlyOnceWith([
+    "/fixture/source/team/project",
+  ]);
   const declined = dialog.request({ ...elevation, title: "Elevate another session" });
   await vi.waitFor(() => {
     expect(window().webContents.send.mock.calls.at(-1)?.[1]).toHaveProperty(

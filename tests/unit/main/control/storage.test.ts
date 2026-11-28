@@ -760,6 +760,7 @@ it("publishes a dispatcher with an empty workspace even without snapshot and cha
     directoryIdentity: vi.fn(),
     repository: vi.fn(),
     repositories: vi.fn(),
+    validateHost: vi.fn(),
     agentName: vi.fn(),
     launch: vi.fn(),
     prompt: vi.fn(),

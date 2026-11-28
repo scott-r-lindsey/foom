@@ -828,7 +828,6 @@ const validSettings: Validator<Settings> = shape({
   terminalTheme: validTerminalThemeChoice,
   sound: validSoundSettings,
   codeFolder: either(nil, text),
-  sourceDirectory: either(nil, text),
 } satisfies Contract<Settings>);
 
 const validSetupState: Validator<SetupState> = shape({

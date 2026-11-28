@@ -293,16 +293,16 @@ it("parses an explicit owned author for shared review and rejects malformed IDs"
   ).toThrow("invalid_request");
 });
 
-it("parses dispatcher inventory and launch arguments without accepting external checkouts", () => {
+it("parses dispatcher inventory and launch arguments with absolute registered path selectors", () => {
   expect(command(["repos"])).toEqual({ method: "repos", params: {} });
-  expect(command(["repos", "--after", "project A", "--limit", "4"])).toEqual({
+  expect(command(["repos", "--after", "/code/team/project A", "--limit", "4"])).toEqual({
     method: "repos",
-    params: { after: "project A", limit: 4 },
+    params: { after: "/code/team/project A", limit: 4 },
   });
   expect(
     command([
       "launch-orchestrator",
-      "project A",
+      "/code/team/project A",
       "--agent",
       "codex",
       "--host",
@@ -316,7 +316,7 @@ it("parses dispatcher inventory and launch arguments without accepting external 
   ).toEqual({
     method: "launch_orchestrator",
     params: {
-      repo: "project A",
+      repo: "/code/team/project A",
       agent: "codex",
       host: "desk",
       prompt: "Check status",
@@ -328,7 +328,7 @@ it("parses dispatcher inventory and launch arguments without accepting external 
     ["repos", "--after", "../outside"],
     ["repos", "--limit", "17"],
     ["repos", "--limit", "2", "--limit", "3"],
-    ["launch-orchestrator", "/outside", "--agent", "codex", "--prompt", "Check", ...key],
+    ["launch-orchestrator", "../outside", "--agent", "codex", "--prompt", "Check", ...key],
     ["elevate-dispatcher"],
   ]) {
     expect(() => command(args)).toThrow("invalid_request");

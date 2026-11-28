@@ -4,6 +4,12 @@ import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { RemoteControlResult } from "../../shared/remote-agent";
 import type { RemovalReason } from "../workspace/worktree-outcome";
 export type Role = "agent" | "orchestrator" | "dispatcher" | "cli";
+export interface RepositoryPage {
+  after: string | undefined;
+  take: number;
+  signal: AbortSignal | undefined;
+}
+
 export interface Principal {
   /** ISO timestamp when the current role was granted; refreshed on role changes. */
   readonly grantedAt: string;

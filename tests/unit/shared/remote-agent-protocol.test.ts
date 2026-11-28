@@ -41,7 +41,7 @@ const signal = {
 };
 test("registered-host dispatcher launch accepts a Markdown bullet through agent-open validation", () => {
   const launch = dispatcherLaunch({
-    repo: "billing",
+    repo: "/code/team/billing",
     agent: "claude",
     host: "fixture-host",
     prompt: "  - Review the fixture.",

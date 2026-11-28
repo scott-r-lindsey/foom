@@ -501,8 +501,8 @@ export function ConfirmationCard({
       request.id,
       accepted && request.dispatcherRepositories
         ? request.dispatcherRepositories
-            .filter(({ name }) => selected.includes(name))
-            .map(({ name }) => name)
+            .filter(({ path }) => selected.includes(path))
+            .map(({ path }) => path)
         : accepted && request.removals
           ? request.removals.map((item) => item.id)
           : accepted,
@@ -856,23 +856,20 @@ export function ConfirmationCard({
               </>
             )}
             {request.dispatcherRepositories && (
-              <Section
-                label="Pre-approved repositories"
-                count={request.dispatcherRepositories.length}
-              >
+              <Section label="Pre-approved repositories" count={selected.length}>
                 <ul className="well" aria-label="Pre-approved repositories">
-                  {request.dispatcherRepositories.map(({ name, running }) => (
-                    <li key={name}>
+                  {request.dispatcherRepositories.map(({ path, name, running }) => (
+                    <li key={path}>
                       <label className="row">
                         <input
                           type="checkbox"
                           disabled={!request.presented}
-                          checked={selected.includes(name)}
+                          checked={selected.includes(path)}
                           onChange={(event) => {
                             setSelected(
                               event.target.checked
-                                ? [...selected, name]
-                                : selected.filter((value) => value !== name),
+                                ? [...selected, path]
+                                : selected.filter((value) => value !== path),
                             );
                           }}
                         />

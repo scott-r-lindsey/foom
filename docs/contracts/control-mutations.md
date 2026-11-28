@@ -433,12 +433,14 @@ remain authoritative. A hidden board row is not proof of completed cleanup.
 
 ### Dispatcher launches (#1300)
 
-`repos` lists direct Git repositories in the launch's source directory, their
-pre-approval status, their active orchestrators, PR summaries and open decision
-titles. Launch selectors use the returned `repo` directory name.
+`repos` lists registered local Git repositories, their pre-approval status,
+their active orchestrators, PR summaries and open decision titles. Launch
+selectors use the exact registered path in the returned `repo` field.
 The response includes up to 16 repositories and fits the complete 256 KiB MCP
 response budget. Pass `nextCursor` as `after` to continue, including when the
-byte budget shortens a page.
+byte budget shortens a page. Main verifies the cursor and the Git checkouts
+needed for the current page and its lookahead. An unavailable or unregistered
+cursor returns `not_found`.
 
 `launch_orchestrator` requires `repo`, `agent`, `prompt` and `idempotencyKey`, with
 optional `host` and `reason`. The result is an operation receipt. For unapproved

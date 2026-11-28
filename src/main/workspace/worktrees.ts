@@ -423,7 +423,49 @@ export class WorktreeService {
           };
         }),
     );
+    const primary = trees[0];
+    if (
+      primary &&
+      !primary.bare &&
+      !trees.some(({ path }) => path === repository.path) &&
+      (await this.hasSeparatePrimaryDirectory(repository.path, primary.path, timeout))
+    ) {
+      trees[0] = {
+        ...primary,
+        path: repository.path,
+        managed: await this.isManaged(repository.path, repository.path),
+      };
+    }
     return trees;
+  }
+
+  private async hasSeparatePrimaryDirectory(
+    repository: string,
+    listed: string,
+    timeout: number | undefined,
+  ): Promise<boolean> {
+    // Git may print the metadata location as the first worktree when the
+    // registered primary checkout uses a .git pointer to separate metadata.
+    const marker = await lstat(join(repository, ".git")).catch(() => undefined);
+    if (!marker?.isFile()) return false;
+    const output = await git(
+      repository,
+      [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+        "--absolute-git-dir",
+        "--show-toplevel",
+      ],
+      timeout,
+    ).catch(() => "");
+    const [common, directory, top, extra] = output.slice(0, -1).split("\n");
+    if (!common || common !== directory || !top || extra !== undefined) return false;
+    const [metadata, root] = await Promise.all([
+      realpath(common).catch(() => undefined),
+      realpath(top).catch(() => undefined),
+    ]);
+    return root === repository && (metadata === listed || metadata === join(listed, ".git"));
   }
 
   /** Presentation includes persisted failures; these rows never grant Git membership. */

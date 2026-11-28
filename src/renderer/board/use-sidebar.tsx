@@ -336,16 +336,16 @@ export function useSidebar(props: SidebarProps) {
       dismissBeforeRun: true,
       run: () => command({ kind: "home-shell" }),
     },
-    ...(machines.length === 0 && !options?.sourceDirectory ? sourceActions : []),
+    ...(machines.length === 0 && !options?.codeFolder ? sourceActions : []),
   ];
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }
   >();
-  if (options?.sourceDirectory)
-    subjects.set(sourceDirectoryKey(options.sourceDirectory), {
-      subject: { kind: "source-directory", directory: options.sourceDirectory },
-      name: options.sourceDirectory,
+  if (options?.codeFolder)
+    subjects.set(sourceDirectoryKey(options.codeFolder), {
+      subject: { kind: "source-directory", directory: options.codeFolder },
+      name: options.codeFolder,
       kind: "Source directory",
       mark: "repository",
     });
@@ -591,11 +591,13 @@ export function useSidebar(props: SidebarProps) {
                         label: "Demote",
                         run: () => command({ kind: "demote-dispatcher", id: row.id }),
                       }
-                    : {
-                        label: "Elevate to dispatcher…",
-                        run: () => command({ kind: "elevate-dispatcher", id: row.id }),
-                      },
-                ]
+                    : options?.codeFolder === row.worktree
+                      ? {
+                          label: "Elevate to dispatcher…",
+                          run: () => command({ kind: "elevate-dispatcher", id: row.id }),
+                        }
+                      : undefined,
+                ].filter((action) => action !== undefined)
               : row.kind === "agent" &&
                   !row.config &&
                   !row.home &&

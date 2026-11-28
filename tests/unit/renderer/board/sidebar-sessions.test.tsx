@@ -40,7 +40,13 @@ test("the source directory groups both ranks and opens the matching session acti
   const rows = [
     sourceRow,
     { ...sourceRow, id: "dispatcher", dispatcher: { orchestrators: 2, repositories: 3 } },
-    { ...sourceRow, id: "old", repository: "/work/old", repositoryPath: "/work/old" },
+    {
+      ...sourceRow,
+      id: "old",
+      repository: "/work/old",
+      repositoryPath: "/work/old",
+      worktree: "/work/old",
+    },
   ];
   const command = vi.fn(() => Promise.resolve());
   const source: BoardSource = {
@@ -48,7 +54,7 @@ test("the source directory groups both ranks and opens the matching session acti
     getSidebar: () => [repository],
     sidebarCommand: command,
     worktrees: {
-      load: async () => ({ ...(await load()), sourceDirectory: directory }),
+      load: async () => ({ ...(await load()), codeFolder: directory }),
       addRepository: () => Promise.resolve(null),
       branches: () =>
         Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),

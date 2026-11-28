@@ -1300,8 +1300,8 @@ test("dispatcher repository choices start empty, mark running orchestrators, and
     presented: true,
     theme: resolveInterfaceTheme("follow", false),
     dispatcherRepositories: [
-      { name: "project", running: true },
-      { name: "other", running: false },
+      { path: "/fixture/source/team/project", name: "team/project", running: true },
+      { path: "/code/other", name: "other", running: false },
     ],
   };
   act(() => {
@@ -1309,11 +1309,16 @@ test("dispatcher repository choices start empty, mark running orchestrators, and
   });
   const running = view.getByRole("checkbox", { name: /project/ });
   const other = view.getByRole("checkbox", { name: "other" });
+  const heading = view.getByRole("heading", { name: /Pre-approved repositories/ });
+  expect(heading.textContent).toMatch(/\s*0$/);
   expect(running).toHaveProperty("checked", false);
   expect(view.getByText("Orchestrator running")).toBeTruthy();
   fireEvent.click(running);
+  expect(heading.textContent).toMatch(/\s*1$/);
   fireEvent.click(other);
+  expect(heading.textContent).toMatch(/\s*2$/);
   fireEvent.click(running);
+  expect(heading.textContent).toMatch(/\s*1$/);
   expect(running).toHaveProperty("checked", false);
   expect(other).toHaveProperty("checked", true);
   fireEvent.click(view.getByRole("button", { name: "Elevate" }));
@@ -1321,6 +1326,9 @@ test("dispatcher repository choices start empty, mark running orchestrators, and
   act(() => {
     receive({ ...request, id: "second", presented: false });
   });
+  expect(view.getByRole("heading", { name: /Pre-approved repositories/ }).textContent).toMatch(
+    /\s*0$/,
+  );
   expect(view.getByRole("checkbox", { name: "other" })).toHaveProperty("checked", false);
   expect(view.getByRole("checkbox", { name: "other" })).toHaveProperty("disabled", true);
 });

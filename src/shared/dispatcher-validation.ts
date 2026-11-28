@@ -5,15 +5,13 @@ import { validAgentId } from "./providers/catalog";
 import { hostAlias } from "./registered-hosts";
 import type { DispatcherLaunch } from "./dispatcher";
 
-/** The dispatcher accepts one portable directory name, without aliases or separators. */
-export function sourceRepositoryName(value: unknown): string {
+/** The registry performs the exact, platform-specific path match in main. */
+export function dispatcherRepositoryPath(value: unknown): string {
   if (
     typeof value !== "string" ||
-    !value.trim() ||
-    value.length > 255 ||
-    value.startsWith(".") ||
-    /[ .]$/u.test(value) ||
-    /[\\/:\p{Cc}\p{Cf}\p{Cs}]/u.test(value)
+    value.length > 4096 ||
+    !/^(?:\/|[a-z]:[\\/]|\\\\)/iu.test(value) ||
+    /[\p{Cc}\p{Cf}\p{Cs}]/u.test(value.replace(/\p{Join_Control}/gu, ""))
   )
     throw new ControlError("invalid_request");
   return value;
@@ -32,7 +30,7 @@ export function dispatcherLaunch(input: Record<string, unknown>): DispatcherLaun
   )
     throw new ControlError("invalid_request");
   return {
-    repo: sourceRepositoryName(input["repo"]),
+    repo: dispatcherRepositoryPath(input["repo"]),
     agent,
     prompt: prompt.text,
     idempotencyKey: identifier(input["idempotencyKey"]),
