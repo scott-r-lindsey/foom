@@ -9,7 +9,7 @@ New Window opens another full sidebar and an independent tile layout. A tile's
 a new window. **Move to window ▸** lists the other open boards by their computing
 pioneer names, followed by their repositories in order of tile count (for example,
 **Lovelace · foom, tools**). The picker fetches the current destinations each
-time it opens.
+time it opens. Replacing a tile's content returns its picker to the tile menu.
 An empty board displays just its name. Each board keeps its name until it closes,
 when that name becomes available again. Choosing one moves the item using ordinary
 tile placement. Drag a terminal or preview sidebar row or title bar to another Foom board to place it

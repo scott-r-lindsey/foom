@@ -64,8 +64,10 @@ export function TileMenu({
       action(key);
     },
   });
+  // A replacement in the same leaf starts with fresh menu actions.
   return (
     <RowMenu
+      key={content && `${content.kind}:${content.id}`}
       anchor={anchor}
       point={point}
       placement="below"

@@ -142,6 +142,7 @@ export function RowMenu({
     request?: { load: () => Promise<MenuActions> };
     loaded?: MenuActions;
   }>();
+  const drillTrigger = sub?.inline ? sub.anchor : undefined;
   const confirmation = useConfirmation(confirmations);
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
@@ -334,6 +335,9 @@ export function RowMenu({
     document.addEventListener("scroll", scroll, true);
     const resize = keepOnResize
       ? () => {
+          const focused = document.activeElement;
+          if (drillTrigger && focused?.closest(".row-drill-in") && ref.current?.contains(focused))
+            returnFocusRef.current = drillTrigger;
           setSub(undefined);
         }
       : close;
@@ -353,6 +357,7 @@ export function RowMenu({
     bottomAligned,
     dismissOnAnchor,
     dismissOnScroll,
+    drillTrigger,
   ]);
   useLayoutEffect(() => {
     if (!sub && returnFocusRef.current) {

@@ -365,6 +365,11 @@ test("the submenu opens beside the whole menu or replaces its commands", async (
   fireEvent.keyDown(back, { key: "Escape" });
   expect(document.activeElement).toBe(settings);
   expect(screen.queryByRole("menu", { name: "Settings" })).toBeNull();
+  fireEvent.click(settings);
+  expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Back" }));
+  fireEvent.resize(window);
+  expect(document.activeElement).toBe(settings);
+  expect(screen.queryByRole("menu", { name: "Settings" })).toBeNull();
 });
 test("the Size row is one stop, steps without closing and shows main's size", async () => {
   const f = fixture();

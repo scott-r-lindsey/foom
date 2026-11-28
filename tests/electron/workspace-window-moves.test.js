@@ -299,6 +299,43 @@ test("opening the window picker refreshes repository hints before showing destin
   ).toBeFocused();
 });
 
+test("replacing a tile clears its previous occupant's window picker", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const turing = await boardPage(app);
+  const lovelace = await newBoard(app, turing);
+  const shannon = await newBoard(app, turing);
+  const localViews = (page) =>
+    page.evaluate(async () =>
+      (await window.desktop.windows.snapshot())
+        .filter(({ window }) => window === 0)
+        .map(({ id }) => id),
+    );
+  const [original] = await localViews(turing);
+  assert.ok(original);
+  await lovelace
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
+    .press("Enter");
+  await lovelace.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect.poll(() => localViews(lovelace)).toHaveLength(1);
+  const [replacement] = await localViews(lovelace);
+
+  await turing.getByRole("button", { name: "Tile 1 menu", exact: true }).press("Enter");
+  const trigger = turing.getByRole("menuitem", { name: "Move to window", exact: true });
+  const picker = turing.getByRole("menu", { name: "Move to window", exact: true });
+  const choice = picker.getByRole("menuitem", { name: "Shannon", exact: true });
+  await trigger.press("Enter");
+  await expect(choice).toBeVisible();
+
+  await dragMove(lovelace, ".tile-title", turing);
+  await expect.poll(() => localViews(turing)).toContain(replacement);
+  await expect(picker).toHaveCount(0);
+  await trigger.press("Enter");
+  await choice.press("Enter");
+  await expect.poll(() => localViews(shannon)).toEqual([replacement]);
+});
+
 test("long repository hints leave the window move trigger clickable", {
   timeout: deadline(60000),
 }, async (context) => {

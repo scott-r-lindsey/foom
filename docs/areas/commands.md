@@ -40,11 +40,12 @@ The sidebar’s Foom config panel retains its registry-derived launchers and the
 existing launch policy.
 
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
-RowMenu renders a submenu as a nested portal anchored to its item: the top-level
-menu owns outside-press, scroll and resize dismissal for both, and each level
-handles its own keys. A stepper row is one navigation stop whose buttons run
-without dismissing; the app menu repositions rather than closing when an
-interface size step resizes the window. Menu selection and native shortcuts
+RowMenu renders a submenu beside its parent through a portal or in the parent
+body on narrow layouts. The top-level menu owns outside-press, scroll and resize
+dismissal, and each level handles its own keys. A stepper row is one navigation
+stop whose buttons run without dismissing. The app menu stays open and repositions
+when an interface size step resizes the window. A focused submenu returns focus
+to its trigger as it closes. Menu selection and native shortcuts
 dispatch identical main-owned actions. Application-menu actions dismiss before
 dispatch, independently of row-action confirmation cancellation. They restore
 the previous focus and selection first, so native editing targets the original

@@ -217,6 +217,25 @@ test("Move to window lists stable labels and dispatches the chosen terminal", as
   await act(async () => {});
 });
 
+test("a committed replacement discards the previous occupant's window actions", async () => {
+  const f = fixture();
+  f.click(0);
+  await act(async () => {});
+  fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
+  const open = () => fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
+  open();
+  const destination = await f.screen.findByRole("menuitem", { name: "Shannon" });
+  const tile = f.tile().dataset["tile"];
+  if (!tile) throw new Error("Missing tile ID");
+  f.prepare("replacement", { tile, zone: "center" });
+  f.finish("replacement", { kind: "terminal", id: "check" });
+  expect(f.screen.queryByRole("menuitem", { name: "Shannon" })).toBeNull();
+  expect(destination.isConnected).toBe(false);
+  open();
+  fireEvent.click(await f.screen.findByRole("menuitem", { name: "Shannon" }));
+  expect(f.moves.move).toHaveBeenCalledExactlyOnceWith({ kind: "terminal", id: "check" }, 3);
+});
+
 test("repository reports follow occupied terminal tiles and retry on a later layout change", async () => {
   const rows = boardRows(100)
     .slice(0, 2)
