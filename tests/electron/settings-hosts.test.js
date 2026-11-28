@@ -2397,13 +2397,58 @@ test("Hosts does not repeat Git install after a rejected post-install list", {
     assert.equal(reply.recipeSession, undefined);
     assert.equal(reply.recipeFailure, undefined);
     await expect(install).toBeDisabled();
-    await expect(gitRow.getByRole("button", { name: "Reload git", exact: true })).toBeEnabled();
+    await expect(reload).toBeEnabled();
     await expect(gitRow).not.toContainText("Checking…");
-    await gitRow.getByRole("button", { name: "Reload git", exact: true }).click();
+    await reload.click();
+    await expect(gitRow).toContainText("Pass · Installed");
+    await expect(install).toHaveCount(0);
+    assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
   } finally {
     await releaseHostsView();
   }
   await expect(gitRow).toContainText("Pass · Installed");
+});
+
+test("A duplicate Git install refusal leaves the other Hosts window's saved result visible", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, recipeCalls, updateScenario } = await hostsFixture(context);
+  await card.getByRole("button", { name: "Install git", exact: true }).click();
+  const terminal = card.getByRole("region", { name: "Install terminal" });
+  await expect(terminal.locator(".xterm-screen")).toContainText("FIXTURE_RECIPE_COMPLETE");
+  const originalSteps = await readFile(recipeCalls, "utf8");
+  await page.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((window) => window.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const other = app
+    .windows()
+    .find((window) => window !== page && window.url() === "app://bundle/index.html");
+  assert.ok(other);
+  await other.locator(".config-gear").click();
+  await other.getByRole("menuitem", { name: /^Settings/u }).click();
+  await expect(other.getByRole("region", { name: "Settings" })).toBeVisible();
+  await other
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  const otherCard = other.getByRole("region", { name: "fixture-cloud", exact: true });
+  await otherCard.getByRole("button", { name: "Install git", exact: true }).click();
+  await expect(other.getByText("Recipe unavailable for this host", { exact: true })).toBeVisible();
+  await updateScenario({
+    recipeExit: 0,
+    facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+  });
+  await expect(terminal.getByRole("status")).toHaveText("Done");
+  const gitRow = otherCard.locator(".host-check-row").filter({
+    has: other.getByRole("button", { name: "Reload git", exact: true }),
+  });
+  // The Install click pins this card open. Its saved checklist owns the row.
+  await expect(otherCard.getByText("Ready", { exact: false })).toBeVisible();
+  await expect(gitRow).toContainText("Pass · Installed");
+  await expect(other.getByText("Recipe unavailable for this host", { exact: true })).toHaveCount(0);
+  assert.equal(await readFile(recipeCalls, "utf8"), originalSteps);
 });
 
 test("Hosts refuses a second Git install before a running recipe exits", {

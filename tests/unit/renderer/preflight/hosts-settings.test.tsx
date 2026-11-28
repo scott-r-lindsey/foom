@@ -1996,6 +1996,9 @@ test.skipIf(process.platform === "win32")(
 const recipeExitOutcomes = [
   "refreshed",
   "read failed",
+  "live read failed",
+  "live read failed before newer view",
+  "live read failed before full check",
   "live installed",
   "live still missing",
   "live snapshot failed",
@@ -2034,7 +2037,11 @@ test.each(recipeExitOutcomes)(
     const stream = viewStream();
     stream.data.hosts = { ...saved(missing), viewRevision: 1 };
     const live = outcome.startsWith("live");
-    const installed = outcome === "live installed" || outcome === "live snapshot failed";
+    const newerView = outcome === "live read failed before newer view";
+    const installed =
+      outcome === "live installed" ||
+      outcome === "live snapshot failed" ||
+      outcome.startsWith("live read failed");
     const api = vi
       .fn<(action: HostsAction) => Promise<HostsState>>()
       .mockResolvedValue(saved(missing));
@@ -2089,11 +2096,71 @@ test.each(recipeExitOutcomes)(
       viewRevision: 3,
     };
     await act(async () => {
-      if (outcome === "read failed") refresh.reject(new Error("read failed"));
+      if (outcome.includes("read failed")) refresh.reject(new Error("read failed"));
       else refresh.resolve(observed);
       await refresh.promise.catch(() => undefined);
     });
-    if (outcome === "live snapshot failed") {
+    if (outcome.startsWith("live read failed")) {
+      await screen.findByText("Unable to refresh tool");
+      expect(install.disabled).toBe(true);
+      const check = screen.getByRole<HTMLButtonElement>("button", {
+        name:
+          outcome === "live read failed before full check" ? "Check capabilities" : "Reload git",
+      });
+      const reloaded = Promise.withResolvers<HostsState>();
+      api.mockReturnValue(reloaded.promise);
+      expect(check.disabled).toBe(false);
+      fireEvent.click(check);
+      if (newerView) {
+        act(() => {
+          stream.data.hosts = {
+            ...saved({
+              ...missing,
+              hosts: missing.hosts.map((entry) => ({ ...entry, nickname: "Newer view" })),
+            }),
+            viewRevision: 4,
+          };
+          stream.push("hosts");
+        });
+        await screen.findByRole("button", { name: "Rename Newer view" });
+        expect(install.disabled).toBe(true);
+      }
+      await act(async () => {
+        reloaded.resolve(observed);
+        await reloaded.promise;
+      });
+      if (newerView) {
+        expect(screen.getByRole("button", { name: "Install git" }).matches(":disabled")).toBe(
+          false,
+        );
+        return;
+      }
+      fireEvent.click(install);
+      expect(api.mock.calls.filter(([action]) => action.action === "recipe")).toHaveLength(1);
+      expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
+      const row = screen.getByRole("button", { name: "Reload git" }).closest(".host-check-row");
+      expect(row?.textContent).toContain("Pass · Installed");
+      act(() => {
+        stream.data.hosts = {
+          ...saved({
+            ...missing,
+            hosts: missing.hosts.map((entry) => ({ ...entry, nickname: "Older view" })),
+          }),
+          viewRevision: 2,
+        };
+        stream.push("hosts");
+      });
+      await screen.findByRole("button", { name: "Rename Older view" });
+      expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
+      act(() => {
+        stream.data.hosts = { ...saved(missing), viewRevision: 4 };
+        stream.push("hosts");
+      });
+      expect(
+        (await screen.findByRole("button", { name: "Install git" })).matches(":disabled"),
+      ).toBe(false);
+      return;
+    } else if (outcome === "live snapshot failed") {
       act(() => {
         stream.errors.add("hosts");
         stream.push("hosts");
@@ -2153,14 +2220,14 @@ test.each(recipeExitOutcomes)(
       expect(screen.getByRole<HTMLButtonElement>("button", { name: "Install git" }).disabled).toBe(
         false,
       );
-    if (outcome !== "read failed")
+    if (!outcome.includes("read failed"))
       expect(api.mock.calls.filter(([action]) => action.action === "list")).toHaveLength(
         listReads + 1,
       );
   },
 );
 
-test.each(["ready", "refused", "rejected"] as const)(
+test.each(["ready", "refused", "refused then ready", "rejected"] as const)(
   "Git install stays disabled through its reply and saved result (%s)",
   async (outcome) => {
     const missing = saved({
@@ -2208,13 +2275,27 @@ test.each(["ready", "refused", "rejected"] as const)(
       });
     } else {
       await act(async () => {
-        if (outcome === "refused")
+        if (outcome.startsWith("refused"))
           launch.resolve({ ...missing, recipeFailure: "recipe-unavailable" });
         else launch.reject(new Error("Fixture rejected install"));
         await launch.promise.catch(() => undefined);
       });
       expect(install.disabled).toBe(true);
       expect(screen.queryByText("Checking…")).toBeNull();
+      if (outcome === "refused then ready") {
+        await screen.findByText("Recipe unavailable for this host");
+        act(() => {
+          stream.data.hosts = { ...saved({ ...missing, preflight }), viewRevision: 2 };
+          stream.push("hosts");
+        });
+        await waitFor(() => {
+          expect(screen.queryByText("Recipe unavailable for this host")).toBeNull();
+        });
+        expect(screen.queryByRole("button", { name: "Install git" })).toBeNull();
+        const row = screen.getByRole("button", { name: "Reload git" }).closest(".host-check-row");
+        expect(row?.textContent).toContain("Pass · Installed");
+        return;
+      }
       const reload = screen.getByRole<HTMLButtonElement>("button", { name: "Reload git" });
       expect(reload.disabled).toBe(false);
       fireEvent.click(reload);

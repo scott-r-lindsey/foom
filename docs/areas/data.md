@@ -200,13 +200,17 @@ Settings projection explicitly opts into current counts.
 Entering Hosts retains its explicit list command to resume owner-held row/save
 retries. The list reply carries the Hosts publication revision at which it read
 the results. Saved row controls wait for the resumed list, and post-install
-controls wait for their refreshed row. Both stay disabled until the subscribed
-snapshot reaches that revision or a newer one. If the snapshot fails after the
-opening list settles, row reload is available to request a fresh snapshot.
+controls wait for their refreshed row. Tool reloads and full checks return
+revisioned checklists. A checklist reply can update that host's displayed checks
+while the subscribed snapshot is older. A snapshot at the reply's revision or
+later takes over. If the snapshot fails after the opening list settles, row
+reload is available to request a fresh snapshot.
 A failed snapshot also clears post-install row checking and keeps Install
 disabled until the snapshot recovers. A rejected post-install list reply clears
-row checking and keeps Install disabled until an explicit reload or full check.
-The subscription owns the displayed results.
+row checking and keeps Install disabled until a reload or full check supplies
+the tool result, or the subscription reports the tool ready. An install refusal
+is a command error. A later ready observation clears it, including when another
+window ran the install. Command replies leave the subscribed cache intact.
 
 The host view primes sealed-build and local SSH-client display capabilities
 without retrying failed rows or connecting to a host. This preserves the opening

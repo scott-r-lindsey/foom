@@ -38,6 +38,8 @@ type RecipeView = {
   reveal?: true;
   gh?: "install" | "sign-in";
 };
+type InstallFailure = { host: string; tool: string; message: string };
+type ChecklistReply = { revision: number; entry: HostRow };
 const originRecipeKey = (host: string, endpoint: GitOriginEndpoint) =>
   JSON.stringify([host, endpoint.host, endpoint.port, endpoint.protocol]);
 const EMPTY_HOSTS: HostsState = { hosts: [], locations: [] };
@@ -96,10 +98,14 @@ const ReloadContext = createContext<
       needsFullCheck: boolean;
       snapshotFailed: boolean;
       installRunning: boolean;
+      installFailed: ReadonlySet<string>;
     }
   | undefined
 >(undefined);
 const rowKey = (target: HostCheckTarget) => JSON.stringify(target);
+const toolRowKey = (tool: string) => rowKey({ kind: "tool", tool });
+const standaloneInstall = (action: HostsAction | undefined) =>
+  action?.action === "recipe" && action.operation === "install" ? action : undefined;
 const sshRowKey = rowKey({ kind: "ssh" });
 function reloadName(target: HostCheckTarget): string {
   if ("tool" in target)
@@ -461,8 +467,9 @@ function Checklist({
         reload?.installRunning ||
         (operation === "install" &&
           (reload?.snapshotFailed ||
-            reload?.pending.has(rowKey({ kind: "tool", tool: id })) ||
-            reload?.failed.has(rowKey({ kind: "tool", tool: id })))) ||
+            reload?.pending.has(toolRowKey(id)) ||
+            reload?.failed.has(toolRowKey(id)) ||
+            reload?.installFailed.has(toolRowKey(id)))) ||
         (id === "gh" && ghRunning) ||
         (signInTerminal?.tool === id && signInTerminal.running)
       }
@@ -899,15 +906,73 @@ export function HostsSettings({
   const [progress, setProgress] = useState<readonly HostCheckProgress[]>();
   const [rowPending, setRowPending] = useState<ReadonlySet<string>>(() => new Set());
   const [rowFailed, setRowFailed] = useState<ReadonlyMap<string, number>>(() => new Map());
-  const [pendingInstallViews, setPendingInstallViews] = useState<ReadonlyMap<string, number>>(
+  const [checklistReplies, setChecklistReplies] = useState<ReadonlyMap<string, ChecklistReply>>(
     () => new Map(),
   );
-  if (pendingInstallViews.size) {
-    const waiting = new Map(
-      [...pendingInstallViews].filter(([, required]) => !snapshotFailed && required > viewRevision),
+  // A command can return before its publication reaches this window.
+  const newerChecklists = new Map(
+    [...checklistReplies].filter(
+      ([host, { revision, entry }]) =>
+        revision > viewRevision &&
+        state.hosts.some((row) => row.host === host && row.codeFolder === entry.codeFolder),
+    ),
+  );
+  if (newerChecklists.size !== checklistReplies.size) setChecklistReplies(newerChecklists);
+  const rememberChecklistReply = useCallback(
+    (host: string, next: HostsState) => {
+      const revision = next.viewRevision;
+      const entry = next.hosts.find((row) => row.host === host);
+      if (!source.views || revision === undefined || !entry) return;
+      setChecklistReplies((previous) => {
+        if ((previous.get(host)?.revision ?? -1) >= revision) return previous;
+        return new Map(previous).set(host, { revision, entry });
+      });
+    },
+    [source.views],
+  );
+  const [installFailures, setInstallFailures] = useState<ReadonlyMap<string, InstallFailure>>(
+    () => new Map(),
+  );
+  if (installFailures.size) {
+    // A refused install says nothing about the saved observation from another window.
+    const remaining = new Map(
+      [...installFailures].filter(([, { host, tool }]) => {
+        const entry = state.hosts.find((entry) => entry.host === host);
+        if (!entry) return false;
+        const latest = newerChecklists.get(host)?.entry ?? entry;
+        const result = completedHostCheck(latest, latest.checklist, checks.get(host))?.result;
+        return !(
+          result?.ok &&
+          [...(result.facts.tools ?? []), ...result.facts.agents].some(
+            (entry) => entry.id === tool && entry.state === "ready",
+          )
+        );
+      }),
     );
-    if (waiting.size !== pendingInstallViews.size) setPendingInstallViews(waiting);
+    if (remaining.size !== installFailures.size) setInstallFailures(remaining);
   }
+  const reportInstallFailure = useCallback((host: string, tool: string, message: string) => {
+    const key = `${host}:${toolRowKey(tool)}`;
+    setInstallFailures((previous) => new Map(previous).set(key, { host, tool, message }));
+  }, []);
+  const [pendingToolViews, setPendingToolViews] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  if (pendingToolViews.size) {
+    const waiting = new Map(
+      [...pendingToolViews].filter(([, required]) => required > viewRevision),
+    );
+    if (waiting.size !== pendingToolViews.size) setPendingToolViews(waiting);
+  }
+  const waitForToolView = useCallback(
+    (key: string, revision: number | undefined) => {
+      if (source.views && revision !== undefined)
+        setPendingToolViews((previous) =>
+          new Map(previous).set(key, Math.max(previous.get(key) ?? 0, revision)),
+        );
+    },
+    [source.views],
+  );
   const [recipes, setRecipes] = useState<ReadonlyMap<string, RecipeView>>(() => {
     const saved = new Map<string, RecipeView>(
       [...(source.installs?.sessions() ?? [])].map(([host, id]) => [
@@ -951,11 +1016,7 @@ export function HostsSettings({
   };
   const recipeFinished = useCallback(
     async (id: string, succeeded?: boolean) => {
-      const action = source.installs?.hostActions?.().get(id);
-      const installKey =
-        action?.action === "recipe" && action.operation === "install"
-          ? `${action.host}:${rowKey({ kind: "tool", tool: action.tool })}`
-          : undefined;
+      const install = standaloneInstall(source.installs?.hostActions?.().get(id));
       setRecipes((previous) => {
         for (const [key, recipe] of previous)
           if (recipe.id === id && recipe.installTool)
@@ -964,17 +1025,16 @@ export function HostsSettings({
       });
       await api?.({ action: "list" })
         .then((next) => {
-          if (source.views && installKey && next.viewRevision !== undefined) {
+          if (install) {
             // A list reply acknowledges the refresh before a delayed view can show it.
-            const revision = next.viewRevision;
-            setPendingInstallViews((previous) => new Map(previous).set(installKey, revision));
+            waitForToolView(`${install.host}:${toolRowKey(install.tool)}`, next.viewRevision);
           }
           setState(next);
           setChecks(new Map());
         })
         .catch(() => {
-          if (installKey) setRowFailed((previous) => new Map(previous).set(installKey, 0));
-          setError("Unable to refresh tool");
+          if (install) reportInstallFailure(install.host, install.tool, "Unable to refresh tool");
+          else setError("Unable to refresh tool");
         });
       setRecipes((previous) => {
         for (const [key, recipe] of previous)
@@ -984,7 +1044,7 @@ export function HostsSettings({
       if (succeeded)
         setRecipes((previous) => new Map([...previous].filter(([, recipe]) => recipe.id !== id)));
     },
-    [api, setState, source.installs, source.views],
+    [api, reportInstallFailure, setState, source.installs, waitForToolView],
   );
   const originPanel = (id: string, reveal = false) =>
     source.hostTerminal && (
@@ -1007,12 +1067,13 @@ export function HostsSettings({
         if (next) {
           setState(next);
           rememberChecklist(host, next.preflight);
+          rememberChecklistReply(host, next);
         }
       } catch {
         setError("Unable to refresh tool");
       }
     },
-    [api, rememberChecklist, setState],
+    [api, rememberChecklist, rememberChecklistReply, setState],
   );
   const changedRef = useRef(false);
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(() => new Map());
@@ -1097,10 +1158,7 @@ export function HostsSettings({
       setExpanded((previous) => new Map(previous).set(action.host, true));
     }
     const target = "host" in action ? action.host : "";
-    const installKey =
-      action.action === "recipe" && action.operation === "install"
-        ? `${action.host}:${rowKey({ kind: "tool", tool: action.tool })}`
-        : undefined;
+    const install = standaloneInstall(action);
     const startedRename = renamedRef.current.get(target);
     setBusy((previous) => new Set(previous).add(target));
     let enrolling = action.action === "add";
@@ -1127,15 +1185,21 @@ export function HostsSettings({
         !next.preflightSaveFailed &&
         "host" in action &&
         ["preflight", "add", "remove"].includes(action.action)
-      )
+      ) {
         setRowFailed(
           (previous) =>
             new Map([...previous].filter(([key]) => !key.startsWith(`${action.host}:`))),
         );
+        setInstallFailures(
+          (previous) =>
+            new Map([...previous].filter(([, failure]) => failure.host !== action.host)),
+        );
+      }
       applyState(next, target, startedRename);
       if (action.action === "preflight" && next.preflight) {
         const preflight = next.preflight;
         rememberChecklist(action.host, preflight);
+        rememberChecklistReply(action.host, next);
         if (next.preflightSaveFailed && preflight.ssh.state !== "not-checked") {
           const key = `${action.host}:${sshRowKey}`;
           setRowFailed((previous) => {
@@ -1175,14 +1239,13 @@ export function HostsSettings({
         );
       }
       if (next.recipeFailure) {
-        if (installKey) setRowFailed((previous) => new Map(previous).set(installKey, 0));
-        setError("Recipe unavailable for this host");
-      } else if (installKey && !next.recipeSession && source.views) {
+        if (install)
+          reportInstallFailure(install.host, install.tool, "Recipe unavailable for this host");
+        else setError("Recipe unavailable for this host");
+      } else if (install && !next.recipeSession && source.views) {
         // A stale Install can succeed without a terminal. Wait for its saved row as well.
         const saved = await api?.({ action: "list" });
-        const revision = saved?.viewRevision;
-        if (revision !== undefined)
-          setPendingInstallViews((previous) => new Map(previous).set(installKey, revision));
+        waitForToolView(`${install.host}:${toolRowKey(install.tool)}`, saved?.viewRevision);
       }
       if (action.action === "add" && next.hosts.some((entry) => entry.host === action.host)) {
         setAdding(false);
@@ -1228,8 +1291,8 @@ export function HostsSettings({
       }
       if (next?.preflightSaveFailed && !source.views) setError("Unable to update hosts");
     } catch {
-      if (installKey) setRowFailed((previous) => new Map(previous).set(installKey, 0));
-      if (enrolling) setAddError("Unable to add host");
+      if (install) reportInstallFailure(install.host, install.tool, "Unable to update hosts");
+      else if (enrolling) setAddError("Unable to add host");
       else setError("Unable to update hosts");
     } finally {
       setBusy((previous) => {
@@ -1246,6 +1309,12 @@ export function HostsSettings({
     setExpanded((previous) => new Map(previous).set(host, true));
     setError("");
     setRowPending((previous) => new Set(previous).add(key));
+    if (target.kind === "tool")
+      setInstallFailures((previous) => {
+        const next = new Map(previous);
+        next.delete(key);
+        return next;
+      });
     setRowFailed((previous) => {
       const next = new Map(previous);
       next.delete(key);
@@ -1254,6 +1323,7 @@ export function HostsSettings({
     try {
       const next = await api?.({ action: "reload", host, target });
       if (next) {
+        if (target.kind === "tool") rememberChecklistReply(host, next);
         applyState(next, host);
         if (next.preflight) rememberChecklist(host, next.preflight);
       }
@@ -1271,6 +1341,7 @@ export function HostsSettings({
   };
   const hostError =
     error ||
+    [...installFailures.values()].at(-1)?.message ||
     (state.hosts.some((entry) => entry.checklist?.saveFailed) ? "Unable to update hosts" : "");
   return (
     <div className="hosts-page">
@@ -1419,7 +1490,12 @@ export function HostsSettings({
                 : {})}
             />
           ) : undefined;
-        const latest = completedHostCheck(entry, entry.checklist, checks.get(entry.host));
+        const checklistEntry = newerChecklists.get(entry.host)?.entry ?? entry;
+        const latest = completedHostCheck(
+          checklistEntry,
+          checklistEntry.checklist,
+          checks.get(entry.host),
+        );
         const sshRevision = latest?.sshRevision ?? 0;
         const preflight = buildPreflight(latest, state.remoteHostsAvailable);
         const hostProgress = progress?.find((item) => item.host === entry.host);
@@ -1595,8 +1671,13 @@ export function HostsSettings({
                     (preflight?.result ?? entry.result)?.ok !== true || summary === "Not checked",
                   snapshotFailed,
                   installRunning: !!recipe?.installTool && recipe.phase !== "finished",
+                  installFailed: new Set(
+                    [...installFailures.values()]
+                      .filter((failure) => failure.host === entry.host)
+                      .map((failure) => toolRowKey(failure.tool)),
+                  ),
                   saveFailed: new Set(
-                    (entry.rowFailures ?? [])
+                    (checklistEntry.rowFailures ?? [])
                       .filter((row) => row.reason === "save-failed")
                       .map((row) => rowKey(row.target)),
                   ),
@@ -1608,10 +1689,10 @@ export function HostsSettings({
                           (key !== `${entry.host}:${sshRowKey}` || failedAt >= sshRevision),
                       )
                       .map(([key]) => key.slice(entry.host.length + 1)),
-                    ...(entry.rowFailures ?? []).map((row) => rowKey(row.target)),
+                    ...(checklistEntry.rowFailures ?? []).map((row) => rowKey(row.target)),
                   ]),
                   pending: new Set([
-                    ...[...rowPending, ...pendingInstallViews.keys()]
+                    ...[...rowPending, ...(snapshotFailed ? [] : pendingToolViews.keys())]
                       .filter((key) => key.startsWith(`${entry.host}:`))
                       .map((key) => key.slice(entry.host.length + 1)),
                     ...(!snapshotFailed && recipe?.phase === "checking" && recipe.installTool

@@ -1338,14 +1338,17 @@ export class Hosts {
         target,
       });
     }
-    return this.applyRowCheck(host, registration, target, result, originEndpoint);
+    return this.applyRowCheck(host, registration, target, result, { originEndpoint });
   }
   private async applyRowCheck(
     host: string,
     registration: RegisteredHost,
     target: HostCheckTarget,
     result: HostResult,
-    originEndpoint?: GitOriginEndpoint,
+    {
+      originEndpoint,
+      preserveUncheckedApproval = false,
+    }: { originEndpoint?: GitOriginEndpoint | undefined; preserveUncheckedApproval?: boolean } = {},
   ): Promise<HostPreflight | undefined> {
     const previous = this.checklists.get(host)?.preflight ?? registration.observation?.preflight;
     const displayed = previous?.result ?? this.results.get(host);
@@ -1462,7 +1465,7 @@ export class Hosts {
                   state: found?.state ?? "unable",
                   ...(found?.codexApprovals !== undefined
                     ? { codexApprovals: found.codexApprovals }
-                    : item.codexApprovals !== undefined
+                    : !preserveUncheckedApproval && item.codexApprovals !== undefined
                       ? { codexApprovals: "unknown" as const }
                       : {}),
                   ...(found?.details ? { details: found.details } : {}),
@@ -1548,12 +1551,16 @@ export class Hosts {
       input.action === "show-setup-agent"
     )
       return Promise.reject(new Error("Invalid host action"));
-    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey).finally(
-      () => {
+    return this.performAction(input, confirm, launchRecipe, trustSignal, confirmHostKey)
+      .finally(() => {
         if (!["progress", "cancel-trust"].includes(input.action))
           viewChanges.publish("hosts", "agents");
-      },
-    );
+      })
+      .then((state) => {
+        if (input.action !== "reload" && input.action !== "preflight") return state;
+        // The command's preflight may predate another observation already published.
+        return { ...state, hosts: this.state().hosts, viewRevision: viewChanges.current("hosts") };
+      });
   }
   private performAction(
     input: HostOperation,
@@ -1778,7 +1785,10 @@ export class Hosts {
             const current = this.registered(input.host);
             const row = this.queueRows(input.host, [target]).get(JSON.stringify(target));
             if (row) {
-              row.retry = () => this.applyRowCheck(input.host, current, target, inspected);
+              row.retry = () =>
+                this.applyRowCheck(input.host, current, target, inspected, {
+                  preserveUncheckedApproval: true,
+                });
               await this.checkQueuedRows(input.host, [row]);
             }
             return this.state();

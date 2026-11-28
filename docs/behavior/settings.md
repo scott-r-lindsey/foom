@@ -430,7 +430,9 @@ the Install click through the terminal run. After exit, the tool row shows
 checklist. The row offers **Install** again if the tool is still **Not found**.
 If the install request, its refresh reply, or the Hosts snapshot fails,
 **Checking…** ends and the tool's **Reload** control is available to recover the
-checklist.
+checklist. A newer reload reply updates the tool row while the Hosts snapshot
+catches up. A saved installed result also clears an earlier refusal when another
+window ran the install.
 Add host shows progress and enrollment errors
 in the form. The host card shows check progress in its header and fixed failures
 on the affected rows. **Last checked** records full checks only.

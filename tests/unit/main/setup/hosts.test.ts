@@ -2743,6 +2743,62 @@ test("freshly ready Git skips every recipe step and saves the observed tool row"
   }
 });
 
+test("an already-ready Codex install preserves saved approvals and details from the prior check", async () => {
+  const fixture = await restartedBrewHost();
+  try {
+    const entry = fixture.checked.hosts[0];
+    const observation = entry?.observation;
+    const inspected = observation?.preflight.result;
+    if (!entry || !observation || !inspected?.ok) throw new Error("Missing fixture facts");
+    const codex = {
+      id: "codex",
+      state: "ready",
+      signIn: "signed-out",
+      codexApprovals: "may-prompt",
+      details: { path: "/fixture/codex", version: "0.1.0", capabilities: ["Hooks"] },
+    } as const;
+    await fixture.store.update({
+      registeredHosts: [
+        {
+          ...entry,
+          observation: {
+            ...observation,
+            preflight: {
+              ...observation.preflight,
+              result: { ok: true, facts: { ...inspected.facts, agents: [codex] } },
+            },
+          },
+        },
+      ],
+    });
+    fixture.run.mockResolvedValueOnce(inspected);
+    const launch = vi.fn(() => Promise.resolve("unexpected-install"));
+    await fixture.hosts.action(
+      { action: "recipe", host: entry.host, tool: "codex", operation: "install" },
+      undefined,
+      launch,
+    );
+    expect(launch).not.toHaveBeenCalled();
+    expect(fixture.run).toHaveBeenCalledOnce();
+    const listed = await fixture.hosts.action({ action: "list" });
+    const saved = listed.hosts[0]?.observation?.preflight.result;
+    expect(saved?.ok && saved.facts.agents).toContainEqual(codex);
+    const reloaded = await fixture.hosts.action({
+      action: "reload",
+      host: entry.host,
+      target: { kind: "tool", tool: "codex" },
+    });
+    expect(reloaded.viewRevision).toBeGreaterThan(listed.viewRevision ?? 0);
+    const refreshed = reloaded.preflight?.result;
+    expect(refreshed?.ok && refreshed.facts.agents).toContainEqual({
+      ...codex,
+      codexApprovals: "unknown",
+    });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test("returning from recipes refreshes only the selected tool and sign-in without advancing Last checked", async () => {
   const fixture = await restartedBrewHost();
   try {

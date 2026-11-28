@@ -219,7 +219,7 @@ export interface HostCheckProgress {
   }[];
 }
 export interface HostsState {
-  /** Hosts publication revision reflected by the saved-only list or subscribed view. */
+  /** Hosts publication revision reflected by the returned checklist rows. */
   viewRevision?: number;
   /** Display-only endpoints of registered local origins. */
   gitOrigins?: readonly (GitOriginEndpoint & { repository: string })[];
