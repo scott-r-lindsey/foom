@@ -22,6 +22,7 @@ import { readThemeFile } from "./files";
 export { ThemeBitmaps, themeBitmapResponse } from "./bitmaps";
 
 const kinds = ["theme", "terminal-theme"] as const;
+const diagnosticLimit = 100;
 function catalogTheme(theme: ThemeCatalog["interface"][number]["theme"]) {
   const collision = Object.values(interfaceThemes).some(
     (builtin) => builtin.name.toLowerCase() === theme.name.toLowerCase(),
@@ -49,6 +50,7 @@ export class ThemeLibrary {
           id: UserThemeId;
           digest?: string;
           bitmaps?: ActiveThemeBitmaps["slots"];
+          warnings: readonly ThemeDiagnostic[];
           theme: ThemeCatalog["interface"][number]["theme"] | undefined;
         }
       | undefined,
@@ -72,9 +74,20 @@ export class ThemeLibrary {
       if (index === -1) entries.push(entry);
       else entries[index] = entry;
     } else if (index !== -1) entries.splice(index, 1);
+    const file = active.id.slice("user:".length);
+    const warnings = active.warnings
+      .slice(0, diagnosticLimit)
+      .map((warning) => ({ ...warning, kind: "theme" as const, file }));
+    const interfaceErrors = this.catalog.errors
+      .filter(
+        (entry) => entry.kind === "theme" && !(entry.file === file && entry.severity === "warning"),
+      )
+      .slice(0, diagnosticLimit - warnings.length);
+    const terminalErrors = this.catalog.errors.filter((entry) => entry.kind === "terminal-theme");
     return structuredClone({
       ...this.catalog,
       interface: entries,
+      errors: [...warnings, ...interfaceErrors, ...terminalErrors],
       ...(active.bitmaps && { activeBitmaps: { theme: active.id, slots: active.bitmaps } }),
     });
   }
@@ -191,7 +204,7 @@ export class ThemeLibrary {
           }
           if (diagnostic) {
             // Diagnostic text is bounded too, even for enormous directories or unsafe names.
-            if (next.errors.filter((error) => error.kind === kind).length < 100)
+            if (next.errors.filter((error) => error.kind === kind).length < diagnosticLimit)
               next.errors.push({
                 ...diagnostic,
                 file: file.replace(/[\p{Cc}\p{Cf}]/gu, "�").slice(0, 100),
@@ -208,7 +221,10 @@ export class ThemeLibrary {
               ...[...(theme.warnings ?? []), ...(snapshot.imageDiagnostics ?? [])]
                 .slice(
                   0,
-                  Math.max(0, 100 - next.errors.filter((error) => error.kind === kind).length),
+                  Math.max(
+                    0,
+                    diagnosticLimit - next.errors.filter((error) => error.kind === kind).length,
+                  ),
                 )
                 .map((warning) => ({ ...warning, file, kind })),
             );

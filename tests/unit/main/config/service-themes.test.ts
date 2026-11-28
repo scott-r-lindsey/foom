@@ -748,9 +748,13 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
     loadThemeBitmaps: (parsed, mode) => bitmaps.load(parsed, mode),
     onThemeBitmapsChanged: changed,
   });
-  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), () =>
+  const bitmaps = new ThemeBitmaps(path.join(f.folder, "themes"), (bytes) =>
     // All versions have the same normalized image, even when their source bytes differ.
-    Promise.resolve({ png: Uint8Array.of(1, 2, 3), colors: [palette.colors.attention] }),
+    Promise.resolve({
+      png: Uint8Array.of(1, 2, 3),
+      colors:
+        Buffer.from(bytes).toString() === "proposed metadata" ? [] : [palette.colors.attention],
+    }),
   );
   const file = "themes/art.json";
   const image = "themes/private.png";
@@ -791,6 +795,9 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
   const pending = f.service.status().pending;
   expect(pending?.detail).toBe("theme-images");
   expect(f.service.activePalette()).toEqual(active);
+  expect(
+    (await f.service.reviewTheme(file, text, parseThemeFile(text, "theme")))?.imageDiagnostics,
+  ).toMatchObject([{ reason: "image-status-color" }]);
   await f.write(image, "new revision before approval");
   await expect(f.service.decide("allow", pending?.id)).rejects.toThrow("changed");
   expect(f.service.status().pending?.id).not.toBe(pending?.id);
@@ -805,6 +812,7 @@ test("bitmap approval binds original bytes, revokes deleted slots and rejects st
   await f.service.refresh();
   expect(f.service.activePalette()).toMatchObject({ id: "user:art.json" });
   expect(f.service.activePalette()?.bitmaps).toBeUndefined();
+  expect(f.service.activePalette()?.warnings).toEqual([]);
   expect(f.service.activeThemeImage(replacement)).toBeUndefined();
   expect(f.service.status().pending).toBeNull();
   expect(changed).toHaveBeenCalledTimes(3);

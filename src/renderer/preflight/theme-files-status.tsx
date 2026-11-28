@@ -31,10 +31,8 @@ export function ThemeFilesStatus({
               <ul>
                 {entries.map(({ path, reason }, index) => (
                   <li key={`${path}:${reason}:${String(index)}`}>
-                    <code>{file}</code>{" "}
-                    <span>
-                      <code>{path}</code> · {reason}
-                    </span>
+                    <code>{file}</code> <code>{path}</code> ·{" "}
+                    <span className="theme-warning-reason">{reason}</span>
                   </li>
                 ))}
               </ul>

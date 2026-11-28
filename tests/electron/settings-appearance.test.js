@@ -536,6 +536,19 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
     ["light", "Daybreak"],
     ["dark", "Nightfall"],
   ];
+  const themeText = (base, name, bitmap) =>
+    JSON.stringify({
+      version: 2,
+      name,
+      base,
+      colors: { ...interfaceThemes[`eclipse-${base}`].colors, line: "#402600", hole: "#100f15" },
+      images: { board: { file: bitmap } },
+    });
+  await sharp({
+    create: { width: 16, height: 16, channels: 3, background: "#000000" },
+  })
+    .png()
+    .toFile(path.join(themes, "unflagged.png"));
   for (const [base, name] of modes) {
     const { colors } = interfaceThemes[`eclipse-${base}`];
     await sharp({
@@ -543,16 +556,7 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
     })
       .png()
       .toFile(path.join(themes, `${base}.png`));
-    await writeFile(
-      path.join(themes, `${base}.json`),
-      JSON.stringify({
-        version: 2,
-        name,
-        base,
-        colors: { ...colors, line: "#402600", hole: "#100f15" },
-        images: { board: { file: `${base}.png` } },
-      }),
-    );
+    await writeFile(path.join(themes, `${base}.json`), themeText(base, name, `${base}.png`));
   }
 
   const capture = process.env.FOOM_SCREENSHOTS === "1";
@@ -590,6 +594,38 @@ test("Appearance shows palette and bitmap warnings only in each theme disclosure
     await summary.press("Enter");
     await expect(row.getByRole("list")).toHaveCount(0);
   }
+
+  const catalog = () => page.evaluate(() => window.desktop.listThemes());
+  const pending = () => page.evaluate(async () => (await window.desktop.configStatus()).pending);
+  const darkRow = disclosures.filter({ hasText: "Nightfall" });
+  const darkFile = path.join(themes, "dark.json");
+  const expectArtwork = async (id, warned) => {
+    const themes = await catalog();
+    assert.equal(themes.activeBitmaps?.slots.board?.id, id);
+    assert.equal(
+      themes.errors.some(
+        ({ file, reason }) => file === "dark.json" && reason === "image-status-color",
+      ),
+      warned,
+    );
+    await expect(darkRow.locator("summary")).toHaveText(
+      `Nightfall · Applied · ${warned ? 3 : 2} warnings`,
+    );
+  };
+  const approved = (await catalog()).activeBitmaps?.slots.board?.id;
+  assert.ok(approved);
+  await writeFile(darkFile, themeText("dark", "Nightfall", "unflagged.png"));
+  await expect.poll(pending).toMatchObject({ detail: "theme-images" });
+  await expectArtwork(approved, true);
+  const hold = await pending();
+  assert.ok(hold);
+  await page.evaluate((id) => window.desktop.decideConfig("allow", id), hold.id);
+  const replacement = (await catalog()).activeBitmaps?.slots.board?.id;
+  assert.ok(replacement && replacement !== approved);
+  await expectArtwork(replacement, false);
+  await writeFile(darkFile, themeText("dark", "Nightfall", "dark.png"));
+  await expect.poll(pending).toMatchObject({ detail: "theme-images" });
+  await expectArtwork(replacement, false);
 
   for (const name of await sections.getByRole("button").allTextContents()) {
     if (name === "Appearance") continue;

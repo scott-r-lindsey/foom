@@ -221,8 +221,21 @@ test("retained unsafe replacements still consume a registry slot", async () => {
   );
 });
 
-test("warning diagnostics stay bounded while every valid theme remains available", async () => {
-  const { folder, library } = await fixture();
+test("warning diagnostics stay bounded and the active warnings come from the approved snapshot", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-themes-"));
+  roots.push(root);
+  const theme = interfaceThemes["eclipse-dark"];
+  let file = "warn-9.json";
+  const library = new ThemeLibrary(root, undefined, undefined, () => ({
+    id: `user:${file}`,
+    theme,
+    warnings: [
+      { file: "", path: "$.images.board", reason: "image-status-color", severity: "warning" },
+    ],
+  }));
+  libraries.push(library);
+  await library.initialize();
+  const folder = library.folder("theme");
   for (let index = 0; index < 20; index++)
     await writeFile(
       join(folder, `warn-${String(index)}.json`),
@@ -234,9 +247,39 @@ test("warning diagnostics stay bounded while every valid theme remains available
       }),
     );
   await library.reload();
-  expect(library.snapshot().interface).toHaveLength(20);
-  expect(library.snapshot().errors).toHaveLength(100);
-  expect(library.snapshot().errors.every((entry) => entry.severity === "warning")).toBe(true);
+  const catalog = library.snapshot();
+  expect(catalog.interface).toHaveLength(20);
+  expect(catalog.errors).toHaveLength(100);
+  expect(catalog.errors.every((entry) => entry.severity === "warning")).toBe(true);
+  expect(catalog.errors.filter((entry) => entry.file === file)).toEqual([
+    {
+      kind: "theme",
+      file,
+      path: "$.images.board",
+      reason: "image-status-color",
+      severity: "warning",
+    },
+  ]);
+  file = "warn-0.json";
+  await writeFile(join(folder, file), "{");
+  await writeFile(join(library.folder("terminal-theme"), "bad.json"), "{");
+  await library.reload();
+  expect(library.snapshot().errors.filter((entry) => entry.file === file)).toEqual([
+    {
+      kind: "theme",
+      file,
+      path: "$.images.board",
+      reason: "image-status-color",
+      severity: "warning",
+    },
+    { kind: "theme", file, path: "$", reason: "malformed-json" },
+  ]);
+  expect(library.snapshot().errors).toContainEqual({
+    kind: "terminal-theme",
+    file: "bad.json",
+    path: "$",
+    reason: "malformed-json",
+  });
 });
 
 test("closes the theme descriptor before waiting for config approval", async () => {

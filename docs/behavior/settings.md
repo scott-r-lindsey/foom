@@ -230,9 +230,9 @@ Default while retaining the choice; fixing its file restores the selection. Cust
 names matching a built-in receive “(custom)”. See the [file formats and limits](../areas/themes.md#custom-theme-files-205).
 
 In Appearance, each user theme with palette or artwork warnings has one
-collapsed row beneath the Theme picker. The selected theme's row includes
+collapsed row below the Theme picker and preview. The selected theme's row includes
 “Applied · N warnings”. Expand a row to see the filename, JSON path and reason
-for each warning.
+for each warning. The Applied row follows the palette and artwork currently in use.
 
 Under each Settings picker, one quiet line reads: “Want something else? Ask a
 config agent for any theme you can describe.” **config agent** opens the sidebar's

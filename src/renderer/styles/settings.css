@@ -163,6 +163,9 @@
 .theme-files-status {
   overflow-wrap: anywhere;
 }
+.interface-theme-settings > .theme-files-status {
+  grid-column: 1 / -1;
+}
 .theme-warnings {
   margin-bottom: 8px;
   color: var(--muted);
@@ -182,8 +185,8 @@
   padding-inline-start: 20px;
   margin: 4px 0 12px;
 }
-.theme-warnings li > span {
-  display: block;
+.theme-warning-reason {
+  white-space: nowrap;
 }
 .terminal-theme-choices {
   display: flex;
