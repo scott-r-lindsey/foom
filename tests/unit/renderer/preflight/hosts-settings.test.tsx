@@ -1733,6 +1733,51 @@ test("row reload keeps other rows usable and does not run a full preflight", asy
   });
 });
 
+test("the subscribed checklist supersedes a local reload failure and a stale reply", async () => {
+  const stream = viewStream();
+  stream.data.hosts = { ...saved(initial), viewRevision: 1 };
+  const lateReply = Promise.withResolvers<HostsState>();
+  const api = vi.fn((action: HostsAction): Promise<HostsState> => {
+    if (action.action === "reload")
+      return action.target.kind === "tool"
+        ? Promise.reject(new Error("Unable to reload git"))
+        : lateReply.promise;
+    return Promise.resolve(stream.data.hosts);
+  });
+  render(<HostsSettings source={{ hosts: api, views: stream.api }} headingRef={createRef()} />);
+  await screen.findByRole("region", { name: "worker" });
+  expandHosts();
+
+  const git = screen.getByRole("button", { name: "Reload git" }).closest(".host-check-row");
+  fireEvent.click(screen.getByRole("button", { name: "Reload git" }));
+  await screen.findByText("Unable to check");
+  act(() => {
+    stream.data.hosts = { ...saved(initial), viewRevision: 2 };
+    stream.push("hosts");
+  });
+  expect(git?.textContent).toContain("Unable to check");
+  fireEvent.click(screen.getByRole("button", { name: "Reload SSH" }));
+
+  const latest = {
+    ...preflight,
+    ssh: { state: "fail", reason: "host-key-changed" },
+  } satisfies HostPreflight;
+  act(() => {
+    stream.data.hosts = { ...saved({ ...initial, preflight: latest }), viewRevision: 3 };
+    stream.push("hosts");
+  });
+  await waitFor(() => {
+    expect(git?.textContent).toContain("Pass · Installed");
+  });
+
+  await act(async () => {
+    lateReply.resolve({ ...saved(initial), viewRevision: 2 });
+    await lateReply.promise;
+  });
+  expect(screen.getByText("Host key changed")).toBeTruthy();
+  expect(screen.queryByText("Pass · Host key trusted")).toBeNull();
+});
+
 test("a resource refresh key refusal leaves both the completed SSH row and setup action available", async () => {
   const { api } = await mount();
   api.mockResolvedValue(
@@ -2006,7 +2051,8 @@ const recipeExitOutcomes = [
 test.each(recipeExitOutcomes)(
   "embedded recipe exit waits for its observed tool result (%s)",
   async (outcome) => {
-    let exit = (_state: { exited: boolean; code?: number }) => {};
+    const observingExit =
+      Promise.withResolvers<(state: { exited: boolean; code?: number }) => void>();
     const view: TerminalViewSource = {
       mount: () => () => {},
       open: async () => {},
@@ -2063,7 +2109,7 @@ test.each(recipeExitOutcomes)(
       hostTerminal: {
         createView: () => view,
         observe: (_id, listener) => {
-          exit = listener;
+          observingExit.resolve(listener);
           return () => {};
         },
       },
@@ -2075,6 +2121,7 @@ test.each(recipeExitOutcomes)(
     api.mockResolvedValue({ ...missing, recipeSession: "recipe" });
     fireEvent.click(screen.getByRole("button", { name: "Install git" }));
     await screen.findByRole("region", { name: "Install terminal" });
+    const exit = await observingExit.promise;
     const install = screen.getByRole<HTMLButtonElement>("button", { name: "Install git" });
     if (outcome !== "read failed") {
       fireEvent.click(install);

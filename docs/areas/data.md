@@ -200,11 +200,14 @@ Settings projection explicitly opts into current counts.
 Entering Hosts retains its explicit list command to resume owner-held row/save
 retries. The list reply carries the Hosts publication revision at which it read
 the results. Saved row controls wait for the resumed list, and post-install
-controls wait for their refreshed row. Tool reloads and full checks return
-revisioned checklists. A checklist reply can update that host's displayed checks
-and recipe availability while the subscribed snapshot is older. A snapshot at
-the reply's revision or later takes over. If the snapshot fails after the
-opening list settles, row reload is available to request a fresh snapshot.
+controls wait for their refreshed row. Row reloads and full checks return
+revisioned checklists, including observations that could not be saved. Each host
+displays its newest checklist and the associated recipe availability and row
+failures. A snapshot at the reply's revision or later takes over. A newer
+checklist supersedes a local row error. A publication of the same checklist
+can acknowledge a failed request and leaves its local error visible. If the
+snapshot fails after the opening list settles, row reload can request a fresh
+snapshot.
 A failed snapshot also clears post-install row checking and keeps Install
 disabled until the snapshot recovers. A rejected post-install list reply clears
 row checking and keeps Install disabled until a reload or full check supplies

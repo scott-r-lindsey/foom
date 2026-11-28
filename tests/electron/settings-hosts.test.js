@@ -2428,6 +2428,82 @@ test("Hosts updates Git install availability when saving the capability check fa
   await expect(install).toHaveCount(0);
 });
 
+test("Hosts shows a changed key from a newer SSH reload while its snapshot is held", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const ssh = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload SSH", exact: true }),
+  });
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await updateScenario({
+      facts: { tools: [{ id: "git", state: "ready", signIn: "unknown" }] },
+    });
+    const git = card.locator(".host-check-row").filter({
+      has: page.getByRole("button", { name: "Reload git", exact: true }),
+    });
+    await git.getByRole("button", { name: "Reload git", exact: true }).click();
+    await expect(git).toContainText("Pass · Installed");
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toBeVisible();
+
+    await chmod(profile, 0o555);
+    await updateScenario({ sshFailure: "changed" });
+    await ssh.getByRole("button", { name: "Reload SSH", exact: true }).click();
+    await expect(ssh.getByText("Host key changed", { exact: true })).toBeVisible();
+    await expect(ssh.getByText("Pass · Host key trusted", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Unable to update hosts", { exact: true })).toBeVisible();
+  } finally {
+    try {
+      await chmod(profile, 0o700);
+    } finally {
+      await releaseHostsView();
+    }
+  }
+});
+
+test("Hosts clears a local tool reload failure when a newer checklist reply arrives", {
+  skip: process.platform === "win32",
+  timeout: deadline(60000),
+}, async (context) => {
+  const { app, page, card, updateScenario } = await hostsFixture(context);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const reload = card.getByRole("button", { name: "Reload git", exact: true });
+  const git = card.locator(".host-check-row").filter({
+    has: page.getByRole("button", { name: "Reload git", exact: true }),
+  });
+  const install = git.getByRole("button", { name: "Install git", exact: true });
+  await expect(install).toBeEnabled();
+
+  const releaseHostsView = await holdHostsView(app);
+  try {
+    await chmod(profile, 0o555);
+    await reload.click();
+    await expect(git.getByText("Unable to check", { exact: true })).toBeVisible();
+    await expect(install).toBeDisabled();
+
+    await chmod(profile, 0o700);
+    await updateScenario({
+      facts: { tools: [{ id: "gh", state: "ready", signIn: "signed-in" }] },
+    });
+    await card.getByRole("button", { name: "Reload gh sign-in", exact: true }).click();
+    const signIn = card.locator(".host-check-row").filter({
+      has: page.getByRole("button", { name: "Reload gh sign-in", exact: true }),
+    });
+    await expect(signIn).toContainText("Pass · Signed in");
+    await expect(git).toContainText("Not found");
+    await expect(install).toBeEnabled();
+  } finally {
+    try {
+      await chmod(profile, 0o700);
+    } finally {
+      await releaseHostsView();
+    }
+  }
+});
+
 test("Hosts Git reload reply matches the subscribed recipes after a failed install inspection", {
   skip: process.platform === "win32",
   timeout: deadline(60000),
