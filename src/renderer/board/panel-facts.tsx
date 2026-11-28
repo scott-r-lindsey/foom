@@ -173,7 +173,8 @@ export function PanelFacts({
       ? subject.repository.path
       : undefined;
   const worktree = subject.kind === "worktree" ? subject.tree.path : repository;
-  const { mergedCount, mergedError } = subject.kind === "repository" ? subject.repository : {};
+  const { mergedCount, mergedScanGeneration } =
+    subject.kind === "repository" ? subject.repository : {};
   const copyCheckout = (
     kind:
       | "copy-default-branch"
@@ -203,7 +204,7 @@ export function PanelFacts({
     return () => {
       active = false;
     };
-  }, [repository, worktree, source, mergedCount, mergedError]);
+  }, [repository, worktree, source, mergedScanGeneration]);
   const facts =
     loaded?.repository === repository && loaded?.worktree === worktree ? loaded?.facts : undefined;
   const unknown = "Unknown";

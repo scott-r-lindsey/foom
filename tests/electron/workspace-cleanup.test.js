@@ -1225,6 +1225,29 @@ test("zero merged cleanup eligibility opens the kept review and refreshes while 
   });
   await openPanel();
   await expect(zero).toBeVisible();
+  const defaultBranch = page.getByRole("button", { name: "Copy default branch" });
+  await expect(defaultBranch).toHaveText("main");
+  await closePanel();
+
+  // The dirty checkout still keeps eligibility at zero after the default changes.
+  git("push", "origin", "main:refs/heads/next");
+  git("--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/next");
+  try {
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+    });
+    await openPanel();
+    await expect(zero).toBeVisible();
+    await expect(defaultBranch).toHaveText("main");
+    await app.evaluate(() => globalThis.releaseEligibilityFetch());
+    await expect(defaultBranch).toHaveText("next");
+    await expect(zero).toBeVisible();
+    await expect(deletion).toHaveCount(0);
+  } finally {
+    await app.evaluate(() => globalThis.releaseEligibilityFetch?.()).catch(() => {});
+  }
+
   await closePanel();
   await restore();
   await app.evaluate(() => globalThis.expireEligibility());

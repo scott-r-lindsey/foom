@@ -30,7 +30,8 @@ a repository panel with expired eligibility requests a sidebar inventory refresh
 which can schedule a background scan independently of the fact read.
 Default-branch and last-fetch facts also read the local remote HEAD and FETCH_HEAD
 timestamp, including repositories with no linked checkouts. Sidebar eligibility
-supplies the same count used by cleanup.
+supplies the same count used by cleanup. The repository panel reloads Git facts
+when a new scan completes, even when the eligibility count stays the same.
 
 Fact-copy actions use validated sidebar commands and main’s clipboard capability: home paths are main-owned, checkout paths require a registered checkout identity, and conversation IDs come from the selected session. Browser clipboard permissions remain denied.
 

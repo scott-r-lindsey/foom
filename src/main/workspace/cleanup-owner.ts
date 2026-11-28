@@ -83,7 +83,12 @@ interface MergeEligibility {
   expires: number;
   pending?: { promise: Promise<void>; wake: () => void };
   completed: MergeEligibilitySnapshot | undefined;
-  result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
+  result: {
+    canDeleteMerged: boolean;
+    mergedCount?: number;
+    mergedError?: string;
+    mergedScanGeneration?: number;
+  };
 }
 
 /** Main-owned cleanup plans, scans, runs and safe removal coordination. */
@@ -862,6 +867,7 @@ export class CleanupOwner {
     inventory?: { worktrees: readonly Worktree[]; key: string },
   ): MergeEligibility {
     const cached = this.mergeEligibility.get(repository);
+    const mergedScanGeneration = cached?.result.mergedScanGeneration;
     let wake = () => {};
     const promise = new Promise<void>((resolve) => {
       wake = resolve;
@@ -877,6 +883,7 @@ export class CleanupOwner {
       result: {
         canDeleteMerged: false,
         ...(cached?.result.mergedCount === 0 ? { mergedCount: 0 } : {}),
+        ...(mergedScanGeneration === undefined ? {} : { mergedScanGeneration }),
       },
     };
     this.mergeEligibility.set(repository, entry);
@@ -884,7 +891,7 @@ export class CleanupOwner {
     const isCurrent = () =>
       !this.deps.closed() && this.mergeEligibility.get(repository)?.generation === entry.generation;
     const publish = (result: MergeEligibility["result"]) => {
-      entry.result = result;
+      entry.result = { ...result, mergedScanGeneration: entry.generation };
       entry.expires = this.deps.now() + 60_000;
       this.deps.onChange?.();
     };

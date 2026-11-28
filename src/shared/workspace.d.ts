@@ -234,6 +234,8 @@ export interface SidebarInventory {
     canDeleteMerged?: boolean;
     mergedCount?: number;
     mergedError?: string;
+    /** Most recently completed eligibility scan, including failures. */
+    mergedScanGeneration?: number;
   })[];
   shell: string;
   home?: HomeShellFacts;
