@@ -27,6 +27,16 @@ startup file and non-exported shell callbacks, not environment credentials.
 Per-launch agent settings remain scoped to command arguments; user configuration
 and unrelated environment variables are unchanged.
 
+## Normal quit
+
+Quit shares the pending request across native and in-app entry points. After any
+required terminal confirmation, main saves window placements, prepares session
+restore, stops terminals and disposes services. On the next event-loop turn,
+normal quit requests a flush of board DOM storage and destroys the board windows
+before calling Electron's `app.quit()`. This lets Electron reach `will-quit` even
+if a board renderer cannot complete its unload. Explicit update restart follows
+the updater's native quit path.
+
 ## Windows installer callbacks
 
 Packaged Windows launches handle Squirrel install/update/uninstall/obsolete

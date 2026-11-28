@@ -737,6 +737,7 @@ const mock = vi.hoisted(() => {
         (scheme: string, handler: (request: Request) => Response | Promise<Response>) => void
       >(),
     fetch: vi.fn<(url: string) => Promise<Response>>(),
+    flushStorageData: vi.fn(),
     permissionRequest:
       vi.fn<
         (
@@ -836,6 +837,7 @@ vi.mock("electron", () => ({
       setPermissionCheckHandler: (callback: () => boolean) => callback(),
     }),
     defaultSession: {
+      flushStorageData: mock.flushStorageData,
       setPermissionRequestHandler: mock.permissionRequest,
       setPermissionCheckHandler: mock.permissionCheck,
     },
