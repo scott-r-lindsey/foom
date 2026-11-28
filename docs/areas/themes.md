@@ -102,15 +102,17 @@ file changed since it was offered, Appearance refuses the save and asks the user
 to choose again after the list refreshes. Attention distinctness includes
 separation from readable ink as well as failure, accent, highlight and done.
 
-The profile keeps a digest per approved theme file. For version 2 it hashes the
-validated theme separately from artwork, so artwork edits made while Foom is
-closed preserve approval. An older full-file digest can migrate once the
-original file is verified. Active selections display the palette snapshot
-accepted by the approval gate, even while the independent catalog is still
-publishing an older version or has yet to publish that palette. Allow verifies
-the proposal digest and current bytes before recording approval. Keep it on
-restores the approved base and colors (including area and state palettes) from
-this session and preserves other saved edits, including artwork.
+The profile keys approval per file by a digest of the normalized colors the
+attention check uses. This includes global colors, effective area overrides,
+gradient stop colors and area scrollbar colors. Artwork, placement and version
+changes preserve approval across restarts. Older approvals migrate when the
+loaded file verifies against its recorded digest. Active selections display the
+accepted palette from the first window, including while artwork decodes. A held
+palette edit leaves the approved colors in use and applies the new artwork as it
+becomes available. Allow verifies the proposal digest and current bytes before
+recording approval. Keep it on restores the approved base and colors (including
+area and state palettes) from this session and preserves other saved edits,
+including artwork.
 When there is no approved palette in this session, Keep it on
 switches `interfaceTheme` back to the default
 only if the reviewed selection is still current in the shared Settings file.
@@ -237,7 +239,8 @@ fit. The optional `size` caps both dimensions to 5â€“100 percent of the regionâ€
 smaller dimension and applies only to `none`. Anchor defaults to `center` and
 also accepts a side or a corner such as `top-right`. Each region or header
 randomly chooses a decoded entry with its placement and keeps it through
-resizes and layout changes while the region and entry remain available.
+resizes, layout changes and placement edits while the region and file contents
+remain available.
 Gutter artwork shows through the existing tile padding along the split, leaving
 tile dimensions and borders unchanged. It moves with the tile bounds during
 animated resizing and updates immediately during pointer drags or with reduced motion.

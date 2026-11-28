@@ -545,13 +545,17 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
       menus: { surface: "#161616" },
     },
     shape: { radius: 0 },
-    images: { "tile-header": { file: "art.png", opacity: 0.25 } },
+    images: { "tile-header": { files: ["art.png", "alternate.png"], opacity: 0.25 } },
   };
   const file = path.join(root, ".foom/config/themes/personal.json");
   const sharp = require("sharp");
-  await sharp({ create: { width: 8, height: 8, channels: 3, background: "#142039" } })
+  const pixels = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: "#142039" },
+  })
     .png()
-    .toFile(path.join(path.dirname(file), theme.images["tile-header"].file));
+    .toBuffer();
+  for (const piece of theme.images["tile-header"].files)
+    await writeFile(path.join(path.dirname(file), piece), pixels);
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
@@ -564,6 +568,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
   const artwork = page.locator('.tile-title [data-theme-art="tile-header"]').first();
   await expect(artwork).toHaveCSS("opacity", "0.25");
+  const image = await artwork.evaluate((element) => getComputedStyle(element).backgroundImage);
   await expect(page.locator(".board-row").first()).toHaveCSS("border-radius", "0px");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
   await expect(page.locator(".sidebar-panel")).toHaveCSS("--surface", "#202020");
@@ -581,6 +586,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   const originalAttention = theme.colors.attention;
   theme.colors.attention = theme.colors.ink;
   theme.images["tile-header"].opacity = 0.5;
+  theme.images["tile-header"].anchor = "bottom";
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
   await page
@@ -594,6 +600,9 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
     await page.evaluate(() => document.documentElement.style.getPropertyValue("--attention")),
     "#ffb23e",
   );
+  await expect(artwork).toHaveCSS("opacity", "0.5");
+  await expect(artwork).toHaveCSS("background-position", "50% 100%");
+  await expect(artwork).toHaveCSS("background-image", image);
   await page.getByRole("button", { name: "Keep it on", exact: true }).click();
   // Wait for the write to finish before opening the file on Windows.
   await expect(page.getByRole("region", { name: "Change waiting for approval" })).toHaveCount(0);
@@ -615,27 +624,28 @@ test("approved theme artwork placement can change between launches", async (cont
   const base = interfaceThemes["eclipse-dark"];
   const theme = {
     ...base,
-    version: 2,
+    version: 1,
     name: "Approved artwork",
     colors: { ...base.colors, attention: base.colors.ink },
-    images: { empty: { file: "art.png", opacity: 0.25 } },
   };
   const themes = path.join(home, ".foom/config/themes");
   const file = path.join(themes, "art.json");
   await sharp({ create: { width: 8, height: 8, channels: 3, background: "#142039" } })
     .png()
-    .toFile(path.join(themes, theme.images.empty.file));
+    .toFile(path.join(themes, "art.png"));
   await writeFile(file, JSON.stringify(theme));
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await chooseTheme(page, theme.name);
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   const artwork = '.tile-area [data-theme-art="empty"]';
-  await expect(page.locator(artwork)).toHaveCSS("opacity", "0.25");
+  await expect(page.locator("html")).toHaveCSS("--attention", theme.colors.attention);
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
 
-  theme.images.empty.opacity = 0.5;
-  await writeFile(file, JSON.stringify(theme));
+  await writeFile(
+    file,
+    JSON.stringify({ ...theme, version: 2, images: { empty: { file: "art.png", opacity: 0.5 } } }),
+  );
   const restored = await launchApp(context, { ...options, fixture: "restored" });
   const board = await boardPage(restored);
   await expect(board.locator("html")).toHaveCSS("--attention", theme.colors.attention);

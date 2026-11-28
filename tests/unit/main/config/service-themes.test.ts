@@ -384,7 +384,7 @@ test("a theme an agent weakened while Foom was closed is held after a restart", 
   await f.write("themes/personal.json", original);
   await f.service.refresh();
   await f.selectTheme("personal.json");
-  expect(f.themeBaselines.get("themes/personal.json")).toBe(digest(original));
+  expect(f.themeBaselines.get("themes/personal.json")).toHaveProperty("paletteDigest");
   // While Foom is closed, an agent weakens the active theme.
   await f.service.dispose();
   const weak = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
@@ -414,7 +414,7 @@ test("a theme this profile approved stays approved after a restart", async () =>
   await f.write("themes/personal.json", weak);
   await f.service.refresh();
   await f.decide("allow");
-  expect(f.themeBaselines.get("themes/personal.json")).toBe(digest(weak));
+  expect(f.themeBaselines.get("themes/personal.json")).toHaveProperty("paletteDigest");
   const again = await restart(f);
   expect(again.status().pending).toBeNull();
   expect(
@@ -532,7 +532,7 @@ test.each(["save", "scan"])(
     }
     expect(f.applied.at(-1)?.interfaceTheme).toBe(id);
     expect(library.snapshot().interface[0]?.theme.colors.attention).toBe(palette.colors.attention);
-    expect(f.themeBaselines.get(file)).toBe(digest(safe));
+    expect(f.themeBaselines.get(file)).toHaveProperty("paletteDigest");
     expect((await f.service.refresh()).pending?.file).toBe(file);
     expect((await restart(f)).status().pending?.file).toBe(file);
   },
@@ -711,7 +711,7 @@ test("Appearance refuses palette bytes that differ from the offered catalog snap
   await f.write(file, original);
   await expect(f.service.write({ interfaceTheme })).rejects.toThrow("theme-selection-changed");
   await f.service.write({ interfaceTheme }, offered?.digest);
-  expect(f.themeBaselines.get(file)).toBe(offered?.digest);
+  expect(f.themeBaselines.get(file)).toHaveProperty("paletteDigest");
 });
 
 test("theme Keep succeeds when the reconciliation scan finds Settings busy", async () => {
@@ -757,7 +757,7 @@ async function artFixture(deferThemeDecoding = false) {
   const f = await fixture({
     loadThemeBitmaps: load,
     deferThemeDecoding,
-    onThemeBitmapsChanged: changed,
+    onActiveThemeChanged: changed,
   });
   const directory = path.join(f.folder, "themes");
   const bitmaps = new ThemeBitmaps(directory, normalize);
@@ -801,6 +801,7 @@ test("artwork selection, placement and byte changes apply automatically and revo
     expect((await f.service.refresh()).pending).toBeNull();
     expect(f.service.activePalette()?.bitmaps?.empty).toHaveLength(1);
     expect(f.service.activeThemeImage(replacement)).toBeUndefined();
+    expect(f.service.activePalette()?.bitmaps?.empty?.[0]?.id).toBe(original?.[1]?.id);
     expect(f.service.activePalette()?.bitmaps?.sidebar).toHaveLength(1);
 
     await rename(f.directory, path.join(f.folder, "moved"));
@@ -838,6 +839,10 @@ test("Keep restores the approved palette and preserves artwork and other theme e
     };
     await f.write(artFile, JSON.stringify(edited));
     expect((await f.service.refresh()).pending?.detail).toBe("attention-distinctness");
+    expect(f.service.activePalette()?.theme?.colors).toEqual(original.colors);
+    const artwork = f.service.activePalette()?.bitmaps?.empty;
+    expect(artwork).toMatchObject([{ opacity: 0.5 }]);
+    expect(f.load.mock.lastCall?.[0].theme.colors).toEqual(original.colors);
 
     expect((await f.decide("keep")).pending).toBeNull();
     const restored = {
@@ -851,7 +856,7 @@ test("Keep restores the approved palette and preserves artwork and other theme e
     expect(f.service.activePalette()?.theme).toEqual(
       expect.objectContaining({ name: edited.name, colors: original.colors, shape: edited.shape }),
     );
-    expect(f.service.activePalette()?.bitmaps?.empty?.[0]?.opacity).toBe(0.5);
+    expect(f.service.activePalette()?.bitmaps?.empty).toEqual(artwork);
   } finally {
     f.bitmaps.dispose();
   }
@@ -868,9 +873,26 @@ test("deferred artwork does not gate an active palette and inactive artwork stay
     await f.settings({ interfaceTheme: artTheme, concurrentChildren: 1 });
     const settings = await f.service.initialize();
     expect(settings.concurrentChildren).toBe(1);
+    expect(settings.interfaceTheme).toBe(artTheme);
+    expect(f.service.activePalette()?.theme?.colors).toEqual(palette.colors);
     expect(f.load).not.toHaveBeenCalled();
     expect(f.service.activePalette()?.bitmaps).toBeUndefined();
-    expect((await f.service.startThemeDecoding()).pending).toBeNull();
+    const decoding = Promise.withResolvers<undefined>();
+    f.normalize.mockImplementationOnce(async () => {
+      await decoding.promise;
+      return { png: Buffer.from("first artwork"), colors: [] };
+    });
+    const started = f.service.startThemeDecoding();
+    try {
+      await vi.waitFor(() => {
+        expect(f.normalize).toHaveBeenCalledOnce();
+      });
+      expect(f.service.activePalette()?.theme?.colors).toEqual(palette.colors);
+      expect(f.service.activePalette()?.bitmaps).toBeUndefined();
+    } finally {
+      decoding.resolve(undefined);
+    }
+    expect((await started).pending).toBeNull();
     expect(f.service.activePalette()?.bitmaps?.empty).toHaveLength(1);
     expect(f.normalize).toHaveBeenCalledOnce();
     expect(f.normalize.mock.calls[0]?.[0].toString()).toBe("first artwork");
@@ -882,23 +904,29 @@ test("deferred artwork does not gate an active palette and inactive artwork stay
   }
 });
 
-test.each(["current", "legacy"])(
-  "offline artwork placement edits preserve a %s approval after migration",
+test.each(["current", "v1 full-file", "v2 theme"] as const)(
+  "an offline artwork upgrade preserves a %s approval after migration",
   async (baseline) => {
     const f = await artFixture();
     try {
       const colors = { ...palette.colors, attention: palette.colors.ink };
       const file = { file: "first.png", opacity: 0.25 };
-      const original = illustrated({ empty: file }, colors);
+      const original =
+        baseline === "v2 theme" ? illustrated({ empty: file }, colors) : theme("Original", colors);
       await f.service.initialize();
       await f.write("themes/first.png", "first artwork");
       await f.write(artFile, original);
       await f.selectTheme("art.json");
-      expect(f.service.activePalette()?.bitmaps?.empty?.[0]?.opacity).toBe(0.25);
       await f.service.dispose();
 
-      if (baseline === "legacy") {
-        f.themeBaselines.set(artFile, digest(original));
+      if (baseline !== "current") {
+        const parsed = parseThemeFile(original, "theme");
+        f.themeBaselines.set(
+          artFile,
+          baseline === "v1 full-file"
+            ? digest(original)
+            : { paletteDigest: digest(JSON.stringify(parsed.theme)) },
+        );
         const upgraded = await restart(f);
         expect(upgraded.status().pending).toBeNull();
         await upgraded.dispose();
@@ -909,10 +937,23 @@ test.each(["current", "legacy"])(
       );
 
       const edited = { empty: { ...file, opacity: 0.5 } };
-      await f.write(artFile, illustrated(edited, colors));
+      await f.write(
+        artFile,
+        JSON.stringify({
+          ...palette,
+          version: 2,
+          name: "Renamed",
+          colors: { ...colors, attention: colors.attention.toUpperCase() },
+          areas: { tiles: { bg: colors.bg.toUpperCase() } },
+          shape: { radius: 0 },
+          images: edited,
+        }),
+      );
       const restarted = await restart(f, { loadThemeBitmaps: f.load, deferThemeDecoding: true });
       expect(restarted.status().pending).toBeNull();
-      expect(restarted.activePalette()?.theme?.colors.attention).toBe(colors.attention);
+      expect(restarted.activePalette()?.theme?.colors.attention.toLowerCase()).toBe(
+        colors.attention,
+      );
       expect((await restarted.startThemeDecoding()).pending).toBeNull();
       expect(restarted.activePalette()?.bitmaps?.empty?.[0]?.opacity).toBe(0.5);
       expect(f.themeBaselines.get(artFile)).toEqual(approved);
@@ -957,9 +998,18 @@ test("artwork warnings never add an approval or change the palette gate", async 
     expect(proposal?.detail).toBe("attention-distinctness");
     expect(f.service.activePalette()?.theme?.colors.attention).toBe(palette.colors.attention);
     expect(f.themeBaselines.get(artFile)).toEqual(originalApproval);
+    expect(f.service.activePalette()?.bitmaps?.empty).toHaveLength(1);
 
     await f.write("themes/new.png", "changed artwork");
+    await f.write(
+      artFile,
+      illustrated(
+        { empty: { file: "new.png", opacity: 0.5 } },
+        { ...palette.colors, attention: palette.colors.ink },
+      ),
+    );
     expect((await f.service.refresh()).pending?.id).toBe(proposal?.id);
+    expect(f.service.activePalette()?.bitmaps?.empty).toMatchObject([{ opacity: 0.5 }]);
     await f.decide("allow");
     expect(f.service.activePalette()?.theme?.colors.attention).toBe(palette.colors.ink);
     expect(f.service.activePalette()?.bitmaps?.empty).toHaveLength(1);

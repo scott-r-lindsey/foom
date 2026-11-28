@@ -67,7 +67,10 @@ export class ThemeBitmaps {
           : [slot === "tile-header" ? headerArea : areas?.sidebar];
       const palettes = [globalColors, ...overrides.map((area) => ({ ...globalColors, ...area }))];
       const assets: ThemeBitmapAsset[] = [];
+      const occurrences = new Map<string, number>();
       for (const { file, ...style } of pieces) {
+        const occurrence = occurrences.get(file) ?? 0;
+        occurrences.set(file, occurrence + 1);
         let bytes: Buffer;
         try {
           bytes = await readThemeFile(this.directory, file, IMAGE_BYTES, false);
@@ -100,11 +103,11 @@ export class ThemeBitmaps {
           )
         )
           report("image-status-color", "warning");
+        // Repeated references can specify distinct placements for the same file.
         const id = createHmac("sha256", this.key)
-          .update(JSON.stringify([source, style]))
+          .update(JSON.stringify([slot, file, source, occurrence]))
           .digest("hex");
-        if (!assets.some(({ paint }) => paint.id === id))
-          assets.push({ paint: { id, ...style }, png });
+        assets.push({ paint: { id, ...style }, png });
       }
       if (assets.length) slots[slot] = assets;
     }
