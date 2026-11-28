@@ -113,6 +113,8 @@ test("terminals move between boards through menus and token-backed sidebar/title
   const first = await boardPage(app);
   const second = await newBoard(app, first);
   const third = await newBoard(app, first);
+  await sizeTileBoard(app, first, 1200, 800);
+  await waitForMenuFrame(first);
   const labels = await first.evaluate(() => window.desktop.windows.moves.list());
   assert.equal(labels.length, 2);
   const original = (await first.evaluate(() => window.desktop.workspace())).terminals[0].id;
@@ -147,7 +149,35 @@ test("terminals move between boards through menus and token-backed sidebar/title
     await first.locator(".board-home").dispatchEvent("dragend");
     await expect(second.locator(".tile-drop-preview")).toHaveCount(0);
   }
-  await menuMove(first, first.locator('.terminal-tile[data-empty="false"]'), labels[0].label);
+  await first.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  const trigger = first.getByRole("menuitem", { name: "Move to window", exact: true });
+  const picker = first.getByRole("menu", { name: "Move to window", exact: true });
+  await trigger.hover();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  const choice = picker.getByRole("menuitem", { name: labels[0].label, exact: true });
+  await expect(picker).toHaveClass(/row-submenu/);
+  await expect(choice).toBeVisible();
+  await trigger.click();
+  await expect(picker).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(choice).toBeVisible();
+  const neighbor = first.getByRole("menuitem", { name: "Move to new window", exact: true });
+  const crossing = await neighbor.boundingBox();
+  const target = await choice.boundingBox();
+  assert.ok(crossing && target);
+  // Cross the neighboring command on the diagonal approach to the flyout.
+  await first.mouse.move(crossing.x + crossing.width / 4, crossing.y + crossing.height / 2, {
+    steps: 10,
+  });
+  await expect(first.locator("button:hover").filter({ hasText: "Move to new window" })).toHaveCount(
+    1,
+  );
+  await expect(choice).toBeVisible();
+  await first.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 20 });
+  await first.mouse.down();
+  await first.mouse.up();
   await expect(second.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
   await expect(first.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
   await dragMove(second, ".tile-title", first);
@@ -258,9 +288,22 @@ test("opening the window picker refreshes repository hints before showing destin
   await source.getByRole("button", { name: "Tile 1 menu", exact: true }).press("Enter");
   const trigger = source.getByRole("menuitem", { name: "Move to window", exact: true });
   const picker = source.getByRole("menu", { name: "Move to window", exact: true });
+  const choice = picker.getByRole("menuitem", { name: "Lovelace", exact: true });
+  for (const [open, close] of [
+    ["Enter", "Escape"],
+    ["Space", "ArrowLeft"],
+    ["ArrowRight", "Escape"],
+  ]) {
+    await trigger.press(open);
+    await expect(choice).toBeFocused();
+    await source.keyboard.press(close);
+    await expect(picker).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  }
   await trigger.press("Enter");
-  await expect(picker.getByRole("menuitem", { name: "Lovelace", exact: true })).toBeFocused();
-  await source.keyboard.press("Escape");
+  await expect(choice).toBeFocused();
+  await trigger.press("ArrowRight");
+  await expect(picker).toHaveCount(0);
   await expect(trigger).toBeFocused();
 
   await destination

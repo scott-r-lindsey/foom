@@ -108,6 +108,7 @@ export function TileMenu({
                 label: "Move to window",
                 glyph: "popout" as const,
                 run: () => {},
+                submenuOnHover: false,
                 submenu: async (): Promise<RowAction[]> => {
                   const windows = await moves.list();
                   if (!windows.length)

@@ -8,8 +8,12 @@ New Window opens another full sidebar and an independent tile layout. A tile's
 **Move to new window** control moves that session or HTML/Markdown preview into
 a new window. **Move to window ▸** lists the other open boards by their computing
 pioneer names, followed by their repositories in order of tile count (for example,
-**Lovelace · foom, tools**). The picker fetches the current destinations each
-time it opens. Replacing a tile's content returns its picker to the tile menu.
+**Lovelace · foom, tools**). Click the item or press Enter, Space or Right to
+open it and fetch the current destinations. The picker stays open as the pointer
+crosses other menu items. Activate the item again, press Escape or Left, choose a
+destination, or activate another command to close it. The picker opens beside
+the tile menu when there is room and uses a Back row within the menu otherwise.
+Closing the tile menu or replacing its content also closes the picker.
 An empty board displays just its name. Each board keeps its name until it closes,
 when that name becomes available again. Choosing one moves the item using ordinary
 tile placement. Drag a terminal or preview sidebar row or title bar to another Foom board to place it

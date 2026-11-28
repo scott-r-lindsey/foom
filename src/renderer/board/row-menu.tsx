@@ -22,6 +22,8 @@ export interface RowAction {
   expanded?: boolean;
   /** A nested menu, opened by hover, Right, Enter or click. */
   submenu?: MenuActions | (() => Promise<MenuActions>);
+  /** Require activation and keep the submenu open while the pointer crosses other items. */
+  submenuOnHover?: boolean;
   /** One stop holding a live value between two step buttons; stepping keeps the menu open. */
   stepper?: { value: string; decrease: RowAction; increase: RowAction };
   run: () => void | Promise<void>;
@@ -143,6 +145,8 @@ export function RowMenu({
     loaded?: MenuActions;
   }>();
   const drillTrigger = sub?.inline ? sub.anchor : undefined;
+  const clickSub = sub && actions[sub.index]?.submenuOnHover === false ? sub : undefined;
+  const clickTrigger = clickSub?.anchor;
   const confirmation = useConfirmation(confirmations);
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
@@ -253,9 +257,11 @@ export function RowMenu({
       typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(position);
     observer?.observe(menu);
     if (parent) observer?.observe(parent);
+    parent?.addEventListener("scroll", position, true);
     if (keepOnResize) window.addEventListener("resize", resize);
     return () => {
       observer?.disconnect();
+      parent?.removeEventListener("scroll", position, true);
       window.removeEventListener("resize", resize);
     };
   }, [anchor, placement, isPanel, point, keepOnResize, parent, inline, bottomAligned]);
@@ -299,8 +305,10 @@ export function RowMenu({
     const scroll = (event: Event) => {
       if (!dismissOnScroll) return;
       if (isPanel && event.target instanceof Node && ref.current?.contains(event.target)) {
-        // Panel scrolling moves submenu anchors; retain the panel, not stale portals.
-        setSub((current) => (current?.inline ? current : undefined));
+        // Explicitly opened flyouts track the trigger as the panel scrolls.
+        setSub((current) =>
+          current?.inline || current?.anchor === clickTrigger ? current : undefined,
+        );
         return;
       }
       if (
@@ -357,6 +365,7 @@ export function RowMenu({
     bottomAligned,
     dismissOnAnchor,
     dismissOnScroll,
+    clickTrigger,
     drillTrigger,
   ]);
   useLayoutEffect(() => {
@@ -393,6 +402,12 @@ export function RowMenu({
           },
     );
   };
+  const back = () => {
+    if (!sub) return;
+    setSub(undefined);
+    if (sub.inline) returnFocusRef.current = sub.anchor;
+    else restoreBoardFocus(sub.anchor);
+  };
   const submenu = sub && actions[sub.index]?.submenu;
   const drillingIn = Boolean(sub?.inline && submenu);
   const child = sub && submenu && (
@@ -409,11 +424,7 @@ export function RowMenu({
         inline: sub.inline,
         loading: typeof submenu === "function" && !sub.loaded,
         focus: sub.focus,
-        back: () => {
-          setSub(undefined);
-          if (sub.inline) returnFocusRef.current = sub.anchor;
-          else restoreBoardFocus(sub.anchor);
-        },
+        back,
         dismiss,
       }}
     />
@@ -457,10 +468,10 @@ export function RowMenu({
             ? active.parentElement?.querySelector("button")
             : active;
         const index = stops.findIndex((item) => item === stop);
-        if (nested && (event.key === "Escape" || event.key === "ArrowLeft")) {
+        if ((nested || clickSub) && (event.key === "Escape" || event.key === "ArrowLeft")) {
           event.preventDefault();
           event.stopPropagation();
-          nested.back();
+          (nested?.back ?? back)();
         } else if (nested && event.key === "Tab") {
           event.stopPropagation();
           nested.dismiss();
@@ -531,7 +542,7 @@ export function RowMenu({
                 aria-labelledby={`${stepperId}-${String(index)}-label ${stepperId}-${String(index)}-value`}
                 style={{ "--item": index } as CSSProperties}
                 onPointerEnter={() => {
-                  setSub(undefined);
+                  if (!clickSub) setSub(undefined);
                 }}
               >
                 <span className="menu-label" id={`${stepperId}-${String(index)}-label`}>
@@ -552,6 +563,7 @@ export function RowMenu({
                       title={step.hint ? `${step.label} (${step.hint})` : step.label}
                       data-secondary={side === 1 || undefined}
                       onClick={() => {
+                        if (clickSub) setSub(undefined);
                         void step.run();
                       }}
                     >
@@ -576,14 +588,17 @@ export function RowMenu({
                 onPointerLeave={confirmation.cancel}
                 onBlur={confirmation.cancel}
                 onPointerEnter={(event) => {
+                  if (clickSub || action.submenuOnHover === false) return;
                   if (action.submenu) openSub(index, event.currentTarget, false, action.submenu);
                   else if (!action.disabled) setSub(undefined);
                 }}
                 onClick={(event) => {
                   if (action.submenu) {
-                    openSub(index, event.currentTarget, true, action.submenu);
+                    if (clickSub?.index === index) back();
+                    else openSub(index, event.currentTarget, true, action.submenu);
                     return;
                   }
+                  if (clickSub) setSub(undefined);
                   if (onAction) {
                     onAction(action);
                     return;

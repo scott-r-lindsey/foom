@@ -42,8 +42,10 @@ existing launch policy.
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
 RowMenu renders a submenu beside its parent through a portal or in the parent
 body on narrow layouts. The top-level menu owns outside-press, scroll and resize
-dismissal, and each level handles its own keys. A stepper row is one navigation
-stop whose buttons run without dismissing. The app menu stays open and repositions
+dismissal, and each level handles its own keys. The tile's window picker opts
+into explicit activation and tracks its trigger when the parent panel scrolls.
+A stepper row is one navigation stop whose buttons run without dismissing.
+The app menu stays open and repositions
 when an interface size step resizes the window. A focused submenu returns focus
 to its trigger as it closes. Menu selection and native shortcuts
 dispatch identical main-owned actions. Application-menu actions dismiss before
