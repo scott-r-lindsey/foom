@@ -29,6 +29,7 @@ import {
 } from "./validation-fingerprint.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
 import { guardWorktreeWrites } from "../tests/helpers/worktree-writes.js";
+import { selectSuiteFiles } from "./electron-selection.mjs";
 const checkWorktreeWrites = guardWorktreeWrites();
 const args = process.argv.slice(2);
 if (args.length === 1 && args[0] === "--help") {
@@ -46,7 +47,7 @@ undetected. Use --fresh after editing installed dependencies by hand.`);
 const packaged = args.includes("--packaged");
 const requireReuse = args.includes("--reuse-build");
 const fresh = args.includes("--fresh");
-const forwarded = [];
+const patterns = [];
 const selectedSuites = [];
 const inventory = suiteFiles();
 for (let index = 0; index < args.length; index++) {
@@ -67,7 +68,7 @@ for (let index = 0; index < args.length; index++) {
         : undefined;
   if (!value || value.startsWith("--")) throw new Error(`Invalid or unsupported option: ${arg}`);
   new RegExp(value); // Fail before building for malformed regular expressions.
-  forwarded.push(`--test-name-pattern=${value}`);
+  patterns.push(value);
 }
 if (packaged && selectedSuites.length > 0)
   throw new Error("--suite is only for development Electron tests");
@@ -286,6 +287,25 @@ if (!packaged) {
 }
 const summaryPath = `test-results/${packaged ? "packaged" : "electron"}-summary.json`;
 rmSync(summaryPath, { force: true });
+const explicitFiles = packaged
+  ? ["tests/electron/packaged-smoke.js"]
+  : [...new Set(selectedSuites)].sort();
+let files = explicitFiles.length > 0 ? explicitFiles : inventory;
+// CI and shards load every file in the inventory chosen for the run.
+if (
+  explicitFiles.length === 0 &&
+  patterns.length > 0 &&
+  process.env.FOOM_ELECTRON_SHARD === undefined &&
+  process.env.CI === undefined &&
+  !isCI()
+) {
+  const start = performance.now();
+  files = selectSuiteFiles(inventory, { patterns });
+  if (files.length < inventory.length)
+    console.info(
+      `Electron test selection: ${files.length} of ${inventory.length} suite files. Selection took ${Math.round(performance.now() - start)} ms.`,
+    );
+}
 const result = spawnSync(
   process.execPath,
   [
@@ -301,12 +321,8 @@ const result = spawnSync(
     "--test-reporter=./scripts/electron-summary.mjs",
     `--test-reporter-destination=${summaryPath}`,
     // Node filters must precede every discovered suite.
-    ...forwarded,
-    ...(packaged
-      ? ["tests/electron/packaged-smoke.js"]
-      : selectedSuites.length > 0
-        ? [...new Set(selectedSuites)].sort()
-        : inventory),
+    ...patterns.map((pattern) => `--test-name-pattern=${pattern}`),
+    ...files,
   ],
   { stdio: "inherit" },
 );
@@ -331,7 +347,7 @@ try {
 if (result.error) throw result.error;
 process.exitCode ||= result.status ?? 1;
 
-if (result.status === 0 && (forwarded.length > 0 || selectedSuites.length > 0)) {
+if (result.status === 0 && (patterns.length > 0 || selectedSuites.length > 0)) {
   const counts = JSON.parse(readFileSync(summaryPath, "utf8"));
   if (counts.passed === 0) {
     console.error("No selected tests passed. Check --test-name-pattern and FOOM_ELECTRON_SHARD.");
