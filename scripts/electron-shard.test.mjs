@@ -360,6 +360,51 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     },
   );
 
+  await context.test("focused registration sees the real worker color environment", (context) => {
+    const setup = path.join(helpers, "setup.js");
+    const originalSetup = readFileSync(setup, "utf8");
+    context.after(() => writeFileSync(setup, originalSetup));
+    // Simulate a color-capable terminal on the captured stdout pipe. Ignored
+    // stdout has no pipe, so discovery must inherit the runner's descriptor.
+    writeFileSync(
+      setup,
+      `${originalSetup}
+      if (!process.env.NODE_TEST_CONTEXT && process.stdout instanceof require("node:net").Socket) {
+        process.stdout.isTTY = true;
+        process.stdout.getColorDepth = () => 8;
+      }`,
+    );
+    writeFileSync(first, binding + 'test("target passes", () => {});');
+    writeFileSync(
+      second,
+      binding +
+        `const name = process.env.FORCE_COLOR === "1" ? "target fails in color" : "other";
+        test(name, () => { throw Error("matching color failure"); });`,
+    );
+    const colorEnv = { ...env };
+    delete colorEnv.FORCE_COLOR;
+    delete colorEnv.NO_COLOR;
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `import { spawnSync } from "node:child_process";
+        import { selectSuiteFiles } from ${JSON.stringify(pathToFileURL(selector).href)};
+        const files = selectSuiteFiles(${JSON.stringify(files)}, { patterns: ["^target"] });
+        const result = spawnSync(process.execPath, [
+          "--require", ${JSON.stringify(setup)}, "--test", "--test-concurrency=1",
+          "--test-reporter=spec", "--test-reporter-destination=stdout",
+          "--test-name-pattern=^target", ...files,
+        ], { stdio: "inherit" });
+        process.exitCode = result.status ?? 2;`,
+      ],
+      { env: colorEnv, encoding: "utf8" },
+    );
+    assert.match(result.stdout + result.stderr, /matching color failure/);
+    assert.equal(result.status, 1);
+  });
+
   await context.test("a stalled discovery worker is stopped before the real tests run", () => {
     const marker = path.join(directory, "blocked-registration-returned");
     writeFileSync(first, binding + 'test("first", () => {});');

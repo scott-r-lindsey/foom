@@ -226,7 +226,8 @@ host build.
 
 Electron suite registration must be side-effect free. Keep file writes, fixture
 allocation and subprocess launches inside test bodies or hooks so discovery and
-execution register the same tests. The shard audit compares
+execution register the same tests. Suite registration must not depend on the
+terminal or color environment. The shard audit compares
 `git status --porcelain --ignored --untracked-files=all` before and after a full
 discovery pass. It fails if tracked, untracked or ignored entries change in the
 status output. The audit runs separately from CI policy tests that create

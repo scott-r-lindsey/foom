@@ -59,7 +59,9 @@ run({
         "--test-concurrency=4",
         launcher,
       ],
-      { env, stdio: "ignore" },
+      // Node derives worker FORCE_COLOR from the stdout reporter destination.
+      // Inherit the real runner's stdout so Node sees the same terminal.
+      { env, stdio: ["ignore", "inherit", "ignore"] },
     );
     // The test runner cancels its own children before returning from a timeout.
     if (outcome.status !== 0) return new Map();
