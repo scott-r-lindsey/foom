@@ -1,3 +1,4 @@
+import type { HostSetupFailureReason } from "../../shared/registered-hosts.d";
 import { HostObservations } from "../data/host-observations";
 import { viewChanges } from "../data/view-changes";
 import { askpassSupported, trustHostKey } from "./ssh-host-key";
@@ -187,6 +188,12 @@ type HostOperation =
   | Exclude<HostsAction, { action: "setup-agent" | "show-setup-agent" }>
   | { action: "setup-recheck"; host: string; registration: symbol };
 
+export class HostSetupRefusal extends Error {
+  constructor(readonly reason: HostSetupFailureReason) {
+    super(reason);
+  }
+}
+
 export class Hosts {
   private readonly setupAgents = new Map<string, HostSetupRun>();
   private readonly registrationIds = new Map<string, symbol>();
@@ -218,11 +225,18 @@ export class Hosts {
       ? AbortSignal.any([this.cancellation.signal, windowSignal])
       : this.cancellation.signal;
     const { host, agent, repositories } = input;
-    this.registered(host);
+    const findRegistration = (folder?: string) => {
+      const entry = this.store.get().registeredHosts?.find((entry) => entry.host === host);
+      if (!entry || (folder !== undefined && entry.codeFolder !== folder))
+        throw new HostSetupRefusal("host-changed");
+      return entry;
+    };
+    findRegistration();
     const registrationId = this.registrationId(host);
     const provider = agentProviders().find((provider) => provider.id === agent);
-    if (!provider || this.setupAgents.has(host) || signal.aborted)
-      throw new Error("Setup agent unavailable");
+    if (!provider) throw new HostSetupRefusal("agent-provider-changed");
+    if (this.setupAgents.has(host)) throw new HostSetupRefusal("setup-running");
+    if (signal.aborted) throw new HostSetupRefusal("setup-cancelled");
     const run: HostSetupRun = { id: randomUUID(), name: provider.name, started: false };
     this.setupAgents.set(host, run);
     const release = () => {
@@ -232,7 +246,7 @@ export class Hosts {
     const cancelled = new Promise<never>((_resolve, reject) => {
       const abort = () => {
         release();
-        reject(new Error("Setup agent unavailable"));
+        reject(new HostSetupRefusal("setup-cancelled"));
       };
       signal.addEventListener("abort", abort, { once: true });
       stopWatching = () => {
@@ -243,17 +257,17 @@ export class Hosts {
       this.pending,
       this.hostPending.get(host) ?? Promise.resolve(),
     ]).then(async () => {
-      const registration = this.registered(host);
+      const registration = findRegistration();
       const validate = (dispatch?: true) => {
-        this.registered(host, registration.codeFolder);
-        if (
-          this.setupAgents.get(host) !== run ||
-          this.registrationIds.get(host) !== registrationId ||
-          signal.aborted ||
-          this.store.get().agents[agent] !== true ||
-          repositories.some((path) => !this.repositories().some((repo) => repo.path === path))
-        )
-          throw new Error("Setup agent unavailable");
+        if (signal.aborted) throw new HostSetupRefusal("setup-cancelled");
+        findRegistration(registration.codeFolder);
+        if (this.registrationIds.get(host) !== registrationId || this.setupAgents.get(host) !== run)
+          throw new HostSetupRefusal("host-changed");
+        if (this.store.get().agents[agent] !== true) throw new HostSetupRefusal("agent-disabled");
+        if (agentProviders().find((entry) => entry.id === agent) !== provider)
+          throw new HostSetupRefusal("agent-provider-changed");
+        if (repositories.some((path) => !this.repositories().some((repo) => repo.path === path)))
+          throw new HostSetupRefusal("repositories-changed");
         if (dispatch) stopWatching();
       };
       validate();
@@ -266,11 +280,17 @@ export class Hosts {
       ].join("\n");
       for (const path of repositories) {
         const repo = this.repositories().find((repo) => repo.path === path);
-        if (!repo) throw new Error("Repository is not registered");
-        const origin = await Promise.race([this.origin(path, signal), cancelled]);
+        if (!repo) throw new HostSetupRefusal("repositories-changed");
+        const origin = await Promise.race([
+          this.origin(path, signal).catch(() => {
+            validate();
+            throw new HostSetupRefusal("origin-unavailable");
+          }),
+          cancelled,
+        ]);
         validate();
         prompt += `\n${JSON.stringify({ repository: repo.name, origin })}`;
-        if (Buffer.byteLength(prompt) > 16384) throw new Error("Setup brief is too long");
+        if (Buffer.byteLength(prompt) > 16384) throw new HostSetupRefusal("brief-too-long");
       }
       validate();
       const ssh = await this.checkSetupSsh(host, signal);
@@ -299,7 +319,15 @@ export class Hosts {
             }
           }
         }
-        throw new Error("Setup agent unavailable");
+        switch (ssh.reason) {
+          case "host-key-unknown":
+          case "host-key-changed":
+            throw new HostSetupRefusal(ssh.reason);
+          case "login-rejected":
+            throw new HostSetupRefusal("ssh-login-rejected");
+          default:
+            throw new HostSetupRefusal("ssh-unreachable");
+        }
       }
       // Agent discovery may outlive the window. Only the spawn guard claims the slot.
       await Promise.race([launch(run.id, agent, prompt, validate), cancelled]);

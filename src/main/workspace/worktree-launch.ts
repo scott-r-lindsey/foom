@@ -5,7 +5,7 @@ import type { ParentIdentity } from "../control/orchestration.d";
 import { canRestoreControl } from "./session-restore";
 import { locationId } from "../control/metadata";
 import type { RemoteTarget } from "../../shared/remote-host";
-import { LaunchFailure } from "../../shared/launch-failure";
+import { LaunchFailure, LocalLaunchRefusal } from "../../shared/launch-failure";
 import { imagePasteRecipient } from "../../shared/image-paste";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
@@ -466,7 +466,7 @@ export async function startMachine(
   const perform = async (): Promise<string | undefined> => {
     const ensureOpen = (dispatch?: true) => {
       validateLaunch?.(dispatch);
-      if (this.closed) throw new Error("Workspace is closed");
+      if (this.closed) throw new LocalLaunchRefusal("setup-cancelled", "Workspace is closed");
       if (run !== "shell" && this.enabled[run] !== true) throw new LaunchFailure("agent_disabled");
     };
     ensureOpen();

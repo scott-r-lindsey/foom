@@ -1426,6 +1426,38 @@ test("sidebar repository unavailability is validated and preserved", async () =>
   await expect(api.sidebarInventory()).rejects.toThrow();
 });
 
+test("only the setup-agent reply admits a validated, fixed refusal reason", async () => {
+  const api = await bridge();
+  const request = {
+    action: "setup-agent" as const,
+    host: "worker",
+    agent: "claude",
+    repositories: ["/repo"],
+  };
+  const state = { hosts: [], locations: [] };
+  mock.invoke.mockResolvedValue({
+    ...state,
+    setupAgentFailure: "host-key-changed",
+    error: "private SSH output",
+  });
+  await expect(api.hosts(request)).resolves.toEqual({
+    ...state,
+    setupAgentFailure: "host-key-changed",
+  });
+  await expect(api.hosts({ action: "list" })).resolves.toEqual(state);
+  for (const setupAgentFailure of [
+    "host-key-changed:/private/path",
+    "unknown",
+    "constructor",
+    { code: "host-key-changed" },
+    null,
+    1,
+  ]) {
+    mock.invoke.mockResolvedValue({ ...state, setupAgentFailure });
+    await expect(api.hosts(request)).rejects.toThrow("Invalid setup:hosts response");
+  }
+});
+
 test("host bridge validates every nested fact and strips undeclared host data", async () => {
   const api = await bridge();
   const facts = {

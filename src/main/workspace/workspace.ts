@@ -1,3 +1,4 @@
+import { LaunchFailure, LocalLaunchRefusal } from "../../shared/launch-failure";
 import { join } from "node:path";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { homeDirectory } from "./home-shell";
@@ -62,10 +63,21 @@ export class Workspace {
     prompt: string,
     validate: (dispatch?: true) => void,
   ): Promise<void> {
-    const { agents } = await this.owner.scanAgents(false);
+    const { agents } = await this.owner.scanAgents(false).catch((error: unknown) => {
+      validate();
+      if (error instanceof LocalLaunchRefusal) throw error;
+      throw new LocalLaunchRefusal("agent-discovery-failed", "Local agent discovery failed", {
+        cause: error,
+      });
+    });
     validate();
-    if (!agents.some((entry) => entry.id === agent && entry.path && entry.initialPrompt))
-      throw new Error("Agent cannot receive a setup brief");
+    const installation = agents.find((entry) => entry.id === agent);
+    if (!installation?.path) throw new LaunchFailure("agent_unavailable");
+    if (!installation.initialPrompt)
+      throw new LocalLaunchRefusal(
+        "agent-prompt-unsupported",
+        "Agent cannot receive a setup brief",
+      );
     await this.owner.startMachine(
       null,
       agent,

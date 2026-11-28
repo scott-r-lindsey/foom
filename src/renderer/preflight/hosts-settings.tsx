@@ -794,6 +794,7 @@ export function HostsSettings({
   setupAgents,
   repositories = [],
   openAgents,
+  openLocalAgents,
   source,
   headingRef,
 }: {
@@ -802,6 +803,7 @@ export function HostsSettings({
   setupAgents?: readonly AgentInstallation[] | undefined;
   repositories?: readonly Repository[];
   openAgents?: (host: string) => void;
+  openLocalAgents?: (scope: "local" | "global") => void;
   source: Pick<
     SetupSource,
     | "hosts"
@@ -819,8 +821,7 @@ export function HostsSettings({
     () => source.hosts?.({ action: "list" }) ?? Promise.resolve(EMPTY_HOSTS),
   );
   const [state, setState] = useViewState(hostsQuery, EMPTY_HOSTS);
-  const [setupHost, setSetupHost] = useState<string>();
-  const setupEntry = state.hosts.find((entry) => entry.host === setupHost);
+  const [setupEntry, setSetupEntry] = useState<Pick<HostRow, "host" | "nickname">>();
   const [checks, setChecks] = useState<ReadonlyMap<string, HostPreflight>>(
     () => new Map<string, HostPreflight>(),
   );
@@ -1458,7 +1459,7 @@ export function HostsSettings({
                   className={summary === "Ready" ? undefined : "primary"}
                   disabled={controlsDisabled}
                   onClick={() => {
-                    setSetupHost(entry.host);
+                    setSetupEntry(entry);
                   }}
                 >
                   Set up with an agent…
@@ -1768,16 +1769,34 @@ export function HostsSettings({
           defaultAgent={defaultAgent}
           repositories={repositories}
           close={() => {
-            setSetupHost(undefined);
+            setSetupEntry(undefined);
+          }}
+          openAgentSettings={
+            openLocalAgents &&
+            ((scope) => {
+              setSetupEntry(undefined);
+              openLocalAgents(scope);
+            })
+          }
+          showHost={() => {
+            setSetupEntry(undefined);
+            setExpanded((previous) => new Map(previous).set(setupEntry.host, true));
+          }}
+          refreshHost={() => {
+            setSetupEntry(undefined);
+            const host = state.hosts.find(({ host }) => host === setupEntry.host);
+            if (host)
+              void act({ action: "preflight", host: host.host, codeFolder: host.codeFolder });
           }}
           start={async (agent, repositories) => {
-            const next = await api({
+            const { setupAgentFailure, ...next } = await api({
               action: "setup-agent",
               host: setupEntry.host,
               agent,
               repositories,
             });
             setState(next);
+            return setupAgentFailure;
           }}
         />
       )}

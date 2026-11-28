@@ -79,6 +79,16 @@
   margin-top: 12px;
   color: var(--failed-ink);
 }
+.host-setup-dialog .host-setup-recovery {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .host-setup-agent-picker,
 .host-setup-repository-heading {
   display: flex;

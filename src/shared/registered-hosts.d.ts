@@ -1,3 +1,4 @@
+import type { LocalLaunchRefusalReason } from "./launch-failure";
 import type { RemoteReviewSnapshot } from "./remote-agent";
 export interface RegisteredHost {
   host: string;
@@ -218,7 +219,29 @@ export interface HostCheckProgress {
     checkout?: HostResult;
   }[];
 }
+export type HostSetupFailureReason =
+  | "setup-unavailable"
+  | "setup-running"
+  | "host-changed"
+  | "repositories-changed"
+  | "origin-unavailable"
+  | "brief-too-long"
+  | "host-key-unknown"
+  | "host-key-changed"
+  | "ssh-login-rejected"
+  | "ssh-unreachable"
+  | "agent-disabled"
+  | "agent-missing"
+  | "agent-arguments-invalid"
+  | "agent-permission-conflict"
+  | "agent-permission-unavailable"
+  | "agent-permission-acknowledgement"
+  | "launch-failed"
+  | LocalLaunchRefusalReason;
+
 export interface HostsState {
+  /** Returned only to the requesting setup-agent action. */
+  setupAgentFailure?: HostSetupFailureReason;
   /** Display-only endpoints of registered local origins. */
   gitOrigins?: readonly (GitOriginEndpoint & { repository: string })[];
   /** Sealed local build capability; independent of host connectivity. */

@@ -1,6 +1,73 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { AgentInstallation } from "../../shared/agents";
+import type { HostSetupFailureReason } from "../../shared/registered-hosts.d";
 import type { Repository } from "../../shared/worktrees";
+
+type Recovery = "local" | "global" | "choose-agent" | "refresh-host" | "show-host";
+
+const recoveryLabels: Record<Recovery, string> = {
+  local: "Open Agents settings",
+  global: "Open Agents settings",
+  "choose-agent": "Choose another agent",
+  "refresh-host": "Refresh host",
+  "show-host": "Review host key",
+};
+
+const failures: Record<HostSetupFailureReason, { text: string; recovery?: Recovery }> = {
+  "setup-unavailable": { text: "Host setup is unavailable in this window." },
+  "setup-cancelled": { text: "Setup was cancelled. Reopen the dialog to try again." },
+  "setup-running": { text: "A setup agent is already starting or running for this host." },
+  "host-changed": { text: "The host registration changed. Reopen setup from Hosts." },
+  "repositories-changed": { text: "A selected repository was removed. Update the selection." },
+  "origin-unavailable": { text: "Local Git origin unavailable. Check the selected repositories." },
+  "brief-too-long": { text: "The setup brief is too long. Select fewer repositories." },
+  "host-key-unknown": { text: "The SSH host key needs your approval.", recovery: "show-host" },
+  "host-key-changed": { text: "The SSH host key changed.", recovery: "show-host" },
+  "ssh-login-rejected": { text: "SSH rejected the login. Check your SSH credentials." },
+  "ssh-unreachable": { text: "Could not reach the host over SSH.", recovery: "refresh-host" },
+  "agent-disabled": { text: "The local agent is turned off.", recovery: "local" },
+  "agent-missing": { text: "The local agent executable is unavailable.", recovery: "local" },
+  "agent-prompt-unsupported": {
+    text: "This agent cannot receive a setup brief.",
+    recovery: "choose-agent",
+  },
+  "agent-discovery-failed": { text: "The local agent scan failed.", recovery: "local" },
+  "agent-provider-changed": {
+    text: "The agent plugin changed. Rescan local agents.",
+    recovery: "local",
+  },
+  "agent-arguments-invalid": {
+    text: "The agent’s default arguments are invalid.",
+    recovery: "global",
+  },
+  "agent-permission-conflict": {
+    text: "Default arguments conflict with the permission level.",
+    recovery: "global",
+  },
+  "agent-permission-unavailable": {
+    text: "The agent version cannot use this permission level.",
+    recovery: "local",
+  },
+  "agent-permission-acknowledgement": {
+    text: "Full access needs a new approval.",
+    recovery: "local",
+  },
+  "agent-permission-changed": { text: "Agent permissions changed. Try starting again." },
+  "agent-environment-conflict": {
+    text: "Bypass environment variables conflict with the permission level. Review Settings → Environment.",
+  },
+  "agent-bypass-cancelled": { text: "Bypass approval was cancelled.", recovery: "choose-agent" },
+  "agent-hooks-conflict": { text: "Foom could not attach the agent hooks.", recovery: "local" },
+  "launch-failed": { text: "The local agent failed to start. Try again." },
+};
+
+function isHostSetupFailure(value: unknown): value is HostSetupFailureReason {
+  return typeof value === "string" && Object.hasOwn(failures, value);
+}
+
+export function hostSetupFailurePresentation(value: unknown) {
+  return failures[isHostSetupFailure(value) ? value : "launch-failed"];
+}
 
 export function HostSetupDialog({
   host,
@@ -9,13 +76,22 @@ export function HostSetupDialog({
   repositories,
   close,
   start,
+  openAgentSettings,
+  refreshHost,
+  showHost,
 }: {
   host: string;
   agents: readonly AgentInstallation[];
   defaultAgent: string | null;
   repositories: readonly Repository[];
   close: () => void;
-  start: (agent: string, repositories: readonly string[]) => Promise<void>;
+  start: (
+    agent: string,
+    repositories: readonly string[],
+  ) => Promise<HostSetupFailureReason | undefined>;
+  openAgentSettings?: ((scope: "local" | "global") => void) | undefined;
+  refreshHost: () => void;
+  showHost: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const pickerRef = useRef<HTMLSelectElement>(null);
@@ -26,7 +102,7 @@ export function HostSetupDialog({
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [filter, setFilter] = useState("");
   const [starting, setStarting] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<ReturnType<typeof hostSetupFailurePresentation>>();
   const chosen =
     agents.find(({ id }) => id === agent)?.id ??
     agents.find(({ id }) => id === defaultAgent)?.id ??
@@ -37,6 +113,39 @@ export function HostSetupDialog({
     ({ path, name }) => selected.has(path) || name.toLowerCase().includes(query),
   );
   const selection = repositories.filter(({ path }) => selected.has(path)).map(({ path }) => path);
+
+  const recovery =
+    failure?.recovery === "choose-agent" && agents.length < 2 ? "local" : failure?.recovery;
+  const recover = (action: Recovery) => {
+    switch (action) {
+      case "local":
+      case "global":
+        openAgentSettings?.(action);
+        break;
+      case "choose-agent":
+        pickerRef.current?.focus();
+        break;
+      case "refresh-host":
+        refreshHost();
+        break;
+      case "show-host":
+        showHost();
+        break;
+    }
+  };
+  const launch = async () => {
+    setStarting(true);
+    setFailure(undefined);
+    try {
+      const reason = await start(chosen, selection);
+      if (reason === undefined) close();
+      else setFailure(hostSetupFailurePresentation(reason));
+    } catch {
+      setFailure(hostSetupFailurePresentation(undefined));
+    } finally {
+      setStarting(false);
+    }
+  };
 
   useLayoutEffect(() => {
     const element = dialogRef.current;
@@ -82,6 +191,7 @@ export function HostSetupDialog({
             disabled={starting}
             onChange={(event) => {
               setAgent(event.target.value);
+              setFailure(undefined);
             }}
           >
             {agents.length === 0 && <option value="">No agents available</option>}
@@ -127,7 +237,6 @@ export function HostSetupDialog({
           ))}
           {visible.length === 0 && <p>{repositories.length ? "No matches" : "No repositories"}</p>}
         </div>
-        {failed && <p role="alert">Unable to start setup agent</p>}
         <footer>
           <button type="button" disabled={starting} onClick={close}>
             Cancel
@@ -137,17 +246,35 @@ export function HostSetupDialog({
             className="primary"
             disabled={starting || !chosen || !selection.length}
             onClick={() => {
-              setStarting(true);
-              setFailed(false);
-              void start(chosen, selection).then(close, () => {
-                setStarting(false);
-                setFailed(true);
-              });
+              void launch();
             }}
           >
             {starting ? "Starting…" : "Start agent"}
           </button>
         </footer>
+        {failure && (
+          <p role="alert">
+            {failure.text}
+            {recovery && (
+              <>
+                {" "}
+                {(recovery === "local" || recovery === "global") && !openAgentSettings ? (
+                  `${recoveryLabels[recovery]}.`
+                ) : (
+                  <button
+                    type="button"
+                    className="host-setup-recovery"
+                    onClick={() => {
+                      recover(recovery);
+                    }}
+                  >
+                    {recoveryLabels[recovery]}
+                  </button>
+                )}
+              </>
+            )}
+          </p>
+        )}
       </div>
     </dialog>
   );

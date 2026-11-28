@@ -1,6 +1,6 @@
 import { ApplicationError } from "../../shared/application-errors";
 import { imagePasteRecipient } from "../../shared/image-paste";
-import { LaunchFailure } from "../../shared/launch-failure";
+import { LaunchFailure, LocalLaunchRefusal } from "../../shared/launch-failure";
 import { ControlError } from "../../shared/control-validation";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { launchRemoteChild, type RemoteHooks } from "./remote-launch";
@@ -112,7 +112,8 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
   const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
   const probe = async (flag: "--version" | "--help"): Promise<string> => {
     await provider.validate?.();
-    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
+    if (agentProvider(id) !== provider)
+      throw new LocalLaunchRefusal("agent-provider-changed", "Agent plugins changed. Scan again.");
     try {
       const output = await readLoginShell(executable, [flag], {
         ...options,
@@ -127,7 +128,8 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
   const version = (await probe("--version")).trim();
   const help = await probe("--help");
   await provider.validate?.();
-  if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
+  if (agentProvider(id) !== provider)
+    throw new LocalLaunchRefusal("agent-provider-changed", "Agent plugins changed. Scan again.");
   return provider.discover(executable, version, help);
 }
 
@@ -172,7 +174,7 @@ export class AgentService {
   ) {}
 
   private ensureOpen(): void {
-    if (this.closed) throw new Error("Agent service is disposed");
+    if (this.closed) throw new LocalLaunchRefusal("setup-cancelled", "Agent service is disposed");
   }
 
   setHooksEnabled(enabled: boolean, preferences: Readonly<Record<string, boolean>> = {}): void {
@@ -230,7 +232,10 @@ export class AgentService {
           (level === "full" && current.choice?.identity !== choice?.identity) ||
           (choice !== undefined && current.scope !== scope)
         )
-          throw new Error("Agent permission settings changed. Try again.");
+          throw new LocalLaunchRefusal(
+            "agent-permission-changed",
+            "Agent permission settings changed. Try again.",
+          );
       },
     };
   }
@@ -273,7 +278,7 @@ export class AgentService {
     );
     if (revision !== providerRevision()) {
       this.scanResult = undefined;
-      throw new Error("Agent plugins changed. Scan again.");
+      throw new LocalLaunchRefusal("agent-provider-changed", "Agent plugins changed. Scan again.");
     }
     const result = Object.freeze({
       ...(selected
@@ -291,7 +296,8 @@ export class AgentService {
 
   async launch(request: AgentLaunch): Promise<AgentLaunched> {
     this.ensureOpen();
-    if (!knownAgentId(request.agent)) throw new Error("Unknown agent");
+    if (!knownAgentId(request.agent))
+      throw new LocalLaunchRefusal("agent-provider-changed", "Unknown agent");
     if (
       ![request.cols, request.rows].every(
         (value) => Number.isInteger(value) && value >= 2 && value <= 500,
@@ -318,7 +324,18 @@ export class AgentService {
 
   private async start(request: AgentLaunch): Promise<AgentLaunched> {
     const provider = agentProvider(request.agent);
-    await provider.validate?.();
+    const validateProvider = async () => {
+      try {
+        await provider.validate?.();
+      } catch (error) {
+        throw new LocalLaunchRefusal(
+          "agent-provider-changed",
+          error instanceof Error ? error.message : "Agent plugin changed. Review it again.",
+          { cause: error },
+        );
+      }
+    };
+    await validateProvider();
     const defaults = selectedArguments(
       provider.model,
       parseAgentArguments(request.agent, request.defaultArguments ?? []),
@@ -458,7 +475,15 @@ export class AgentService {
     if (!agent?.path) throw new LaunchFailure("agent_unavailable");
     const attach =
       this.hooksEnabled && this.agentHooks[agent.id] !== false && agent.hooks && this.prepareHooks;
-    const suppliedBinding = attach ? await attach(agent.id) : undefined;
+    const suppliedBinding = attach
+      ? await attach(agent.id).catch((error: unknown) => {
+          throw new LocalLaunchRefusal(
+            "agent-hooks-conflict",
+            error instanceof Error ? error.message : "Unable to prepare agent hooks",
+            { cause: error },
+          );
+        })
+      : undefined;
     let bindingDisposed = false;
     const binding = suppliedBinding
       ? {
@@ -522,7 +547,7 @@ export class AgentService {
         (channel) => channel.disclosure,
       );
       if (provider.origin === "bundled" && replacement?.disclosure)
-        throw new Error(replacement.disclosure.text);
+        throw new LocalLaunchRefusal("agent-hooks-conflict", replacement.disclosure.text);
       if (
         request.control &&
         "role" in request.control &&
@@ -572,7 +597,10 @@ export class AgentService {
       const argumentBypass = argumentMatches.length > 0;
       const bypass = argumentBypass || environmentMatches.length > 0;
       if (permission?.level && environmentMatches.length)
-        throw new Error("A bypass environment conflicts with the selected permission level.");
+        throw new LocalLaunchRefusal(
+          "agent-environment-conflict",
+          "A bypass environment conflicts with the selected permission level.",
+        );
       if (bypass && permission?.level !== "full") {
         if (
           request.automated ||
@@ -604,10 +632,10 @@ export class AgentService {
             ],
           }))
         )
-          throw new Error("Bypass launch was cancelled");
+          throw new LocalLaunchRefusal("agent-bypass-cancelled", "Bypass launch was cancelled");
       }
       const validateCheckout = async () => {
-        await provider.validate?.();
+        await validateProvider();
         if (
           gitCheckout &&
           (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
@@ -622,8 +650,11 @@ export class AgentService {
           throw new Error("Source directory is unavailable.");
       };
       const validateSpawn = () => {
-        if (agentProvider(request.agent) !== provider)
-          throw new Error("Agent plugin changed. Review it again.");
+        if (!knownAgentId(request.agent) || agentProvider(request.agent) !== provider)
+          throw new LocalLaunchRefusal(
+            "agent-provider-changed",
+            "Agent plugin changed. Review it again.",
+          );
         this.ensureOpen();
         permission?.validate();
         request.beforeSpawn?.();

@@ -1,3 +1,4 @@
+import { LocalLaunchRefusal } from "../../../shared/launch-failure";
 import {
   applyPermissionArguments,
   availablePermissionLevels,
@@ -215,7 +216,10 @@ export function v2Provider(
         model.launch.prompt !== undefined &&
         (!model.launch.prompt.requires || facts[model.launch.prompt.requires] === true);
       if (request.prompt !== undefined && !promptSupported)
-        throw new Error("This agent cannot take an initial prompt");
+        throw new LocalLaunchRefusal(
+          "agent-prompt-unsupported",
+          "This agent cannot take an initial prompt",
+        );
       const guidance =
         model.launch.guidance && selected(model.launch.guidance.when, facts) && promptSupported;
       let userDefaults = [...defaults];

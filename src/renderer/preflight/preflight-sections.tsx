@@ -221,6 +221,10 @@ export function PreflightSections({
         defaultAgent={state.settings.defaultAgent}
         setupAgents={report?.agents}
         repositories={repositories}
+        openLocalAgents={(scope) => {
+          setAgentScope(scope);
+          go(1);
+        }}
         openAgents={(host) => {
           setAgentScope(`host:${host}`);
           go(1);

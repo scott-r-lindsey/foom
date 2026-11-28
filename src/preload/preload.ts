@@ -14,6 +14,7 @@ import type {
 } from "../shared/message-board";
 import type {
   HostsState,
+  HostSetupFailureReason,
   GitOriginEndpoint,
   HostResult,
   HostFacts,
@@ -690,7 +691,8 @@ const validHostCheckTarget: Validator<HostCheckTarget> = either(
   shape({ kind: literal("tool", "sign-in"), tool: hostAgentId }),
   shape({ kind: literal("origin", "checkout"), repository: text }),
 );
-const validHostsState: Validator<HostsState> = shape({
+type HostInventoryState = Omit<HostsState, "setupAgentFailure">;
+const validHostsState: Validator<HostInventoryState> = shape({
   gitOrigins: either(absent, array(shape({ repository: text, ...gitOriginEndpointFields }))),
   progress: either(
     absent,
@@ -780,7 +782,39 @@ const validHostsState: Validator<HostsState> = shape({
   remoteHostsAvailable: either(absent, boolean),
   locations: array(shape({ repository: text, host: hostAlias, result: validHostResult })),
   result: either(absent, validHostResult),
-} satisfies Contract<HostsState>);
+} satisfies Contract<HostInventoryState>);
+
+const hostSetupFailureReason: Validator<HostSetupFailureReason> = literal(
+  "setup-unavailable",
+  "setup-cancelled",
+  "setup-running",
+  "host-changed",
+  "repositories-changed",
+  "origin-unavailable",
+  "brief-too-long",
+  "host-key-unknown",
+  "host-key-changed",
+  "ssh-login-rejected",
+  "ssh-unreachable",
+  "agent-disabled",
+  "agent-missing",
+  "agent-prompt-unsupported",
+  "agent-discovery-failed",
+  "agent-provider-changed",
+  "agent-arguments-invalid",
+  "agent-permission-conflict",
+  "agent-permission-unavailable",
+  "agent-permission-acknowledgement",
+  "agent-permission-changed",
+  "agent-environment-conflict",
+  "agent-bypass-cancelled",
+  "agent-hooks-conflict",
+  "launch-failed",
+);
+const validHostSetupReply = both(
+  validHostsState,
+  shape({ setupAgentFailure: either(absent, hostSetupFailureReason) }),
+);
 
 const validAgentPermissionLevel = literal("ask", "workspace", "full");
 const validSettings: Validator<Settings> = shape({
@@ -2471,7 +2505,12 @@ const desktop: DesktopApi = {
     ),
   repositoryRequirements: (action) =>
     reply("setup:repository-requirements", validRepositoryRequirements, action),
-  hosts: (action) => reply("setup:hosts", validHostsState, action),
+  hosts: (action) =>
+    reply(
+      "setup:hosts",
+      action.action === "setup-agent" ? validHostSetupReply : validHostsState,
+      action,
+    ),
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),
   openThemesFolder: (kind) => invokeVoid("theme:open-folder", kind),

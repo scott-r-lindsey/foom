@@ -5,10 +5,14 @@ import { hostsAction } from "../../shared/registered-hosts";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent, DialogOutcome, PlainDialogContent } from "../../shared/confirmation";
 import type { RepositoryRequirementsStore } from "./repository-requirements";
-import type { Hosts } from "./hosts";
+import { type Hosts, HostSetupRefusal } from "./hosts";
+import { LaunchFailure, LocalLaunchRefusal } from "../../shared/launch-failure";
+import { AgentArgumentsError } from "../../shared/providers/arguments";
+import type { HostSetupFailureReason } from "../../shared/registered-hosts.d";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
 import { ApplicationError } from "../../shared/application-errors";
+import { ControlError } from "../../shared/control-validation";
 import { isUserThemeId } from "../../shared/theme-validation";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { checkPermissionConflicts } from "../../shared/agent-permission-arguments";
@@ -72,6 +76,26 @@ export interface SetupDependencies {
   };
 }
 
+function hostSetupFailure(error: unknown): HostSetupFailureReason {
+  if (error instanceof HostSetupRefusal || error instanceof LocalLaunchRefusal) return error.reason;
+  if (error instanceof LaunchFailure) {
+    if (error.reason === "agent_disabled") return "agent-disabled";
+    if (error.reason === "agent_unavailable") return "agent-missing";
+  }
+  // For this human-owned local launch, the permission gate refuses unsupported Workspace access.
+  if (error instanceof ControlError && error.code === "forbidden")
+    return "agent-permission-unavailable";
+  if (error instanceof ApplicationError) {
+    switch (error.code) {
+      case "agent-permission-conflict":
+      case "agent-permission-acknowledgement":
+      case "agent-permission-unavailable":
+        return error.code;
+    }
+  }
+  return error instanceof AgentArgumentsError ? "agent-arguments-invalid" : "launch-failed";
+}
+
 /** How far the quick scan behind a suggestion's count looks. */
 const QUICK_SCAN_FOLDERS = 5000;
 
@@ -128,17 +152,23 @@ export class Setup {
   async hosts(input: unknown) {
     if (!hostsAction(input)) throw new Error("Invalid host action");
     if (input.action === "cancel-trust") this.cancelHostTrust();
-    if (!this.deps.hosts) throw new Error("Hosts unavailable");
     if (input.action === "setup-agent") {
-      if (!this.deps.launchHostSetupAgent) throw new Error("Setup agent unavailable");
-      const id = await this.deps.hosts.startSetupAgent(
-        input,
-        this.deps.launchHostSetupAgent,
-        this.hostTrust.signal,
-      );
+      const { hosts, launchHostSetupAgent: launch } = this.deps;
+      if (!hosts || !launch)
+        return {
+          ...(hosts?.state() ?? { hosts: [], locations: [] }),
+          setupAgentFailure: "setup-unavailable" as const,
+        };
+      let id: string;
+      try {
+        id = await hosts.startSetupAgent(input, launch, this.hostTrust.signal);
+      } catch (error) {
+        return { ...hosts.state(), setupAgentFailure: hostSetupFailure(error) };
+      }
       this.deps.placeHostSetupAgent?.(id, true);
-      return this.deps.hosts.state();
+      return hosts.state();
     }
+    if (!this.deps.hosts) throw new Error("Hosts unavailable");
     if (input.action === "show-setup-agent") {
       const id = this.deps.hosts.setupAgentId(input.host);
       if (id === input.id) this.deps.placeHostSetupAgent?.(id, false);
