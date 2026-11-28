@@ -275,10 +275,11 @@ test("local inventory and launches proceed while a remote check is pending; comp
   await vi.waitFor(() => {
     expect(changed).toHaveBeenCalledOnce();
   });
-  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(true);
+  const completed = (await workspace.sidebarInventory()).repositories[0];
+  expect(completed).toMatchObject({ canDeleteMerged: true, mergedCount: 1 });
   expect(deps.worktrees.mergedDefault).toHaveBeenCalledOnce();
   now = 60_001;
-  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
+  expect((await workspace.sidebarInventory()).repositories[0]).toEqual(completed);
   await vi.waitFor(() => {
     expect(changed).toHaveBeenCalledTimes(2);
   });

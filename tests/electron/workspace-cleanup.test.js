@@ -1133,9 +1133,11 @@ test("zero merged cleanup eligibility opens the kept review and refreshes while 
       const worktrees = this.deps.worktrees;
       globalThis.holdNextEligibilityFetch = () => {
         const gate = Promise.withResolvers();
+        globalThis.eligibilityFetchStarted = false;
         const mergedDefault = worktrees.mergedDefault;
         worktrees.mergedDefault = (path) => {
           worktrees.mergedDefault = mergedDefault;
+          globalThis.eligibilityFetchStarted = true;
           return gate.promise.then(() => mergedDefault.call(worktrees, path, true));
         };
         globalThis.releaseEligibilityFetch = () => gate.resolve();
@@ -1258,9 +1260,27 @@ test("zero merged cleanup eligibility opens the kept review and refreshes while 
 
   await closePanel();
   await edit();
-  await app.evaluate(() => globalThis.expireEligibility());
-  await openPanel();
-  await expect(zero).toBeVisible();
+  try {
+    await app.evaluate(() => {
+      globalThis.expireEligibility();
+      globalThis.holdNextEligibilityFetch();
+    });
+    await openPanel();
+    await expect.poll(() => app.evaluate(() => globalThis.eligibilityFetchStarted)).toBe(true);
+    assert.equal(
+      await page.evaluate(
+        async () => (await window.desktop.sidebarInventory()).repositories[0]?.mergedCount,
+      ),
+      1,
+    );
+    await expect(page.getByText("1 eligible to delete", { exact: true })).toBeVisible();
+    await expect(deletion).toHaveText("Delete merged worktrees…1");
+    await app.evaluate(() => globalThis.releaseEligibilityFetch());
+    await expect(zero).toBeVisible();
+    await expect(deletion).toHaveCount(0);
+  } finally {
+    await app.evaluate(() => globalThis.releaseEligibilityFetch?.()).catch(() => {});
+  }
   await restore();
   await app.evaluate(() => globalThis.expireEligibility());
   await zero.click();

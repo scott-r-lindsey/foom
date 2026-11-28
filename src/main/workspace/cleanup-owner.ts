@@ -867,7 +867,6 @@ export class CleanupOwner {
     inventory?: { worktrees: readonly Worktree[]; key: string },
   ): MergeEligibility {
     const cached = this.mergeEligibility.get(repository);
-    const mergedScanGeneration = cached?.result.mergedScanGeneration;
     let wake = () => {};
     const promise = new Promise<void>((resolve) => {
       wake = resolve;
@@ -879,12 +878,8 @@ export class CleanupOwner {
       expires: Number.POSITIVE_INFINITY,
       pending: { promise, wake },
       completed: cached?.completed,
-      // Keep the menu hidden at a known zero until the replacement scan settles.
-      result: {
-        canDeleteMerged: false,
-        ...(cached?.result.mergedCount === 0 ? { mergedCount: 0 } : {}),
-        ...(mergedScanGeneration === undefined ? {} : { mergedScanGeneration }),
-      },
+      // Keep publishing the completed result until the replacement scan settles.
+      result: cached?.result ?? { canDeleteMerged: false },
     };
     this.mergeEligibility.set(repository, entry);
     cached?.pending?.wake();
