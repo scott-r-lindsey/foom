@@ -983,7 +983,9 @@
   transform: rotate(180deg);
 }
 .row-submenu {
-  min-width: 240px;
+  min-width: min(240px, calc(100vw - 16px));
+  overflow-y: auto;
+  overflow-wrap: anywhere;
   animation-name: submenu-open;
 }
 .row-submenu::before {

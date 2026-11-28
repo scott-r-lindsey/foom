@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import type { PreviewApi } from "../../../../src/shared/previews";
 import type { WindowsApi, MoveContent, MovePlacement } from "../../../../src/shared/windows";
+import { boardRows } from "../../../fixtures/board";
 import { registerTileAreaFixture, setup } from "./tile-area-fixture";
 registerTileAreaFixture();
 
@@ -15,10 +16,11 @@ function fixture(withPreview = false, overrides: Partial<BoardSource> = {}) {
   const moves = {
     list: vi.fn(() =>
       Promise.resolve([
-        { id: 2, label: "Window 2" },
-        { id: 3, label: "Window 3" },
+        { id: 2, label: "Lovelace", repositories: ["<foom>", "example"] },
+        { id: 3, label: "Shannon", repositories: [] },
       ]),
     ),
+    reportRepositories: vi.fn(async () => {}),
     beginDrag: vi.fn(() => Promise.resolve("token")),
     endDrag: vi.fn(async () => {}),
     drop: vi.fn(async () => {}),
@@ -208,10 +210,26 @@ test("Move to window lists stable labels and dispatches the chosen terminal", as
   fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {});
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
-  expect(f.screen.getByRole("menuitem", { name: "Window 3" })).toBeTruthy();
-  fireEvent.click(f.screen.getByRole("menuitem", { name: "Window 2" }));
+  expect(f.screen.getByRole("menuitem", { name: "Shannon" })).toBeTruthy();
+  fireEvent.click(f.screen.getByRole("menuitem", { name: "Lovelace · <foom>, example" }));
   expect(f.moves.move).toHaveBeenCalledExactlyOnceWith({ kind: "terminal", id: "permission" }, 2);
   await act(async () => {});
+});
+
+test("repository reports follow occupied terminal tiles and retry on a later layout change", async () => {
+  const rows = boardRows(100)
+    .slice(0, 2)
+    .map((row) => ({ ...row, kind: "agent" as const, managed: true, repositoryPath: "/repo" }));
+  const f = fixture(false, { getSnapshot: () => rows });
+  expect(f.moves.reportRepositories).toHaveBeenLastCalledWith([]);
+  f.moves.reportRepositories.mockRejectedValueOnce(new Error("report failed"));
+  f.click(0);
+  await act(async () => {});
+  expect(f.moves.reportRepositories).toHaveBeenLastCalledWith(["/repo"]);
+  fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
+  fireEvent.click(f.screen.getByRole("menuitem", { name: /^Maximize/ }));
+  await act(async () => {});
+  expect(f.moves.reportRepositories.mock.calls).toEqual([[[]], [["/repo"]], [["/repo"]]]);
 });
 
 test("preview sidebar and title gestures register only the preview identity", async () => {
@@ -224,6 +242,7 @@ test("preview sidebar and title gestures register only the preview identity", as
   fireEvent.dragEnd(row);
   fireEvent.click(row);
   await act(async () => {});
+  expect(f.moves.reportRepositories).toHaveBeenLastCalledWith(["foom"]);
   const title = f.screen.container.querySelector(".tile-title");
   if (!title) throw new Error("preview title");
   fireEvent.dragStart(title, { dataTransfer: transfer() });
@@ -244,7 +263,7 @@ test("a menu move failure reports the operation through the tile's action error"
   fireEvent.click(f.screen.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {});
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Move to window" }));
-  fireEvent.click(f.screen.getByRole("menuitem", { name: "Window 2" }));
+  fireEvent.click(f.screen.getByRole("menuitem", { name: "Lovelace · <foom>, example" }));
   await act(async () => {});
   expect(f.screen.getByRole("alert").textContent).toBe("Unable to move tile to window.");
 });

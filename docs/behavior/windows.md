@@ -5,9 +5,13 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 ## Windows and quitting
 
 New Window opens another full sidebar and an independent tile layout. A tile's
-**Move to new window** control moves that session or HTML/Markdown preview into a new window. **Move to window ▸** lists the other open boards with stable
-Window N labels. Choosing one moves the item using ordinary tile placement. Drag
-a terminal or preview sidebar row or title bar to another Foom board to place it
+**Move to new window** control moves that session or HTML/Markdown preview into
+a new window. **Move to window ▸** lists the other open boards by their computing
+pioneer names, followed by their repositories in order of tile count (for example,
+**Lovelace · foom, tools**).
+An empty board displays just its name. Each board keeps its name until it closes,
+when that name becomes available again. Choosing one moves the item using ordinary
+tile placement. Drag a terminal or preview sidebar row or title bar to another Foom board to place it
 at the target center or split edge; a labelled outline marks the destination.
 Escape, ending the drag or leaving the board clears the outline. Refused drops
 leave both layouts intact. Moving a preview removes it from the original board and preserves its live reload watch and opener attribution, with network reset to Off. If placement stalls for five seconds, the preview appears

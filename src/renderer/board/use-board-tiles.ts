@@ -478,6 +478,31 @@ export function useBoardTiles({
         }
       });
   }, [source, rows, previews, previewIds, layout, changeLayout, clear, report]);
+  const moves = source.windows?.moves;
+  const reportedRepositories = useRef<{ moves: typeof moves; key: string }>(undefined);
+  useEffect(() => {
+    if (!moves) return;
+    const terminalRepositories = new Map(rows.map((row) => [row.id, row.repositoryPath]));
+    const previewRepositories = new Map(
+      previews.map((preview) => [preview.id, preview.repository]),
+    );
+    const repositories = leaves(layout.tree).flatMap(({ content }) => {
+      if (!content) return [];
+      const repository =
+        content.kind === "terminal"
+          ? terminalRepositories.get(content.session)
+          : previewRepositories.get(content.preview);
+      return repository ? [repository] : [];
+    });
+    const key = JSON.stringify(repositories);
+    if (reportedRepositories.current?.moves === moves && reportedRepositories.current.key === key)
+      return;
+    const update = { moves, key };
+    reportedRepositories.current = update;
+    void moves.reportRepositories(repositories).catch(() => {
+      if (reportedRepositories.current === update) reportedRepositories.current = undefined;
+    });
+  }, [layout, moves, previews, rows]);
   const tileAction = useCallback(
     (tile: string, action: Exclude<TileAction, "popout" | "new-shell">) => {
       const current = { ...layoutRef.current, focused: tile };

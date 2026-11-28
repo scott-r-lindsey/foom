@@ -19,7 +19,7 @@ function fixture() {
       },
     };
     const port = {
-      label: `Window ${String(id)}`,
+      repositoryNames: (ids: readonly string[]) => ids.map((id) => id.toUpperCase()),
       owns: vi.fn(() => true),
       send: vi.fn<(channel: string, ...args: unknown[]) => void>(),
       move: vi.fn(async () => {}),
@@ -39,7 +39,7 @@ function fixture() {
   const a = board(1),
     b = board(2),
     c = board(3);
-  return { a, b, c };
+  return { a, b, c, board };
 }
 afterEach(() => {
   vi.useRealTimers();
@@ -48,8 +48,8 @@ afterEach(() => {
 test("opaque tokens broadcast only to other boards, consume once and preserve the validated drop placement", async () => {
   const { a, b, c } = fixture();
   expect(a.invoke("list")).toEqual([
-    { id: 2, label: "Window 2" },
-    { id: 3, label: "Window 3" },
+    { id: 2, label: "Lovelace", repositories: [] },
+    { id: 3, label: "Shannon", repositories: [] },
   ]);
   const token = a.invoke("begin-drag", item);
   expect(typeof token).toBe("string");
@@ -63,6 +63,68 @@ test("opaque tokens broadcast only to other boards, consume once and preserve th
   expect(b.port.send).toHaveBeenLastCalledWith("windows:finish-move", request, item);
   expect(c.port.send).toHaveBeenLastCalledWith("windows:drag", null);
   await expect(b.invoke("drop", token, at)).rejects.toThrow("token");
+});
+
+test("pioneer names fill the lowest slot, survive other closes and gain suffixes", () => {
+  const { a, b, c, board } = fixture();
+  expect(b.invoke("list")).toMatchObject([
+    { id: 1, label: "Turing" },
+    { id: 3, label: "Shannon" },
+  ]);
+  a.dispose();
+  c.dispose();
+  const replacement = board(90);
+  const next = board(91);
+  expect(replacement.invoke("list")).toMatchObject([
+    { id: 2, label: "Lovelace" },
+    { id: 91, label: "Shannon" },
+  ]);
+  for (let id = 4; id <= 20; id += 1) board(id);
+  const overflow = board(100);
+  expect(overflow.invoke("list")).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 90, label: "Turing" }),
+      expect.objectContaining({ id: 8, label: "Spärck Jones" }),
+      expect.objectContaining({ id: 20, label: "Dijkstra" }),
+    ]),
+  );
+  expect(next.invoke("list")).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: 100, label: "Turing 2" })]),
+  );
+  b.dispose();
+  board(101);
+  expect(overflow.invoke("list")).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: 101, label: "Lovelace" })]),
+  );
+});
+
+test("picker hints count occupied repository tiles and reject malformed reports", () => {
+  const { a, b, c } = fixture();
+  b.invoke("tile-repositories", ["first", "busy", "busy", "last"]);
+  expect(a.invoke("list")).toEqual([
+    { id: 2, label: "Lovelace", repositories: ["BUSY", "FIRST", "LAST"] },
+    { id: 3, label: "Shannon", repositories: [] },
+  ]);
+  for (const args of [
+    [],
+    [[], "extra"],
+    ["first"],
+    [[17]],
+    [[""]],
+    [["repo\0"]],
+    [["x".repeat(4097)]],
+    [Array(257).fill("x")],
+  ])
+    expect(() => b.invoke("tile-repositories", ...args)).toThrow("Invalid tile repositories");
+  expect(c.invoke("list")).toMatchObject([
+    { id: 1, repositories: [] },
+    { id: 2, repositories: ["BUSY", "FIRST", "LAST"] },
+  ]);
+  b.invoke("tile-repositories", []);
+  expect(a.invoke("list")).toMatchObject([
+    { id: 2, repositories: [] },
+    { id: 3, repositories: [] },
+  ]);
 });
 
 test("menu moves use the same transaction with default placement, including previews", async () => {
@@ -221,7 +283,7 @@ test("existing pop-outs exclude token/menu moves until completion and release on
       },
     },
     {
-      label: "Window 1",
+      repositoryNames: () => [],
       owns: () => true,
       send: () => {},
       move: async () => {},

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdir, writeFile } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
+const { evidencePath } = require("../helpers/evidence.js");
 const { assertAccessible, boardPage, confirmationPage, launchApp } = require("./harness.js");
 const { pollPreviewContents, previewViewState } = require("./preview-fixture.js");
 
@@ -160,6 +161,61 @@ test("terminals move between boards through menus and token-backed sidebar/title
   await assertAccessible(second);
 });
 
+test("pioneer window names remain stable, reuse the lowest free name and show repository hints", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const first = await boardPage(app);
+  const second = await newBoard(app, first);
+  const list = (page) => page.evaluate(() => window.desktop.windows.moves.list());
+  assert.deepEqual(
+    (await list(first)).map(({ label, repositories }) => ({ label, repositories })),
+    [{ label: "Lovelace", repositories: [] }],
+  );
+  await expect
+    .poll(async () => (await list(second))[0])
+    .toMatchObject({
+      label: "Turing",
+      repositories: ["shell-fixture"],
+    });
+  await menuMove(first, first.locator('.terminal-tile[data-empty="false"]'), "Lovelace");
+  await expect(second.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
+  await expect.poll(async () => (await list(first))[0].repositories).toEqual(["shell-fixture"]);
+
+  await first.evaluate(() => window.desktop.appMenu.execute("close-window"));
+  await expect.poll(() => first.isClosed()).toBe(true);
+  const replacement = await newBoard(app, second);
+  assert.equal((await list(second))[0].label, "Turing");
+  assert.equal((await list(replacement))[0].label, "Lovelace");
+  const third = await newBoard(app, replacement);
+  await third.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+  await third.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  await expect(third.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
+  await expect
+    .poll(async () => (await list(third)).find(({ label }) => label === "Lovelace")?.repositories)
+    .toEqual(["shell-fixture"]);
+  for (const base of ["light", "dark"]) {
+    await third.evaluate(
+      (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+      base,
+    );
+    await expect(third.locator("html")).toHaveCSS("color-scheme", base);
+    await third.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+    await third.getByRole("menuitem", { name: "Move to window", exact: true }).click();
+    await expect(
+      third.getByRole("menuitem", { name: "Lovelace · shell-fixture", exact: true }),
+    ).toBeVisible();
+    await expect(third.getByRole("menuitem", { name: "Turing", exact: true })).toBeVisible();
+    if (process.env.FOOM_SCREENSHOTS === "1")
+      await third.screenshot({
+        path: evidencePath(`screenshots-1370/move-to-window-${base}.png`),
+        animations: "disabled",
+      });
+    await third.keyboard.press("Escape");
+    await third.keyboard.press("Escape");
+  }
+});
+
 test("previews move to existing boards at drop edges with identity, network reset and live reload", {
   timeout: deadline(60000),
 }, async (context) => {
@@ -184,6 +240,11 @@ test("previews move to existing boards at drop edges with identity, network rese
   await menuMove(first, first.locator(`[data-preview-id="${id}"]`), target.label);
   await expect(second.locator(`[data-preview-id="${id}"]`)).toBeVisible();
   await expect(first.locator(`[data-preview-id="${id}"]`)).toHaveCount(0);
+  await expect
+    .poll(
+      async () => (await first.evaluate(() => window.desktop.windows.moves.list()))[0].repositories,
+    )
+    .toEqual(["shell-fixture"]);
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await dragMove(second, `[data-drag-preview="${id}"]`, first);
   await expect(first.locator(`[data-preview-id="${id}"]`)).toBeVisible();

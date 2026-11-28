@@ -87,7 +87,19 @@ either board. Closing a source revokes its gesture. Forged, stale, expired and
 replayed tokens and archived sessions without a host screen refuse without changing
 layouts.
 
-`windows:list` returns other live boards with stable lifetime labels, Window N.
+Main assigns each board the first available name in the fixed computing pioneer
+list, starting with Turing. After the first 20 names, the same list repeats with
+a numeric suffix, starting with Turing 2. A board holds its name until it closes,
+at which point the name is available again. Names are display-only. Routing,
+layout namespaces and persisted metadata use the window ID.
+
+`windows:list` returns other live boards with their IDs, names and repository
+hints. Boards report repository IDs for their occupied terminal and preview tiles,
+including one entry per tile when several tiles use the same repository. Main
+validates the report, sorts repositories by descending tile count (ties keep
+tile order), and resolves names through the registered repository inventory.
+Pickers render those names as plain text and show just the pioneer name when
+the board has no repository tiles.
 `windows:move` uses the same transaction as a drop with ordinary default placement.
 The destination stages geometry without learning the item's identity, replies to
 a bounded five-second placement request, and holds its tree until commit or abort.

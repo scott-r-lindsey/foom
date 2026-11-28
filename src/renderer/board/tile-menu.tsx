@@ -120,7 +120,7 @@ export function TileMenu({
                 glyph: "popout" as const,
                 run: () => {},
                 submenu: windows.map((window) => ({
-                  label: window.label,
+                  label: [window.label, window.repositories.join(", ")].filter(Boolean).join(" · "),
                   run: () => {
                     close();
                     void moves.move(content, window.id).catch(() => {

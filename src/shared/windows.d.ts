@@ -6,9 +6,11 @@ export type MovePlacement = {
 export interface WindowDestination {
   id: number;
   label: string;
+  repositories: string[];
 }
 export interface WindowMovesApi {
   list(): Promise<WindowDestination[]>;
+  reportRepositories(ids: string[]): Promise<void>;
   beginDrag(content: MoveContent): Promise<string>;
   endDrag(token: string): Promise<void>;
   drop(token: string, placement: MovePlacement): Promise<void>;
