@@ -290,10 +290,17 @@ rmSync(summaryPath, { force: true });
 const explicitFiles = packaged
   ? ["tests/electron/packaged-smoke.js"]
   : [...new Set(selectedSuites)].sort();
-let files = explicitFiles;
-if (files.length === 0) {
+let files = explicitFiles.length > 0 ? explicitFiles : inventory;
+// CI and shards load every file in the inventory chosen for the run.
+if (
+  explicitFiles.length === 0 &&
+  patterns.length > 0 &&
+  process.env.FOOM_ELECTRON_SHARD === undefined &&
+  process.env.CI === undefined &&
+  !isCI()
+) {
   const start = performance.now();
-  files = selectSuiteFiles(inventory, { shard: process.env.FOOM_ELECTRON_SHARD, patterns });
+  files = selectSuiteFiles(inventory, { patterns });
   if (files.length < inventory.length)
     console.info(
       `Electron test selection: ${files.length} of ${inventory.length} suite files. Selection took ${Math.round(performance.now() - start)} ms.`,

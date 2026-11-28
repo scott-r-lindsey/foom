@@ -224,17 +224,30 @@ and Windows packaging. Each full desktop run requests ten macOS jobs,
 including the eight Electron shards, native-check/packaging and combined Darwin
 host build.
 
+Every CI run and every invocation with `FOOM_ELECTRON_SHARD` set loads all
+files in its selected Electron suite inventory. This includes every explicitly
+mapped file for an affected draft and every feature suite on each full CI shard.
+Automatic file narrowing applies only to unsharded local runs that pass
+`--test-name-pattern` without an explicit `--suite`. If discovery exceeds its
+15-second deadline, the runner cancels discovery workers and retains the input
+suite list for normal execution.
+
 Electron suite registration must be side-effect free. Keep file writes, fixture
 allocation and subprocess launches inside test bodies or hooks so discovery and
 execution register the same tests. Suite registration must not depend on the
-terminal or color environment. The shard audit compares
+terminal or color environment, runner flags or test execution. The shard audit compares
 `git status --porcelain --ignored --untracked-files=all` before and after a full
 discovery pass. It fails if tracked, untracked or ignored entries change in the
 status output. The audit runs separately from CI policy tests that create
 fixtures in the worktree. The check observes Git status and cannot detect
 changes that leave that output identical.
-If discovery exceeds its 15-second deadline, the runner cancels discovery
-workers and retains the input suite list for normal execution.
+
+Local focused discovery uses `--expose-internals` to access Node's registration
+tree and suppress execution. Internal modules are available during discovery,
+and the programmatic worker can expose different runner arguments, including
+reporter flags. A suite that conditionally registers tests based on those
+differences can be omitted from a local focused run. Use `--suite` to load a
+specific file when diagnosing registration-dependent behavior.
 
 Electron steps allow 14 minutes on Linux and Windows and 20 minutes on macOS.
 The macOS Electron job allows 26 minutes for the step and surrounding work.

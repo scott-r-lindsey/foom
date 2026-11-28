@@ -217,7 +217,7 @@ test("wrapper forwards both filter forms, reports executed tests and preserves s
   assert.equal(packaged.status, 0, packaged.output);
 });
 
-test("CI wrapper loads only files for its measured shard", (context) => {
+test("the wrapper loads every inventory file once in CI and in shard runs", (context) => {
   const { root, run } = fixture(context);
   const directory = join(root, "tests/electron");
   writeFileSync(
@@ -231,14 +231,28 @@ test("CI wrapper loads only files for its measured shard", (context) => {
     writeFileSync(
       join(directory, `${file}.test.js`),
       `const { test } = require('./test-shard.js');
+        require('node:fs').appendFileSync('test-results/suites-loaded', ${JSON.stringify(name + "\n")});
         test('${name} case', () => {});`,
     );
   }
-  const selected = run([], { CI: "true", FOOM_ELECTRON_SHARD: "2/2" });
-  assert.equal(selected.status, 0, selected.output);
-  assert.match(selected.output, /1 of 2 suite files/);
-  assert.match(selected.output, /second case/);
-  assert.doesNotMatch(selected.output, /one\.test\.js|first case/);
+  const filter = "--test-name-pattern=^second case$";
+  const inventory = "first\nsecond\n";
+  for (const [args, env, expectedLoads] of [
+    [[], { FOOM_ELECTRON_SHARD: "2/2" }, inventory],
+    [[filter], { FOOM_ELECTRON_SHARD: "2/2" }, inventory],
+    [[filter], { CI: "true", FOOM_ELECTRON_SHARD: "2/2" }, inventory],
+    [[filter], { CI: "true" }, inventory],
+    [[filter], { CI: "" }, inventory],
+    [[filter, "--suite=two.test.js"], { CI: "true", FOOM_ELECTRON_SHARD: "2/2" }, "second\n"],
+  ]) {
+    const result = run(args, env);
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /second case/);
+    assert.doesNotMatch(result.output, /first case|Electron test selection:/);
+    const loaded = join(root, "test-results/suites-loaded");
+    assert.equal(readFileSync(loaded, "utf8"), expectedLoads);
+    rmSync(loaded);
+  }
 });
 
 test("wrapper rejects invalid options, invalid regexes, zero matches, and propagates failures", (context) => {

@@ -66,9 +66,15 @@ auditing, sandboxing and shared
 
 The wrapper passes `--test-concurrency=1` explicitly: feature files run serially
 within each job, preserving native desktop/focus behavior. Shards within a
-platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
-files, rather than partitioning files. With no setting, every suite runs fully.
-The runner, shard planner and inventory audit share registration discovery.
+platform run in separate CI jobs. `FOOM_ELECTRON_SHARD` partitions named tests
+across the files in the run's inventory. Every shard loads its complete inventory,
+including files with zero assigned tests. A full CI shard loads all feature
+suites. An affected draft shard loads every file in its explicitly mapped list.
+CI and shard runs bypass discovery-based selection even with a name pattern.
+
+Automatic file selection applies only to local, unsharded runs with
+`--test-name-pattern`. An explicit `--suite` keeps the requested file list.
+The local selector, shard planner and inventory audit share registration discovery.
 A separate Node test worker loads each suite and its helpers, builds
 `describe` groups and records the resulting test tree. Discovery workers can
 run concurrently because they suppress test bodies and hooks. They collect
@@ -83,14 +89,11 @@ Discovery can omit a suite only when it registered cleanly, touched no guarded
 APIs, has no file-scope hooks and has no matching test. A suite load error, a
 nonzero exit code or a guard hit makes discovery uncertain. The worker records
 guarded process, worker and network calls even if the suite catches the error.
-File-scope hooks keep their suite in every shard and
-focused run. Measured shards retain the full inventory when
-they receive a hash-assigned case. For each full CI shard layout, the audit
-checks that at least one shard loads each suite file. A locally narrowed run
-can skip unrelated suite files, so CI provides coverage of loading the full
-inventory. An explicit `--suite` keeps the requested file list. Empty
-files can appear as Node runner placeholders and do not count toward the
-focused pass total.
+File-scope hooks keep their suite in a locally narrowed run. The audit checks
+that each shard-helper case registers exactly once across each CI shard layout.
+The runner regression verifies that CI and shard invocations load every file
+in their input inventory. Empty files can appear as Node runner placeholders
+and do not count toward the focused pass total.
 
 ```sh
 # Full suite, no sharding (Linux)
