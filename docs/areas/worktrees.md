@@ -29,6 +29,9 @@ preview registry after the shared read completes. Listing rechecks every
 managed checkout without spawning Git for each history record. Launch and removal
 still query Git for membership and canonical common-directory agreement, and
 retain their redirected-path, locked/prunable, identity and confirmation checks.
+For an explicitly registered primary checkout with separate metadata, inventory
+resolves Git's primary worktree record to the canonical checkout path after
+verifying the checkout's top-level path and common directory.
 
 `src/main/workspace/cleanup-owner.ts` owns merged-worktree eligibility scans,
 cached plans, live cleanup runs and their inventory progress/tombstones behind

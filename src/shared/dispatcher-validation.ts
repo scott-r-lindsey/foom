@@ -11,7 +11,7 @@ export function dispatcherRepositoryPath(value: unknown): string {
     typeof value !== "string" ||
     value.length > 4096 ||
     !/^(?:\/|[a-z]:[\\/]|\\\\)/iu.test(value) ||
-    /[\p{Cc}\p{Cf}\p{Cs}]/u.test(value)
+    /[\p{Cc}\p{Cf}\p{Cs}]/u.test(value.replace(/\p{Join_Control}/gu, ""))
   )
     throw new ControlError("invalid_request");
   return value;

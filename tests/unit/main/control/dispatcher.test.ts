@@ -5,7 +5,7 @@ import { expect, test, vi } from "vitest";
 import { Dispatcher, type DispatcherHost } from "../../../../src/main/control/dispatcher";
 import { ControlService } from "../../../../src/main/control/service";
 import { dispatcherRepositoryPath } from "../../../../src/shared/dispatcher-validation";
-import { identifier, object } from "../../../../src/shared/control-validation";
+import { ControlError, identifier, object } from "../../../../src/shared/control-validation";
 import { locationId } from "../../../../src/main/control/metadata";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { Operations } from "../../../../src/main/control/operations";
@@ -47,13 +47,20 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
     { name: "primary", path: repository, identity: "primary-proof" },
     { name: "secondary", path: other, identity: "secondary-proof" },
   ];
+  let inventory = repos;
   const host = {
     directoryIdentity: vi.fn(() => Promise.resolve("source-proof")),
     repository: vi.fn((_directory: string, path: string) => {
       const repo = repos.find((candidate) => candidate.path === path);
       return repo ? Promise.resolve(repo) : Promise.reject(new Error("repository refused"));
     }),
-    repositories: vi.fn(() => Promise.resolve(repos)),
+    repositories: vi.fn<DispatcherHost["repositories"]>((_directory, page) => {
+      if (!page) return Promise.resolve(inventory);
+      const after = page.after;
+      const start = after === undefined ? 0 : inventory.findIndex(({ path }) => path === after) + 1;
+      if (after !== undefined && start === 0) return Promise.reject(new ControlError("not_found"));
+      return Promise.resolve(inventory.slice(start, start + page.take));
+    }),
     validateHost: vi.fn(),
     agentName: vi.fn((id: string) => (id === "claude" ? "Claude Code" : undefined)),
     launch: vi.fn<DispatcherHost["launch"]>((_input, _repo, _id, _verify, _active, lifecycle) =>
@@ -110,7 +117,22 @@ function harness(orchestration?: ConstructorParameters<typeof ControlService>[2]
       service.setRole.bind(service),
     );
   };
-  return { host, dispatcher, service, rows, repos, save, persist, call, elevate, source };
+  const setInventory = (projects: typeof repos) => {
+    inventory = projects;
+  };
+  return {
+    host,
+    dispatcher,
+    service,
+    rows,
+    repos,
+    save,
+    persist,
+    call,
+    elevate,
+    source,
+    setInventory,
+  };
 }
 
 const launch = {
@@ -459,46 +481,54 @@ test.each(["conversation", "directory", "launch"] as const)(
   },
 );
 
-test("legacy trusted approval and adoption recover by resolving the prior direct child", async () => {
-  const { host, rows, repos } = harness();
-  const legacyPath = join(directory, "legacy-project");
-  repos.push({ name: "legacy-project", path: legacyPath, identity: "legacy-proof" });
-  rows.push(row("legacy-orchestrator", legacyPath, "orchestrator"));
-  const source = rows[0];
-  if (!source) throw new Error("Missing source");
-  source.conversationId = "same-conversation";
-  const profile = await mkdtemp(join(tmpdir(), "foom-dispatcher-legacy-"));
-  try {
-    const privatePath = await privateDirectory(profile);
-    const legacy = { name: "legacy-project", identity: "legacy-proof" };
-    const scope = {
-      id: source.id,
-      directory,
-      identity: "source-proof",
-      approved: [legacy],
-      adopted: [{ id: "legacy-orchestrator", ...legacy }],
-      restoreConversation: source.conversationId,
-    };
-    await atomicPrivate(privatePath, "dispatchers.json", { version: 1, scopes: [scope] });
-    const open = () =>
-      Dispatcher.open(
-        privatePath,
-        host,
-        () => rows,
-        () => {},
+test.each(["\u200d", "\u200e"])(
+  "legacy approval and adoption recover under a source path containing %s",
+  async (format) => {
+    const { host, rows, repos } = harness();
+    const legacyDirectory = resolve(`fixture-${format}-source`);
+    const legacyPath = join(legacyDirectory, "legacy-project");
+    repos.push({ name: "legacy-project", path: legacyPath, identity: "legacy-proof" });
+    rows.push(row("legacy-orchestrator", legacyPath, "orchestrator"));
+    const source = rows[0];
+    if (!source) throw new Error("Missing source");
+    source.repository = legacyDirectory;
+    source.worktree = legacyDirectory;
+    source.conversationId = "same-conversation";
+    const profile = await mkdtemp(join(tmpdir(), "foom-dispatcher-legacy-"));
+    try {
+      const privatePath = await privateDirectory(profile);
+      const legacy = { name: "legacy-project", identity: "legacy-proof" };
+      const scope = {
+        id: source.id,
+        directory: legacyDirectory,
+        identity: "source-proof",
+        approved: [legacy],
+        adopted: [{ id: "legacy-orchestrator", ...legacy }],
+        restoreConversation: source.conversationId,
+      };
+      await atomicPrivate(privatePath, "dispatchers.json", { version: 1, scopes: [scope] });
+      const open = () =>
+        Dispatcher.open(
+          privatePath,
+          host,
+          () => rows,
+          () => {},
+        );
+      const dispatcher = await open();
+      await expect(dispatcher.revive(source.id, source.conversationId, vi.fn())).resolves.toBe(
+        true,
       );
-    const dispatcher = await open();
-    await expect(dispatcher.revive(source.id, source.conversationId, vi.fn())).resolves.toBe(true);
-    expect(dispatcher.view(source.id, rows)).toEqual({ orchestrators: 1, repositories: 1 });
-    await atomicPrivate(privatePath, "dispatchers.json", {
-      version: 1,
-      scopes: [{ ...scope, approved: [{ ...legacy, name: "../legacy-project" }] }],
-    });
-    await expect(open()).rejects.toThrow("invalid_request");
-  } finally {
-    await rm(profile, { force: true, recursive: true });
-  }
-});
+      expect(dispatcher.view(source.id, rows)).toEqual({ orchestrators: 1, repositories: 1 });
+      await atomicPrivate(privatePath, "dispatchers.json", {
+        version: 1,
+        scopes: [{ ...scope, approved: [{ ...legacy, name: "../legacy-project" }] }],
+      });
+      await expect(open()).rejects.toThrow("invalid_request");
+    } finally {
+      await rm(profile, { force: true, recursive: true });
+    }
+  },
+);
 
 test("a grant cannot launch after repository deregistration and an unknown host cannot request a grant", async () => {
   const tool = harness();
@@ -632,6 +662,11 @@ test("inventory searches one page, scopes decisions, and refuses stale directori
     ],
     nextCursor: repository,
   });
+  expect(host.repositories).toHaveBeenLastCalledWith(directory, {
+    after: undefined,
+    take: 2,
+    signal: undefined,
+  });
   await expect(call("repos", { after: repository, limit: 1 })).resolves.toMatchObject({
     repos: [{ repo: other, preApproved: false, orchestrators: [] }],
     nextCursor: null,
@@ -680,7 +715,7 @@ test("repository inventory pages fit the complete MCP response and retain every 
   });
   const names = Array.from({ length: 16 }, (_, i) => `project-${i.toString().padStart(2, "0")}`);
   const projects = names.map((name) => ({ name, path: join(directory, name), identity: name }));
-  tool.host.repositories.mockResolvedValue(projects);
+  tool.setInventory(projects);
   for (const project of projects) tool.rows.push(row(project.name, project.path, "orchestrator"));
   await tool.elevate([]);
   const seen: string[] = [];

@@ -3,9 +3,14 @@ import { join, relative } from "node:path";
 import { ControlError } from "../../shared/control-validation";
 import { dispatcherRepositoryPath } from "../../shared/dispatcher-validation";
 import type { Repository } from "../../shared/worktrees";
+import type { RepositoryPage } from "../control/types";
 import { git, within, worktreeIdentity } from "./worktree-operations";
 
 type Registry = () => readonly Repository[];
+
+function repositoryName(directory: string, path: string): string {
+  return within(directory, path) ? relative(directory, path) || "." : path;
+}
 
 /** Pin the directory itself as well as the canonical path. */
 export async function sourceDirectoryIdentity(path: string): Promise<string> {
@@ -21,10 +26,10 @@ export async function sourceRepository(registry: Registry, directory: string, va
   if (!registered) throw new ControlError("not_found");
   const marker = join(path, ".git");
   const before = await sourceDirectoryIdentity(path);
-  if (!(await lstat(marker).catch(() => undefined))?.isDirectory())
-    throw new ControlError("not_found");
+  const entry = await lstat(marker).catch(() => undefined);
+  if (!entry || !(entry.isDirectory() || entry.isFile())) throw new ControlError("not_found");
   const root = await git(path, ["rev-parse", "--show-toplevel"], 3000, undefined, true)
-    .then((result) => realpath(result.trimEnd()))
+    .then((result) => realpath(result.slice(0, -1)))
     .catch(() => undefined);
   if (root !== path) throw new ControlError("not_found");
   const identity = await worktreeIdentity(path).catch(() => undefined);
@@ -36,13 +41,26 @@ export async function sourceRepository(registry: Registry, directory: string, va
     !registry().includes(registered)
   )
     throw new ControlError("conflict");
-  const name = within(directory, path) ? relative(directory, path) || "." : path;
-  return { name, path, identity };
+  return { name: repositoryName(directory, path), path, identity };
 }
 
-export async function sourceRepositories(registry: Registry, directory: string) {
+export async function sourceRepositories(
+  registry: Registry,
+  directory: string,
+  page?: RepositoryPage,
+) {
+  // Sort the in-memory registrations before checking Git so a page only verifies
+  // its cursor and as many checkouts as it needs.
+  const candidates = registry()
+    .map(({ path }) => ({ path, name: repositoryName(directory, path) }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path));
+  const after = page?.after;
+  const start = after === undefined ? 0 : candidates.findIndex(({ path }) => path === after);
+  if (start < 0) throw new ControlError("not_found");
+
   const repositories: Awaited<ReturnType<typeof sourceRepository>>[] = [];
-  for (const { path } of registry()) {
+  for (const { path } of candidates.slice(start)) {
+    if (page?.signal?.aborted) throw new ControlError("unavailable");
     const repo = await sourceRepository(registry, directory, path).catch((error: unknown) => {
       if (
         error instanceof ControlError &&
@@ -51,7 +69,13 @@ export async function sourceRepositories(registry: Registry, directory: string) 
         return undefined;
       throw error;
     });
-    if (repo) repositories.push(repo);
+    if (path === after) {
+      if (!repo) throw new ControlError("not_found");
+    } else if (repo) {
+      repositories.push(repo);
+      if (repositories.length === page?.take) break;
+    }
   }
-  return repositories.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path));
+  if (page?.signal?.aborted) throw new ControlError("unavailable");
+  return repositories;
 }

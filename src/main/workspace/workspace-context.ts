@@ -130,8 +130,8 @@ export class WorkspaceContext {
     directoryIdentity: sourceDirectoryIdentity,
     repository: (directory, path) =>
       sourceRepository(() => this.deps.worktrees.listRepositories(), directory, path),
-    repositories: (directory) =>
-      sourceRepositories(() => this.deps.worktrees.listRepositories(), directory),
+    repositories: (directory, page) =>
+      sourceRepositories(() => this.deps.worktrees.listRepositories(), directory, page),
     validateHost: (host) => {
       if (!this.deps.hosts?.repositoryTarget) throw new ControlError("host_unavailable");
       this.deps.hosts.registered(host);

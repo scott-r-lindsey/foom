@@ -27,8 +27,7 @@ import {
 import { locationId, metadataName, type SessionMetadata } from "./metadata";
 import type { MessageBoard } from "./message-board";
 import type { Operations } from "./operations";
-import type { Principal } from "./types";
-import type { Operation } from "./types";
+import type { Operation, Principal, RepositoryPage } from "./types";
 
 interface RepositoryProof {
   name: string;
@@ -81,7 +80,7 @@ const GRANT_OPTIONS = [
 export interface DispatcherHost {
   directoryIdentity(path: string): Promise<string>;
   repository(directory: string, path: string): Promise<RepositoryProof>;
-  repositories(directory: string): Promise<RepositoryProof[]>;
+  repositories(directory: string, page?: RepositoryPage): Promise<RepositoryProof[]>;
   validateHost(host: string): void;
   agentName(id: DispatcherLaunch["agent"]): string | undefined;
   launch(
@@ -101,9 +100,11 @@ const REPOSITORY_LIMIT = 128;
 const SCOPE_LIMIT = 64;
 const STORAGE_LIMIT = 1024 * 1024;
 const FILE_NAME = "dispatchers.json";
+const PROOF_LIMIT = 4096;
+const LEGACY_NAME_LIMIT = 255;
 
-function proof(value: unknown): string {
-  if (typeof value !== "string" || !value || value.length > 4096 || value.includes("\0"))
+function proof(value: unknown, limit = PROOF_LIMIT): string {
+  if (typeof value !== "string" || !value || value.length > limit || value.includes("\0"))
     throw new ControlError("invalid_request");
   return value;
 }
@@ -111,8 +112,10 @@ function proof(value: unknown): string {
 /** Old scopes stored direct child names. Preserve the saved checkout proof. */
 function savedRepositoryPath(data: Record<string, unknown>, directory: string): string {
   if (data["name"] === undefined) {
-    const path = dispatcherRepositoryPath(data["path"]);
-    if (!isAbsolute(path)) throw new ControlError("invalid_request");
+    // A migrated path may include characters from a legacy source directory
+    // or be longer than a selector. Live access still uses the registered checkout verifier.
+    const path = proof(data["path"], PROOF_LIMIT + 1 + LEGACY_NAME_LIMIT);
+    if (!isAbsolute(path) || /\p{Cc}/u.test(path)) throw new ControlError("invalid_request");
     return path;
   }
   const name = data["name"];
@@ -120,13 +123,13 @@ function savedRepositoryPath(data: Record<string, unknown>, directory: string): 
     data["path"] !== undefined ||
     typeof name !== "string" ||
     !name.trim() ||
-    name.length > 255 ||
+    name.length > LEGACY_NAME_LIMIT ||
     name.startsWith(".") ||
     /[ .]$/u.test(name) ||
     /[\\/:\p{Cc}\p{Cf}\p{Cs}]/u.test(name)
   )
     throw new ControlError("invalid_request");
-  return dispatcherRepositoryPath(join(directory, name));
+  return join(directory, name);
 }
 
 function savedScope(value: unknown): Scope {
@@ -605,12 +608,14 @@ export class Dispatcher {
         params["after"] === undefined ? undefined : dispatcherRepositoryPath(params["after"]);
       if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
         throw new ControlError("conflict");
-      const repos = await this.host.repositories(scope.directory);
+      const repos = await this.host.repositories(scope.directory, {
+        after,
+        take: limit + 1,
+        signal,
+      });
       if ((await this.host.directoryIdentity(scope.directory)) !== scope.identity)
         throw new ControlError("conflict");
       authorize();
-      const start = after === undefined ? 0 : repos.findIndex(({ path }) => path === after) + 1;
-      if (after !== undefined && start === 0) throw new ControlError("not_found");
       const rows = this.rows();
       const project = (repository: RepositoryProof) => {
         const id = locationId(repository.path);
@@ -667,9 +672,9 @@ export class Dispatcher {
       };
       const page: ReturnType<typeof project>[] = [];
       let nextCursor: string | null = null;
-      for (const repository of repos.slice(start, start + limit)) {
+      for (const repository of repos.slice(0, limit)) {
         const entry = project(repository);
-        const next = start + page.length + 1 < repos.length ? entry.repo : null;
+        const next = page.length + 1 < repos.length ? entry.repo : null;
         if (!fitsMcpToolResponse({ repos: [...page, entry], nextCursor: next, untrusted: true })) {
           if (!page.length) throw new ControlError("capacity");
           break;

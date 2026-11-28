@@ -33,7 +33,9 @@ async function fixture(context) {
   const unregistered = path.join(source, "teams", "scratch");
   for (const cwd of [...Object.values(projects), unregistered]) {
     await mkdir(cwd, { recursive: true });
-    gitSync(["init", "-q", "-b", "main"], { cwd });
+    const metadata =
+      cwd === projects.infra ? ["--separate-git-dir", path.join(root, "infra-git")] : [];
+    gitSync(["init", "-q", "-b", "main", ...metadata], { cwd });
     gitSync(
       [
         "-c",
@@ -74,10 +76,20 @@ process.stdout.write("FOOM_AGENT_READY`,
   await app.evaluate(({ dialog }, directory) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
   }, source);
-  await page.evaluate(async (paths) => {
-    await window.desktop.scanCode("dispatcher-fixture", null, () => {});
-    await window.desktop.applyRepositories(paths);
-  }, Object.values(projects));
+  await page.evaluate(
+    async (paths) => {
+      await window.desktop.scanCode("dispatcher-fixture", null, () => {});
+      await window.desktop.applyRepositories(paths);
+    },
+    [projects.billing, projects.ledger, projects.tools],
+  );
+  await app.evaluate(({ dialog }, checkout) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [checkout] });
+  }, projects.infra);
+  assert.equal(
+    await page.evaluate(async () => (await window.desktop.addRepository())?.path),
+    projects.infra,
+  );
   const section = page.getByRole("treeitem", { name: `Source directory ${source}`, exact: true });
   const sourceName = section.getByRole("button", { name: source, exact: true });
   await expect(sourceName).toHaveAttribute("title", source);
@@ -234,7 +246,24 @@ test("dispatcher elevation, pre-approved launch, launch grants and live demotion
       cli: "foom wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000]",
     },
   );
-  assert.equal(JSON.parse((await consoleCall(sourceGrant, "repos")).stdout).result.untrusted, true);
+  const firstPage = JSON.parse(
+    (await consoleCall(sourceGrant, "repos", "--limit", "1")).stdout,
+  ).result;
+  assert.equal(firstPage.untrusted, true);
+  assert.deepEqual(
+    firstPage.repos.map(({ repo }) => repo),
+    [projects.billing],
+  );
+  assert.equal(firstPage.nextCursor, projects.billing);
+  const secondPage = JSON.parse(
+    (await consoleCall(sourceGrant, "repos", "--limit", "1", "--after", firstPage.nextCursor))
+      .stdout,
+  ).result;
+  assert.deepEqual(
+    secondPage.repos.map(({ repo }) => repo),
+    [projects.infra],
+  );
+  assert.equal(secondPage.nextCursor, projects.infra);
   const inventory = (await request("repos")).result?.repos;
   assert.deepEqual(
     inventory.map((entry) => entry.repo),

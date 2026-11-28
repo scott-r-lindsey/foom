@@ -18,9 +18,13 @@ child ownership carry forward. One source directory has one active dispatcher.
 Main verifies the canonical source identity, registry membership and Git
 checkout identity before granting access, on launch admission and before spawn.
 Repository selectors are exact registered paths, including nested repositories
-and registrations outside the code folder. Links, unregistered paths and
-non-repositories fail validation. The private control profile stores approval and adoption
-identities. After an orderly shutdown, main can restore the scope for the same
+and registrations outside the code folder. Linked worktrees and checkouts with
+separate Git metadata are supported through their regular `.git` pointer files.
+Symlinked checkout paths and `.git` markers, unregistered paths and non-repositories
+fail validation. The private control profile stores approval and adoption
+identities. Older approvals saved as child directory names are resolved relative
+to their saved source directory and must pass the same live repository checks.
+After an orderly shutdown, main can restore the scope for the same
 conversation if the session was an active dispatcher when shutdown began. Main
 consumes that recovery record when opening the control service and checks the
 provider capabilities selected for the source launch. A concurrent refresh of

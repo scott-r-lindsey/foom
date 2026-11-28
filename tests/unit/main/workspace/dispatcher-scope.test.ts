@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import * as worktreeOperations from "../../../../src/main/workspace/worktree-operations";
+import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git } from "../../../helpers/git.js";
 import {
   sourceRepositories,
@@ -94,6 +95,59 @@ test("dispatcher admission refuses redirected folders, Git markers and non-repos
   await expect(sourceRepositories(() => entries, source)).resolves.toEqual([]);
 });
 
+test("dispatcher admits registered linked worktrees and separate Git directories", async () => {
+  const { source, external } = await fixture();
+  const main = await repository(external, "main");
+  await git(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: main },
+  );
+  const linked = join(source, "linked");
+  await git(["worktree", "add", "--detach", linked], { cwd: main });
+  const separate = join(source, "sepa\u200drate");
+  const metadata = join(external, "metadata");
+  await mkdir(separate);
+  await mkdir(metadata);
+  await git(["init", "--separate-git-dir", join(metadata, ".git")], { cwd: separate });
+  const worktrees = new WorktreeService();
+  for (const path of [linked, separate]) await worktrees.addRepository(path);
+  const registry = () => worktrees.listRepositories();
+  await expect(sourceRepositories(registry, source)).resolves.toEqual([
+    expect.objectContaining({ path: linked }),
+    expect.objectContaining({ path: separate }),
+  ]);
+  await expect(sourceRepository(registry, source, linked)).resolves.toMatchObject({ path: linked });
+  const proof = await sourceRepository(registry, source, separate);
+  expect(proof.path).toBe(separate);
+  await expect(worktrees.listWorktrees(separate)).resolves.toMatchObject([{ path: separate }]);
+  await expect(worktrees.launchIdentity(separate, separate)).resolves.toBe(proof.identity);
+  await expect(sourceRepository(registry, source, metadata)).rejects.toThrow("not_found");
+});
+
+test.skipIf(process.platform === "win32")(
+  "dispatcher preserves the trailing space in a registered path",
+  async () => {
+    const { source } = await fixture();
+    const path = await repository(source, "spaced ");
+    const worktrees = new WorktreeService();
+    await expect(worktrees.addRepository(path)).resolves.toMatchObject({ path });
+    const registry = () => worktrees.listRepositories();
+    await expect(sourceRepositories(registry, source)).resolves.toEqual([
+      expect.objectContaining({ path }),
+    ]);
+    await expect(sourceRepository(registry, source, path)).resolves.toMatchObject({ path });
+  },
+);
+
 test("a registered checkout loses dispatcher access when its Git marker is removed", async () => {
   const { source, external } = await fixture();
   const path = await repository(source, "project");
@@ -109,6 +163,48 @@ test("a registered checkout loses dispatcher access when its Git marker is remov
     code: "not_found",
   });
   await expect(sourceRepositories(registry, source)).resolves.toEqual([]);
+});
+
+test("a dispatcher page only verifies its cursor and enough available repositories", async () => {
+  const { source } = await fixture();
+  const first = await repository(source, "a-first");
+  const missing = join(source, "b-missing");
+  const second = await repository(source, "c-second");
+  const third = await repository(source, "d-third");
+  const later = await repository(source, "e-later");
+  const entries = [later, third, second, missing, first].map((path) => ({ name: path, path }));
+  const registry = () => entries;
+  const inspect = vi.spyOn(worktreeOperations, "git");
+  const page = { after: first, take: 2, signal: undefined };
+  await expect(sourceRepositories(registry, source, page)).resolves.toMatchObject([
+    { path: second },
+    { path: third },
+  ]);
+  expect(inspect.mock.calls.map(([path]) => path)).toEqual([first, second, third]);
+  for (const after of [missing, join(source, "unregistered")]) {
+    await expect(sourceRepositories(registry, source, { ...page, after })).rejects.toThrow(
+      "not_found",
+    );
+  }
+});
+
+test("dispatcher inventory stops verifying Git after the client disconnects", async () => {
+  const { source } = await fixture();
+  const first = await repository(source, "a-first");
+  const second = await repository(source, "b-second");
+  const entries = [first, second].map((path) => ({ name: path, path }));
+  const registry = () => entries;
+  const controller = new AbortController();
+  const read = worktreeOperations.git;
+  const inspect = vi.spyOn(worktreeOperations, "git").mockImplementationOnce(async (...args) => {
+    const result = await read(...args);
+    controller.abort();
+    return result;
+  });
+  await expect(
+    sourceRepositories(registry, source, { after: undefined, take: 2, signal: controller.signal }),
+  ).rejects.toThrow("unavailable");
+  expect(inspect).toHaveBeenCalledOnce();
 });
 
 test("dispatcher admission rechecks the checkout and registry after verifying Git", async () => {
