@@ -5,11 +5,20 @@ import { suiteFiles } from "../tests/electron/test-suites.js";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { gitSync } from "../tests/helpers/git.js";
 
 function isolateNodeOptions(context) {
   const inherited = process.env.NODE_OPTIONS;
@@ -28,7 +37,18 @@ test("Electron shards register every test exactly once, preserve filtering and r
     // Collect actual registrations in every discovered suite, including generated
     // cases, without invoking a test body or launching Electron/agent fixtures.
     const inventory = suiteFiles();
+    const worktreeStatus = () =>
+      gitSync(["status", "--porcelain", "--ignored", "--untracked-files=all"], {
+        cwd: new URL("../", import.meta.url),
+        encoding: "utf8",
+        maxBuffer: 32 * 1024 * 1024,
+      });
+    const beforeDiscovery = worktreeStatus();
     const registrations = discoverPlannedTests(inventory);
+    assert.ok(
+      worktreeStatus() === beforeDiscovery,
+      "Electron suite registration changed worktree status. Move file writes into test bodies or hooks.",
+    );
     const baseline = discoverRegistrations(inventory);
     for (const [name, file] of [
       ["agent discovery uses the fixture login shell and controlled PATH", "harness.test.js"],
@@ -237,8 +257,11 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
   const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-worker-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const suiteDirectory = path.join(directory, "tests/electron");
+  const helpers = path.join(directory, "tests/helpers");
   const scripts = path.join(directory, "scripts");
-  for (const folder of [suiteDirectory, scripts]) mkdirSync(folder, { recursive: true });
+  for (const folder of [suiteDirectory, helpers, scripts]) mkdirSync(folder, { recursive: true });
+  for (const name of ["setup.js", "environment.js", "git.js"])
+    cpSync(new URL(`../tests/helpers/${name}`, import.meta.url), path.join(helpers, name));
   for (const name of ["shard-assignment.js", "test-shard.js"])
     cpSync(new URL(`../tests/electron/${name}`, import.meta.url), path.join(suiteDirectory, name));
   const selector = path.join(scripts, "electron-selection.mjs");
@@ -402,6 +425,34 @@ test("uncertain Electron registration preserves worker-only and ancestor-qualifi
     assert.match(discover(files).get(second).error, /registration guard 3 time/);
     assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files);
     assert.deepEqual(runWorker("1/1", ["^first$"]).selected, files);
+  });
+
+  await context.test("the process guard covers Git APIs captured by setup", () => {
+    writeFileSync(first, binding + 'test("first", () => {});');
+    writeFileSync(
+      second,
+      binding +
+        `const { gitSync } = require("../helpers/git.js");
+        try { gitSync(["--version"]); } catch {}
+        test("second", () => {});`,
+    );
+    assert.match(discover(files).get(second).error, /registration guard 1 time/);
+    assert.deepEqual(select(files, { shard: "1/2", patterns: [] }), files);
+  });
+
+  await context.test("discovery runs synchronous exit cleanup", () => {
+    const storage = path.join(directory, "storage");
+    mkdirSync(storage);
+    writeFileSync(
+      second,
+      binding +
+        `const { mkdtempSync, rmSync } = require("node:fs");
+        const directory = mkdtempSync(${JSON.stringify(path.join(storage, "fixture-"))});
+        process.once("exit", () => rmSync(directory, { recursive: true }));
+        test("second", () => {});`,
+    );
+    assert.match(discover([second]).get(second).error, /registration did not settle/);
+    assert.deepEqual(readdirSync(storage), []);
   });
 
   await context.test("each suite sees its own process globals", () => {

@@ -10,7 +10,7 @@ const { createTestTree } = require("internal/test_runner/harness");
 const { Test } = require("internal/test_runner/test");
 const { parseCommandLine } = require("internal/test_runner/utils");
 
-module.exports = (file, resultFile) => {
+module.exports = (file, resultFile, setupFile) => {
   process.argv[1] = file;
   // Match the visible controls in the serial runner, independently of how
   // many discovery processes the parent can start at once.
@@ -83,9 +83,6 @@ module.exports = (file, resultFile) => {
   function report(entry) {
     hook.disable();
     writeFileSync(resultFile, JSON.stringify(entry));
-    for (const listener of process.rawListeners("exit")) {
-      if (!originalExitListeners.has(listener)) process.removeListener("exit", listener);
-    }
     exit();
   }
   process.on("uncaughtExceptionMonitor", (error) => report({ error: String(error) }));
@@ -152,6 +149,8 @@ module.exports = (file, resultFile) => {
 
   try {
     hook.enable();
+    // Setup imports the Git helper, which captures the process APIs at load time.
+    if (setupFile) require(setupFile);
     Module._load(file, null, true);
     checkLoad();
     afterTurn(() => afterTurn(finish));

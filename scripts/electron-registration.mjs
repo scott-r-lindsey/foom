@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const worker = fileURLToPath(new URL("./electron-registration-worker.cjs", import.meta.url));
@@ -17,15 +17,13 @@ export function discoverRegistrations(files, { shard, patterns = [] } = {}) {
 
   const directory = mkdtempSync(join(tmpdir(), "foom-electron-registration-"));
   try {
-    const setup = existsSync(setupFile)
-      ? ["--require", `./${relative(process.cwd(), setupFile)}`]
-      : [];
+    const setup = existsSync(setupFile) ? setupFile : null;
     const bridges = files.map((file, index) => {
       const entry = join(directory, `${index}.cjs`);
       const result = join(directory, `${index}.json`);
       writeFileSync(
         entry,
-        `require(${JSON.stringify(worker)})(${JSON.stringify(resolve(file))}, ${JSON.stringify(result)});\n`,
+        `require(${JSON.stringify(worker)})(${JSON.stringify(resolve(file))}, ${JSON.stringify(result)}, ${JSON.stringify(setup)});\n`,
       );
       return { file, entry, result };
     });
@@ -33,7 +31,6 @@ export function discoverRegistrations(files, { shard, patterns = [] } = {}) {
       process.execPath,
       [
         "--expose-internals",
-        ...setup,
         "--test",
         // Discovery has no windows or test bodies, so workers can register in parallel.
         "--test-concurrency=4",

@@ -224,6 +224,15 @@ and Windows packaging. Each full desktop run requests ten macOS jobs,
 including the eight Electron shards, native-check/packaging and combined Darwin
 host build.
 
+Electron suite registration must be side-effect free. Keep file writes, fixture
+allocation and subprocess launches inside test bodies or hooks so discovery and
+execution register the same tests. The shard audit compares
+`git status --porcelain --ignored --untracked-files=all` before and after a full
+discovery pass. It fails if tracked, untracked or ignored entries change in the
+status output. The audit runs separately from CI policy tests that create
+fixtures in the worktree. The check observes Git status and cannot detect
+changes that leave that output identical.
+
 Electron steps allow 14 minutes on Linux and Windows and 20 minutes on macOS.
 The macOS Electron job allows 26 minutes for the step and surrounding work.
 Per-test deadlines and the worker watchdog remain unchanged.
